@@ -1,0 +1,205 @@
+/**
+ * Import Mapper — Fuzzy header matching for CSV/XLSX imports
+ * Matches uploaded file headers to known DB field aliases
+ */
+
+// Known DB fields with their aliases for fuzzy matching
+const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: string[]; required: boolean }> = {
+    'companies.name': {
+        table: 'companies',
+        field: 'name',
+        aliases: ['company_name', 'şirket adı', 'firma', 'company', 'firma adı', 'şirket', 'name', 'ad'],
+        required: true,
+    },
+    'companies.website': {
+        table: 'companies',
+        field: 'website',
+        aliases: ['website', 'web', 'url', 'site', 'web sitesi', 'web site'],
+        required: false,
+    },
+    'companies.location': {
+        table: 'companies',
+        field: 'location',
+        aliases: ['location', 'konum', 'şehir', 'city', 'ülke', 'country', 'lokasyon', 'il', "Adress"],
+        required: false,
+    },
+    'companies.industry': {
+        table: 'companies',
+        field: 'industry',
+        aliases: ['industry', 'sektör', 'sector', 'sektoru', 'endüstri'],
+        required: false,
+    },
+    'companies.employee_count': {
+        table: 'companies',
+        field: 'employee_count',
+        aliases: ['employee_count', 'çalışan sayısı', 'employees', 'çalışan', 'personel sayısı', 'employee'],
+        required: false,
+    },
+    'companies.stage': {
+        table: 'companies',
+        field: 'stage',
+        aliases: ['stage', 'durum', 'status', 'aşama', 'asama', 'safha'],
+        required: false,
+    },
+    'companies.deal_summary': {
+        table: 'companies',
+        field: 'deal_summary',
+        aliases: ['deal_summary', 'özet', 'summary', 'anlaşma özeti', 'deal'],
+        required: false,
+    },
+    'companies.next_step': {
+        table: 'companies',
+        field: 'next_step',
+        aliases: ['next_step', 'sonraki adım', 'follow_up', 'sonraki_adim', 'takip', 'next'],
+        required: false,
+    },
+    'contacts.full_name': {
+        table: 'contacts',
+        field: 'full_name',
+        aliases: ['contact_name', 'kişi adı', 'isim', 'kisi', 'contact', 'yetkili', 'yetkili kişi', 'ad soyad'],
+        required: false,
+    },
+    'contacts.title': {
+        table: 'contacts',
+        field: 'title',
+        aliases: ['contact_title', 'pozisyon', 'title', 'ünvan', 'unvan', 'görev', 'gorev'],
+        required: false,
+    },
+    'contacts.email': {
+        table: 'contacts',
+        field: 'email',
+        aliases: ['contact_email', 'email', 'e-posta', 'eposta', 'e_posta', 'mail'],
+        required: false,
+    },
+    'contacts.phone_e164': {
+        table: 'contacts',
+        field: 'phone_e164',
+        aliases: ['contact_phone', 'telefon', 'phone', 'tel', 'cep', 'cep telefonu', 'mobile'],
+        required: false,
+    },
+};
+
+export interface MappingSuggestion {
+    fileHeader: string;
+    dbField: string | null; // null = unmapped → custom_fields
+    table: string | null;
+    field: string | null;
+    confidence: number; // 0-1
+    required: boolean;
+}
+
+/**
+ * Normalize a string for comparison: lowercase, trim, remove special chars
+ */
+function normalize(str: string): string {
+    return str
+        .toLowerCase()
+        .trim()
+        .replace(/[_\-\.]/g, ' ')
+        .replace(/\s+/g, ' ');
+}
+
+/**
+ * Simple string similarity (Dice coefficient)
+ */
+function similarity(a: string, b: string): number {
+    const na = normalize(a);
+    const nb = normalize(b);
+
+    if (na === nb) return 1;
+    if (na.length < 2 || nb.length < 2) return 0;
+
+    // Check if one contains the other
+    if (na.includes(nb) || nb.includes(na)) return 0.8;
+
+    // Bigram-based Dice coefficient
+    const bigramsA = new Set<string>();
+    for (let i = 0; i < na.length - 1; i++) {
+        bigramsA.add(na.substring(i, i + 2));
+    }
+
+    const bigramsB = new Set<string>();
+    for (let i = 0; i < nb.length - 1; i++) {
+        bigramsB.add(nb.substring(i, i + 2));
+    }
+
+    let matches = 0;
+    for (const b of bigramsB) {
+        if (bigramsA.has(b)) matches++;
+    }
+
+    return (2 * matches) / (bigramsA.size + bigramsB.size);
+}
+
+/**
+ * Auto-match file headers to DB fields
+ */
+export function autoMapHeaders(fileHeaders: string[]): MappingSuggestion[] {
+    const usedDbFields = new Set<string>();
+    const suggestions: MappingSuggestion[] = [];
+
+    // First pass: exact and high-confidence matches
+    for (const header of fileHeaders) {
+        let bestMatch: { key: string; score: number } | null = null;
+
+        for (const [key, fieldDef] of Object.entries(FIELD_ALIASES)) {
+            if (usedDbFields.has(key)) continue;
+
+            for (const alias of fieldDef.aliases) {
+                const score = similarity(header, alias);
+                if (score > (bestMatch?.score || 0)) {
+                    bestMatch = { key, score };
+                }
+            }
+        }
+
+        if (bestMatch && bestMatch.score >= 0.6) {
+            const fieldDef = FIELD_ALIASES[bestMatch.key];
+            usedDbFields.add(bestMatch.key);
+            suggestions.push({
+                fileHeader: header,
+                dbField: bestMatch.key,
+                table: fieldDef.table,
+                field: fieldDef.field,
+                confidence: bestMatch.score,
+                required: fieldDef.required,
+            });
+        } else {
+            suggestions.push({
+                fileHeader: header,
+                dbField: null,
+                table: null,
+                field: null,
+                confidence: 0,
+                required: false,
+            });
+        }
+    }
+
+    return suggestions;
+}
+
+/**
+ * Get all available DB fields for manual mapping dropdown
+ */
+export function getAvailableDbFields() {
+    return Object.entries(FIELD_ALIASES).map(([key, def]) => ({
+        value: key,
+        label: `${def.table}.${def.field}`,
+        table: def.table,
+        field: def.field,
+        required: def.required,
+    }));
+}
+
+/**
+ * Sanitize cell value to prevent formula injection
+ */
+export function sanitizeCell(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    const str = String(value).trim();
+    if (/^[=+\-@]/.test(str)) {
+        return "'" + str;
+    }
+    return str;
+}

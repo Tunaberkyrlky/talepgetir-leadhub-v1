@@ -1,0 +1,105 @@
+# LeadHub MVP — V0 Foundation Walkthrough
+
+## What Was Built
+
+Complete V0 Foundation for a multi-tenant B2B Lead/CRM web application.
+
+### Project Structure
+```
+talepgetir-leadhub-exp/
+├── .env                    ← Supabase keys (you fill in)
+├── .env.example
+├── package.json            ← npm workspaces (server + client)
+├── PLANNING.md
+├── server/                 ← Node.js API (Express + TypeScript)
+│   └── src/
+│       ├── index.ts        ← Express app entry
+│       ├── lib/supabase.ts ← Admin + user Supabase clients
+│       ├── middleware/
+│       │   ├── auth.ts     ← JWT validation + role check
+│       │   └── errorHandler.ts
+│       └── routes/
+│           ├── auth.ts     ← Login, refresh, /me
+│           └── companies.ts ← Full CRUD + pagination
+├── client/                 ← React (Vite + Mantine + i18n)
+│   └── src/
+│       ├── App.tsx         ← Router + providers
+│       ├── i18n.ts         ← TR/EN language setup
+│       ├── lib/api.ts      ← Axios with token refresh
+│       ├── contexts/AuthContext.tsx
+│       ├── components/
+│       │   ├── Layout.tsx  ← AppShell header + user menu
+│       │   └── CompanyForm.tsx ← Create/Edit modal
+│       ├── pages/
+│       │   ├── LoginPage.tsx ← Gradient login page
+│       │   └── LeadsPage.tsx ← Data table + pagination
+│       └── locales/
+│           ├── tr.json     ← Turkish translations
+│           └── en.json     ← English translations
+└── supabase/
+    └── migrations/
+        └── 001_foundation.sql ← Tables, RLS, indexes, triggers
+```
+
+### Backend API Endpoints
+| Method | Path | Auth | Description |
+|--------|------|:----:|-------------|
+| `POST` | `/api/auth/login` | ❌ | Email/password login |
+| `POST` | `/api/auth/refresh` | ❌ | Refresh token |
+| `GET` | `/api/auth/me` | ✅ | Current user + tenant info |
+| `GET` | `/api/companies` | ✅ | List with pagination |
+| `GET` | `/api/companies/:id` | ✅ | Get single company |
+| `POST` | `/api/companies` | ✅ ops/admin | Create company |
+| `PUT` | `/api/companies/:id` | ✅ ops/admin | Update company |
+| `DELETE` | `/api/companies/:id` | ✅ superadmin | Delete company |
+
+### DB Tables (with RLS)
+`tenants`, `memberships`, `companies`, `activities` (DB only, UI in V4)
+
+---
+
+## Build Verification
+
+| Check | Result |
+|-------|--------|
+| Server TypeScript compiles | ✅ Zero errors |
+| Client TypeScript compiles | ✅ Zero errors |
+| Client production build | ✅ 650KB JS, 204KB CSS |
+| `service_role` in client bundle | ✅ Not present |
+
+---
+
+## Next Steps to Get Running
+
+### 1. Fill in Supabase Keys
+Edit [.env](file:///Users/homefolder/01_dev/04-experiment/talepgetir-leadhub-exp/.env) and fill in from Supabase Dashboard → Settings → API:
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `VITE_SUPABASE_URL` (same as SUPABASE_URL)
+- `VITE_SUPABASE_ANON_KEY` (same as SUPABASE_ANON_KEY)
+
+### 2. Run SQL Migration
+Go to **Supabase Dashboard → SQL Editor** and paste the contents of [001_foundation.sql](file:///Users/homefolder/01_dev/04-experiment/talepgetir-leadhub-exp/supabase/migrations/001_foundation.sql), then run it.
+
+### 3. Create a Test User
+In **Supabase Dashboard → Authentication → Users → Add User**:
+- Create a user (e.g. `admin@test.com` / `password123`)
+- After creation, click user → Edit → Raw User Metadata: set `app_metadata` to: `{"tenant_id": "a0000000-0000-0000-0000-000000000001"}`
+
+### 4. Seed Membership
+Run in SQL Editor:
+```sql
+INSERT INTO memberships (user_id, tenant_id, role)
+VALUES ('<user-id-from-step-3>', 'a0000000-0000-0000-0000-000000000001', 'superadmin');
+```
+
+### 5. Run Seed Data
+Paste [seed.sql](file:///Users/homefolder/01_dev/04-experiment/talepgetir-leadhub-exp/supabase/seed.sql) in SQL Editor and run it.
+
+### 6. Start the App
+```bash
+npm run dev
+```
+- Client: http://localhost:5173
+- API: http://localhost:3001
