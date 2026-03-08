@@ -42,10 +42,10 @@ router.post(
     async (req: Request, res: Response): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
-            const { company_id, full_name, title, email, phone_e164, whatsapp_e164, is_primary, notes } = req.body;
+            const { company_id, first_name, last_name, title, email, phone_e164, country, seniority, department, is_primary, notes } = req.body;
 
-            if (!company_id || !full_name) {
-                res.status(400).json({ error: 'company_id and full_name are required' });
+            if (!company_id || !first_name) {
+                res.status(400).json({ error: 'company_id and first_name are required' });
                 return;
             }
 
@@ -67,11 +67,14 @@ router.post(
                 .insert({
                     tenant_id: tenantId,
                     company_id,
-                    full_name,
+                    first_name,
+                    last_name: last_name || null,
                     title: title || null,
                     email: email || null,
                     phone_e164: phone_e164 || null,
-                    whatsapp_e164: whatsapp_e164 || null,
+                    country: country || null,
+                    seniority: seniority || null,
+                    department: department || null,
                     is_primary: is_primary || false,
                     notes: notes || null,
                 })
@@ -100,14 +103,17 @@ router.put(
             const tenantId = req.tenantId!;
             const { id } = req.params;
 
-            const { full_name, title, email, phone_e164, whatsapp_e164, is_primary, notes } = req.body;
+            const { first_name, last_name, title, email, phone_e164, country, seniority, department, is_primary, notes } = req.body;
 
             const updateData: Record<string, unknown> = {};
-            if (full_name !== undefined) updateData.full_name = full_name;
+            if (first_name !== undefined) updateData.first_name = first_name;
+            if (last_name !== undefined) updateData.last_name = last_name;
             if (title !== undefined) updateData.title = title;
             if (email !== undefined) updateData.email = email;
             if (phone_e164 !== undefined) updateData.phone_e164 = phone_e164;
-            if (whatsapp_e164 !== undefined) updateData.whatsapp_e164 = whatsapp_e164;
+            if (country !== undefined) updateData.country = country;
+            if (seniority !== undefined) updateData.seniority = seniority;
+            if (department !== undefined) updateData.department = department;
             if (is_primary !== undefined) updateData.is_primary = is_primary;
             if (notes !== undefined) updateData.notes = notes;
 

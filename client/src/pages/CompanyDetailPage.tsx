@@ -48,10 +48,14 @@ const stageColors: Record<string, string> = {
 
 interface Contact {
     id: string;
-    full_name: string;
+    first_name: string;
+    last_name: string | null;
     title: string | null;
     email: string | null;
     phone_e164: string | null;
+    country: string | null;
+    seniority: string | null;
+    department: string | null;
     is_primary: boolean;
     notes: string | null;
 }
@@ -94,15 +98,19 @@ export default function CompanyDetailPage() {
 
     const contactForm = useForm({
         initialValues: {
-            full_name: '',
+            first_name: '',
+            last_name: '',
             title: '',
             email: '',
             phone_e164: '',
+            country: '',
+            seniority: '',
+            department: '',
             is_primary: false,
             notes: '',
         },
         validate: {
-            full_name: (v: string) => (v.trim() ? null : 'Required'),
+            first_name: (v: string) => (v.trim() ? null : 'Required'),
         },
     });
 
@@ -149,10 +157,14 @@ export default function CompanyDetailPage() {
     const handleEditContact = (contact: Contact) => {
         setEditingContact(contact);
         contactForm.setValues({
-            full_name: contact.full_name,
+            first_name: contact.first_name,
+            last_name: contact.last_name || '',
             title: contact.title || '',
             email: contact.email || '',
             phone_e164: contact.phone_e164 || '',
+            country: contact.country || '',
+            seniority: contact.seniority || '',
+            department: contact.department || '',
             is_primary: contact.is_primary,
             notes: contact.notes || '',
         });
@@ -295,8 +307,19 @@ export default function CompanyDetailPage() {
                                             </Tooltip>
                                         )}
                                         <div>
-                                            <Text fw={600} size="sm">{contact.full_name}</Text>
-                                            {contact.title && <Text size="xs" c="dimmed">{contact.title}</Text>}
+                                            <Group gap="xs">
+                                                <Text fw={600} size="sm">
+                                                    {[contact.first_name, contact.last_name].filter(Boolean).join(' ')}
+                                                </Text>
+                                                {contact.seniority && (
+                                                    <Badge size="xs" variant="outline" color="gray">{contact.seniority}</Badge>
+                                                )}
+                                            </Group>
+                                            <Group gap="xs" mt={2}>
+                                                {contact.title && <Text size="xs" c="dimmed">{contact.title}</Text>}
+                                                {contact.department && <Text size="xs" c="dimmed">· {contact.department}</Text>}
+                                                {contact.country && <Text size="xs" c="dimmed">· {contact.country}</Text>}
+                                            </Group>
                                         </div>
                                     </Group>
                                     <Group gap="md">
@@ -354,8 +377,18 @@ export default function CompanyDetailPage() {
             >
                 <form onSubmit={handleContactSubmit}>
                     <Stack gap="md">
-                        <TextInput label={t('contact.fullName')} required radius="md" {...contactForm.getInputProps('full_name')} />
-                        <TextInput label={t('contact.title')} radius="md" {...contactForm.getInputProps('title')} />
+                        <Group grow>
+                            <TextInput label={t('contact.firstName')} required radius="md" {...contactForm.getInputProps('first_name')} />
+                            <TextInput label={t('contact.lastName')} radius="md" {...contactForm.getInputProps('last_name')} />
+                        </Group>
+                        <Group grow>
+                            <TextInput label={t('contact.title')} radius="md" {...contactForm.getInputProps('title')} />
+                            <TextInput label={t('contact.department')} radius="md" {...contactForm.getInputProps('department')} />
+                        </Group>
+                        <Group grow>
+                            <TextInput label={t('contact.seniority')} radius="md" {...contactForm.getInputProps('seniority')} />
+                            <TextInput label={t('contact.country')} radius="md" {...contactForm.getInputProps('country')} />
+                        </Group>
                         <TextInput label={t('contact.email')} radius="md" {...contactForm.getInputProps('email')} />
                         <TextInput label={t('contact.phone')} radius="md" {...contactForm.getInputProps('phone_e164')} />
                         <Switch label={t('contact.isPrimary')} {...contactForm.getInputProps('is_primary', { type: 'checkbox' })} />

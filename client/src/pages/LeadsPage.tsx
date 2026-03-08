@@ -35,6 +35,7 @@ import {
     IconChevronDown,
     IconSelector,
     IconX,
+    IconUsers,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -56,6 +57,7 @@ interface Company {
     assigned_to: string | null;
     created_at: string;
     updated_at: string;
+    contact_count: number;
 }
 
 interface PaginatedResponse {
@@ -394,6 +396,19 @@ export default function LeadsPage() {
                                         <Table.Td>
                                             <Group gap="xs">
                                                 <Text fw={600} size="sm">{company.name}</Text>
+                                                {company.contact_count > 0 && (
+                                                    <Tooltip label={`${company.contact_count} kişi`} withArrow>
+                                                        <Badge
+                                                            size="xs"
+                                                            variant="light"
+                                                            color="violet"
+                                                            leftSection={<IconUsers size={10} />}
+                                                            style={{ cursor: 'default' }}
+                                                        >
+                                                            {company.contact_count}
+                                                        </Badge>
+                                                    </Tooltip>
+                                                )}
                                                 {company.website && (
                                                     <Text size="xs" c="dimmed">{company.website}</Text>
                                                 )}

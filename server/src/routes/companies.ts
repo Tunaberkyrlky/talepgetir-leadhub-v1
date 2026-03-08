@@ -45,10 +45,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
             .select('*', { count: 'exact', head: true })
             .eq('tenant_id', tenantId);
 
-        // Build data query with filters
+        // Build data query with filters (contacts(count) gives embedded contact count)
         let dataQuery = supabaseAdmin
             .from('companies')
-            .select('id, name, website, location, industry, employee_count, stage, deal_summary, next_step, assigned_to, created_at, updated_at')
+            .select('id, name, website, location, industry, employee_count, stage, deal_summary, next_step, assigned_to, created_at, updated_at, contacts(count)')
             .eq('tenant_id', tenantId);
 
         // Apply search (ILIKE on multiple columns)
@@ -94,8 +94,15 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
         const totalPages = Math.ceil((count || 0) / limit);
 
+        // Flatten contacts count: Supabase returns contacts as [{ count: N }]
+        const companies = (data || []).map((c: any) => ({
+            ...c,
+            contact_count: (c.contacts?.[0]?.count ?? 0) as number,
+            contacts: undefined,
+        }));
+
         res.json({
-            data: data || [],
+            data: companies,
             pagination: {
                 page,
                 limit,
@@ -156,7 +163,7 @@ router.post(
             const tenantId = req.tenantId!;
             const {
                 name, website, location, industry, employee_count, stage, deal_summary, internal_notes, next_step, custom_fields,
-                contact_name, contact_title, contact_email, contact_phone_e164
+                contact_first_name, contact_last_name, contact_title, contact_email, contact_phone_e164
             } = req.body;
 
             if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -199,13 +206,14 @@ router.post(
 
             // 2. Insert Contact if details are provided
             let contact = null;
-            if (contact_name && contact_name.trim().length > 0) {
+            if (contact_first_name && contact_first_name.trim().length > 0) {
                 const { data: newContact, error: contactError } = await supabaseAdmin
                     .from('contacts')
                     .insert({
                         tenant_id: tenantId,
                         company_id: company.id,
-                        full_name: contact_name.trim(),
+                        first_name: contact_first_name.trim(),
+                        last_name: contact_last_name?.trim() || null,
                         title: contact_title || null,
                         email: contact_email || null,
                         phone_e164: contact_phone_e164 || null,

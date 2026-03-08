@@ -53,13 +53,20 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
         aliases: ['next_step', 'sonraki adım', 'follow_up', 'sonraki_adim', 'takip', 'next'],
         required: false,
     },
-    'contacts.full_name': {
+    'contacts.first_name': {
         table: 'contacts',
-        field: 'full_name',
+        field: 'first_name',
         aliases: [
-            'contact_name', 'kişi adı', 'isim', 'kisi', 'contact', 'yetkili', 'yetkili kişi', 'ad soyad',
-            'full_name', 'full name', 'fullname', 'name', 'first name', 'firstname', 'first_name',
-            'ad', 'isim soyisim',
+            'first_name', 'first name', 'firstname', 'ad', 'isim', 'kişi adı', 'contact_name',
+            'full_name', 'full name', 'fullname', 'yetkili', 'yetkili kişi', 'ad soyad', 'isim soyisim',
+        ],
+        required: false,
+    },
+    'contacts.last_name': {
+        table: 'contacts',
+        field: 'last_name',
+        aliases: [
+            'last_name', 'last name', 'lastname', 'surname', 'soyad', 'soy isim', 'soyadı',
         ],
         required: false,
     },
@@ -79,6 +86,24 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
         table: 'contacts',
         field: 'phone_e164',
         aliases: ['contact_phone', 'telefon', 'phone', 'tel', 'cep', 'cep telefonu', 'mobile', 'phone number', 'mobile phone'],
+        required: false,
+    },
+    'contacts.country': {
+        table: 'contacts',
+        field: 'country',
+        aliases: ['country', 'ülke', 'ulke', 'location', 'konum'],
+        required: false,
+    },
+    'contacts.seniority': {
+        table: 'contacts',
+        field: 'seniority',
+        aliases: ['seniority', 'kıdem', 'kidem', 'seviye', 'level', 'seniority level'],
+        required: false,
+    },
+    'contacts.department': {
+        table: 'contacts',
+        field: 'department',
+        aliases: ['department', 'departman', 'bölüm', 'bolum', 'team', 'takım', 'takim'],
         required: false,
     },
 };

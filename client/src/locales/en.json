@@ -49,8 +49,12 @@
         "back": "Back"
     },
     "contact": {
-        "fullName": "Full Name",
+        "firstName": "First Name",
+        "lastName": "Last Name",
         "title": "Title",
+        "department": "Department",
+        "seniority": "Seniority",
+        "country": "Country",
         "email": "Email",
         "phone": "Phone",
         "isPrimary": "Primary Contact",

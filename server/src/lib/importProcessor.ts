@@ -313,8 +313,8 @@ export async function executeImport(
             }
 
             // Create contact if contact fields are mapped and have data
-            const contactName = getValue(row, 'contacts.full_name');
-            if (contactName) {
+            const contactFirstName = getValue(row, 'contacts.first_name');
+            if (contactFirstName) {
                 const contactEmail = getValue(row, 'contacts.email');
 
                 // Check for duplicate contact
@@ -336,10 +336,14 @@ export async function executeImport(
                         .insert({
                             tenant_id: tenantId,
                             company_id: companyId,
-                            full_name: contactName,
+                            first_name: contactFirstName,
+                            last_name: getValue(row, 'contacts.last_name') || null,
                             title: getValue(row, 'contacts.title') || null,
                             email: contactEmail || null,
                             phone_e164: getValue(row, 'contacts.phone_e164') || null,
+                            country: getValue(row, 'contacts.country') || null,
+                            seniority: getValue(row, 'contacts.seniority') || null,
+                            department: getValue(row, 'contacts.department') || null,
                         });
 
                     if (contactError) {

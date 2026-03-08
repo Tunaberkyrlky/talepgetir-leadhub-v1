@@ -49,8 +49,12 @@
         "back": "Geri Dön"
     },
     "contact": {
-        "fullName": "Ad Soyad",
+        "firstName": "Ad",
+        "lastName": "Soyad",
         "title": "Ünvan",
+        "department": "Departman",
+        "seniority": "Kıdem",
+        "country": "Ülke",
         "email": "E-posta",
         "phone": "Telefon",
         "isPrimary": "Birincil Kişi",
