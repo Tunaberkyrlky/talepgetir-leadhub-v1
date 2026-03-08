@@ -48,12 +48,14 @@ interface Company {
     website: string | null;
     location: string | null;
     industry: string | null;
-    employee_count: string | null;
+    employee_size: string | null;
+    product_services: string | null;
+    description: string | null;
+    linkedin: string | null;
+    company_phone: string | null;
     stage: string;
     deal_summary: string | null;
-    internal_notes: string | null;
     next_step: string | null;
-    custom_fields: Record<string, unknown>;
     assigned_to: string | null;
     created_at: string;
     updated_at: string;

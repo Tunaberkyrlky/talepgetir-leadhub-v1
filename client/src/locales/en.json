@@ -27,7 +27,11 @@
         "website": "Website",
         "location": "Location",
         "industry": "Industry",
-        "employeeCount": "Employee Count",
+        "employeeSize": "Employee Size",
+        "productServices": "Products / Services",
+        "description": "Description",
+        "linkedin": "LinkedIn",
+        "companyPhone": "Company Phone",
         "stage": "Stage",
         "dealSummary": "Deal Summary",
         "internalNotes": "Internal Notes",
@@ -141,7 +145,9 @@
         "save": "Save",
         "cancel": "Cancel",
         "confirm": "Confirm",
-        "actions": "Actions"
+        "actions": "Actions",
+        "showMore": "Show more",
+        "showLess": "Show less"
     },
     "filter": {
         "stage": "Filter by stage...",

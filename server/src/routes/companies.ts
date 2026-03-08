@@ -48,7 +48,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         // Build data query with filters (contacts(count) gives embedded contact count)
         let dataQuery = supabaseAdmin
             .from('companies')
-            .select('id, name, website, location, industry, employee_count, stage, deal_summary, next_step, assigned_to, created_at, updated_at, contacts(count)')
+            .select('id, name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, stage, deal_summary, next_step, assigned_to, created_at, updated_at, contacts(count)')
             .eq('tenant_id', tenantId);
 
         // Apply search (ILIKE on multiple columns)
@@ -162,7 +162,8 @@ router.post(
         try {
             const tenantId = req.tenantId!;
             const {
-                name, website, location, industry, employee_count, stage, deal_summary, internal_notes, next_step, custom_fields,
+                name, website, location, industry, employee_size, product_services, description, linkedin, company_phone,
+                stage, deal_summary, internal_notes, next_step, custom_fields,
                 contact_first_name, contact_last_name, contact_title, contact_email, contact_phone_e164
             } = req.body;
 
@@ -187,8 +188,12 @@ router.post(
                     name: name.trim(),
                     website: website || null,
                     location: location || null,
-                    industry: industry || null,
-                    employee_count: employee_count || null,
+                    industry: industry ? industry.charAt(0).toUpperCase() + industry.slice(1) : null,
+                    employee_size: employee_size || null,
+                    product_services: product_services || null,
+                    description: description || null,
+                    linkedin: linkedin || null,
+                    company_phone: company_phone || null,
                     stage: stage || 'new',
                     deal_summary: deal_summary || null,
                     internal_notes: internal_notes || null,
@@ -261,7 +266,7 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_count, stage, deal_summary, internal_notes, next_step, custom_fields } = req.body;
+            const { name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, stage, deal_summary, internal_notes, next_step, custom_fields } = req.body;
 
             // Validate stage if provided
             if (stage && !VALID_STAGES.includes(stage)) {
@@ -276,8 +281,12 @@ router.put(
             if (name !== undefined) updateData.name = name.trim();
             if (website !== undefined) updateData.website = website;
             if (location !== undefined) updateData.location = location;
-            if (industry !== undefined) updateData.industry = industry;
-            if (employee_count !== undefined) updateData.employee_count = employee_count;
+            if (industry !== undefined) updateData.industry = industry ? industry.charAt(0).toUpperCase() + industry.slice(1) : industry;
+            if (employee_size !== undefined) updateData.employee_size = employee_size;
+            if (product_services !== undefined) updateData.product_services = product_services;
+            if (description !== undefined) updateData.description = description;
+            if (linkedin !== undefined) updateData.linkedin = linkedin;
+            if (company_phone !== undefined) updateData.company_phone = company_phone;
             if (stage !== undefined) updateData.stage = stage;
             if (deal_summary !== undefined) updateData.deal_summary = deal_summary;
             if (internal_notes !== undefined) updateData.internal_notes = internal_notes;

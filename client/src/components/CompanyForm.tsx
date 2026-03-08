@@ -23,12 +23,14 @@ interface Company {
     website: string | null;
     location: string | null;
     industry: string | null;
-    employee_count: string | null;
+    employee_size: string | null;
+    product_services: string | null;
+    description: string | null;
+    linkedin: string | null;
+    company_phone: string | null;
     stage: string;
     deal_summary: string | null;
-    internal_notes: string | null;
     next_step: string | null;
-    custom_fields: Record<string, unknown>;
 }
 
 interface CompanyFormProps {
@@ -53,10 +55,13 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
             website: '',
             location: '',
             industry: '',
-            employee_count: '',
+            employee_size: '',
+            product_services: '',
+            description: '',
+            linkedin: '',
+            company_phone: '',
             stage: 'new',
             deal_summary: '',
-            internal_notes: '',
             next_step: '',
             // Contact fields (only used on create)
             contact_name: '',
@@ -77,10 +82,13 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
                 website: company.website || '',
                 location: company.location || '',
                 industry: company.industry || '',
-                employee_count: company.employee_count || '',
+                employee_size: company.employee_size || '',
+                product_services: company.product_services || '',
+                description: company.description || '',
+                linkedin: company.linkedin || '',
+                company_phone: company.company_phone || '',
                 stage: company.stage || 'new',
                 deal_summary: company.deal_summary || '',
-                internal_notes: company.internal_notes || '',
                 next_step: company.next_step || '',
                 contact_name: '',
                 contact_title: '',
@@ -120,7 +128,7 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
     const updateMutation = useMutation({
         mutationFn: async (values: typeof form.values) => {
             // Strip contact fields on update, as we manage contacts separately
-            const { contact_name, contact_title, contact_email, contact_phone_e164, ...updateValues } = values;
+            const { contact_name: _cn, contact_title: _ct, contact_email: _ce, contact_phone_e164: _cp, ...updateValues } = values;
             const res = await api.put(`/companies/${company!.id}`, updateValues);
             return res.data;
         },
@@ -191,37 +199,71 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
                         />
                     </SimpleGrid>
 
-                    {/* Row 2: Location + Industry */}
+                    {/* Row 2: Industry + Employee Size */}
                     <SimpleGrid cols={2}>
-                        <TextInput
-                            label={t('company.location')}
-                            placeholder="Istanbul"
-                            radius="md"
-                            {...form.getInputProps('location')}
-                        />
                         <TextInput
                             label={t('company.industry')}
                             placeholder="SaaS"
                             radius="md"
                             {...form.getInputProps('industry')}
                         />
-                    </SimpleGrid>
-
-                    {/* Row 3: Employee Count + Stage */}
-                    <SimpleGrid cols={2}>
                         <TextInput
-                            label={t('company.employeeCount')}
+                            label={t('company.employeeSize')}
                             placeholder="50-200"
                             radius="md"
-                            {...form.getInputProps('employee_count')}
+                            {...form.getInputProps('employee_size')}
                         />
+                    </SimpleGrid>
+
+                    {/* Row 3: LinkedIn + Company Phone */}
+                    <SimpleGrid cols={2}>
+                        <TextInput
+                            label={t('company.linkedin')}
+                            placeholder="linkedin.com/company/..."
+                            radius="md"
+                            {...form.getInputProps('linkedin')}
+                        />
+                        <TextInput
+                            label={t('company.companyPhone')}
+                            placeholder="+90 212 000 0000"
+                            radius="md"
+                            {...form.getInputProps('company_phone')}
+                        />
+                    </SimpleGrid>
+
+                    {/* Row 4: Stage + Location */}
+                    <SimpleGrid cols={2}>
                         <Select
                             label={t('company.stage')}
                             data={stageOptions}
                             radius="md"
                             {...form.getInputProps('stage')}
                         />
+                        <TextInput
+                            label={t('company.location')}
+                            placeholder="Istanbul"
+                            radius="md"
+                            {...form.getInputProps('location')}
+                        />
                     </SimpleGrid>
+
+                    {/* Product / Services */}
+                    <TextInput
+                        label={t('company.productServices')}
+                        placeholder="CRM, ERP, ..."
+                        radius="md"
+                        {...form.getInputProps('product_services')}
+                    />
+
+                    {/* Description */}
+                    <Textarea
+                        label={t('company.description')}
+                        placeholder={t('company.description')}
+                        autosize
+                        minRows={2}
+                        radius="md"
+                        {...form.getInputProps('description')}
+                    />
 
                     {/* Deal Summary */}
                     <Textarea
@@ -239,16 +281,6 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
                         placeholder="Follow up on Monday"
                         radius="md"
                         {...form.getInputProps('next_step')}
-                    />
-
-                    {/* Internal Notes */}
-                    <Textarea
-                        label={t('company.internalNotes')}
-                        placeholder={t('company.internalNotes')}
-                        autosize
-                        minRows={2}
-                        radius="md"
-                        {...form.getInputProps('internal_notes')}
                     />
 
                     {/* Contact Option (Create Only) */}

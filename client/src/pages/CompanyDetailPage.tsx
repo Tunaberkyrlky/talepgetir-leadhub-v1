@@ -22,6 +22,7 @@ import {
     Textarea,
     Switch,
     Box,
+    Anchor,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
@@ -35,6 +36,9 @@ import {
     IconMail,
     IconPhone,
     IconStar,
+    IconBrandLinkedin,
+    IconWorld,
+    IconUsers,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -66,12 +70,14 @@ interface Company {
     website: string | null;
     location: string | null;
     industry: string | null;
-    employee_count: string | null;
+    employee_size: string | null;
+    product_services: string | null;
+    description: string | null;
+    linkedin: string | null;
+    company_phone: string | null;
     stage: string;
     deal_summary: string | null;
-    internal_notes: string | null;
     next_step: string | null;
-    custom_fields: Record<string, unknown>;
     contacts: Contact[];
     created_at: string;
     updated_at: string;
@@ -85,6 +91,7 @@ export default function CompanyDetailPage() {
     const queryClient = useQueryClient();
     const [opened, { open, close }] = useDisclosure(false);
     const [editingContact, setEditingContact] = useState<Contact | null>(null);
+    const [descExpanded, setDescExpanded] = useState(false);
 
     const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
 
@@ -191,8 +198,6 @@ export default function CompanyDetailPage() {
         );
     }
 
-    const customFields = company.custom_fields || {};
-
     return (
         <Container size="lg" py="lg">
             {/* Back button + Title */}
@@ -210,27 +215,68 @@ export default function CompanyDetailPage() {
             {/* Company Header */}
             <Paper shadow="sm" radius="lg" p="xl" withBorder mb="lg">
                 <Group justify="space-between" align="flex-start">
+                    {/* Left: name + stage + employee_size + location */}
                     <div>
-                        <Title order={2} fw={700}>{company.name}</Title>
-                        <Group mt="xs" gap="md">
+                        <Group gap="xs" align="baseline">
+                            <Title order={2} fw={700}>{company.name}</Title>
+                            {company.industry && (
+                                <Text size="sm" c="dimmed" fw={400}>— {company.industry}</Text>
+                            )}
+                        </Group>
+                        <Group mt="xs" gap="sm">
                             <Badge color={stageColors[company.stage]} size="lg" variant="light">
                                 {t(`stages.${company.stage}`)}
                             </Badge>
-                            {company.industry && <Text size="sm" c="dimmed">{company.industry}</Text>}
+                            {company.employee_size && (
+                                <Group gap={4}>
+                                    <IconUsers size={14} color="#adb5bd" />
+                                    <Text size="sm" c="dimmed">{company.employee_size}</Text>
+                                </Group>
+                            )}
                             {company.location && <Text size="sm" c="dimmed">📍 {company.location}</Text>}
                         </Group>
-                        {company.website && (
-                            <Text size="sm" c="blue" mt="xs">🌐 {company.website}</Text>
-                        )}
                     </div>
+
+                    {/* Right: website, linkedin icon, phone */}
+                    <Stack gap={6} align="flex-end">
+                        {company.website && (
+                            <Anchor
+                                href={company.website.startsWith('http') ? company.website : `https://${company.website}`}
+                                target="_blank"
+                                size="sm"
+                            >
+                                <Group gap={4}>
+                                    <IconWorld size={15} />
+                                    <Text size="sm">{company.website}</Text>
+                                </Group>
+                            </Anchor>
+                        )}
+                        {company.linkedin && (
+                            <Anchor
+                                href={company.linkedin.startsWith('http') ? company.linkedin : `https://${company.linkedin}`}
+                                target="_blank"
+                            >
+                                <Group gap={4}>
+                                    <IconBrandLinkedin size={20} color="#0A66C2" />
+                                    <Text size="sm" c="dimmed">LinkedIn</Text>
+                                </Group>
+                            </Anchor>
+                        )}
+                        {company.company_phone && (
+                            <Group gap={4}>
+                                <IconPhone size={15} color="gray" />
+                                <Text size="sm" c="dimmed">{company.company_phone}</Text>
+                            </Group>
+                        )}
+                    </Stack>
                 </Group>
 
                 {/* Details Grid */}
                 <SimpleGrid cols={2} mt="lg">
-                    {company.employee_count && (
+                    {company.product_services && (
                         <Box>
-                            <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.employeeCount')}</Text>
-                            <Text size="sm">{company.employee_count}</Text>
+                            <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.productServices')}</Text>
+                            <Text size="sm">{company.product_services}</Text>
                         </Box>
                     )}
                     {company.deal_summary && (
@@ -245,27 +291,32 @@ export default function CompanyDetailPage() {
                             <Text size="sm">{company.next_step}</Text>
                         </Box>
                     )}
-                    {company.internal_notes && (
-                        <Box>
-                            <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.internalNotes')}</Text>
-                            <Text size="sm">{company.internal_notes}</Text>
-                        </Box>
-                    )}
                 </SimpleGrid>
 
-                {/* Custom Fields */}
-                {Object.keys(customFields).length > 0 && (
+                {/* Description */}
+                {company.description && (
                     <>
                         <Divider my="lg" />
-                        <Text fw={600} mb="sm">{t('company.customFields')}</Text>
-                        <SimpleGrid cols={3}>
-                            {Object.entries(customFields).map(([key, value]) => (
-                                <Box key={key}>
-                                    <Text size="xs" c="dimmed" fw={600}>{key}</Text>
-                                    <Text size="sm">{String(value)}</Text>
-                                </Box>
-                            ))}
-                        </SimpleGrid>
+                        <Box>
+                            <Text size="xs" c="dimmed" fw={600} tt="uppercase" mb={4}>{t('company.description')}</Text>
+                            <Text size="sm">
+                                {descExpanded || company.description.length <= 500
+                                    ? company.description
+                                    : company.description.slice(0, 500) + '...'}
+                            </Text>
+                            {company.description.length > 500 && (
+                                <Button
+                                    variant="subtle"
+                                    size="xs"
+                                    color="blue"
+                                    mt={4}
+                                    p={0}
+                                    onClick={() => setDescExpanded(!descExpanded)}
+                                >
+                                    {descExpanded ? t('common.showLess') : t('common.showMore')}
+                                </Button>
+                            )}
+                        </Box>
                     </>
                 )}
             </Paper>

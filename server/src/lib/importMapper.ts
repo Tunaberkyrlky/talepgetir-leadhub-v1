@@ -29,10 +29,34 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
         aliases: ['industry', 'sektör', 'sector', 'sektoru', 'endüstri'],
         required: false,
     },
-    'companies.employee_count': {
+    'companies.employee_size': {
         table: 'companies',
-        field: 'employee_count',
-        aliases: ['employee_count', 'çalışan sayısı', 'employees', 'çalışan', 'personel sayısı', 'employee'],
+        field: 'employee_size',
+        aliases: ['employee_size', 'employee_count', 'çalışan sayısı', 'employees', 'çalışan', 'personel sayısı', 'employee'],
+        required: false,
+    },
+    'companies.product_services': {
+        table: 'companies',
+        field: 'product_services',
+        aliases: ['product_services', 'products', 'services', 'ürün hizmet', 'ürünler', 'hizmetler', 'product/service'],
+        required: false,
+    },
+    'companies.description': {
+        table: 'companies',
+        field: 'description',
+        aliases: ['description', 'about', 'hakkında', 'açıklama', 'aciklama', 'desc', 'about company'],
+        required: false,
+    },
+    'companies.linkedin': {
+        table: 'companies',
+        field: 'linkedin',
+        aliases: ['linkedin', 'linkedin_url', 'linkedin url', 'company linkedin', 'linkedin profil'],
+        required: false,
+    },
+    'companies.company_phone': {
+        table: 'companies',
+        field: 'company_phone',
+        aliases: ['company_phone', 'şirket telefonu', 'şirket tel', 'company phone', 'office phone', 'ofis telefon', 'central phone'],
         required: false,
     },
     'companies.stage': {
