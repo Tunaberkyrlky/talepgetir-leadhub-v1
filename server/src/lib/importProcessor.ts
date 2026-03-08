@@ -156,7 +156,7 @@ export async function executeImport(
     tenantId: string,
     userId: string,
     fileName: string,
-    fileType: 'csv' | 'xlsx',
+    fileType: 'csv' | 'xlsx' | 'matched',
     rows: Record<string, string>[],
     mapping: ColumnMapping,
 ): Promise<ImportResult> {
@@ -167,12 +167,14 @@ export async function executeImport(
     let createdContacts = 0;
 
     // Create import job record
+    // 'matched' is not yet in the DB constraint — store as 'csv' until migration is applied
+    const storedFileType = fileType === 'matched' ? 'csv' : fileType;
     const { data: job, error: jobError } = await supabaseAdmin
         .from('import_jobs')
         .insert({
             tenant_id: tenantId,
             file_name: fileName,
-            file_type: fileType,
+            file_type: storedFileType,
             status: 'processing',
             total_rows: rows.length,
             column_mapping: mapping,

@@ -40,21 +40,26 @@ export async function authMiddleware(
             return;
         }
 
-        // Default tenant from JWT
-        const defaultTenantId = user.app_metadata?.tenant_id;
-
-        if (!defaultTenantId) {
-            console.log('[AUTH] ❌ No tenant_id in app_metadata');
-            res.status(403).json({ error: 'User has no tenant assigned' });
-            return;
-        }
-
         // Get ALL memberships to find if user is superadmin ANYWHERE
         const { data: allMemberships } = await supabaseAdmin
             .from('memberships')
             .select('tenant_id, role')
             .eq('user_id', user.id)
             .eq('is_active', true);
+
+        // Resolve default tenant — prefer JWT claim, fall back to first active membership
+        let defaultTenantId: string | undefined = user.app_metadata?.tenant_id;
+
+        if (!defaultTenantId) {
+            const firstMembership = allMemberships?.[0];
+            if (!firstMembership) {
+                console.log('[AUTH] ❌ No tenant_id in app_metadata and no active memberships');
+                res.status(403).json({ error: 'User has no tenant assigned' });
+                return;
+            }
+            defaultTenantId = firstMembership.tenant_id;
+            console.log('[AUTH] ℹ️ No app_metadata.tenant_id — resolved tenant from membership:', defaultTenantId);
+        }
 
         const isPlatformSuperadmin = allMemberships?.some(m => m.role === 'superadmin');
         const primaryMembership = allMemberships?.find(m => m.tenant_id === defaultTenantId);
@@ -69,7 +74,7 @@ export async function authMiddleware(
 
         // Check if client is requesting a different tenant via X-Tenant-Id header
         const requestedTenantId = req.headers['x-tenant-id'] as string;
-        const effectiveTenantId = requestedTenantId || defaultTenantId;
+        const effectiveTenantId = requestedTenantId || defaultTenantId!;
         let effectiveRole = primaryRole;
 
         if (requestedTenantId && requestedTenantId !== defaultTenantId) {

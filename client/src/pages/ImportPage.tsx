@@ -17,6 +17,7 @@ import {
     ThemeIcon,
     Card,
     Box,
+    Tabs,
 } from '@mantine/core';
 import { Dropzone, MIME_TYPES } from '@mantine/dropzone';
 import {
@@ -34,6 +35,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
+import DataMatchFlow from '../components/DataMatchFlow';
 
 interface MappingSuggestion {
     fileHeader: string;
@@ -148,6 +150,17 @@ export default function ImportPage() {
                 {t('import.title')}
             </Title>
 
+            <Tabs defaultValue="single" color="violet" mb="xl">
+                <Tabs.List mb="lg">
+                    <Tabs.Tab value="single" leftSection={<IconFileSpreadsheet size={16} />}>
+                        {t('import.singleImportTab', 'Tekli Dosya')}
+                    </Tabs.Tab>
+                    <Tabs.Tab value="match" leftSection={<IconUsers size={16} />}>
+                        {t('import.matchTab', 'Veri Eşleştirme')}
+                    </Tabs.Tab>
+                </Tabs.List>
+
+                <Tabs.Panel value="single">
             <Stepper
                 active={active}
                 onStepClick={(step) => {
@@ -161,7 +174,7 @@ export default function ImportPage() {
                     <Paper shadow="sm" radius="lg" p="xl" withBorder>
                         <Dropzone
                             onDrop={handleDrop}
-                            maxSize={5 * 1024 * 1024}
+                            maxSize={10 * 1024 * 1024}
                             accept={[MIME_TYPES.csv, MIME_TYPES.xlsx, 'text/csv', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']}
                             loading={uploadMutation.isPending}
                             radius="lg"
@@ -422,6 +435,12 @@ export default function ImportPage() {
                     )}
                 </Stepper.Step>
             </Stepper>
+                </Tabs.Panel>
+
+                <Tabs.Panel value="match">
+                    <DataMatchFlow />
+                </Tabs.Panel>
+            </Tabs>
         </Container>
     );
 }

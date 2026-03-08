@@ -97,7 +97,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Set the default active tenant
         const defaultTenantId = data.user.tenantId;
         setActiveTenantId(defaultTenantId);
-        localStorage.setItem('activeTenantId', defaultTenantId);
+        if (defaultTenantId) {
+            localStorage.setItem('activeTenantId', defaultTenantId);
+        }
     }, []);
 
     const logout = useCallback(() => {

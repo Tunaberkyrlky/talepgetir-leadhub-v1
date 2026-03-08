@@ -24,7 +24,6 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         }
 
         const user = data.user;
-        const tenantId = user.app_metadata?.tenant_id;
 
         // Get ALL memberships to find if user is superadmin ANYWHERE
         const { data: allMemberships } = await supabaseAdmin
@@ -35,6 +34,11 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
         // Check if any of these memberships is superadmin
         const isPlatformSuperadmin = allMemberships?.some(m => m.role === 'superadmin');
+
+        // Resolve tenantId — prefer JWT claim, fall back to first active membership
+        const tenantId: string | null = user.app_metadata?.tenant_id
+            || allMemberships?.[0]?.tenant_id
+            || null;
 
         // Final role for this session
         const role = isPlatformSuperadmin ? 'superadmin' : (allMemberships?.find(m => m.tenant_id === tenantId)?.role || null);
@@ -154,8 +158,6 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        const defaultTenantId = user.app_metadata?.tenant_id;
-
         // Get ALL memberships to find if user is superadmin ANYWHERE
         const { data: allMemberships } = await supabaseAdmin
             .from('memberships')
@@ -165,6 +167,11 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
 
         // Check if any of these memberships is superadmin
         const isPlatformSuperadmin = allMemberships?.some(m => m.role === 'superadmin');
+
+        // Resolve tenantId — prefer JWT claim, fall back to first active membership
+        const defaultTenantId: string | null = user.app_metadata?.tenant_id
+            || allMemberships?.[0]?.tenant_id
+            || null;
 
         // Base role from memberships
         const role = isPlatformSuperadmin ? 'superadmin' : (allMemberships?.find(m => m.tenant_id === defaultTenantId)?.role || null);

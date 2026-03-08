@@ -56,25 +56,29 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
     'contacts.full_name': {
         table: 'contacts',
         field: 'full_name',
-        aliases: ['contact_name', 'kişi adı', 'isim', 'kisi', 'contact', 'yetkili', 'yetkili kişi', 'ad soyad'],
+        aliases: [
+            'contact_name', 'kişi adı', 'isim', 'kisi', 'contact', 'yetkili', 'yetkili kişi', 'ad soyad',
+            'full_name', 'full name', 'fullname', 'name', 'first name', 'firstname', 'first_name',
+            'ad', 'isim soyisim',
+        ],
         required: false,
     },
     'contacts.title': {
         table: 'contacts',
         field: 'title',
-        aliases: ['contact_title', 'pozisyon', 'title', 'ünvan', 'unvan', 'görev', 'gorev'],
+        aliases: ['contact_title', 'pozisyon', 'title', 'ünvan', 'unvan', 'görev', 'gorev', 'job title', 'job_title'],
         required: false,
     },
     'contacts.email': {
         table: 'contacts',
         field: 'email',
-        aliases: ['contact_email', 'email', 'e-posta', 'eposta', 'e_posta', 'mail'],
+        aliases: ['contact_email', 'email', 'e-posta', 'eposta', 'e_posta', 'mail', 'email address', 'work email'],
         required: false,
     },
     'contacts.phone_e164': {
         table: 'contacts',
         field: 'phone_e164',
-        aliases: ['contact_phone', 'telefon', 'phone', 'tel', 'cep', 'cep telefonu', 'mobile'],
+        aliases: ['contact_phone', 'telefon', 'phone', 'tel', 'cep', 'cep telefonu', 'mobile', 'phone number', 'mobile phone'],
         required: false,
     },
 };
@@ -142,11 +146,15 @@ export function autoMapHeaders(fileHeaders: string[]): MappingSuggestion[] {
     for (const header of fileHeaders) {
         let bestMatch: { key: string; score: number } | null = null;
 
+        // Strip 'people_' prefix when matching so merged headers like 'people_email'
+        // correctly map to contacts.email instead of remaining unmapped
+        const effectiveHeader = header.startsWith('people_') ? header.slice(7) : header;
+
         for (const [key, fieldDef] of Object.entries(FIELD_ALIASES)) {
             if (usedDbFields.has(key)) continue;
 
             for (const alias of fieldDef.aliases) {
-                const score = similarity(header, alias);
+                const score = Math.max(similarity(header, alias), similarity(effectiveHeader, alias));
                 if (score > (bestMatch?.score || 0)) {
                     bestMatch = { key, score };
                 }
@@ -197,6 +205,14 @@ export function getAvailableDbFields() {
  */
 export function sanitizeCell(value: unknown): string {
     if (value === null || value === undefined) return '';
+    // Handle ExcelJS hyperlink/rich-text objects: { text, hyperlink } or { richText }
+    if (typeof value === 'object') {
+        const obj = value as Record<string, unknown>;
+        const raw = obj.hyperlink ?? obj.text ?? obj.result ?? '';
+        const str = String(raw).trim();
+        if (/^[=+\-@]/.test(str)) return "'" + str;
+        return str;
+    }
     const str = String(value).trim();
     if (/^[=+\-@]/.test(str)) {
         return "'" + str;

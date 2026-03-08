@@ -1,0 +1,8 @@
+.tenantOption[data-selected] {
+    background: #6c63ff !important;
+    color: white;
+}
+
+.tenantOption[data-hovered] {
+    background: rgba(108, 99, 255, 0.3);
+}

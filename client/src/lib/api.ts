@@ -16,7 +16,7 @@ api.interceptors.request.use((config) => {
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
     }
-    if (activeTenantId) {
+    if (activeTenantId && activeTenantId !== 'null') {
         config.headers['X-Tenant-Id'] = activeTenantId;
     }
     return config;

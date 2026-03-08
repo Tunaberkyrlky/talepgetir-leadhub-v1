@@ -1,4 +1,5 @@
 import { Navigate, Outlet } from 'react-router-dom';
+import classes from './Layout.module.css';
 import {
     AppShell,
     Group,
@@ -94,9 +95,6 @@ export default function Layout() {
                                         border: '1px solid rgba(255,255,255,0.15)',
                                         color: 'white',
                                         fontWeight: 500,
-                                        '&:focus': {
-                                            borderColor: '#6c63ff',
-                                        },
                                     },
                                     dropdown: {
                                         background: '#1a1b2e',
@@ -104,14 +102,9 @@ export default function Layout() {
                                     },
                                     option: {
                                         color: 'white',
-                                        '&[data-selected]': {
-                                            background: '#6c63ff',
-                                        },
-                                        '&[data-hovered]': {
-                                            background: 'rgba(108, 99, 255, 0.3)',
-                                        },
                                     },
                                 }}
+                                classNames={{ option: classes.tenantOption }}
                             />
                         ) : (
                             /* Static tenant badge for client roles or single-tenant users */
