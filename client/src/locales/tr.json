@@ -162,5 +162,9 @@
         "switch": "Müşteri Değiştir",
         "current": "Aktif Müşteri",
         "selectTenant": "Müşteri seçin..."
+    },
+    "settings": {
+        "title": "Ayarlar",
+        "darkMode": "Koyu Mod"
     }
 }

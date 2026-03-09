@@ -12,13 +12,16 @@ import {
     Flex,
     Select,
 } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
 import {
     IconUser,
     IconLogout,
     IconLanguage,
     IconBuilding,
     IconSwitchHorizontal,
+    IconSettings,
 } from '@tabler/icons-react';
+import SettingsModal from './SettingsModal';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -35,6 +38,7 @@ export default function Layout() {
         canSwitchTenants,
     } = useAuth();
     const { t, i18n } = useTranslation();
+    const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
 
     if (isLoading) return null;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -62,7 +66,7 @@ export default function Layout() {
                     borderBottom: '1px solid rgba(255,255,255,0.08)',
                 },
                 main: {
-                    background: '#f8f9fa',
+                    background: 'var(--mantine-color-body)',
                     minHeight: '100vh',
                 },
             }}
@@ -159,6 +163,13 @@ export default function Layout() {
                                 </Menu.Label>
                                 <Menu.Divider />
                                 <Menu.Item
+                                    leftSection={<IconSettings size={16} />}
+                                    onClick={openSettings}
+                                >
+                                    {t('settings.title')}
+                                </Menu.Item>
+                                <Menu.Divider />
+                                <Menu.Item
                                     leftSection={<IconLogout size={16} />}
                                     color="red"
                                     onClick={logout}
@@ -174,6 +185,8 @@ export default function Layout() {
             <AppShell.Main>
                 <Outlet />
             </AppShell.Main>
+
+            <SettingsModal opened={settingsOpened} onClose={closeSettings} />
         </AppShell>
     );
 }

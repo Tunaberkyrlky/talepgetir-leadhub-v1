@@ -23,6 +23,7 @@ import {
     Switch,
     Box,
     Anchor,
+    Menu,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
@@ -39,6 +40,7 @@ import {
     IconBrandLinkedin,
     IconWorld,
     IconUsers,
+    IconDotsVertical,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -387,25 +389,34 @@ export default function CompanyDetailPage() {
                                             </Group>
                                         )}
                                         {isOpsOrAdmin && (
-                                            <Group gap="xs">
-                                                <ActionIcon variant="subtle" size="sm" onClick={() => handleEditContact(contact)}>
-                                                    <IconPencil size={14} />
-                                                </ActionIcon>
-                                                {user?.role === 'superadmin' && (
-                                                    <ActionIcon
-                                                        variant="subtle"
-                                                        size="sm"
-                                                        color="red"
-                                                        onClick={() => {
-                                                            if (window.confirm(t('contact.deleteConfirm'))) {
-                                                                deleteContactMutation.mutate(contact.id);
-                                                            }
-                                                        }}
-                                                    >
-                                                        <IconTrash size={14} />
+                                            <Menu withinPortal position="bottom-end" shadow="sm">
+                                                <Menu.Target>
+                                                    <ActionIcon variant="subtle" color="gray" size="sm">
+                                                        <IconDotsVertical size={14} />
                                                     </ActionIcon>
-                                                )}
-                                            </Group>
+                                                </Menu.Target>
+                                                <Menu.Dropdown>
+                                                    <Menu.Item
+                                                        leftSection={<IconPencil size={14} />}
+                                                        onClick={() => handleEditContact(contact)}
+                                                    >
+                                                        {t('company.editTitle')}
+                                                    </Menu.Item>
+                                                    {user?.role === 'superadmin' && (
+                                                        <Menu.Item
+                                                            color="red"
+                                                            leftSection={<IconTrash size={14} />}
+                                                            onClick={() => {
+                                                                if (window.confirm(t('contact.deleteConfirm'))) {
+                                                                    deleteContactMutation.mutate(contact.id);
+                                                                }
+                                                            }}
+                                                        >
+                                                            {t('company.delete')}
+                                                        </Menu.Item>
+                                                    )}
+                                                </Menu.Dropdown>
+                                            </Menu>
                                         )}
                                     </Group>
                                 </Group>

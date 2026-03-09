@@ -21,6 +21,7 @@ import {
     TextInput,
     MultiSelect,
     UnstyledButton,
+    Menu,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
@@ -36,6 +37,7 @@ import {
     IconSelector,
     IconX,
     IconUsers,
+    IconDotsVertical,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -385,7 +387,7 @@ export default function LeadsPage() {
                                     <Table.Th><SortHeader column="location" label={t('company.location')} /></Table.Th>
                                     <Table.Th><Text size="xs" fw={600} tt="uppercase" c="white" style={{ letterSpacing: '0.5px' }}>{t('company.nextStep')}</Text></Table.Th>
                                     <Table.Th><SortHeader column="updated_at" label={t('company.updatedAt')} /></Table.Th>
-                                    {isOpsOrAdmin && <Table.Th><Text size="xs" fw={600} tt="uppercase" c="white" style={{ letterSpacing: '0.5px' }}>{t('common.actions')}</Text></Table.Th>}
+                                    {isOpsOrAdmin && <Table.Th style={{ width: 40 }} />}
                                 </Table.Tr>
                             </Table.Thead>
                             <Table.Tbody>
@@ -444,34 +446,40 @@ export default function LeadsPage() {
                                         </Table.Td>
                                         {isOpsOrAdmin && (
                                             <Table.Td>
-                                                <Group gap="xs">
-                                                    <Tooltip label={t('company.editTitle')}>
+                                                <Menu withinPortal position="bottom-end" shadow="sm">
+                                                    <Menu.Target>
                                                         <ActionIcon
                                                             variant="subtle"
-                                                            color="blue"
+                                                            color="gray"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            <IconDotsVertical size={16} />
+                                                        </ActionIcon>
+                                                    </Menu.Target>
+                                                    <Menu.Dropdown>
+                                                        <Menu.Item
+                                                            leftSection={<IconPencil size={14} />}
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 handleEdit(company);
                                                             }}
                                                         >
-                                                            <IconPencil size={16} />
-                                                        </ActionIcon>
-                                                    </Tooltip>
-                                                    {user?.role === 'superadmin' && (
-                                                        <Tooltip label={t('company.delete')}>
-                                                            <ActionIcon
-                                                                variant="subtle"
+                                                            {t('company.editTitle')}
+                                                        </Menu.Item>
+                                                        {user?.role === 'superadmin' && (
+                                                            <Menu.Item
                                                                 color="red"
+                                                                leftSection={<IconTrash size={14} />}
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     handleDelete(company);
                                                                 }}
                                                             >
-                                                                <IconTrash size={16} />
-                                                            </ActionIcon>
-                                                        </Tooltip>
-                                                    )}
-                                                </Group>
+                                                                {t('company.delete')}
+                                                            </Menu.Item>
+                                                        )}
+                                                    </Menu.Dropdown>
+                                                </Menu>
                                             </Table.Td>
                                         )}
                                     </Table.Tr>

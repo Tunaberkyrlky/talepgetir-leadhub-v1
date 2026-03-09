@@ -162,5 +162,9 @@
         "switch": "Switch Tenant",
         "current": "Current Tenant",
         "selectTenant": "Select a tenant..."
+    },
+    "settings": {
+        "title": "Settings",
+        "darkMode": "Dark Mode"
     }
 }

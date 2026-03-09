@@ -46,7 +46,7 @@ const theme = createTheme({
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <MantineProvider theme={theme}>
+      <MantineProvider theme={theme} defaultColorScheme="light">
         <Notifications position="top-right" />
         <ModalsProvider>
           <BrowserRouter>
