@@ -160,10 +160,19 @@ export default function DataMatchFlow() {
         return <Badge color="gray" size="sm">? {t('import.confidenceManual', 'Manuel')}</Badge>;
     };
 
-    const availableFieldOptions = previewData?.availableFields.map((f) => ({
-        value: f.value,
-        label: f.label,
-    })) || [];
+    const availableFieldOptions = (() => {
+        if (!previewData) return [];
+        const companyFields = previewData.availableFields.filter((f) => f.table === 'companies');
+        const contactFields = previewData.availableFields.filter((f) => f.table === 'contacts');
+        const groups = [];
+        if (companyFields.length > 0) {
+            groups.push({ group: 'Şirket', items: companyFields.map((f) => ({ value: f.value, label: f.label })) });
+        }
+        if (contactFields.length > 0) {
+            groups.push({ group: 'Kişi', items: contactFields.map((f) => ({ value: f.value, label: f.label })) });
+        }
+        return groups;
+    })();
 
     const dropzoneAccept = [MIME_TYPES.csv, MIME_TYPES.xlsx, 'text/csv', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
 
@@ -425,39 +434,57 @@ export default function DataMatchFlow() {
                     <Table striped highlightOnHover>
                         <Table.Thead>
                             <Table.Tr>
+                                <Table.Th style={{ width: 32 }} />
                                 <Table.Th>{t('import.fileColumn')}</Table.Th>
                                 <Table.Th>{t('import.dbField')}</Table.Th>
                                 <Table.Th>{t('import.confidence')}</Table.Th>
                             </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
-                            {previewData?.suggestions.map((s) => (
-                                <Table.Tr key={s.fileHeader}>
-                                    <Table.Td>
-                                        <Text fw={500} size="sm">
-                                            {s.fileHeader}
-                                            {s.required && <Text span c="red" ml={4}>*</Text>}
-                                        </Text>
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Select
-                                            size="sm"
-                                            radius="md"
-                                            value={mapping[s.fileHeader] || ''}
-                                            onChange={(val) => handleMappingChange(s.fileHeader, val || null)}
-                                            data={[
-                                                { value: '', label: `\u2014 ${t('import.unmapped')}` },
-                                                ...availableFieldOptions,
-                                            ]}
-                                            clearable
-                                            searchable
-                                        />
-                                    </Table.Td>
-                                    <Table.Td>
-                                        {getConfidenceBadge(s.confidence)}
-                                    </Table.Td>
-                                </Table.Tr>
-                            ))}
+                            {previewData?.suggestions.map((s) => {
+                                const usedInOtherRows = new Set(
+                                    Object.entries(mapping)
+                                        .filter(([key, val]) => key !== s.fileHeader && val)
+                                        .map(([, val]) => val as string)
+                                );
+                                const filteredOptions = [
+                                    { value: '', label: `— ${t('import.unmapped')}` },
+                                    ...availableFieldOptions.map((g) => ({
+                                        group: g.group,
+                                        items: g.items.filter((opt) => !usedInOtherRows.has(opt.value)),
+                                    })).filter((g) => g.items.length > 0),
+                                ];
+                                const isMapped = !!mapping[s.fileHeader];
+                                return (
+                                    <Table.Tr key={s.fileHeader}>
+                                        <Table.Td>
+                                            {isMapped && (
+                                                <IconArrowRight size={18} color="var(--mantine-color-violet-6)" />
+                                            )}
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <Text fw={500} size="sm">
+                                                {s.fileHeader}
+                                                {s.required && <Text span c="red" ml={4}>*</Text>}
+                                            </Text>
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <Select
+                                                size="sm"
+                                                radius="md"
+                                                value={mapping[s.fileHeader] || ''}
+                                                onChange={(val) => handleMappingChange(s.fileHeader, val || null)}
+                                                data={filteredOptions}
+                                                clearable
+                                                searchable
+                                            />
+                                        </Table.Td>
+                                        <Table.Td>
+                                            {getConfidenceBadge(s.confidence)}
+                                        </Table.Td>
+                                    </Table.Tr>
+                                );
+                            })}
                         </Table.Tbody>
                     </Table>
 

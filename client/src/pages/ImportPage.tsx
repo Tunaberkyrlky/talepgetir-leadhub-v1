@@ -155,6 +155,16 @@ export default function ImportPage() {
 
     return (
         <Container size="lg" py="lg">
+            <Button
+                variant="subtle"
+                color="gray"
+                leftSection={<IconArrowLeft size={16} />}
+                onClick={() => navigate('/')}
+                mb="xs"
+                px={0}
+            >
+                {t('common.back')}
+            </Button>
             <Title order={2} fw={700} mb="xl">
                 {t('import.title')}
             </Title>

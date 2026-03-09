@@ -192,8 +192,16 @@ router.post(
                 return;
             }
 
+            // Verify file is within the upload directory (prevent path traversal)
+            const resolvedPath = path.resolve(filePath);
+            const resolvedUploadDir = path.resolve(UPLOAD_DIR);
+            if (!resolvedPath.startsWith(resolvedUploadDir + path.sep)) {
+                res.status(400).json({ error: 'Invalid file path.' });
+                return;
+            }
+
             // Verify file exists
-            if (!fs.existsSync(filePath)) {
+            if (!fs.existsSync(resolvedPath)) {
                 res.status(400).json({ error: 'Upload expired. Please re-upload the file.' });
                 return;
             }
@@ -202,13 +210,13 @@ router.post(
             let rows: Record<string, string>[];
             if (fileType === 'matched') {
                 // Matched JSON from match-preview step
-                const raw = fs.readFileSync(filePath, 'utf-8');
+                const raw = fs.readFileSync(resolvedPath, 'utf-8');
                 rows = JSON.parse(raw);
             } else if (fileType === 'csv') {
-                const result = await parseCSV(filePath);
+                const result = await parseCSV(resolvedPath);
                 rows = result.rows;
             } else {
-                const result = await parseXLSX(filePath);
+                const result = await parseXLSX(resolvedPath);
                 rows = result.rows;
             }
 
@@ -223,7 +231,7 @@ router.post(
             );
 
             // Clean up temp file
-            try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+            try { fs.unlinkSync(resolvedPath); } catch { /* ignore */ }
 
             res.json(result);
         } catch (err: any) {
