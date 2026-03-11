@@ -7,15 +7,14 @@ import {
     Paper,
     Text,
     Table,
-    Select,
-    Badge,
     Stack,
     Alert,
     SimpleGrid,
-    ThemeIcon,
     Card,
     Box,
     Accordion,
+    Badge,
+    ThemeIcon,
 } from '@mantine/core';
 import { Dropzone, MIME_TYPES } from '@mantine/dropzone';
 import {
@@ -36,23 +35,8 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useImportProgress } from '../contexts/ImportProgressContext';
-
-interface MappingSuggestion {
-    fileHeader: string;
-    dbField: string | null;
-    table: string | null;
-    field: string | null;
-    confidence: number;
-    required: boolean;
-}
-
-interface AvailableField {
-    value: string;
-    label: string;
-    table: string;
-    field: string;
-    required: boolean;
-}
+import MappingEditor from './MappingEditor';
+import type { MappingSuggestion, AvailableField, ImportResult } from '../lib/types';
 
 interface MatchStrategy {
     type: 'id_key' | 'website' | 'none';
@@ -75,18 +59,6 @@ interface MatchPreviewData {
     suggestions: MappingSuggestion[];
     availableFields: AvailableField[];
     previewRows: Record<string, string>[];
-}
-
-interface ImportResult {
-    importJobId: string;
-    totalRows: number;
-    successCount: number;
-    errorCount: number;
-    errors: { row: number; field: string; error: string }[];
-    createdCompanies: number;
-    updatedCompanies: number;
-    createdContacts: number;
-    cancelled?: boolean;
 }
 
 export default function DataMatchFlow() {
@@ -177,26 +149,6 @@ export default function DataMatchFlow() {
         setMapping((prev) => ({ ...prev, [fileHeader]: dbField }));
     };
 
-    const getConfidenceBadge = (confidence: number) => {
-        if (confidence >= 0.8) return <Badge color="green" size="sm">{'\u2713'} {t('import.confidenceHigh', 'Y\u00fcksek')}</Badge>;
-        if (confidence >= 0.6) return <Badge color="yellow" size="sm">~ {t('import.confidenceMedium', 'Orta')}</Badge>;
-        return <Badge color="gray" size="sm">? {t('import.confidenceManual', 'Manuel')}</Badge>;
-    };
-
-    const availableFieldOptions = (() => {
-        if (!previewData) return [];
-        const companyFields = previewData.availableFields.filter((f) => f.table === 'companies');
-        const contactFields = previewData.availableFields.filter((f) => f.table === 'contacts');
-        const groups = [];
-        if (companyFields.length > 0) {
-            groups.push({ group: 'Şirket', items: companyFields.map((f) => ({ value: f.value, label: f.label })) });
-        }
-        if (contactFields.length > 0) {
-            groups.push({ group: 'Kişi', items: contactFields.map((f) => ({ value: f.value, label: f.label })) });
-        }
-        return groups;
-    })();
-
     const dropzoneAccept = [MIME_TYPES.csv, MIME_TYPES.xlsx, 'text/csv', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
 
     const dropzoneStyles = {
@@ -227,14 +179,14 @@ export default function DataMatchFlow() {
             mb="xl"
         >
             {/* Step 1: Upload Two Files */}
-            <Stepper.Step label={t('import.matchUploadStep', 'Dosya Y\u00fckle')} icon={<IconUpload size={18} />}>
+            <Stepper.Step label={t('import.matchUploadStep')} icon={<IconUpload size={18} />}>
                 <Paper shadow="sm" radius="lg" p="xl" withBorder>
                     <SimpleGrid cols={2}>
                         {/* Company File */}
                         <Stack gap="sm">
                             <Text fw={600} ta="center">
                                 <IconBuildingSkyscraper size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                                {t('import.companyFile', '\u015eirket Dosyas\u0131')}
+                                {t('import.companyFile')}
                             </Text>
                             <Dropzone
                                 onDrop={handleCompanyDrop}
@@ -254,7 +206,7 @@ export default function DataMatchFlow() {
                                         <IconBuildingSkyscraper size={40} color="var(--mantine-color-dimmed)" />
                                     </Dropzone.Idle>
                                     <Text size="sm" c="dimmed">
-                                        {companyFile ? companyFile.name : t('import.uploadCompanyFile', '\u015eirket dosyas\u0131 y\u00fckleyin')}
+                                        {companyFile ? companyFile.name : t('import.uploadCompanyFile')}
                                     </Text>
                                 </Stack>
                             </Dropzone>
@@ -269,7 +221,7 @@ export default function DataMatchFlow() {
                         <Stack gap="sm">
                             <Text fw={600} ta="center">
                                 <IconUsers size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                                {t('import.peopleFile', 'Ki\u015fi Dosyas\u0131')}
+                                {t('import.peopleFile')}
                             </Text>
                             <Dropzone
                                 onDrop={handlePeopleDrop}
@@ -289,7 +241,7 @@ export default function DataMatchFlow() {
                                         <IconUsers size={40} color="var(--mantine-color-dimmed)" />
                                     </Dropzone.Idle>
                                     <Text size="sm" c="dimmed">
-                                        {peopleFile ? peopleFile.name : t('import.uploadPeopleFile', 'Ki\u015fi dosyas\u0131 y\u00fckleyin')}
+                                        {peopleFile ? peopleFile.name : t('import.uploadPeopleFile')}
                                     </Text>
                                 </Stack>
                             </Dropzone>
@@ -313,7 +265,7 @@ export default function DataMatchFlow() {
                             color="violet"
                             rightSection={<IconArrowRight size={16} />}
                         >
-                            {t('import.matchAndContinue', 'E\u015fle\u015ftir ve Devam Et')}
+                            {t('import.matchAndContinue')}
                         </Button>
                     </Group>
 
@@ -326,7 +278,7 @@ export default function DataMatchFlow() {
             </Stepper.Step>
 
             {/* Step 2: Match Results */}
-            <Stepper.Step label={t('import.matchResultStep', 'E\u015fle\u015fme')} icon={<IconLink size={18} />}>
+            <Stepper.Step label={t('import.matchResultStep')} icon={<IconLink size={18} />}>
                 <Paper shadow="sm" radius="lg" p="xl" withBorder>
                     {previewData && (
                         <Stack gap="lg">
@@ -334,17 +286,17 @@ export default function DataMatchFlow() {
                             <Group justify="center">
                                 {previewData.matchStrategy.type === 'id_key' ? (
                                     <Badge color="green" size="lg" leftSection={<IconKey size={14} />}>
-                                        {t('import.matchById', 'ID/Key kolonu ile e\u015fle\u015ftirildi')}
-                                        {' '}({previewData.matchStrategy.companyCol} \u2194 {previewData.matchStrategy.peopleCol})
+                                        {t('import.matchById')}
+                                        {' '}({previewData.matchStrategy.companyCol} ↔ {previewData.matchStrategy.peopleCol})
                                     </Badge>
                                 ) : previewData.matchStrategy.type === 'website' ? (
                                     <Badge color="blue" size="lg" leftSection={<IconLink size={14} />}>
-                                        {t('import.matchByWebsite', 'Website ile e\u015fle\u015ftirildi')}
-                                        {' '}({previewData.matchStrategy.companyCol} \u2194 {previewData.matchStrategy.peopleCol})
+                                        {t('import.matchByWebsite')}
+                                        {' '}({previewData.matchStrategy.companyCol} ↔ {previewData.matchStrategy.peopleCol})
                                     </Badge>
                                 ) : (
                                     <Badge color="red" size="lg" leftSection={<IconAlertCircle size={14} />}>
-                                        {t('import.matchNone', 'E\u015fle\u015ftirme kolonu bulunamad\u0131')}
+                                        {t('import.matchNone')}
                                     </Badge>
                                 )}
                             </Group>
@@ -353,35 +305,35 @@ export default function DataMatchFlow() {
                             <SimpleGrid cols={4}>
                                 <Card shadow="xs" radius="md" p="md" withBorder>
                                     <Text size="xl" fw={700} ta="center">{previewData.totalCompanyRows}</Text>
-                                    <Text size="sm" c="dimmed" ta="center">{t('import.companyFile', '\u015eirket')}</Text>
+                                    <Text size="sm" c="dimmed" ta="center">{t('import.companyFile')}</Text>
                                 </Card>
                                 <Card shadow="xs" radius="md" p="md" withBorder>
                                     <Text size="xl" fw={700} ta="center">{previewData.totalPeopleRows}</Text>
-                                    <Text size="sm" c="dimmed" ta="center">{t('import.peopleFile', 'Ki\u015fi')}</Text>
+                                    <Text size="sm" c="dimmed" ta="center">{t('import.peopleFile')}</Text>
                                 </Card>
                                 <Card shadow="xs" radius="md" p="md" withBorder>
                                     <Text size="xl" fw={700} ta="center" c="green">{previewData.matchedCount}</Text>
-                                    <Text size="sm" c="dimmed" ta="center">{t('import.matchedCount', 'E\u015fle\u015fen')}</Text>
+                                    <Text size="sm" c="dimmed" ta="center">{t('import.matchedCount')}</Text>
                                 </Card>
                                 <Card shadow="xs" radius="md" p="md" withBorder>
                                     <Text size="xl" fw={700} ta="center" c={previewData.unmatchedPeopleCount > 0 ? 'orange' : 'green'}>
                                         {previewData.unmatchedPeopleCount}
                                     </Text>
-                                    <Text size="sm" c="dimmed" ta="center">{t('import.unmatchedPeople', 'E\u015fle\u015fmeyen Ki\u015fi')}</Text>
+                                    <Text size="sm" c="dimmed" ta="center">{t('import.unmatchedPeople')}</Text>
                                 </Card>
                             </SimpleGrid>
 
                             {/* No match error */}
                             {previewData.matchStrategy.type === 'none' && (
                                 <Alert color="red" icon={<IconAlertCircle />}>
-                                    {t('import.matchNoneDesc', 'Her iki dosyada da ortak bir ID/Key veya Website kolonu bulunamad\u0131. L\u00fctfen dosyalar\u0131n\u0131z\u0131 kontrol edin.')}
+                                    {t('import.matchNoneDesc')}
                                 </Alert>
                             )}
 
                             {/* Strategy found but zero rows matched */}
                             {previewData.matchStrategy.type !== 'none' && previewData.matchedCount === 0 && (
                                 <Alert color="orange" icon={<IconAlertCircle />}>
-                                    {t('import.matchZeroRows', 'E\u015fle\u015ftirme kolonu bulundu ancak hi\u00e7bir sat\u0131r e\u015fle\u015fmedi. Dosyalardaki anahtar de\u011ferlerin (\u00f6rn. website/ID) \u00f6rt\u00fc\u015ft\u00fc\u011f\u00fcn\u00fc kontrol edin.')}
+                                    {t('import.matchZeroRows')}
                                 </Alert>
                             )}
 
@@ -391,7 +343,7 @@ export default function DataMatchFlow() {
                                     <Accordion.Item value="unmatched">
                                         <Accordion.Control>
                                             <Text fw={500} c="orange">
-                                                {t('import.orphanWarning', 'Bu ki\u015filer hi\u00e7bir \u015firketle e\u015fle\u015ftirilemedi')}
+                                                {t('import.orphanWarning')}
                                                 {' '}({previewData.unmatchedPeopleCount})
                                             </Text>
                                         </Accordion.Control>
@@ -412,7 +364,7 @@ export default function DataMatchFlow() {
                                                             <Table.Tr key={i}>
                                                                 {Object.values(row).map((val, j) => (
                                                                     <Table.Td key={j}>
-                                                                        <Text size="xs" lineClamp={1} maw={150}>{val || '\u2014'}</Text>
+                                                                        <Text size="xs" lineClamp={1} maw={150}>{val || '—'}</Text>
                                                                     </Table.Td>
                                                                 ))}
                                                             </Table.Tr>
@@ -426,7 +378,7 @@ export default function DataMatchFlow() {
                             )}
 
                             <Text size="sm" c="dimmed" ta="center">
-                                {t('import.mergedRows', 'Toplam birle\u015ftirilen sat\u0131r')}: {previewData.totalRows}
+                                {t('import.mergedRows')}: {previewData.totalRows}
                             </Text>
 
                             <Group justify="flex-end">
@@ -454,62 +406,14 @@ export default function DataMatchFlow() {
                         {previewData?.fileName} — {previewData?.totalRows} {t('import.totalRows').toLowerCase()}
                     </Text>
 
-                    <Table striped highlightOnHover>
-                        <Table.Thead>
-                            <Table.Tr>
-                                <Table.Th style={{ width: 32 }} />
-                                <Table.Th>{t('import.fileColumn')}</Table.Th>
-                                <Table.Th>{t('import.dbField')}</Table.Th>
-                                <Table.Th>{t('import.confidence')}</Table.Th>
-                            </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                            {previewData?.suggestions.map((s) => {
-                                const usedInOtherRows = new Set(
-                                    Object.entries(mapping)
-                                        .filter(([key, val]) => key !== s.fileHeader && val)
-                                        .map(([, val]) => val as string)
-                                );
-                                const filteredOptions = [
-                                    { value: '', label: `— ${t('import.unmapped')}` },
-                                    ...availableFieldOptions.map((g) => ({
-                                        group: g.group,
-                                        items: g.items.filter((opt) => !usedInOtherRows.has(opt.value)),
-                                    })).filter((g) => g.items.length > 0),
-                                ];
-                                const isMapped = !!mapping[s.fileHeader];
-                                return (
-                                    <Table.Tr key={s.fileHeader}>
-                                        <Table.Td>
-                                            {isMapped && (
-                                                <IconArrowRight size={18} color="var(--mantine-color-violet-6)" />
-                                            )}
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text fw={500} size="sm">
-                                                {s.fileHeader}
-                                                {s.required && <Text span c="red" ml={4}>*</Text>}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Select
-                                                size="sm"
-                                                radius="md"
-                                                value={mapping[s.fileHeader] || ''}
-                                                onChange={(val) => handleMappingChange(s.fileHeader, val || null)}
-                                                data={filteredOptions}
-                                                clearable
-                                                searchable
-                                            />
-                                        </Table.Td>
-                                        <Table.Td>
-                                            {getConfidenceBadge(s.confidence)}
-                                        </Table.Td>
-                                    </Table.Tr>
-                                );
-                            })}
-                        </Table.Tbody>
-                    </Table>
+                    {previewData && (
+                        <MappingEditor
+                            suggestions={previewData.suggestions}
+                            mapping={mapping}
+                            availableFields={previewData.availableFields}
+                            onMappingChange={handleMappingChange}
+                        />
+                    )}
 
                     <Group justify="flex-end" mt="xl">
                         <Button variant="default" onClick={() => setActive(1)} leftSection={<IconArrowLeft size={16} />}>
@@ -538,7 +442,7 @@ export default function DataMatchFlow() {
                                             <Stack gap={2}>
                                                 <Text size="xs" c="dimmed">{h}</Text>
                                                 <Text size="xs" fw={600} c={mapping[h] ? 'violet' : 'gray'}>
-                                                    {'\u2192'} {mapping[h] || t('import.unmapped')}
+                                                    → {mapping[h] || t('import.unmapped')}
                                                 </Text>
                                             </Stack>
                                         </Table.Th>
@@ -551,7 +455,7 @@ export default function DataMatchFlow() {
                                         {previewData.headers.map((h) => (
                                             <Table.Td key={h}>
                                                 <Text size="sm" lineClamp={1} maw={200}>
-                                                    {row[h] || '\u2014'}
+                                                    {row[h] || '—'}
                                                 </Text>
                                             </Table.Td>
                                         ))}

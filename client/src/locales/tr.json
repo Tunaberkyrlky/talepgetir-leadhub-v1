@@ -119,7 +119,22 @@
         "mergedRows": "Toplam birleştirilen satır",
         "confidenceHigh": "Yüksek",
         "confidenceMedium": "Orta",
-        "confidenceManual": "Manuel"
+        "confidenceManual": "Manuel",
+        "fieldGroupCompany": "Şirket",
+        "fieldGroupPeople": "Kişi",
+        "progressCancelling": "İptal ediliyor...",
+        "progressDone": "İçe Aktarma Tamamlandı",
+        "progressImporting": "İçe Aktarılıyor...",
+        "progressRows": "satır",
+        "progressStop": "Durdur",
+        "progressSuccessful": "başarılı",
+        "progressErrorsLabel": "hata",
+        "progressCompanies": "şirket",
+        "progressContacts": "kişi",
+        "progressExpand": "Genişlet",
+        "progressMinimize": "Küçült",
+        "progressClose": "Kapat",
+        "progressHide": "Gizle"
     },
     "stages": {
         "new": "Yeni",

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect, ReactNode } from 'react';
 import api from '../lib/api';
+import type { ImportResult } from '../lib/types';
 
 const STORAGE_KEY = 'leadhub_import_active';
 
@@ -8,16 +9,6 @@ interface StoredSession {
     totalRows: number;
     fileName: string;
     startedAt: number; // timestamp ms
-}
-
-interface ImportResult {
-    successCount: number;
-    errorCount: number;
-    totalRows: number;
-    createdCompanies: number;
-    updatedCompanies: number;
-    createdContacts: number;
-    cancelled?: boolean;
 }
 
 interface ImportProgressState {
@@ -85,7 +76,7 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
             } catch {
                 // ignore polling errors
             }
-        }, 1000);
+        }, 2500);
     }, [stopPoll]);
 
     const startImport = useCallback((jobId: string, totalRows: number, fileName: string) => {

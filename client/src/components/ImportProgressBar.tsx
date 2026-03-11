@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Portal, Paper, Progress, Text, Group, Stack, ActionIcon, Badge, ThemeIcon, Button, Tooltip } from '@mantine/core';
 import { IconX, IconCheck, IconUpload, IconAlertCircle, IconPlayerStop, IconMinus, IconChevronUp } from '@tabler/icons-react';
+import { useTranslation } from 'react-i18next';
 import { useImportProgress } from '../contexts/ImportProgressContext';
 
 function useElapsedSeconds(startedAt: number | null, active: boolean): number {
@@ -29,6 +30,7 @@ function formatElapsed(seconds: number): string {
 }
 
 export default function ImportProgressBar() {
+    const { t } = useTranslation();
     const {
         isImporting, isDone, isCancelling,
         fileName, totalRows, progressCount, startedAt,
@@ -54,10 +56,10 @@ export default function ImportProgressBar() {
         : 'violet';
 
     const label = isCancelling
-        ? 'İptal ediliyor...'
+        ? t('import.progressCancelling')
         : isDone
-        ? 'İçe Aktarma Tamamlandı'
-        : 'İçe Aktarılıyor...';
+        ? t('import.progressDone')
+        : t('import.progressImporting');
 
     // Minimized chip view
     if (minimized) {
@@ -95,7 +97,7 @@ export default function ImportProgressBar() {
                                 %{pct}
                             </Text>
                         )}
-                        <Tooltip label="Genişlet" withArrow>
+                        <Tooltip label={t('import.progressExpand')} withArrow>
                             <ActionIcon
                                 variant="subtle"
                                 color="gray"
@@ -151,20 +153,20 @@ export default function ImportProgressBar() {
                                 </Text>
                             )}
                             {/* Minimize button */}
-                            <Tooltip label="Küçült" withArrow>
+                            <Tooltip label={t('import.progressMinimize')} withArrow>
                                 <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => setMinimized(true)}>
                                     <IconMinus size={14} />
                                 </ActionIcon>
                             </Tooltip>
                             {/* Close / Dismiss button */}
                             {isDone ? (
-                                <Tooltip label="Kapat" withArrow>
+                                <Tooltip label={t('import.progressClose')} withArrow>
                                     <ActionIcon variant="subtle" color="gray" size="sm" onClick={dismiss}>
                                         <IconX size={14} />
                                     </ActionIcon>
                                 </Tooltip>
                             ) : (
-                                <Tooltip label="Gizle" withArrow>
+                                <Tooltip label={t('import.progressHide')} withArrow>
                                     <ActionIcon variant="subtle" color="gray" size="sm" onClick={dismiss}>
                                         <IconX size={14} />
                                     </ActionIcon>
@@ -190,7 +192,7 @@ export default function ImportProgressBar() {
                     {/* Stats row + Stop button */}
                     <Group justify="space-between" wrap="nowrap">
                         <Text size="xs" c="dimmed">
-                            {processed.toLocaleString('tr-TR')} / {totalRows.toLocaleString('tr-TR')} satır
+                            {processed.toLocaleString()} / {totalRows.toLocaleString()} {t('import.progressRows')}
                             {' · '}
                             <Text span fw={600} c={isDone ? 'green' : 'violet'}>%{pct}</Text>
                         </Text>
@@ -204,7 +206,7 @@ export default function ImportProgressBar() {
                                 leftSection={<IconPlayerStop size={11} />}
                                 onClick={stopImport}
                             >
-                                Durdur
+                                {t('import.progressStop')}
                             </Button>
                         )}
                     </Group>
@@ -213,21 +215,21 @@ export default function ImportProgressBar() {
                     {isDone && result && (
                         <Group gap="xs">
                             <Badge color="green" size="sm" variant="light">
-                                ✓ {result.successCount.toLocaleString('tr-TR')} başarılı
+                                ✓ {result.successCount.toLocaleString()} {t('import.progressSuccessful')}
                             </Badge>
                             {result.errorCount > 0 && (
                                 <Badge color="red" size="sm" variant="light">
-                                    ✗ {result.errorCount.toLocaleString('tr-TR')} hata
+                                    ✗ {result.errorCount.toLocaleString()} {t('import.progressErrorsLabel')}
                                 </Badge>
                             )}
                             {result.createdCompanies > 0 && (
                                 <Badge color="blue" size="sm" variant="light">
-                                    +{result.createdCompanies} şirket
+                                    +{result.createdCompanies} {t('import.progressCompanies')}
                                 </Badge>
                             )}
                             {result.createdContacts > 0 && (
                                 <Badge color="violet" size="sm" variant="light">
-                                    +{result.createdContacts} kişi
+                                    +{result.createdContacts} {t('import.progressContacts')}
                                 </Badge>
                             )}
                         </Group>

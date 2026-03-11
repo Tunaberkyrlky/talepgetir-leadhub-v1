@@ -9,8 +9,6 @@ import {
     Paper,
     Text,
     Table,
-    Select,
-    Badge,
     Stack,
     Alert,
     SimpleGrid,
@@ -36,24 +34,9 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import DataMatchFlow from '../components/DataMatchFlow';
+import MappingEditor from '../components/MappingEditor';
 import { useImportProgress } from '../contexts/ImportProgressContext';
-
-interface MappingSuggestion {
-    fileHeader: string;
-    dbField: string | null;
-    table: string | null;
-    field: string | null;
-    confidence: number;
-    required: boolean;
-}
-
-interface AvailableField {
-    value: string;
-    label: string;
-    table: string;
-    field: string;
-    required: boolean;
-}
+import type { MappingSuggestion, AvailableField, ImportResult } from '../lib/types';
 
 interface PreviewData {
     fileName: string;
@@ -64,18 +47,6 @@ interface PreviewData {
     suggestions: MappingSuggestion[];
     availableFields: AvailableField[];
     previewRows: Record<string, string>[];
-}
-
-interface ImportResult {
-    importJobId: string;
-    totalRows: number;
-    successCount: number;
-    errorCount: number;
-    errors: { row: number; field: string; error: string }[];
-    createdCompanies: number;
-    updatedCompanies: number;
-    createdContacts: number;
-    cancelled?: boolean;
 }
 
 export default function ImportPage() {
@@ -156,25 +127,6 @@ export default function ImportPage() {
         setMapping((prev) => ({ ...prev, [fileHeader]: dbField }));
     };
 
-    const getConfidenceBadge = (confidence: number) => {
-        if (confidence >= 0.8) return <Badge color="green" size="sm">✓ Yüksek</Badge>;
-        if (confidence >= 0.6) return <Badge color="yellow" size="sm">~ Orta</Badge>;
-        return <Badge color="gray" size="sm">? Manuel</Badge>;
-    };
-
-    const availableFieldOptions = (() => {
-        if (!previewData) return [];
-        const companyFields = previewData.availableFields.filter((f) => f.table === 'companies');
-        const contactFields = previewData.availableFields.filter((f) => f.table === 'contacts');
-        const groups = [];
-        if (companyFields.length > 0) {
-            groups.push({ group: 'Şirket', items: companyFields.map((f) => ({ value: f.value, label: f.label })) });
-        }
-        if (contactFields.length > 0) {
-            groups.push({ group: 'Kişi', items: contactFields.map((f) => ({ value: f.value, label: f.label })) });
-        }
-        return groups;
-    })();
 
     return (
         <Container size="lg" py="lg">
@@ -195,10 +147,10 @@ export default function ImportPage() {
             <Tabs defaultValue="single" color="violet" mb="xl">
                 <Tabs.List mb="lg">
                     <Tabs.Tab value="single" leftSection={<IconFileSpreadsheet size={16} />}>
-                        {t('import.singleImportTab', 'Tekli Dosya')}
+                        {t('import.singleImportTab')}
                     </Tabs.Tab>
                     <Tabs.Tab value="match" leftSection={<IconUsers size={16} />}>
-                        {t('import.matchTab', 'Veri Eşleştirme')}
+                        {t('import.matchTab')}
                     </Tabs.Tab>
                 </Tabs.List>
 
@@ -268,62 +220,14 @@ export default function ImportPage() {
                             {previewData?.fileName} — {previewData?.totalRows} {t('import.totalRows').toLowerCase()}
                         </Text>
 
-                        <Table striped highlightOnHover>
-                            <Table.Thead>
-                                <Table.Tr>
-                                    <Table.Th style={{ width: 32 }} />
-                                    <Table.Th>{t('import.fileColumn')}</Table.Th>
-                                    <Table.Th>{t('import.dbField')}</Table.Th>
-                                    <Table.Th>{t('import.confidence')}</Table.Th>
-                                </Table.Tr>
-                            </Table.Thead>
-                            <Table.Tbody>
-                                {previewData?.suggestions.map((s) => {
-                                    const usedInOtherRows = new Set(
-                                        Object.entries(mapping)
-                                            .filter(([key, val]) => key !== s.fileHeader && val)
-                                            .map(([, val]) => val as string)
-                                    );
-                                    const filteredOptions = [
-                                        { value: '', label: `— ${t('import.unmapped')}` },
-                                        ...availableFieldOptions.map((g) => ({
-                                            group: g.group,
-                                            items: g.items.filter((opt) => !usedInOtherRows.has(opt.value)),
-                                        })).filter((g) => g.items.length > 0),
-                                    ];
-                                    const isMapped = !!mapping[s.fileHeader];
-                                    return (
-                                        <Table.Tr key={s.fileHeader}>
-                                            <Table.Td>
-                                                {isMapped && (
-                                                    <IconArrowRight size={18} color="var(--mantine-color-violet-6)" />
-                                                )}
-                                            </Table.Td>
-                                            <Table.Td>
-                                                <Text fw={500} size="sm">
-                                                    {s.fileHeader}
-                                                    {s.required && <Text span c="red" ml={4}>*</Text>}
-                                                </Text>
-                                            </Table.Td>
-                                            <Table.Td>
-                                                <Select
-                                                    size="sm"
-                                                    radius="md"
-                                                    value={mapping[s.fileHeader] || ''}
-                                                    onChange={(val) => handleMappingChange(s.fileHeader, val || null)}
-                                                    data={filteredOptions}
-                                                    clearable
-                                                    searchable
-                                                />
-                                            </Table.Td>
-                                            <Table.Td>
-                                                {getConfidenceBadge(s.confidence)}
-                                            </Table.Td>
-                                        </Table.Tr>
-                                    );
-                                })}
-                            </Table.Tbody>
-                        </Table>
+                        {previewData && (
+                            <MappingEditor
+                                suggestions={previewData.suggestions}
+                                mapping={mapping}
+                                availableFields={previewData.availableFields}
+                                onMappingChange={handleMappingChange}
+                            />
+                        )}
 
                         <Group justify="flex-end" mt="xl">
                             <Button variant="default" onClick={() => setActive(0)} leftSection={<IconArrowLeft size={16} />}>

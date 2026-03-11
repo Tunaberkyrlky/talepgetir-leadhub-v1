@@ -119,7 +119,22 @@
         "mergedRows": "Total merged rows",
         "confidenceHigh": "High",
         "confidenceMedium": "Medium",
-        "confidenceManual": "Manual"
+        "confidenceManual": "Manual",
+        "fieldGroupCompany": "Company",
+        "fieldGroupPeople": "Person",
+        "progressCancelling": "Cancelling...",
+        "progressDone": "Import Completed",
+        "progressImporting": "Importing...",
+        "progressRows": "rows",
+        "progressStop": "Stop",
+        "progressSuccessful": "successful",
+        "progressErrorsLabel": "errors",
+        "progressCompanies": "companies",
+        "progressContacts": "contacts",
+        "progressExpand": "Expand",
+        "progressMinimize": "Minimize",
+        "progressClose": "Close",
+        "progressHide": "Hide"
     },
     "stages": {
         "new": "New",
