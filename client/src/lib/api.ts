@@ -1,4 +1,7 @@
 import axios from 'axios';
+import { createLogger } from './logger';
+
+const log = createLogger('api');
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -26,7 +29,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (response) => response,
     async (error) => {
-        if (error.response?.status === 401) {
+        const status = error.response?.status;
+        const url = error.config?.url;
+
+        if (status === 401) {
             // Try to refresh token
             const refreshToken = localStorage.getItem('refreshToken');
             if (refreshToken && !error.config._retry) {
@@ -37,14 +43,16 @@ api.interceptors.response.use(
                     localStorage.setItem('refreshToken', data.refreshToken);
                     error.config.headers.Authorization = `Bearer ${data.token}`;
                     return api(error.config);
-                } catch {
-                    // Refresh failed, clear tokens
+                } catch (refreshError) {
+                    log.warn('Token refresh failed, redirecting to login', { url });
                     localStorage.removeItem('token');
                     localStorage.removeItem('refreshToken');
                     localStorage.removeItem('user');
                     window.location.href = '/login';
                 }
             }
+        } else {
+            log.error('API error', { status, url, message: error.message });
         }
         return Promise.reject(error);
     }

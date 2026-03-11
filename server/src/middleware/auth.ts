@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin, supabaseAuth } from '../lib/supabase.js';
+import { createLogger } from '../lib/logger.js';
+
+const log = createLogger('auth');
 
 // Extend Express Request type
 declare global {
@@ -35,7 +38,7 @@ export async function authMiddleware(
         const { data: { user }, error } = await supabaseAuth.auth.getUser(token);
 
         if (error || !user) {
-            console.log('[AUTH] ❌ Token invalid or user not found. Error:', error?.message);
+            log.warn({ error: error?.message }, 'Token invalid or user not found');
             res.status(401).json({ error: 'Invalid or expired token' });
             return;
         }
@@ -53,19 +56,19 @@ export async function authMiddleware(
         if (!defaultTenantId) {
             const firstMembership = allMemberships?.[0];
             if (!firstMembership) {
-                console.log('[AUTH] ❌ No tenant_id in app_metadata and no active memberships');
+                log.warn({ userId: user.id }, 'No tenant_id in app_metadata and no active memberships');
                 res.status(403).json({ error: 'User has no tenant assigned' });
                 return;
             }
             defaultTenantId = firstMembership.tenant_id;
-            console.log('[AUTH] ℹ️ No app_metadata.tenant_id — resolved tenant from membership:', defaultTenantId);
+            log.info({ tenantId: defaultTenantId }, 'No app_metadata.tenant_id — resolved tenant from membership');
         }
 
         const isPlatformSuperadmin = allMemberships?.some(m => m.role === 'superadmin');
         const primaryMembership = allMemberships?.find(m => m.tenant_id === defaultTenantId);
 
         if (!isPlatformSuperadmin && !primaryMembership) {
-            console.log('[AUTH] ❌ No active membership for user', user.id, 'in default tenant', defaultTenantId);
+            log.warn({ userId: user.id, tenantId: defaultTenantId }, 'No active membership for user in default tenant');
             res.status(403).json({ error: 'User has no active membership in this tenant' });
             return;
         }
@@ -116,7 +119,7 @@ export async function authMiddleware(
             }
         }
 
-        console.log('[AUTH] ✅ User:', user.email, '| Role:', effectiveRole, '| Tenant:', effectiveTenantId);
+        log.info({ email: user.email, role: effectiveRole, tenantId: effectiveTenantId }, 'Auth success');
 
         // Attach user info to request
         req.user = {
@@ -129,7 +132,7 @@ export async function authMiddleware(
 
         next();
     } catch (err) {
-        console.error('Auth middleware error:', err);
+        log.error({ err }, 'Auth middleware error');
         res.status(500).json({ error: 'Internal authentication error' });
     }
 }

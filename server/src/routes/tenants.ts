@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
+import { createLogger } from '../lib/logger.js';
 
+const log = createLogger('route:tenants');
 const router = Router();
 
 interface TenantInfo {
@@ -75,7 +77,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
         res.json({ tenants });
     } catch (err) {
-        console.error('List tenants error:', err);
+        log.error({ err }, 'List tenants error');
         res.status(500).json({ error: 'Failed to list tenants' });
     }
 });

@@ -2,6 +2,9 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { createLogger } from '../lib/logger.js';
+
+const log = createLogger('route:companies');
 
 const router = Router();
 
@@ -114,7 +117,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         });
     } catch (err) {
         if (err instanceof AppError) throw err;
-        console.error('List companies error:', err);
+        log.error({ err }, 'List companies error');
         res.status(500).json({ error: 'Failed to fetch companies' });
     }
 });
@@ -149,7 +152,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 
         res.json({ data: { ...data, contacts: contacts || [] } });
     } catch (err) {
-        console.error('Get company error:', err);
+        log.error({ err }, 'Get company error');
         res.status(500).json({ error: 'Failed to fetch company' });
     }
 });
@@ -205,7 +208,7 @@ router.post(
                 .single();
 
             if (companyError) {
-                console.error('Insert company error:', companyError);
+                log.error({ err: companyError }, 'Insert company error');
                 throw new AppError('Failed to create company', 500);
             }
 
@@ -228,7 +231,7 @@ router.post(
                     .single();
 
                 if (contactError) {
-                    console.error('Insert initial contact error:', contactError);
+                    log.error({ err: contactError }, 'Insert initial contact error');
                     // Do not fail the whole request since company was created
                 } else {
                     contact = newContact;
@@ -238,7 +241,7 @@ router.post(
             res.status(201).json({ data: { ...company, contacts: contact ? [contact] : [] } });
         } catch (err) {
             if (err instanceof AppError) throw err;
-            console.error('Create company error:', err);
+            log.error({ err }, 'Create company error');
             res.status(500).json({ error: 'Failed to create company' });
         }
     }
@@ -308,7 +311,7 @@ router.put(
             res.json({ data });
         } catch (err) {
             if (err instanceof AppError) throw err;
-            console.error('Update company error:', err);
+            log.error({ err }, 'Update company error');
             res.status(500).json({ error: 'Failed to update company' });
         }
     }
@@ -336,7 +339,7 @@ router.delete(
             res.status(204).send();
         } catch (err) {
             if (err instanceof AppError) throw err;
-            console.error('Delete company error:', err);
+            log.error({ err }, 'Delete company error');
             res.status(500).json({ error: 'Failed to delete company' });
         }
     }

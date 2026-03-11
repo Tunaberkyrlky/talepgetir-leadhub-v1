@@ -8,7 +8,8 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseServiceKey || !supabaseAnonKey) {
-    console.error('Missing Supabase environment variables. Check .env file.');
+    // Use process.stderr directly here since the logger isn't available yet at module init
+    process.stderr.write('Missing Supabase environment variables. Check .env file.\n');
     process.exit(1);
 }
 
@@ -31,7 +32,13 @@ export const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
     },
 });
 
-console.log('[SUPABASE] Service key starts with:', supabaseServiceKey.substring(0, 20), '... role:', supabaseServiceKey.split('.')[1] ? JSON.parse(Buffer.from(supabaseServiceKey.split('.')[1], 'base64').toString()).role : 'unknown');
+// Debug: confirm which key role is in use (dev aid, can be removed once stable)
+import { createLogger } from './logger.js';
+const log = createLogger('supabase');
+const keyRole = supabaseServiceKey.split('.')[1]
+    ? JSON.parse(Buffer.from(supabaseServiceKey.split('.')[1], 'base64').toString()).role
+    : 'unknown';
+log.debug({ keyRole }, 'Supabase service key loaded');
 
 // Create a per-request client using the user's JWT token
 // This client respects RLS policies

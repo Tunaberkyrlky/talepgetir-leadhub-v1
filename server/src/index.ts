@@ -2,10 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import pinoHttp from 'pino-http';
 
 // Load env first
 dotenv.config({ path: '../.env' });
 
+import logger from './lib/logger.js';
 import { authMiddleware } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import authRoutes from './routes/auth.js';
@@ -20,6 +22,17 @@ const PORT = process.env.API_PORT || 3001;
 
 // Security middleware
 app.use(helmet());
+app.use(pinoHttp({
+    logger,
+    customSuccessMessage: (req, res, responseTime) =>
+        `${req.method} ${req.url} ${res.statusCode} ${responseTime}ms`,
+    customErrorMessage: (req, res, err, responseTime) =>
+        `${req.method} ${req.url} ${res.statusCode} ${responseTime}ms — ${err.message}`,
+    serializers: {
+        req: () => undefined as never,
+        res: () => undefined as never,
+    },
+}));
 app.use(cors({
     origin: process.env.NODE_ENV === 'production'
         ? [process.env.CLIENT_URL || 'https://leadhub.app']
@@ -47,8 +60,7 @@ app.use('/api/tenants', authMiddleware, tenantsRoutes);
 app.use(errorHandler);
 
 app.listen(PORT, () => {
-    console.log(`🚀 LeadHub API running on http://localhost:${PORT}`);
-    console.log(`   Env: ${process.env.NODE_ENV || 'development'}`);
+    logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'LeadHub API started');
 });
 
 export default app;

@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
+import { createLogger } from '../lib/logger.js';
 
+const log = createLogger('route:filter-options');
 const router = Router();
 
 // GET /api/filter-options — Returns distinct values for filter dropdowns
@@ -39,7 +41,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
         res.json({ stages, industries, locations });
     } catch (err) {
-        console.error('Filter options error:', err);
+        log.error({ err }, 'Filter options error');
         res.status(500).json({ error: 'Failed to fetch filter options' });
     }
 });

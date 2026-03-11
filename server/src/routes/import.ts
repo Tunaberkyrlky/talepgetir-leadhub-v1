@@ -1,5 +1,8 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import { createLogger } from '../lib/logger.js';
+
+const log = createLogger('route:import');
 import path from 'path';
 import fs from 'fs';
 import { requireRole } from '../middleware/auth.js';
@@ -60,7 +63,7 @@ router.post(
 
             res.json({ jobId });
         } catch (err: any) {
-            console.error('Import begin error:', err);
+            log.error({ err }, 'Import begin error');
             res.status(500).json({ error: err.message || 'Failed to begin import' });
         }
     }
@@ -112,7 +115,7 @@ router.post(
                 previewRows,
             });
         } catch (err: any) {
-            console.error('Import preview error:', err);
+            log.error({ err }, 'Import preview error');
             const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 500;
             res.status(status).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 10MB)' : (err.message || 'Failed to preview file') });
         }
@@ -202,7 +205,7 @@ router.post(
                 previewRows,
             });
         } catch (err: any) {
-            console.error('Match preview error:', err);
+            log.error({ err }, 'Match preview error');
             const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 500;
             res.status(status).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 10MB)' : (err.message || 'Failed to match files') });
         }
@@ -226,6 +229,8 @@ router.post(
                 res.status(400).json({ error: 'Missing required field: jobId. Call /api/import/begin first.' });
                 return;
             }
+
+            log.info({ fileName, fileType, jobId }, 'Import execute started');
 
             // Verify file is within the upload directory (prevent path traversal)
             const resolvedPath = path.resolve(filePath);
@@ -269,9 +274,10 @@ router.post(
             // Clean up temp file
             try { fs.unlinkSync(resolvedPath); } catch { /* ignore */ }
 
+            log.info({ jobId, successCount: result.successCount, errorCount: result.errorCount }, 'Import execute completed');
             res.json(result);
         } catch (err: any) {
-            console.error('Import execute error:', err);
+            log.error({ err }, 'Import execute error');
             res.status(500).json({ error: err.message || 'Import failed' });
         }
     }
@@ -297,7 +303,7 @@ router.post(
 
             res.json({ ok: true });
         } catch (err) {
-            console.error('Cancel import error:', err);
+            log.error({ err }, 'Cancel import error');
             res.status(500).json({ error: 'Failed to cancel import' });
         }
     }
@@ -323,7 +329,7 @@ router.get(
 
             res.json({ data: data || [] });
         } catch (err) {
-            console.error('List jobs error:', err);
+            log.error({ err }, 'List jobs error');
             res.status(500).json({ error: 'Failed to fetch import jobs' });
         }
     }
@@ -349,7 +355,7 @@ router.get(
 
             res.json({ data });
         } catch (err) {
-            console.error('Get job error:', err);
+            log.error({ err }, 'Get job error');
             res.status(500).json({ error: 'Failed to fetch import job' });
         }
     }

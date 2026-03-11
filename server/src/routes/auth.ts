@@ -1,5 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin, supabaseAuth } from '../lib/supabase.js';
+import { createLogger } from '../lib/logger.js';
+
+const log = createLogger('route:auth');
 
 const router = Router();
 
@@ -62,7 +65,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
                 .select('id, name, slug')
                 .eq('is_active', true)
                 .order('name');
-            console.log('[DEBUG] Superadmin tenant query:', { allTenants, error: tenantErr?.message });
+            log.debug({ tenantCount: allTenants?.length, error: tenantErr?.message }, 'Superadmin tenant query');
             accessibleTenants = (allTenants || []).map((t) => ({ ...t, role: 'superadmin' }));
         } else if (role === 'ops_agent') {
             const { data: memberships } = await supabaseAdmin
@@ -107,7 +110,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
             },
         });
     } catch (err) {
-        console.error('Login error:', err);
+        log.error({ err }, 'Login error');
         res.status(500).json({ error: 'Login failed' });
     }
 });
@@ -136,7 +139,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
             refreshToken: data.session.refresh_token,
         });
     } catch (err) {
-        console.error('Refresh error:', err);
+        log.error({ err }, 'Token refresh error');
         res.status(500).json({ error: 'Token refresh failed' });
     }
 });
@@ -266,7 +269,7 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
             },
         });
     } catch (err) {
-        console.error('Me error:', err);
+        log.error({ err }, 'Get user info error');
         res.status(500).json({ error: 'Failed to get user info' });
     }
 });

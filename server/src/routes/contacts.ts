@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
+import { createLogger } from '../lib/logger.js';
 
+const log = createLogger('route:contacts');
 const router = Router();
 
 // GET /api/contacts?company_id=xxx — List contacts for a company
@@ -30,7 +32,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
         res.json({ data: data || [] });
     } catch (err) {
-        console.error('List contacts error:', err);
+        log.error({ err }, 'List contacts error');
         res.status(500).json({ error: 'Failed to fetch contacts' });
     }
 });
@@ -89,7 +91,7 @@ router.post(
 
             res.status(201).json({ data });
         } catch (err) {
-            console.error('Create contact error:', err);
+            log.error({ err }, 'Create contact error');
             res.status(500).json({ error: 'Failed to create contact' });
         }
     }
@@ -134,7 +136,7 @@ router.put(
 
             res.json({ data });
         } catch (err) {
-            console.error('Update contact error:', err);
+            log.error({ err }, 'Update contact error');
             res.status(500).json({ error: 'Failed to update contact' });
         }
     }
@@ -159,7 +161,7 @@ router.delete(
 
             res.status(204).send();
         } catch (err) {
-            console.error('Delete contact error:', err);
+            log.error({ err }, 'Delete contact error');
             res.status(500).json({ error: 'Failed to delete contact' });
         }
     }
