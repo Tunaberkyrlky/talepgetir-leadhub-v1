@@ -183,5 +183,43 @@
     "settings": {
         "title": "Settings",
         "darkMode": "Dark Mode"
+    },
+    "nav": {
+        "dashboard": "Dashboard",
+        "companies": "Companies",
+        "people": "People",
+        "pipeline": "Pipeline",
+        "import": "Import"
+    },
+    "people": {
+        "title": "People",
+        "search": "Search people...",
+        "addPerson": "New Person",
+        "noData": "No people yet",
+        "noDataDescription": "Add contacts or import a CSV/XLSX file.",
+        "filterCompany": "Filter by company...",
+        "filterSeniority": "Filter by seniority...",
+        "filterDepartment": "Filter by department...",
+        "filterCountry": "Filter by country...",
+        "fullName": "Name",
+        "company": "Company",
+        "titleDept": "Title / Dept.",
+        "seniority": "Seniority",
+        "country": "Country",
+        "updatedAt": "Updated",
+        "detail": "Person Detail",
+        "linkedCompany": "Company",
+        "contactInfo": "Contact Info",
+        "noEmail": "No email",
+        "noPhone": "No phone",
+        "noLinkedIn": "No LinkedIn",
+        "notes": "Notes",
+        "back": "Back"
+    },
+    "dashboard": {
+        "comingSoon": "Dashboard coming in Phase 2"
+    },
+    "pipeline": {
+        "comingSoon": "Pipeline view coming in Phase 4"
     }
 }

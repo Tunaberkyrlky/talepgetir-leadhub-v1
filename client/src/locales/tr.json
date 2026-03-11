@@ -183,5 +183,43 @@
     "settings": {
         "title": "Ayarlar",
         "darkMode": "Koyu Mod"
+    },
+    "nav": {
+        "dashboard": "Dashboard",
+        "companies": "Şirketler",
+        "people": "Kişiler",
+        "pipeline": "Pipeline",
+        "import": "İçe Aktar"
+    },
+    "people": {
+        "title": "Kişiler",
+        "search": "Kişi ara...",
+        "addPerson": "Yeni Kişi",
+        "noData": "Henüz kişi yok",
+        "noDataDescription": "Kişi ekleyin veya CSV/XLSX dosyası import edin.",
+        "filterCompany": "Şirkete göre filtrele...",
+        "filterSeniority": "Kıdeme göre filtrele...",
+        "filterDepartment": "Departmana göre filtrele...",
+        "filterCountry": "Ülkeye göre filtrele...",
+        "fullName": "Ad Soyad",
+        "company": "Şirket",
+        "titleDept": "Ünvan / Dept.",
+        "seniority": "Kıdem",
+        "country": "Ülke",
+        "updatedAt": "Güncelleme",
+        "detail": "Kişi Detayı",
+        "linkedCompany": "Şirket",
+        "contactInfo": "İletişim Bilgileri",
+        "noEmail": "E-posta yok",
+        "noPhone": "Telefon yok",
+        "noLinkedIn": "LinkedIn yok",
+        "notes": "Notlar",
+        "back": "Geri Dön"
+    },
+    "dashboard": {
+        "comingSoon": "Dashboard Phase 2'de gelecek"
+    },
+    "pipeline": {
+        "comingSoon": "Pipeline görünümü Phase 4'te gelecek"
     }
 }

@@ -6,34 +6,168 @@ import { createLogger } from '../lib/logger.js';
 const log = createLogger('route:contacts');
 const router = Router();
 
-// GET /api/contacts?company_id=xxx — List contacts for a company
+// GET /api/contacts/filter-options — distinct filter values for PeoplePage dropdowns
+router.get('/filter-options', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+
+        const [seniorityRes, departmentRes, countryRes, companyRes] = await Promise.all([
+            supabaseAdmin
+                .from('contacts')
+                .select('seniority')
+                .eq('tenant_id', tenantId)
+                .not('seniority', 'is', null),
+            supabaseAdmin
+                .from('contacts')
+                .select('department')
+                .eq('tenant_id', tenantId)
+                .not('department', 'is', null),
+            supabaseAdmin
+                .from('contacts')
+                .select('country')
+                .eq('tenant_id', tenantId)
+                .not('country', 'is', null),
+            supabaseAdmin
+                .from('companies')
+                .select('id, name')
+                .eq('tenant_id', tenantId)
+                .eq('is_active', true)
+                .order('name'),
+        ]);
+
+        const unique = <T>(arr: T[]): T[] => [...new Set(arr)];
+
+        res.json({
+            data: {
+                seniorities: unique((seniorityRes.data || []).map((r: any) => r.seniority)).sort(),
+                departments: unique((departmentRes.data || []).map((r: any) => r.department)).sort(),
+                countries: unique((countryRes.data || []).map((r: any) => r.country)).sort(),
+                companies: (companyRes.data || []).map((c: any) => ({ id: c.id, name: c.name })),
+            },
+        });
+    } catch (err) {
+        log.error({ err }, 'Filter options error');
+        res.status(500).json({ error: 'Failed to fetch filter options' });
+    }
+});
+
+// GET /api/contacts — List contacts with pagination, search, sort, filter
 router.get('/', async (req: Request, res: Response): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
-        const companyId = req.query.company_id as string;
+        const companyId = req.query.company_id as string | undefined;
+
+        // When fetching for a company detail page (company_id provided), simple ordered list
+        if (companyId) {
+            const { data, error } = await supabaseAdmin
+                .from('contacts')
+                .select('*')
+                .eq('tenant_id', tenantId)
+                .eq('company_id', companyId)
+                .order('is_primary', { ascending: false })
+                .order('created_at', { ascending: true });
+
+            if (error) {
+                res.status(500).json({ error: 'Failed to fetch contacts' });
+                return;
+            }
+            res.json({ data: data || [] });
+            return;
+        }
+
+        // PeoplePage: full pagination + filtering
+        const page = Math.max(1, parseInt(req.query.page as string) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 25));
+        const offset = (page - 1) * limit;
+        const search = (req.query.search as string || '').trim();
+        const sortBy = (req.query.sortBy as string) || 'updated_at';
+        const sortOrder = req.query.sortOrder === 'asc';
+
+        const filterCompanyIds = req.query.company_ids
+            ? (req.query.company_ids as string).split(',').filter(Boolean)
+            : [];
+        const filterSeniorities = req.query.seniorities
+            ? (req.query.seniorities as string).split(',').filter(Boolean)
+            : [];
+        const filterDepartments = req.query.departments
+            ? (req.query.departments as string).split(',').filter(Boolean)
+            : [];
+        const filterCountries = req.query.countries
+            ? (req.query.countries as string).split(',').filter(Boolean)
+            : [];
+
+        const allowedSortFields = ['first_name', 'last_name', 'email', 'updated_at'];
+        const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'updated_at';
 
         let query = supabaseAdmin
             .from('contacts')
-            .select('*')
-            .eq('tenant_id', tenantId)
-            .order('is_primary', { ascending: false })
-            .order('created_at', { ascending: true });
+            .select(`*, companies(id, name, stage)`, { count: 'exact' })
+            .eq('tenant_id', tenantId);
 
-        if (companyId) {
-            query = query.eq('company_id', companyId);
+        if (search) {
+            query = query.or(
+                `first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,title.ilike.%${search}%`
+            );
         }
+        if (filterCompanyIds.length > 0) query = query.in('company_id', filterCompanyIds);
+        if (filterSeniorities.length > 0) query = query.in('seniority', filterSeniorities);
+        if (filterDepartments.length > 0) query = query.in('department', filterDepartments);
+        if (filterCountries.length > 0) query = query.in('country', filterCountries);
 
-        const { data, error } = await query;
+        query = query
+            .order(safeSortBy, { ascending: sortOrder })
+            .range(offset, offset + limit - 1);
+
+        const { data, error, count } = await query;
 
         if (error) {
+            log.error({ err: error }, 'List contacts error');
             res.status(500).json({ error: 'Failed to fetch contacts' });
             return;
         }
 
-        res.json({ data: data || [] });
+        const total = count || 0;
+        const totalPages = Math.ceil(total / limit);
+
+        res.json({
+            data: data || [],
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages,
+                hasNext: page < totalPages,
+                hasPrev: page > 1,
+            },
+        });
     } catch (err) {
         log.error({ err }, 'List contacts error');
         res.status(500).json({ error: 'Failed to fetch contacts' });
+    }
+});
+
+// GET /api/contacts/:id — Single contact + company info
+router.get('/:id', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const { id } = req.params;
+
+        const { data, error } = await supabaseAdmin
+            .from('contacts')
+            .select(`*, companies(id, name, website, stage, location, industry)`)
+            .eq('id', id)
+            .eq('tenant_id', tenantId)
+            .single();
+
+        if (error || !data) {
+            res.status(404).json({ error: 'Contact not found' });
+            return;
+        }
+
+        res.json({ data });
+    } catch (err) {
+        log.error({ err }, 'Get contact error');
+        res.status(500).json({ error: 'Failed to fetch contact' });
     }
 });
 
@@ -51,7 +185,6 @@ router.post(
                 return;
             }
 
-            // Verify company belongs to tenant
             const { data: company } = await supabaseAdmin
                 .from('companies')
                 .select('id')

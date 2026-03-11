@@ -7,6 +7,7 @@ interface Tenant {
     name: string;
     slug: string;
     role: string;
+    tier: string;
 }
 
 interface User {
@@ -27,6 +28,7 @@ interface AuthContextType {
     isAuthenticated: boolean;
     activeTenantId: string | null;
     activeTenantName: string | null;
+    activeTenantTier: string;
     accessibleTenants: Tenant[];
     switchTenant: (tenantId: string) => void;
     canSwitchTenants: boolean;
@@ -43,11 +45,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
     const queryClient = useQueryClient();
 
-    // Derive accessible tenants + active tenant name from user
+    // Derive accessible tenants + active tenant name/tier from user
     const accessibleTenants = user?.accessibleTenants || [];
-    const activeTenantName = accessibleTenants.find((t) => t.id === activeTenantId)?.name
-        || user?.tenantName
-        || null;
+    const activeTenant = accessibleTenants.find((t) => t.id === activeTenantId);
+    const activeTenantName = activeTenant?.name || user?.tenantName || null;
+    const activeTenantTier = activeTenant?.tier || 'basic';
     const canSwitchTenants = accessibleTenants.length > 1;
 
     // Check auth on mount
@@ -131,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 isAuthenticated: !!token && !!user,
                 activeTenantId,
                 activeTenantName,
+                activeTenantTier,
                 accessibleTenants,
                 switchTenant,
                 canSwitchTenants,

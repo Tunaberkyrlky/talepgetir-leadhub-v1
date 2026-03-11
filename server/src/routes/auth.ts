@@ -47,22 +47,24 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         const role = isPlatformSuperadmin ? 'superadmin' : (allMemberships?.find(m => m.tenant_id === tenantId)?.role || null);
 
         let tenantName = null;
+        let tenantTier = 'basic';
         if (tenantId) {
             const { data: tenant } = await supabaseAdmin
                 .from('tenants')
-                .select('name')
+                .select('name, tier')
                 .eq('id', tenantId)
                 .single();
             tenantName = tenant?.name;
+            tenantTier = tenant?.tier || 'basic';
         }
 
         // Build accessible tenants list
-        let accessibleTenants: { id: string; name: string; slug: string; role: string }[] = [];
+        let accessibleTenants: { id: string; name: string; slug: string; role: string; tier: string }[] = [];
 
         if (role === 'superadmin') {
             const { data: allTenants, error: tenantErr } = await supabaseAdmin
                 .from('tenants')
-                .select('id, name, slug')
+                .select('id, name, slug, tier')
                 .eq('is_active', true)
                 .order('name');
             log.debug({ tenantCount: allTenants?.length, error: tenantErr?.message }, 'Superadmin tenant query');
@@ -77,7 +79,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
                 const tenantIds = memberships.map((m) => m.tenant_id);
                 const { data: tenantData } = await supabaseAdmin
                     .from('tenants')
-                    .select('id, name, slug')
+                    .select('id, name, slug, tier')
                     .in('id', tenantIds)
                     .eq('is_active', true)
                     .order('name');
@@ -89,7 +91,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         } else if (tenantId && tenantName) {
             const { data: tenantInfo } = await supabaseAdmin
                 .from('tenants')
-                .select('id, name, slug')
+                .select('id, name, slug, tier')
                 .eq('id', tenantId)
                 .single();
             if (tenantInfo) {
@@ -105,6 +107,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
                 email: user.email,
                 tenantId,
                 tenantName,
+                tenantTier,
                 role,
                 accessibleTenants,
             },
@@ -179,30 +182,34 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
         // Base role from memberships
         const role = isPlatformSuperadmin ? 'superadmin' : (allMemberships?.find(m => m.tenant_id === defaultTenantId)?.role || null);
         let tenantName = null;
+        let tenantTier = 'basic';
 
         if (defaultTenantId) {
             const { data: tenant } = await supabaseAdmin
                 .from('tenants')
-                .select('name, slug')
+                .select('name, slug, tier')
                 .eq('id', defaultTenantId)
                 .single();
             tenantName = tenant?.name;
+            tenantTier = tenant?.tier || 'basic';
         }
 
         // Handle X-Tenant-Id for effective tenant resolution
         const requestedTenantId = req.headers['x-tenant-id'] as string;
         const effectiveTenantId = requestedTenantId || defaultTenantId;
         let effectiveTenantName = tenantName;
+        let effectiveTenantTier = tenantTier;
         let effectiveRole = role;
 
         if (requestedTenantId && requestedTenantId !== defaultTenantId) {
             const { data: reqTenant } = await supabaseAdmin
                 .from('tenants')
-                .select('name')
+                .select('name, tier')
                 .eq('id', requestedTenantId)
                 .eq('is_active', true)
                 .single();
             effectiveTenantName = reqTenant?.name || null;
+            effectiveTenantTier = reqTenant?.tier || 'basic';
 
             if (role === 'superadmin') {
                 effectiveRole = 'superadmin';
@@ -219,12 +226,12 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
         }
 
         // Build accessible tenants
-        let accessibleTenants: { id: string; name: string; slug: string; role: string }[] = [];
+        let accessibleTenants: { id: string; name: string; slug: string; role: string; tier: string }[] = [];
 
         if (role === 'superadmin') {
             const { data: allTenants } = await supabaseAdmin
                 .from('tenants')
-                .select('id, name, slug')
+                .select('id, name, slug, tier')
                 .eq('is_active', true)
                 .order('name');
             accessibleTenants = (allTenants || []).map((t) => ({ ...t, role: 'superadmin' }));
@@ -238,7 +245,7 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
                 const tenantIds = memberships.map((m) => m.tenant_id);
                 const { data: tenantData } = await supabaseAdmin
                     .from('tenants')
-                    .select('id, name, slug')
+                    .select('id, name, slug, tier')
                     .in('id', tenantIds)
                     .eq('is_active', true)
                     .order('name');
@@ -250,7 +257,7 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
         } else if (effectiveTenantId) {
             const { data: tenantInfo } = await supabaseAdmin
                 .from('tenants')
-                .select('id, name, slug')
+                .select('id, name, slug, tier')
                 .eq('id', effectiveTenantId)
                 .single();
             if (tenantInfo) {
@@ -264,6 +271,7 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
                 email: user.email,
                 tenantId: effectiveTenantId,
                 tenantName: effectiveTenantName,
+                tenantTier: effectiveTenantTier,
                 role: effectiveRole,
                 accessibleTenants,
             },

@@ -46,6 +46,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import { stageColors } from '../lib/stages';
 import CompanyForm from '../components/CompanyForm';
 
 interface Company {
@@ -86,18 +87,7 @@ interface FilterOptions {
     locations: string[];
 }
 
-// Stage color mapping
-const stageColors: Record<string, string> = {
-    new: 'blue',
-    researching: 'cyan',
-    contacted: 'indigo',
-    meeting_scheduled: 'yellow',
-    proposal_sent: 'orange',
-    negotiation: 'grape',
-    won: 'green',
-    lost: 'red',
-    on_hold: 'gray',
-};
+// Stage colors imported from lib/stages.ts
 
 // Sortable columns
 type SortKey = 'name' | 'stage' | 'industry' | 'location' | 'updated_at';

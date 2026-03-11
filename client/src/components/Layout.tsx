@@ -1,4 +1,4 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import classes from './Layout.module.css';
 import {
     AppShell,
@@ -11,8 +11,12 @@ import {
     UnstyledButton,
     Flex,
     Select,
+    NavLink,
+    Stack,
+    Tooltip,
+    Burger,
 } from '@mantine/core';
-import { useDisclosure } from '@mantine/hooks';
+import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
     IconUser,
     IconLogout,
@@ -20,10 +24,15 @@ import {
     IconBuilding,
     IconSwitchHorizontal,
     IconSettings,
+    IconChartBar,
+    IconUsers,
+    IconColumns,
+    IconFileImport,
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
+import { isInternal } from '../lib/permissions';
 
 export default function Layout() {
     const {
@@ -39,6 +48,11 @@ export default function Layout() {
     } = useAuth();
     const { t, i18n } = useTranslation();
     const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
+    const [navbarOpened, { toggle: toggleNavbar, close: closeNavbar }] = useDisclosure(false);
+    const location = useLocation();
+    const navigate = useNavigate();
+    const isMobile = useMediaQuery('(max-width: 768px)');
+    const isIconOnly = useMediaQuery('(max-width: 992px)') && !isMobile;
 
     if (isLoading) return null;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -50,20 +64,47 @@ export default function Layout() {
     };
 
     const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
+    const userIsInternal = isInternal(user?.role || '');
 
     const tenantSelectData = accessibleTenants.map((t) => ({
         value: t.id,
         label: t.name,
     }));
 
+    const navItems = [
+        { path: '/dashboard', label: t('nav.dashboard'), icon: <IconChartBar size={20} /> },
+        { path: '/companies', label: t('nav.companies'), icon: <IconBuilding size={20} /> },
+        { path: '/people', label: t('nav.people'), icon: <IconUsers size={20} /> },
+        { path: '/pipeline', label: t('nav.pipeline'), icon: <IconColumns size={20} /> },
+        ...(userIsInternal
+            ? [{ path: '/import', label: t('nav.import'), icon: <IconFileImport size={20} /> }]
+            : []),
+    ];
+
+    const handleNavClick = (path: string) => {
+        navigate(path);
+        if (isMobile) closeNavbar();
+    };
+
+    const navbarWidth = isMobile ? 0 : isIconOnly ? 60 : 200;
+
     return (
         <AppShell
             header={{ height: 60 }}
+            navbar={{
+                width: navbarWidth,
+                breakpoint: 'sm',
+                collapsed: { mobile: !navbarOpened },
+            }}
             padding="md"
             styles={{
                 header: {
                     background: 'linear-gradient(135deg, #1a1b2e 0%, #16213e 50%, #0f3460 100%)',
                     borderBottom: '1px solid rgba(255,255,255,0.08)',
+                },
+                navbar: {
+                    background: 'var(--mantine-color-body)',
+                    borderRight: '1px solid var(--mantine-color-gray-2)',
                 },
                 main: {
                     background: 'var(--mantine-color-body)',
@@ -73,8 +114,16 @@ export default function Layout() {
         >
             <AppShell.Header p="xs" px="md">
                 <Flex align="center" justify="space-between" h="100%">
-                    {/* Logo + Title */}
+                    {/* Burger for mobile + Logo */}
                     <Group gap="sm">
+                        {isMobile && (
+                            <Burger
+                                opened={navbarOpened}
+                                onClick={toggleNavbar}
+                                color="white"
+                                size="sm"
+                            />
+                        )}
                         <IconBuilding size={28} color="#6c63ff" />
                         <Title order={3} c="white" fw={700}>
                             {t('app.title')}
@@ -111,7 +160,6 @@ export default function Layout() {
                                 classNames={{ option: classes.tenantOption }}
                             />
                         ) : (
-                            /* Static tenant badge for client roles or single-tenant users */
                             activeTenantName && (
                                 <Badge
                                     variant="light"
@@ -146,7 +194,7 @@ export default function Layout() {
                                 <UnstyledButton>
                                     <Group gap="xs">
                                         <IconUser size={20} color="white" />
-                                        <Text size="sm" c="white" fw={500}>
+                                        <Text size="sm" c="white" fw={500} visibleFrom="sm">
                                             {user?.email}
                                         </Text>
                                     </Group>
@@ -181,6 +229,37 @@ export default function Layout() {
                     </Group>
                 </Flex>
             </AppShell.Header>
+
+            <AppShell.Navbar p="xs">
+                <Stack gap={4}>
+                    {navItems.map((item) => {
+                        const active = location.pathname === item.path ||
+                            (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
+                        if (isIconOnly) {
+                            return (
+                                <Tooltip key={item.path} label={item.label} position="right" withArrow>
+                                    <NavLink
+                                        active={active}
+                                        leftSection={item.icon}
+                                        onClick={() => handleNavClick(item.path)}
+                                        styles={{ root: { borderRadius: 8 } }}
+                                    />
+                                </Tooltip>
+                            );
+                        }
+                        return (
+                            <NavLink
+                                key={item.path}
+                                active={active}
+                                label={item.label}
+                                leftSection={item.icon}
+                                onClick={() => handleNavClick(item.path)}
+                                styles={{ root: { borderRadius: 8 } }}
+                            />
+                        );
+                    })}
+                </Stack>
+            </AppShell.Navbar>
 
             <AppShell.Main>
                 <Outlet />

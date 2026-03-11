@@ -16,6 +16,10 @@ import LoginPage from './pages/LoginPage';
 import LeadsPage from './pages/LeadsPage';
 import ImportPage from './pages/ImportPage';
 import CompanyDetailPage from './pages/CompanyDetailPage';
+import DashboardPage from './pages/DashboardPage';
+import PeoplePage from './pages/PeoplePage';
+import PersonDetailPage from './pages/PersonDetailPage';
+import PipelinePage from './pages/PipelinePage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -58,11 +62,16 @@ function App() {
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route element={<Layout />}>
-                  <Route path="/" element={<LeadsPage />} />
-                  <Route path="/import" element={<ImportPage />} />
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/dashboard" element={<DashboardPage />} />
+                  <Route path="/companies" element={<LeadsPage />} />
                   <Route path="/companies/:id" element={<CompanyDetailPage />} />
+                  <Route path="/people" element={<PeoplePage />} />
+                  <Route path="/people/:id" element={<PersonDetailPage />} />
+                  <Route path="/pipeline" element={<PipelinePage />} />
+                  <Route path="/import" element={<ImportPage />} />
                 </Route>
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
             </AuthProvider>
           </BrowserRouter>

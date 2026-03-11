@@ -45,12 +45,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-
-const stageColors: Record<string, string> = {
-    new: 'blue', researching: 'cyan', contacted: 'indigo',
-    meeting_scheduled: 'yellow', proposal_sent: 'orange',
-    negotiation: 'grape', won: 'green', lost: 'red', on_hold: 'gray',
-};
+import { getStageColor } from '../lib/stages';
 
 interface Contact {
     id: string;
@@ -229,7 +224,7 @@ export default function CompanyDetailPage() {
                             )}
                         </Group>
                         <Group mt="xs" gap="sm">
-                            <Badge color={stageColors[company.stage]} size="lg" variant="light">
+                            <Badge color={getStageColor(company.stage)} size="lg" variant="light">
                                 {t(`stages.${company.stage}`)}
                             </Badge>
                             {company.employee_size && (
