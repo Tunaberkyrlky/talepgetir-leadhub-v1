@@ -35,6 +35,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
+import { useImportProgress } from '../contexts/ImportProgressContext';
 
 interface MappingSuggestion {
     fileHeader: string;
@@ -85,11 +86,13 @@ interface ImportResult {
     createdCompanies: number;
     updatedCompanies: number;
     createdContacts: number;
+    cancelled?: boolean;
 }
 
 export default function DataMatchFlow() {
     const { t } = useTranslation();
     const navigate = useNavigate();
+    const { startImport, finishImport, cancelImport } = useImportProgress();
     const [active, setActive] = useState(0);
     const [companyFile, setCompanyFile] = useState<File | null>(null);
     const [peopleFile, setPeopleFile] = useState<File | null>(null);
@@ -122,17 +125,37 @@ export default function DataMatchFlow() {
     // Execute import mutation
     const executeMutation = useMutation({
         mutationFn: async () => {
+            // Step 1: Pre-create job record → get jobId for progress polling
+            const beginRes = await api.post('/import/begin', {
+                fileName: previewData!.fileName,
+                fileType: previewData!.fileType,
+                totalRows: previewData!.totalRows,
+                mapping,
+            });
+            const { jobId } = beginRes.data;
+
+            // Step 2: Start polling progress bar
+            startImport(jobId, previewData!.totalRows, previewData!.fileName);
+
+            // Step 3: Execute import
             const res = await api.post('/import/execute', {
                 filePath: previewData!.filePath,
                 fileName: previewData!.fileName,
                 fileType: previewData!.fileType,
                 mapping,
+                jobId,
             });
             return res.data as ImportResult;
         },
         onSuccess: (data) => {
-            setImportResult(data);
-            setActive(4);
+            finishImport(data);
+            if (!data.cancelled) {
+                setImportResult(data);
+                setActive(4);
+            }
+        },
+        onError: () => {
+            cancelImport();
         },
     });
 

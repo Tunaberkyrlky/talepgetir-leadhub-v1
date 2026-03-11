@@ -75,6 +75,7 @@ interface ImportResult {
     createdCompanies: number;
     updatedCompanies: number;
     createdContacts: number;
+    cancelled?: boolean;
 }
 
 interface ColumnMapping {
@@ -150,7 +151,43 @@ export async function parseXLSX(filePath: string): Promise<{ headers: string[]; 
 }
 
 /**
+ * Create an import job record and return its ID.
+ * Call this before executeImport to get a jobId for progress polling.
+ */
+export async function createImportJob(
+    tenantId: string,
+    userId: string,
+    fileName: string,
+    fileType: 'csv' | 'xlsx' | 'matched',
+    totalRows: number,
+    mapping: ColumnMapping,
+): Promise<string> {
+    const storedFileType = fileType === 'matched' ? 'csv' : fileType;
+    const { data: job, error } = await supabaseAdmin
+        .from('import_jobs')
+        .insert({
+            tenant_id: tenantId,
+            file_name: fileName,
+            file_type: storedFileType,
+            status: 'processing',
+            total_rows: totalRows,
+            column_mapping: mapping,
+            created_by: userId,
+            progress_count: 0,
+        })
+        .select('id')
+        .single();
+
+    if (error || !job) {
+        throw new Error('Failed to create import job: ' + error?.message);
+    }
+    return job.id;
+}
+
+/**
  * Execute the import: validate, dedup, insert/update
+ * Uses pre-fetched company/contact maps to minimize Supabase round-trips.
+ * Updates progress_count every 20 rows for real-time progress polling.
  */
 export async function executeImport(
     tenantId: string,
@@ -159,33 +196,12 @@ export async function executeImport(
     fileType: 'csv' | 'xlsx' | 'matched',
     rows: Record<string, string>[],
     mapping: ColumnMapping,
+    jobId: string,
 ): Promise<ImportResult> {
     const errors: ImportError[] = [];
     let successCount = 0;
     let createdCompanies = 0;
     let updatedCompanies = 0;
-    let createdContacts = 0;
-
-    // Create import job record
-    // 'matched' is not yet in the DB constraint — store as 'csv' until migration is applied
-    const storedFileType = fileType === 'matched' ? 'csv' : fileType;
-    const { data: job, error: jobError } = await supabaseAdmin
-        .from('import_jobs')
-        .insert({
-            tenant_id: tenantId,
-            file_name: fileName,
-            file_type: storedFileType,
-            status: 'processing',
-            total_rows: rows.length,
-            column_mapping: mapping,
-            created_by: userId,
-        })
-        .select()
-        .single();
-
-    if (jobError || !job) {
-        throw new Error('Failed to create import job: ' + jobError?.message);
-    }
 
     // Build reverse mapping: dbField -> fileHeader
     const reverseMap: Record<string, string> = {};
@@ -206,13 +222,58 @@ export async function executeImport(
         return sanitizeCell(row[fileHeader] || '');
     };
 
-    // Process each row
+    // ── Pre-fetch all existing companies for this tenant (one query) ──
+    const { data: existingCompaniesRaw } = await supabaseAdmin
+        .from('companies')
+        .select('id, name, custom_fields')
+        .eq('tenant_id', tenantId);
+
+    const companyByName = new Map<string, { id: string; custom_fields: Record<string, unknown> }>();
+    for (const c of existingCompaniesRaw || []) {
+        companyByName.set(c.name.toLowerCase(), { id: c.id, custom_fields: c.custom_fields || {} });
+    }
+
+    // ── Pre-fetch all existing contacts (email → Set of company_ids) ──
+    const { data: existingContactsRaw } = await supabaseAdmin
+        .from('contacts')
+        .select('email, company_id')
+        .eq('tenant_id', tenantId)
+        .not('email', 'is', null);
+
+    const contactKeySet = new Set<string>(); // "email::company_id"
+    for (const c of existingContactsRaw || []) {
+        if (c.email && c.company_id) {
+            contactKeySet.add(`${c.email.toLowerCase()}::${c.company_id}`);
+        }
+    }
+
+    let wasCancelled = false;
+    let createdContacts = 0;
+
+    // ── Process each row ──
     for (let i = 0; i < rows.length; i++) {
+        // ── Cancel check + progress update every 20 rows (at loop start, unaffected by continue) ──
+        if (i > 0 && i % 20 === 0) {
+            const { data: jobStatus } = await supabaseAdmin
+                .from('import_jobs')
+                .select('cancelled')
+                .eq('id', jobId)
+                .single();
+
+            if (jobStatus?.cancelled) {
+                wasCancelled = true;
+                break;
+            }
+
+            await supabaseAdmin.from('import_jobs')
+                .update({ progress_count: i })
+                .eq('id', jobId);
+        }
+
         const row = rows[i];
         const rowNum = i + 2; // +2 for 1-indexed + header row
 
         try {
-            // Extract company fields
             const companyName = getValue(row, 'companies.name');
 
             if (!companyName) {
@@ -234,35 +295,16 @@ export async function executeImport(
             const customFields: Record<string, string> = {};
             for (const header of customFieldHeaders) {
                 const val = sanitizeCell(row[header] || '');
-                if (val) {
-                    customFields[header] = val;
-                }
+                if (val) customFields[header] = val;
             }
+            if (stageOverflow) customFields['original_stage'] = stageOverflow;
 
-            // If stage couldn't be mapped, save original value in custom_fields
-            if (stageOverflow) {
-                customFields['original_stage'] = stageOverflow;
-            }
-
-            // Dedup check: company name + website within tenant
-            const website = getValue(row, 'companies.website');
-            let existingCompany = null;
-
-            const { data: dupCheck } = await supabaseAdmin
-                .from('companies')
-                .select('id, custom_fields')
-                .eq('tenant_id', tenantId)
-                .ilike('name', companyName)
-                .limit(1);
-
-            if (dupCheck && dupCheck.length > 0) {
-                existingCompany = dupCheck[0];
-            }
+            const existingCompany = companyByName.get(companyName.toLowerCase());
 
             // Build company data
             const companyData: Record<string, unknown> = {
                 name: companyName,
-                website: website || null,
+                website: getValue(row, 'companies.website') || null,
                 location: getValue(row, 'companies.location') || null,
                 industry: (() => { const v = getValue(row, 'companies.industry'); return v ? v.charAt(0).toUpperCase() + v.slice(1) : null; })(),
                 employee_size: getValue(row, 'companies.employee_size') || null,
@@ -275,9 +317,8 @@ export async function executeImport(
                 next_step: getValue(row, 'companies.next_step') || null,
             };
 
-            // Merge custom_fields
             if (Object.keys(customFields).length > 0) {
-                const existingCustom = (existingCompany?.custom_fields as Record<string, unknown>) || {};
+                const existingCustom = existingCompany?.custom_fields || {};
                 companyData.custom_fields = { ...existingCustom, ...customFields };
             }
 
@@ -300,11 +341,7 @@ export async function executeImport(
                 // Insert new company
                 const { data: newCompany, error: insertError } = await supabaseAdmin
                     .from('companies')
-                    .insert({
-                        ...companyData,
-                        tenant_id: tenantId,
-                        assigned_to: userId,
-                    })
+                    .insert({ ...companyData, tenant_id: tenantId, assigned_to: userId })
                     .select('id')
                     .single();
 
@@ -314,27 +351,21 @@ export async function executeImport(
                 }
                 companyId = newCompany.id;
                 createdCompanies++;
+                // Add to in-memory map so duplicate rows in same file are handled
+                companyByName.set(companyName.toLowerCase(), { id: companyId, custom_fields: {} });
             }
 
-            // Create contact if contact fields are mapped and have data
+            // Insert contact (dedup via in-memory set — no per-row SELECT needed)
             const contactFirstName = getValue(row, 'contacts.first_name');
             if (contactFirstName) {
                 const contactEmail = getValue(row, 'contacts.email');
+                const contactKey = contactEmail
+                    ? `${contactEmail.toLowerCase()}::${companyId}`
+                    : null;
 
-                // Check for duplicate contact
-                let contactExists = false;
-                if (contactEmail) {
-                    const { data: existingContact } = await supabaseAdmin
-                        .from('contacts')
-                        .select('id')
-                        .eq('company_id', companyId)
-                        .eq('tenant_id', tenantId)
-                        .ilike('email', contactEmail)
-                        .limit(1);
-                    contactExists = !!(existingContact && existingContact.length > 0);
-                }
+                const isDuplicate = contactKey ? contactKeySet.has(contactKey) : false;
 
-                if (!contactExists) {
+                if (!isDuplicate) {
                     const { error: contactError } = await supabaseAdmin
                         .from('contacts')
                         .insert({
@@ -345,6 +376,7 @@ export async function executeImport(
                             title: getValue(row, 'contacts.title') || null,
                             email: contactEmail || null,
                             phone_e164: getValue(row, 'contacts.phone_e164') || null,
+                            linkedin: getValue(row, 'contacts.linkedin') || null,
                             country: getValue(row, 'contacts.country') || null,
                             seniority: getValue(row, 'contacts.seniority') || null,
                             department: getValue(row, 'contacts.department') || null,
@@ -354,6 +386,8 @@ export async function executeImport(
                         errors.push({ row: rowNum, field: 'contact', error: 'Failed to create contact: ' + contactError.message });
                     } else {
                         createdContacts++;
+                        // Track in-memory to prevent same-file duplicates
+                        if (contactKey) contactKeySet.add(contactKey);
                     }
                 }
             }
@@ -362,28 +396,35 @@ export async function executeImport(
         } catch (err: any) {
             errors.push({ row: rowNum, field: 'unknown', error: err.message || 'Unknown error' });
         }
+
     }
 
-    // Update import job with results
+    // ── Finalize import job ──
+    const processedRows = wasCancelled
+        ? successCount + errors.length
+        : rows.length;
+
     await supabaseAdmin
         .from('import_jobs')
         .update({
-            status: errors.length === rows.length ? 'failed' : 'completed',
+            status: wasCancelled ? 'cancelled' : (errors.length === rows.length ? 'failed' : 'completed'),
             success_count: successCount,
             error_count: errors.length,
             error_details: errors,
+            progress_count: processedRows,
             completed_at: new Date().toISOString(),
         })
-        .eq('id', job.id);
+        .eq('id', jobId);
 
     return {
-        importJobId: job.id,
-        totalRows: rows.length,
+        importJobId: jobId,
+        totalRows: wasCancelled ? processedRows : rows.length,
         successCount,
         errorCount: errors.length,
         errors,
         createdCompanies,
         updatedCompanies,
         createdContacts,
+        cancelled: wasCancelled,
     };
 }

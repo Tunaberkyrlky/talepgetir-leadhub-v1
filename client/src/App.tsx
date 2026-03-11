@@ -9,6 +9,8 @@ import '@mantine/dropzone/styles.css';
 import './i18n';
 
 import { AuthProvider } from './contexts/AuthContext';
+import { ImportProgressProvider } from './contexts/ImportProgressContext';
+import ImportProgressBar from './components/ImportProgressBar';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import LeadsPage from './pages/LeadsPage';
@@ -49,6 +51,8 @@ function App() {
       <MantineProvider theme={theme} defaultColorScheme="light">
         <Notifications position="top-right" />
         <ModalsProvider>
+          <ImportProgressProvider>
+            <ImportProgressBar />
           <BrowserRouter>
             <AuthProvider>
               <Routes>
@@ -62,6 +66,7 @@ function App() {
               </Routes>
             </AuthProvider>
           </BrowserRouter>
+          </ImportProgressProvider>
         </ModalsProvider>
       </MantineProvider>
     </QueryClientProvider>

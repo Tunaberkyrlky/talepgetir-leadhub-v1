@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { requireRole } from '../middleware/auth.js';
 import { autoMapHeaders, getAvailableDbFields } from '../lib/importMapper.js';
-import { parseCSV, parseXLSX, executeImport } from '../lib/importProcessor.js';
+import { parseCSV, parseXLSX, executeImport, createImportJob } from '../lib/importProcessor.js';
 import { detectMatchStrategy, matchFiles } from '../lib/dataMatcher.js';
 import { supabaseAdmin } from '../lib/supabase.js';
 import crypto from 'crypto';
@@ -35,6 +35,36 @@ function runMulter(middleware: any) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         new Promise((resolve, reject) => middleware(req, res, (err: any) => (err ? reject(err) : resolve())));
 }
+
+// POST /api/import/begin — Pre-create import job and return jobId for progress polling
+router.post(
+    '/begin',
+    requireRole('superadmin', 'ops_agent'),
+    async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { fileName, fileType, totalRows, mapping } = req.body;
+
+            if (!fileName || !fileType || !totalRows || !mapping) {
+                res.status(400).json({ error: 'Missing required fields: fileName, fileType, totalRows, mapping' });
+                return;
+            }
+
+            const jobId = await createImportJob(
+                req.tenantId!,
+                req.user!.id,
+                fileName,
+                fileType,
+                Number(totalRows),
+                mapping,
+            );
+
+            res.json({ jobId });
+        } catch (err: any) {
+            console.error('Import begin error:', err);
+            res.status(500).json({ error: err.message || 'Failed to begin import' });
+        }
+    }
+);
 
 // POST /api/import/preview — Upload file and get header mapping suggestions
 router.post(
@@ -185,10 +215,15 @@ router.post(
     requireRole('superadmin', 'ops_agent'),
     async (req: Request, res: Response): Promise<void> => {
         try {
-            const { filePath, fileName, fileType, mapping } = req.body;
+            const { filePath, fileName, fileType, mapping, jobId } = req.body;
 
             if (!filePath || !fileName || !fileType || !mapping) {
                 res.status(400).json({ error: 'Missing required fields: filePath, fileName, fileType, mapping' });
+                return;
+            }
+
+            if (!jobId) {
+                res.status(400).json({ error: 'Missing required field: jobId. Call /api/import/begin first.' });
                 return;
             }
 
@@ -228,6 +263,7 @@ router.post(
                 fileType,
                 rows,
                 mapping,
+                jobId,
             );
 
             // Clean up temp file
@@ -237,6 +273,32 @@ router.post(
         } catch (err: any) {
             console.error('Import execute error:', err);
             res.status(500).json({ error: err.message || 'Import failed' });
+        }
+    }
+);
+
+// POST /api/import/cancel/:id — Cancel an in-progress import
+router.post(
+    '/cancel/:id',
+    requireRole('superadmin', 'ops_agent'),
+    async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { error } = await supabaseAdmin
+                .from('import_jobs')
+                .update({ cancelled: true })
+                .eq('id', req.params.id)
+                .eq('tenant_id', req.tenantId!)
+                .eq('status', 'processing');
+
+            if (error) {
+                res.status(500).json({ error: 'Failed to cancel import' });
+                return;
+            }
+
+            res.json({ ok: true });
+        } catch (err) {
+            console.error('Cancel import error:', err);
+            res.status(500).json({ error: 'Failed to cancel import' });
         }
     }
 );

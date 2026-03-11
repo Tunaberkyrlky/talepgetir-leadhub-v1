@@ -42,7 +42,7 @@ router.post(
     async (req: Request, res: Response): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
-            const { company_id, first_name, last_name, title, email, phone_e164, country, seniority, department, is_primary, notes } = req.body;
+            const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary, notes } = req.body;
 
             if (!company_id || !first_name) {
                 res.status(400).json({ error: 'company_id and first_name are required' });
@@ -72,6 +72,7 @@ router.post(
                     title: title || null,
                     email: email || null,
                     phone_e164: phone_e164 || null,
+                    linkedin: linkedin || null,
                     country: country || null,
                     seniority: seniority || null,
                     department: department || null,
@@ -103,7 +104,7 @@ router.put(
             const tenantId = req.tenantId!;
             const { id } = req.params;
 
-            const { first_name, last_name, title, email, phone_e164, country, seniority, department, is_primary, notes } = req.body;
+            const { first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary, notes } = req.body;
 
             const updateData: Record<string, unknown> = {};
             if (first_name !== undefined) updateData.first_name = first_name;
@@ -111,6 +112,7 @@ router.put(
             if (title !== undefined) updateData.title = title;
             if (email !== undefined) updateData.email = email;
             if (phone_e164 !== undefined) updateData.phone_e164 = phone_e164;
+            if (linkedin !== undefined) updateData.linkedin = linkedin;
             if (country !== undefined) updateData.country = country;
             if (seniority !== undefined) updateData.seniority = seniority;
             if (department !== undefined) updateData.department = department;

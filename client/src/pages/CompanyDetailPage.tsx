@@ -59,6 +59,7 @@ interface Contact {
     title: string | null;
     email: string | null;
     phone_e164: string | null;
+    linkedin: string | null;
     country: string | null;
     seniority: string | null;
     department: string | null;
@@ -112,6 +113,7 @@ export default function CompanyDetailPage() {
             title: '',
             email: '',
             phone_e164: '',
+            linkedin: '',
             country: '',
             seniority: '',
             department: '',
@@ -171,6 +173,7 @@ export default function CompanyDetailPage() {
             title: contact.title || '',
             email: contact.email || '',
             phone_e164: contact.phone_e164 || '',
+            linkedin: contact.linkedin || '',
             country: contact.country || '',
             seniority: contact.seniority || '',
             department: contact.department || '',
@@ -388,6 +391,14 @@ export default function CompanyDetailPage() {
                                                 <Text size="xs">{contact.phone_e164}</Text>
                                             </Group>
                                         )}
+                                        {contact.linkedin && (
+                                            <Anchor
+                                                href={contact.linkedin.startsWith('http') ? contact.linkedin : `https://${contact.linkedin}`}
+                                                target="_blank"
+                                            >
+                                                <IconBrandLinkedin size={16} color="#0A66C2" />
+                                            </Anchor>
+                                        )}
                                         {isOpsOrAdmin && (
                                             <Menu withinPortal position="bottom-end" shadow="sm">
                                                 <Menu.Target>
@@ -453,6 +464,7 @@ export default function CompanyDetailPage() {
                         </Group>
                         <TextInput label={t('contact.email')} radius="md" {...contactForm.getInputProps('email')} />
                         <TextInput label={t('contact.phone')} radius="md" {...contactForm.getInputProps('phone_e164')} />
+                        <TextInput label={t('contact.linkedin')} radius="md" {...contactForm.getInputProps('linkedin')} />
                         <Switch label={t('contact.isPrimary')} {...contactForm.getInputProps('is_primary', { type: 'checkbox' })} />
                         <Textarea label={t('contact.notes')} autosize minRows={2} radius="md" {...contactForm.getInputProps('notes')} />
                         <Group justify="flex-end">

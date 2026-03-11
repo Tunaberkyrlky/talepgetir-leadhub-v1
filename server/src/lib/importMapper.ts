@@ -132,6 +132,12 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
         aliases: ['department', 'departman', 'bölüm', 'bolum', 'team', 'takım', 'takim', 'division', 'business unit'],
         required: false,
     },
+    'contacts.linkedin': {
+        table: 'contacts',
+        field: 'linkedin',
+        aliases: ['contact linkedin', 'contact linkedin url', 'person linkedin', 'people linkedin', 'linkedin profil', 'kişi linkedin', 'linkedin'],
+        required: false,
+    },
 };
 
 export interface MappingSuggestion {

@@ -36,6 +36,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import DataMatchFlow from '../components/DataMatchFlow';
+import { useImportProgress } from '../contexts/ImportProgressContext';
 
 interface MappingSuggestion {
     fileHeader: string;
@@ -74,6 +75,7 @@ interface ImportResult {
     createdCompanies: number;
     updatedCompanies: number;
     createdContacts: number;
+    cancelled?: boolean;
 }
 
 export default function ImportPage() {
@@ -83,6 +85,7 @@ export default function ImportPage() {
     const [previewData, setPreviewData] = useState<PreviewData | null>(null);
     const [mapping, setMapping] = useState<Record<string, string | null>>({});
     const [importResult, setImportResult] = useState<ImportResult | null>(null);
+    const { startImport, finishImport, cancelImport } = useImportProgress();
 
     // Upload mutation
     const uploadMutation = useMutation({
@@ -109,17 +112,37 @@ export default function ImportPage() {
     // Execute import mutation
     const executeMutation = useMutation({
         mutationFn: async () => {
+            // Step 1: Pre-create job record → get jobId for progress polling
+            const beginRes = await api.post('/import/begin', {
+                fileName: previewData!.fileName,
+                fileType: previewData!.fileType,
+                totalRows: previewData!.totalRows,
+                mapping,
+            });
+            const { jobId } = beginRes.data;
+
+            // Step 2: Start polling progress bar
+            startImport(jobId, previewData!.totalRows, previewData!.fileName);
+
+            // Step 3: Execute import (long-running, server streams progress to DB)
             const res = await api.post('/import/execute', {
                 filePath: previewData!.filePath,
                 fileName: previewData!.fileName,
                 fileType: previewData!.fileType,
                 mapping,
+                jobId,
             });
             return res.data as ImportResult;
         },
         onSuccess: (data) => {
-            setImportResult(data);
-            setActive(3);
+            finishImport(data);
+            if (!data.cancelled) {
+                setImportResult(data);
+                setActive(3);
+            }
+        },
+        onError: () => {
+            cancelImport();
         },
     });
 
