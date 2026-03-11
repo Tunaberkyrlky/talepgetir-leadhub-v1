@@ -7,7 +7,11 @@ import Papa from 'papaparse';
 import ExcelJS from 'exceljs';
 import fs from 'fs';
 import { supabaseAdmin } from './supabase.js';
-import { sanitizeCell, type MappingSuggestion } from './importMapper.js';
+import { sanitizeCell } from './importMapper.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('importProcessor');
+const BATCH_SIZE = 500;
 
 // Valid stages
 const VALID_STAGES = [
@@ -186,245 +190,272 @@ export async function createImportJob(
 
 /**
  * Execute the import: validate, dedup, insert/update
- * Uses pre-fetched company/contact maps to minimize Supabase round-trips.
- * Updates progress_count every 20 rows for real-time progress polling.
+ * Batch strategy: scan all rows first, then bulk insert/upsert companies and contacts.
+ * Reduces Supabase round-trips from O(rows) to O(rows/BATCH_SIZE).
  */
 export async function executeImport(
     tenantId: string,
     userId: string,
-    fileName: string,
-    fileType: 'csv' | 'xlsx' | 'matched',
+    _fileName: string,
+    _fileType: 'csv' | 'xlsx' | 'matched',
     rows: Record<string, string>[],
     mapping: ColumnMapping,
     jobId: string,
 ): Promise<ImportResult> {
+    const t0 = Date.now();
     const errors: ImportError[] = [];
-    let successCount = 0;
-    let createdCompanies = 0;
-    let updatedCompanies = 0;
 
     // Build reverse mapping: dbField -> fileHeader
     const reverseMap: Record<string, string> = {};
     const customFieldHeaders: string[] = [];
-
     for (const [fileHeader, dbField] of Object.entries(mapping)) {
-        if (dbField) {
-            reverseMap[dbField] = fileHeader;
-        } else {
-            customFieldHeaders.push(fileHeader);
-        }
+        if (dbField) reverseMap[dbField] = fileHeader;
+        else customFieldHeaders.push(fileHeader);
     }
-
-    // Helper to get value from row using mapping
     const getValue = (row: Record<string, string>, dbField: string): string => {
         const fileHeader = reverseMap[dbField];
         if (!fileHeader) return '';
         return sanitizeCell(row[fileHeader] || '');
     };
 
-    // ── Pre-fetch all existing companies for this tenant (one query) ──
-    const { data: existingCompaniesRaw } = await supabaseAdmin
-        .from('companies')
-        .select('id, name, custom_fields')
-        .eq('tenant_id', tenantId);
+    // ── Phase 1: Pre-fetch existing data (2 parallel queries) ──
+    log.info({ rows: rows.length, jobId }, 'Import started — pre-fetching');
+    const [companiesRes, contactsRes] = await Promise.all([
+        supabaseAdmin.from('companies').select('id, name, custom_fields').eq('tenant_id', tenantId),
+        supabaseAdmin.from('contacts').select('email, company_id').eq('tenant_id', tenantId).not('email', 'is', null),
+    ]);
 
     const companyByName = new Map<string, { id: string; custom_fields: Record<string, unknown> }>();
-    for (const c of existingCompaniesRaw || []) {
+    for (const c of companiesRes.data || []) {
         companyByName.set(c.name.toLowerCase(), { id: c.id, custom_fields: c.custom_fields || {} });
     }
+    const contactKeySet = new Set<string>();
+    for (const c of contactsRes.data || []) {
+        if (c.email && c.company_id) contactKeySet.add(`${c.email.toLowerCase()}::${c.company_id}`);
+    }
+    log.info({ existingCompanies: companyByName.size, existingContacts: contactKeySet.size, elapsed: Date.now() - t0 }, 'Pre-fetch done');
 
-    // ── Pre-fetch all existing contacts (email → Set of company_ids) ──
-    const { data: existingContactsRaw } = await supabaseAdmin
-        .from('contacts')
-        .select('email, company_id')
-        .eq('tenant_id', tenantId)
-        .not('email', 'is', null);
+    // ── Phase 2: Scan rows — build company insert/update maps ──
+    // Map key = normalizedName, value = latest payload (last-row-wins per company)
+    const newCompanyMap = new Map<string, Record<string, unknown>>();
+    const updateCompanyMap = new Map<string, Record<string, unknown> & { id: string }>();
+    const rowValid: boolean[] = new Array(rows.length).fill(false);
+    const rowCompanyKey: string[] = new Array(rows.length).fill('');
 
-    const contactKeySet = new Set<string>(); // "email::company_id"
-    for (const c of existingContactsRaw || []) {
-        if (c.email && c.company_id) {
-            contactKeySet.add(`${c.email.toLowerCase()}::${c.company_id}`);
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNum = i + 2;
+        const companyName = getValue(row, 'companies.name');
+
+        if (!companyName) {
+            errors.push({ row: rowNum, field: 'company_name', error: 'Required field is empty' });
+            continue;
         }
+
+        const rawStage = getValue(row, 'companies.stage');
+        let resolvedStage = 'new';
+        let stageOverflow: string | null = null;
+        if (rawStage) {
+            const { stage, overflow } = normalizeStage(rawStage);
+            resolvedStage = stage;
+            stageOverflow = overflow;
+        }
+
+        const customFields: Record<string, string> = {};
+        for (const header of customFieldHeaders) {
+            const val = sanitizeCell(row[header] || '');
+            if (val) customFields[header] = val;
+        }
+        if (stageOverflow) customFields['original_stage'] = stageOverflow;
+
+        const companyPayload: Record<string, unknown> = {
+            name: companyName,
+            website: getValue(row, 'companies.website') || null,
+            location: getValue(row, 'companies.location') || null,
+            industry: (() => { const v = getValue(row, 'companies.industry'); return v ? v.charAt(0).toUpperCase() + v.slice(1) : null; })(),
+            employee_size: getValue(row, 'companies.employee_size') || null,
+            product_services: getValue(row, 'companies.product_services') || null,
+            description: getValue(row, 'companies.description') || null,
+            linkedin: getValue(row, 'companies.linkedin') || null,
+            company_phone: getValue(row, 'companies.company_phone') || null,
+            stage: resolvedStage,
+            deal_summary: getValue(row, 'companies.deal_summary') || null,
+            next_step: getValue(row, 'companies.next_step') || null,
+        };
+
+        const nameLower = companyName.toLowerCase();
+        const existing = companyByName.get(nameLower);
+
+        if (existing) {
+            if (Object.keys(customFields).length > 0) {
+                const prevCustom = (updateCompanyMap.get(nameLower)?.custom_fields as Record<string, string>) ?? existing.custom_fields;
+                companyPayload.custom_fields = { ...prevCustom, ...customFields };
+            }
+            updateCompanyMap.set(nameLower, { ...companyPayload, id: existing.id });
+        } else {
+            if (Object.keys(customFields).length > 0) {
+                const prevCustom = (newCompanyMap.get(nameLower)?.custom_fields as Record<string, string>) ?? {};
+                companyPayload.custom_fields = { ...prevCustom, ...customFields };
+            }
+            newCompanyMap.set(nameLower, companyPayload);
+        }
+
+        rowValid[i] = true;
+        rowCompanyKey[i] = nameLower;
     }
 
-    let wasCancelled = false;
-    let createdContacts = 0;
+    log.info({
+        newCompanies: newCompanyMap.size,
+        updateCompanies: updateCompanyMap.size,
+        validRows: rowValid.filter(Boolean).length,
+        rowErrors: errors.length,
+        elapsed: Date.now() - t0,
+    }, 'Row scan done');
 
-    // ── Process each row ──
-    for (let i = 0; i < rows.length; i++) {
-        // ── Cancel check + progress update every 20 rows (at loop start, unaffected by continue) ──
-        if (i > 0 && i % 20 === 0) {
-            const { data: jobStatus } = await supabaseAdmin
-                .from('import_jobs')
-                .select('cancelled')
-                .eq('id', jobId)
-                .single();
+    // ── Cancel check ──
+    const { data: jobStatus1 } = await supabaseAdmin.from('import_jobs').select('cancelled').eq('id', jobId).single();
+    if (jobStatus1?.cancelled) {
+        await supabaseAdmin.from('import_jobs').update({ status: 'cancelled', progress_count: 0, completed_at: new Date().toISOString() }).eq('id', jobId);
+        return { importJobId: jobId, totalRows: rows.length, successCount: 0, errorCount: errors.length, errors, createdCompanies: 0, updatedCompanies: 0, createdContacts: 0, cancelled: true };
+    }
 
-            if (jobStatus?.cancelled) {
-                wasCancelled = true;
-                break;
+    // ── Phase 3: Batch insert new companies ──
+    let createdCompanies = 0;
+    const failedCompanyNames = new Set<string>();
+
+    if (newCompanyMap.size > 0) {
+        const toInsert = Array.from(newCompanyMap.values()).map(p => ({ ...p, tenant_id: tenantId, assigned_to: userId })) as unknown as Array<Record<string, unknown> & { name: string }>;
+        log.info({ count: toInsert.length }, 'Batch inserting new companies');
+        const t1 = Date.now();
+
+        for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
+            const chunk = toInsert.slice(i, i + BATCH_SIZE);
+            const { data: inserted, error } = await supabaseAdmin.from('companies').insert(chunk).select('id, name');
+            if (error || !inserted) {
+                for (const c of chunk) failedCompanyNames.add((c.name as string).toLowerCase());
+                log.error({ error: error?.message, batch: Math.floor(i / BATCH_SIZE) + 1 }, 'Company insert batch failed');
+            } else {
+                for (const c of inserted) companyByName.set(c.name.toLowerCase(), { id: c.id, custom_fields: {} });
+                createdCompanies += inserted.length;
+                log.info({ batch: Math.floor(i / BATCH_SIZE) + 1, inserted: inserted.length, elapsed: Date.now() - t1 }, 'Company insert batch done');
             }
-
-            await supabaseAdmin.from('import_jobs')
-                .update({ progress_count: i })
-                .eq('id', jobId);
         }
+        await supabaseAdmin.from('import_jobs').update({ progress_count: Math.floor(rows.length * 0.4) }).eq('id', jobId);
+    }
+
+    // ── Phase 4: Batch upsert existing companies ──
+    let updatedCompanies = 0;
+
+    if (updateCompanyMap.size > 0) {
+        const toUpdate = Array.from(updateCompanyMap.values()).map(p => ({ ...p, tenant_id: tenantId })) as unknown as Array<Record<string, unknown> & { name: string }>;
+        log.info({ count: toUpdate.length }, 'Batch upserting existing companies');
+        const t2 = Date.now();
+
+        for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+            const chunk = toUpdate.slice(i, i + BATCH_SIZE);
+            const { error } = await supabaseAdmin.from('companies').upsert(chunk, { onConflict: 'id' });
+            if (error) {
+                for (const c of chunk) failedCompanyNames.add((c.name as string).toLowerCase());
+                log.error({ error: error.message, batch: Math.floor(i / BATCH_SIZE) + 1 }, 'Company upsert batch failed');
+            } else {
+                updatedCompanies += chunk.length;
+                log.info({ batch: Math.floor(i / BATCH_SIZE) + 1, updated: chunk.length, elapsed: Date.now() - t2 }, 'Company upsert batch done');
+            }
+        }
+        await supabaseAdmin.from('import_jobs').update({ progress_count: Math.floor(rows.length * 0.6) }).eq('id', jobId);
+    }
+
+    // ── Cancel check ──
+    const { data: jobStatus2 } = await supabaseAdmin.from('import_jobs').select('cancelled').eq('id', jobId).single();
+    if (jobStatus2?.cancelled) {
+        await supabaseAdmin.from('import_jobs').update({ status: 'cancelled', progress_count: createdCompanies + updatedCompanies, completed_at: new Date().toISOString() }).eq('id', jobId);
+        return { importJobId: jobId, totalRows: rows.length, successCount: createdCompanies + updatedCompanies, errorCount: errors.length, errors, createdCompanies, updatedCompanies, createdContacts: 0, cancelled: true };
+    }
+
+    // ── Phase 5: Collect and batch insert contacts ──
+    const contactsToInsert: Record<string, unknown>[] = [];
+    let successCount = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+        if (!rowValid[i]) continue;
+        const nameLower = rowCompanyKey[i];
+        if (failedCompanyNames.has(nameLower)) {
+            errors.push({ row: i + 2, field: 'company', error: 'Company operation failed' });
+            continue;
+        }
+        const companyInfo = companyByName.get(nameLower);
+        if (!companyInfo) {
+            errors.push({ row: i + 2, field: 'company', error: 'Company not resolved after insert' });
+            continue;
+        }
+        successCount++;
 
         const row = rows[i];
-        const rowNum = i + 2; // +2 for 1-indexed + header row
+        const contactFirstName = getValue(row, 'contacts.first_name');
+        if (!contactFirstName) continue;
 
-        try {
-            const companyName = getValue(row, 'companies.name');
+        const contactEmail = getValue(row, 'contacts.email');
+        const contactKey = contactEmail ? `${contactEmail.toLowerCase()}::${companyInfo.id}` : null;
+        if (contactKey && contactKeySet.has(contactKey)) continue;
+        if (contactKey) contactKeySet.add(contactKey);
 
-            if (!companyName) {
-                errors.push({ row: rowNum, field: 'company_name', error: 'Required field is empty' });
-                continue;
-            }
-
-            const rawStage = getValue(row, 'companies.stage');
-            let resolvedStage = 'new';
-            let stageOverflow: string | null = null;
-
-            if (rawStage) {
-                const normalized = normalizeStage(rawStage);
-                resolvedStage = normalized.stage;
-                stageOverflow = normalized.overflow;
-            }
-
-            // Build custom_fields from unmapped columns
-            const customFields: Record<string, string> = {};
-            for (const header of customFieldHeaders) {
-                const val = sanitizeCell(row[header] || '');
-                if (val) customFields[header] = val;
-            }
-            if (stageOverflow) customFields['original_stage'] = stageOverflow;
-
-            const existingCompany = companyByName.get(companyName.toLowerCase());
-
-            // Build company data
-            const companyData: Record<string, unknown> = {
-                name: companyName,
-                website: getValue(row, 'companies.website') || null,
-                location: getValue(row, 'companies.location') || null,
-                industry: (() => { const v = getValue(row, 'companies.industry'); return v ? v.charAt(0).toUpperCase() + v.slice(1) : null; })(),
-                employee_size: getValue(row, 'companies.employee_size') || null,
-                product_services: getValue(row, 'companies.product_services') || null,
-                description: getValue(row, 'companies.description') || null,
-                linkedin: getValue(row, 'companies.linkedin') || null,
-                company_phone: getValue(row, 'companies.company_phone') || null,
-                stage: resolvedStage,
-                deal_summary: getValue(row, 'companies.deal_summary') || null,
-                next_step: getValue(row, 'companies.next_step') || null,
-            };
-
-            if (Object.keys(customFields).length > 0) {
-                const existingCustom = existingCompany?.custom_fields || {};
-                companyData.custom_fields = { ...existingCustom, ...customFields };
-            }
-
-            let companyId: string;
-
-            if (existingCompany) {
-                // Update existing company
-                const { error: updateError } = await supabaseAdmin
-                    .from('companies')
-                    .update(companyData)
-                    .eq('id', existingCompany.id);
-
-                if (updateError) {
-                    errors.push({ row: rowNum, field: 'company', error: 'Failed to update: ' + updateError.message });
-                    continue;
-                }
-                companyId = existingCompany.id;
-                updatedCompanies++;
-            } else {
-                // Insert new company
-                const { data: newCompany, error: insertError } = await supabaseAdmin
-                    .from('companies')
-                    .insert({ ...companyData, tenant_id: tenantId, assigned_to: userId })
-                    .select('id')
-                    .single();
-
-                if (insertError || !newCompany) {
-                    errors.push({ row: rowNum, field: 'company', error: 'Failed to create: ' + insertError?.message });
-                    continue;
-                }
-                companyId = newCompany.id;
-                createdCompanies++;
-                // Add to in-memory map so duplicate rows in same file are handled
-                companyByName.set(companyName.toLowerCase(), { id: companyId, custom_fields: {} });
-            }
-
-            // Insert contact (dedup via in-memory set — no per-row SELECT needed)
-            const contactFirstName = getValue(row, 'contacts.first_name');
-            if (contactFirstName) {
-                const contactEmail = getValue(row, 'contacts.email');
-                const contactKey = contactEmail
-                    ? `${contactEmail.toLowerCase()}::${companyId}`
-                    : null;
-
-                const isDuplicate = contactKey ? contactKeySet.has(contactKey) : false;
-
-                if (!isDuplicate) {
-                    const { error: contactError } = await supabaseAdmin
-                        .from('contacts')
-                        .insert({
-                            tenant_id: tenantId,
-                            company_id: companyId,
-                            first_name: contactFirstName,
-                            last_name: getValue(row, 'contacts.last_name') || null,
-                            title: getValue(row, 'contacts.title') || null,
-                            email: contactEmail || null,
-                            phone_e164: getValue(row, 'contacts.phone_e164') || null,
-                            linkedin: getValue(row, 'contacts.linkedin') || null,
-                            country: getValue(row, 'contacts.country') || null,
-                            seniority: getValue(row, 'contacts.seniority') || null,
-                            department: getValue(row, 'contacts.department') || null,
-                        });
-
-                    if (contactError) {
-                        errors.push({ row: rowNum, field: 'contact', error: 'Failed to create contact: ' + contactError.message });
-                    } else {
-                        createdContacts++;
-                        // Track in-memory to prevent same-file duplicates
-                        if (contactKey) contactKeySet.add(contactKey);
-                    }
-                }
-            }
-
-            successCount++;
-        } catch (err: any) {
-            errors.push({ row: rowNum, field: 'unknown', error: err.message || 'Unknown error' });
-        }
-
+        contactsToInsert.push({
+            tenant_id: tenantId,
+            company_id: companyInfo.id,
+            first_name: contactFirstName,
+            last_name: getValue(row, 'contacts.last_name') || null,
+            title: getValue(row, 'contacts.title') || null,
+            email: contactEmail || null,
+            phone_e164: getValue(row, 'contacts.phone_e164') || null,
+            linkedin: getValue(row, 'contacts.linkedin') || null,
+            country: getValue(row, 'contacts.country') || null,
+            seniority: getValue(row, 'contacts.seniority') || null,
+            department: getValue(row, 'contacts.department') || null,
+        });
     }
 
-    // ── Finalize import job ──
-    const processedRows = wasCancelled
-        ? successCount + errors.length
-        : rows.length;
+    let createdContacts = 0;
+    if (contactsToInsert.length > 0) {
+        log.info({ count: contactsToInsert.length }, 'Batch inserting contacts');
+        const t3 = Date.now();
+
+        for (let i = 0; i < contactsToInsert.length; i += BATCH_SIZE) {
+            const chunk = contactsToInsert.slice(i, i + BATCH_SIZE);
+            const { error } = await supabaseAdmin.from('contacts').insert(chunk);
+            if (error) {
+                log.error({ error: error.message, batch: Math.floor(i / BATCH_SIZE) + 1 }, 'Contact insert batch failed');
+                errors.push({ row: -1, field: 'contact', error: `Batch contact insert failed: ${error.message}` });
+            } else {
+                createdContacts += chunk.length;
+                log.info({ batch: Math.floor(i / BATCH_SIZE) + 1, inserted: chunk.length, elapsed: Date.now() - t3 }, 'Contact insert batch done');
+            }
+        }
+    }
+
+    // ── Finalize ──
+    const totalElapsed = Date.now() - t0;
+    log.info({ successCount, errorCount: errors.length, createdCompanies, updatedCompanies, createdContacts, totalElapsed }, 'Import complete');
 
     await supabaseAdmin
         .from('import_jobs')
         .update({
-            status: wasCancelled ? 'cancelled' : (errors.length === rows.length ? 'failed' : 'completed'),
+            status: errors.length === rows.length ? 'failed' : 'completed',
             success_count: successCount,
             error_count: errors.length,
             error_details: errors,
-            progress_count: processedRows,
+            progress_count: rows.length,
             completed_at: new Date().toISOString(),
         })
         .eq('id', jobId);
 
     return {
         importJobId: jobId,
-        totalRows: wasCancelled ? processedRows : rows.length,
+        totalRows: rows.length,
         successCount,
         errorCount: errors.length,
         errors,
         createdCompanies,
         updatedCompanies,
         createdContacts,
-        cancelled: wasCancelled,
     };
 }
