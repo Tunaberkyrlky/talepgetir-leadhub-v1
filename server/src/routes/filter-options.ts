@@ -39,7 +39,17 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
         const locations = [...new Set((locationRows || []).map((r) => r.location))].sort();
 
-        res.json({ stages, industries, locations });
+        // Get distinct product_services
+        const { data: productRows } = await supabaseAdmin
+            .from('companies')
+            .select('product_services')
+            .eq('tenant_id', tenantId)
+            .not('product_services', 'is', null)
+            .neq('product_services', '');
+
+        const products = [...new Set((productRows || []).map((r) => r.product_services))].sort();
+
+        res.json({ stages, industries, locations, products });
     } catch (err) {
         log.error({ err }, 'Filter options error');
         res.status(500).json({ error: 'Failed to fetch filter options' });

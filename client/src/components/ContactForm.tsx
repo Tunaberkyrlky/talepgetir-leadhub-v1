@@ -22,7 +22,6 @@ interface Contact {
     first_name: string;
     last_name: string | null;
     title: string | null;
-    department: string | null;
     seniority: string | null;
     country: string | null;
     email: string | null;
@@ -67,7 +66,6 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
             first_name: '',
             last_name: '',
             title: '',
-            department: '',
             seniority: '',
             country: '',
             email: '',
@@ -90,7 +88,6 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
                     first_name: contact.first_name || '',
                     last_name: contact.last_name || '',
                     title: contact.title || '',
-                    department: contact.department || '',
                     seniority: contact.seniority || '',
                     country: contact.country || '',
                     email: contact.email || '',
@@ -114,7 +111,6 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
                 ...values,
                 last_name: values.last_name || null,
                 title: values.title || null,
-                department: values.department || null,
                 seniority: values.seniority || null,
                 country: values.country || null,
                 email: values.email || null,
@@ -181,19 +177,15 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
                             label={t('contact.title')}
                             {...form.getInputProps('title')}
                         />
-                        <TextInput
-                            label={t('contact.department')}
-                            {...form.getInputProps('department')}
-                        />
-                    </SimpleGrid>
-
-                    <SimpleGrid cols={2}>
                         <Select
                             label={t('contact.seniority')}
                             data={SENIORITY_OPTIONS}
                             clearable
                             {...form.getInputProps('seniority')}
                         />
+                    </SimpleGrid>
+
+                    <SimpleGrid cols={2}>
                         <TextInput
                             label={t('contact.country')}
                             {...form.getInputProps('country')}

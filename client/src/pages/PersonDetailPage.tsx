@@ -33,6 +33,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { isInternal } from '../lib/permissions';
 import { getStageColor } from '../lib/stages';
 import ContactForm from '../components/ContactForm';
+import TruncatedText from '../components/TruncatedText';
 
 interface ContactDetail {
     id: string;
@@ -40,7 +41,6 @@ interface ContactDetail {
     first_name: string;
     last_name: string | null;
     title: string | null;
-    department: string | null;
     seniority: string | null;
     country: string | null;
     email: string | null;
@@ -133,9 +133,9 @@ export default function PersonDetailPage() {
                                 )}
                             </Group>
 
-                            {(contact.title || contact.department) && (
+                            {contact.title && (
                                 <Text c="dimmed" size="sm">
-                                    {[contact.title, contact.department].filter(Boolean).join(' · ')}
+                                    {contact.title}
                                 </Text>
                             )}
 
@@ -228,7 +228,7 @@ export default function PersonDetailPage() {
                 {contact.notes && (
                     <Paper withBorder p="lg" radius="md">
                         <Text fw={600} mb="sm">{t('people.notes')}</Text>
-                        <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{contact.notes}</Text>
+                        <TruncatedText size="sm" maxLength={350} inline>{contact.notes}</TruncatedText>
                     </Paper>
                 )}
             </Stack>

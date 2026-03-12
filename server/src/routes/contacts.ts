@@ -11,17 +11,12 @@ router.get('/filter-options', async (req: Request, res: Response): Promise<void>
     try {
         const tenantId = req.tenantId!;
 
-        const [seniorityRes, departmentRes, countryRes, companyRes] = await Promise.all([
+        const [seniorityRes, countryRes, companyRes] = await Promise.all([
             supabaseAdmin
                 .from('contacts')
                 .select('seniority')
                 .eq('tenant_id', tenantId)
                 .not('seniority', 'is', null),
-            supabaseAdmin
-                .from('contacts')
-                .select('department')
-                .eq('tenant_id', tenantId)
-                .not('department', 'is', null),
             supabaseAdmin
                 .from('contacts')
                 .select('country')
@@ -40,7 +35,6 @@ router.get('/filter-options', async (req: Request, res: Response): Promise<void>
         res.json({
             data: {
                 seniorities: unique((seniorityRes.data || []).map((r: any) => r.seniority)).sort(),
-                departments: unique((departmentRes.data || []).map((r: any) => r.department)).sort(),
                 countries: unique((countryRes.data || []).map((r: any) => r.country)).sort(),
                 companies: (companyRes.data || []).map((c: any) => ({ id: c.id, name: c.name })),
             },
@@ -89,9 +83,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         const filterSeniorities = req.query.seniorities
             ? (req.query.seniorities as string).split(',').filter(Boolean)
             : [];
-        const filterDepartments = req.query.departments
-            ? (req.query.departments as string).split(',').filter(Boolean)
-            : [];
         const filterCountries = req.query.countries
             ? (req.query.countries as string).split(',').filter(Boolean)
             : [];
@@ -111,7 +102,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         }
         if (filterCompanyIds.length > 0) query = query.in('company_id', filterCompanyIds);
         if (filterSeniorities.length > 0) query = query.in('seniority', filterSeniorities);
-        if (filterDepartments.length > 0) query = query.in('department', filterDepartments);
         if (filterCountries.length > 0) query = query.in('country', filterCountries);
 
         query = query

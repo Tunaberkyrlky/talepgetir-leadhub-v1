@@ -37,6 +37,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         const stages = (req.query.stages as string || '').split(',').filter(Boolean);
         const industries = (req.query.industries as string || '').split(',').filter(Boolean);
         const locations = (req.query.locations as string || '').split(',').filter(Boolean);
+        const products = (req.query.products as string || '').split(',').filter(Boolean);
 
         // Sort params
         const sortBy = SORT_COLUMNS[req.query.sortBy as string] || 'updated_at';
@@ -78,6 +79,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         if (locations.length > 0) {
             countQuery = countQuery.in('location', locations);
             dataQuery = dataQuery.in('location', locations);
+        }
+
+        // Apply product_services filter
+        if (products.length > 0) {
+            countQuery = countQuery.in('product_services', products);
+            dataQuery = dataQuery.in('product_services', products);
         }
 
         const { count, error: countError } = await countQuery;

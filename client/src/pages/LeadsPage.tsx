@@ -42,12 +42,31 @@ import {
     IconUsers,
     IconDotsVertical,
     IconAdjustments,
+    IconGripVertical,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import {
+    DndContext,
+    closestCenter,
+    KeyboardSensor,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+    arrayMove,
+    SortableContext,
+    sortableKeyboardCoordinates,
+    useSortable,
+    verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { stageColors } from '../lib/stages';
 import CompanyForm from '../components/CompanyForm';
+import TruncatedText from '../components/TruncatedText';
 
 interface Company {
     id: string;
@@ -85,22 +104,26 @@ interface FilterOptions {
     stages: string[];
     industries: string[];
     locations: string[];
+    products: string[];
 }
 
-// Stage colors imported from lib/stages.ts
-
 // Sortable columns
-type SortKey = 'name' | 'stage' | 'industry' | 'location' | 'updated_at';
+type SortKey = 'name' | 'stage' | 'industry' | 'location' | 'updated_at' | 'created_at' | 'employee_size' | 'contact_count';
 
-// Column management
-type ColumnKey = 'name' | 'stage' | 'industry' | 'location' | 'next_step' | 'updated_at';
+// All available column keys
+type ColumnKey =
+    | 'name' | 'website' | 'stage' | 'industry' | 'location'
+    | 'employee_size' | 'product_services' | 'description'
+    | 'linkedin' | 'company_phone' | 'deal_summary'
+    | 'next_step' | 'assigned_to' | 'contact_count'
+    | 'created_at' | 'updated_at';
 
 interface ColumnDef {
     key: ColumnKey;
     visible: boolean;
 }
 
-const COLUMNS_STORAGE_KEY = 'leads_columns_v1';
+const COLUMNS_STORAGE_KEY = 'leads_columns_v2';
 
 const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'name', visible: true },
@@ -109,20 +132,79 @@ const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'location', visible: true },
     { key: 'next_step', visible: true },
     { key: 'updated_at', visible: true },
+    { key: 'website', visible: false },
+    { key: 'employee_size', visible: false },
+    { key: 'product_services', visible: false },
+    { key: 'description', visible: false },
+    { key: 'linkedin', visible: false },
+    { key: 'company_phone', visible: false },
+    { key: 'deal_summary', visible: false },
+    { key: 'assigned_to', visible: false },
+    { key: 'contact_count', visible: false },
+    { key: 'created_at', visible: false },
 ];
+
+const SORTABLE_COLUMNS: Set<string> = new Set([
+    'name', 'stage', 'industry', 'location', 'updated_at', 'created_at', 'employee_size', 'contact_count',
+]);
 
 function loadColumnConfig(): ColumnDef[] {
     try {
         const stored = localStorage.getItem(COLUMNS_STORAGE_KEY);
         if (stored) {
             const parsed = JSON.parse(stored) as ColumnDef[];
-            // Ensure all default columns are present (in case new columns added later)
             const keys = parsed.map(c => c.key);
             const missing = DEFAULT_COLUMNS.filter(c => !keys.includes(c.key));
             return [...parsed, ...missing];
         }
     } catch {}
     return DEFAULT_COLUMNS;
+}
+
+// Sortable column item for the popover
+function SortableColumnItem({
+    col,
+    label,
+    onToggle,
+}: {
+    col: ColumnDef;
+    label: string;
+    onToggle: () => void;
+}) {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging,
+    } = useSortable({ id: col.key });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+    };
+
+    return (
+        <Group ref={setNodeRef} style={style} justify="space-between" wrap="nowrap">
+            <Group gap="xs" wrap="nowrap" style={{ flex: 1 }}>
+                <Box
+                    {...attributes}
+                    {...listeners}
+                    style={{ cursor: 'grab', display: 'flex', alignItems: 'center', touchAction: 'none' }}
+                >
+                    <IconGripVertical size={14} color="gray" />
+                </Box>
+                <Checkbox
+                    checked={col.visible}
+                    onChange={onToggle}
+                    label={<Text size="sm">{label}</Text>}
+                    size="xs"
+                />
+            </Group>
+        </Group>
+    );
 }
 
 export default function LeadsPage() {
@@ -140,6 +222,7 @@ export default function LeadsPage() {
     const [selectedStages, setSelectedStages] = useState<string[]>([]);
     const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
     const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+    const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
 
     // Sort state
     const [sortBy, setSortBy] = useState<SortKey>('updated_at');
@@ -153,10 +236,20 @@ export default function LeadsPage() {
 
     const columnLabels: Record<ColumnKey, string> = {
         name: t('company.name'),
+        website: t('company.website'),
         stage: t('company.stage'),
         industry: t('company.industry'),
         location: t('company.location'),
+        employee_size: t('company.employeeSize'),
+        product_services: t('company.productServices'),
+        description: t('company.description'),
+        linkedin: t('company.linkedin'),
+        company_phone: t('company.companyPhone'),
+        deal_summary: t('company.dealSummary'),
         next_step: t('company.nextStep'),
+        assigned_to: t('company.assignedTo'),
+        contact_count: t('company.contactCount'),
+        created_at: t('company.createdAt'),
         updated_at: t('company.updatedAt'),
     };
 
@@ -168,20 +261,22 @@ export default function LeadsPage() {
     const toggleColumn = (key: ColumnKey) => {
         const visibleCount = columns.filter(c => c.visible).length;
         const col = columns.find(c => c.key === key);
-        if (col?.visible && visibleCount <= 1) return; // keep at least 1 visible
+        if (col?.visible && visibleCount <= 1) return;
         saveColumns(columns.map(c => c.key === key ? { ...c, visible: !c.visible } : c));
     };
 
-    const moveColumn = (key: ColumnKey, direction: 'up' | 'down') => {
-        const idx = columns.findIndex(c => c.key === key);
-        if (direction === 'up' && idx > 0) {
-            const next = [...columns];
-            [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-            saveColumns(next);
-        } else if (direction === 'down' && idx < columns.length - 1) {
-            const next = [...columns];
-            [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-            saveColumns(next);
+    // DnD sensors
+    const sensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    );
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (over && active.id !== over.id) {
+            const oldIndex = columns.findIndex(c => c.key === active.id);
+            const newIndex = columns.findIndex(c => c.key === over.id);
+            saveColumns(arrayMove(columns, oldIndex, newIndex));
         }
     };
 
@@ -190,7 +285,7 @@ export default function LeadsPage() {
     // Reset page when filters change
     useEffect(() => {
         setPage(1);
-    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations]);
+    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
 
     // Fetch filter options
     const { data: filterOptions } = useQuery<FilterOptions>({
@@ -212,12 +307,13 @@ export default function LeadsPage() {
         if (selectedStages.length) params.set('stages', selectedStages.join(','));
         if (selectedIndustries.length) params.set('industries', selectedIndustries.join(','));
         if (selectedLocations.length) params.set('locations', selectedLocations.join(','));
+        if (selectedProducts.length) params.set('products', selectedProducts.join(','));
         return params.toString();
-    }, [page, sortBy, sortOrder, debouncedSearch, selectedStages, selectedIndustries, selectedLocations]);
+    }, [page, sortBy, sortOrder, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
 
     // Fetch companies
     const { data, isLoading, error } = useQuery<PaginatedResponse>({
-        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, sortBy, sortOrder],
+        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts, sortBy, sortOrder],
         queryFn: async () => {
             const res = await api.get(`/companies?${buildQueryParams()}`);
             return res.data;
@@ -260,13 +356,14 @@ export default function LeadsPage() {
         });
     };
 
-    const hasActiveFilters = debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length;
+    const hasActiveFilters = debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedProducts.length;
 
     const clearAllFilters = () => {
         setSearch('');
         setSelectedStages([]);
         setSelectedIndustries([]);
         setSelectedLocations([]);
+        setSelectedProducts([]);
     };
 
     // Sort header component
@@ -289,27 +386,18 @@ export default function LeadsPage() {
         );
     };
 
+    const NonSortHeader = ({ label }: { label: string }) => (
+        <Text size="xs" fw={600} tt="uppercase" c="white" style={{ letterSpacing: '0.5px' }}>
+            {label}
+        </Text>
+    );
+
     const renderColumnHeader = (key: ColumnKey) => {
-        switch (key) {
-            case 'name':
-                return <Table.Th key="name"><SortHeader column="name" label={t('company.name')} /></Table.Th>;
-            case 'stage':
-                return <Table.Th key="stage"><SortHeader column="stage" label={t('company.stage')} /></Table.Th>;
-            case 'industry':
-                return <Table.Th key="industry"><SortHeader column="industry" label={t('company.industry')} /></Table.Th>;
-            case 'location':
-                return <Table.Th key="location"><SortHeader column="location" label={t('company.location')} /></Table.Th>;
-            case 'next_step':
-                return (
-                    <Table.Th key="next_step">
-                        <Text size="xs" fw={600} tt="uppercase" c="white" style={{ letterSpacing: '0.5px' }}>
-                            {t('company.nextStep')}
-                        </Text>
-                    </Table.Th>
-                );
-            case 'updated_at':
-                return <Table.Th key="updated_at"><SortHeader column="updated_at" label={t('company.updatedAt')} /></Table.Th>;
+        const label = columnLabels[key];
+        if (SORTABLE_COLUMNS.has(key)) {
+            return <Table.Th key={key}><SortHeader column={key as SortKey} label={label} /></Table.Th>;
         }
+        return <Table.Th key={key}><NonSortHeader label={label} /></Table.Th>;
     };
 
     const renderColumnCell = (key: ColumnKey, company: Company) => {
@@ -320,7 +408,7 @@ export default function LeadsPage() {
                         <Group gap="xs">
                             <Text fw={600} size="sm">{company.name}</Text>
                             {company.contact_count > 0 && (
-                                <Tooltip label={`${company.contact_count} kişi`} withArrow>
+                                <Tooltip label={`${company.contact_count} ${t('company.contactCount').toLowerCase()}`} withArrow>
                                     <Badge
                                         size="xs"
                                         variant="light"
@@ -332,17 +420,20 @@ export default function LeadsPage() {
                                     </Badge>
                                 </Tooltip>
                             )}
-                            {company.website && (
-                                <Text size="xs" c="dimmed">{company.website}</Text>
-                            )}
                         </Group>
+                    </Table.Td>
+                );
+            case 'website':
+                return (
+                    <Table.Td key="website">
+                        <Text size="xs" c="dimmed" lineClamp={1}>{company.website || '—'}</Text>
                     </Table.Td>
                 );
             case 'stage':
                 return (
                     <Table.Td key="stage">
                         <Badge
-                            color={stageColors[company.stage] || 'gray'}
+                            color={stageColors[company.stage as keyof typeof stageColors] || 'gray'}
                             variant="light"
                             size="sm"
                             radius="sm"
@@ -352,15 +443,55 @@ export default function LeadsPage() {
                     </Table.Td>
                 );
             case 'industry':
-                return <Table.Td key="industry"><Text size="sm">{company.industry || '—'}</Text></Table.Td>;
+                return <Table.Td key="industry"><TruncatedText size="sm">{company.industry}</TruncatedText></Table.Td>;
             case 'location':
-                return <Table.Td key="location"><Text size="sm">{company.location || '—'}</Text></Table.Td>;
+                return <Table.Td key="location"><TruncatedText size="sm">{company.location}</TruncatedText></Table.Td>;
+            case 'employee_size':
+                return <Table.Td key="employee_size"><TruncatedText size="sm">{company.employee_size}</TruncatedText></Table.Td>;
+            case 'product_services':
+                return (
+                    <Table.Td key="product_services">
+                        <TruncatedText size="sm">{company.product_services}</TruncatedText>
+                    </Table.Td>
+                );
+            case 'description':
+                return (
+                    <Table.Td key="description">
+                        <TruncatedText size="sm">{company.description}</TruncatedText>
+                    </Table.Td>
+                );
+            case 'linkedin':
+                return (
+                    <Table.Td key="linkedin">
+                        <TruncatedText size="xs" c="dimmed">{company.linkedin}</TruncatedText>
+                    </Table.Td>
+                );
+            case 'company_phone':
+                return <Table.Td key="company_phone"><TruncatedText size="sm">{company.company_phone}</TruncatedText></Table.Td>;
+            case 'deal_summary':
+                return (
+                    <Table.Td key="deal_summary">
+                        <TruncatedText size="sm">{company.deal_summary}</TruncatedText>
+                    </Table.Td>
+                );
             case 'next_step':
                 return (
                     <Table.Td key="next_step">
-                        <Text size="sm" lineClamp={1} maw={200}>
-                            {company.next_step || '—'}
-                        </Text>
+                        <TruncatedText size="sm">{company.next_step}</TruncatedText>
+                    </Table.Td>
+                );
+            case 'assigned_to':
+                return <Table.Td key="assigned_to"><TruncatedText size="sm">{company.assigned_to}</TruncatedText></Table.Td>;
+            case 'contact_count':
+                return (
+                    <Table.Td key="contact_count">
+                        <Badge size="sm" variant="light" color="violet">{company.contact_count}</Badge>
+                    </Table.Td>
+                );
+            case 'created_at':
+                return (
+                    <Table.Td key="created_at">
+                        <Text size="xs" c="dimmed">{formatDate(company.created_at)}</Text>
                     </Table.Td>
                 );
             case 'updated_at':
@@ -380,6 +511,9 @@ export default function LeadsPage() {
         value: s, label: s,
     }));
     const locationOptions = (filterOptions?.locations || []).map((s) => ({
+        value: s, label: s,
+    }));
+    const productOptions = (filterOptions?.products || []).map((s) => ({
         value: s, label: s,
     }));
 
@@ -471,6 +605,16 @@ export default function LeadsPage() {
                         radius="md"
                         maxDropdownHeight={200}
                     />
+                    <MultiSelect
+                        placeholder={t('filter.product')}
+                        data={productOptions}
+                        value={selectedProducts}
+                        onChange={setSelectedProducts}
+                        clearable
+                        searchable
+                        radius="md"
+                        maxDropdownHeight={200}
+                    />
                 </Group>
                 {hasActiveFilters && (
                     <Group mt="xs">
@@ -532,8 +676,7 @@ export default function LeadsPage() {
                             <Table.Thead>
                                 <Table.Tr>
                                     {visibleColumns.map(col => renderColumnHeader(col.key))}
-                                    {isOpsOrAdmin && <Table.Th style={{ width: 40 }} />}
-                                    <Table.Th style={{ width: 40, padding: '0 8px' }}>
+                                    <Table.Th style={{ width: 40, padding: '0 4px' }}>
                                         <Popover
                                             opened={colPopoverOpen}
                                             onChange={setColPopoverOpen}
@@ -542,7 +685,7 @@ export default function LeadsPage() {
                                             withArrow
                                         >
                                             <Popover.Target>
-                                                <Tooltip label="Sütunları düzenle" withArrow position="left">
+                                                <Tooltip label={t('leads.editColumns', 'Sütunları düzenle')} withArrow position="left">
                                                     <ActionIcon
                                                         variant="subtle"
                                                         size="sm"
@@ -556,43 +699,32 @@ export default function LeadsPage() {
                                                     </ActionIcon>
                                                 </Tooltip>
                                             </Popover.Target>
-                                            <Popover.Dropdown p="sm" style={{ minWidth: 220 }}>
+                                            <Popover.Dropdown p="sm" style={{ minWidth: 240 }}>
                                                 <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs" style={{ letterSpacing: '0.5px' }}>
-                                                    Sütunlar
+                                                    {t('leads.columns', 'Sütunlar')}
                                                 </Text>
                                                 <Divider mb="xs" />
-                                                <Stack gap={6}>
-                                                    {columns.map((col, idx) => (
-                                                        <Group key={col.key} justify="space-between" wrap="nowrap">
-                                                            <Checkbox
-                                                                checked={col.visible}
-                                                                onChange={() => toggleColumn(col.key)}
-                                                                label={<Text size="sm">{columnLabels[col.key]}</Text>}
-                                                                size="xs"
-                                                            />
-                                                            <Group gap={2}>
-                                                                <ActionIcon
-                                                                    size="xs"
-                                                                    variant="subtle"
-                                                                    color="gray"
-                                                                    disabled={idx === 0}
-                                                                    onClick={() => moveColumn(col.key, 'up')}
-                                                                >
-                                                                    <IconChevronUp size={12} />
-                                                                </ActionIcon>
-                                                                <ActionIcon
-                                                                    size="xs"
-                                                                    variant="subtle"
-                                                                    color="gray"
-                                                                    disabled={idx === columns.length - 1}
-                                                                    onClick={() => moveColumn(col.key, 'down')}
-                                                                >
-                                                                    <IconChevronDown size={12} />
-                                                                </ActionIcon>
-                                                            </Group>
-                                                        </Group>
-                                                    ))}
-                                                </Stack>
+                                                <DndContext
+                                                    sensors={sensors}
+                                                    collisionDetection={closestCenter}
+                                                    onDragEnd={handleDragEnd}
+                                                >
+                                                    <SortableContext
+                                                        items={columns.map(c => c.key)}
+                                                        strategy={verticalListSortingStrategy}
+                                                    >
+                                                        <Stack gap={6}>
+                                                            {columns.map((col) => (
+                                                                <SortableColumnItem
+                                                                    key={col.key}
+                                                                    col={col}
+                                                                    label={columnLabels[col.key]}
+                                                                    onToggle={() => toggleColumn(col.key)}
+                                                                />
+                                                            ))}
+                                                        </Stack>
+                                                    </SortableContext>
+                                                </DndContext>
                                                 <Divider mt="xs" mb="xs" />
                                                 <Button
                                                     size="xs"
@@ -601,7 +733,7 @@ export default function LeadsPage() {
                                                     fullWidth
                                                     onClick={() => saveColumns(DEFAULT_COLUMNS)}
                                                 >
-                                                    Varsayılana sıfırla
+                                                    {t('leads.resetColumns', 'Varsayılana sıfırla')}
                                                 </Button>
                                             </Popover.Dropdown>
                                         </Popover>
@@ -616,8 +748,8 @@ export default function LeadsPage() {
                                         onClick={() => navigate(`/companies/${company.id}`)}
                                     >
                                         {visibleColumns.map(col => renderColumnCell(col.key, company))}
-                                        {isOpsOrAdmin && (
-                                            <Table.Td>
+                                        <Table.Td style={{ padding: '0 4px' }}>
+                                            {isOpsOrAdmin && (
                                                 <Menu withinPortal position="bottom-end" shadow="sm">
                                                     <Menu.Target>
                                                         <ActionIcon
@@ -652,9 +784,8 @@ export default function LeadsPage() {
                                                         )}
                                                     </Menu.Dropdown>
                                                 </Menu>
-                                            </Table.Td>
-                                        )}
-                                        <Table.Td />
+                                            )}
+                                        </Table.Td>
                                     </Table.Tr>
                                 ))}
                             </Table.Tbody>

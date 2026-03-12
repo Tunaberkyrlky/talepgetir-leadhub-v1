@@ -46,6 +46,7 @@ import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { getStageColor } from '../lib/stages';
+import TruncatedText from '../components/TruncatedText';
 
 interface Contact {
     id: string;
@@ -57,7 +58,6 @@ interface Contact {
     linkedin: string | null;
     country: string | null;
     seniority: string | null;
-    department: string | null;
     is_primary: boolean;
     notes: string | null;
 }
@@ -89,8 +89,6 @@ export default function CompanyDetailPage() {
     const queryClient = useQueryClient();
     const [opened, { open, close }] = useDisclosure(false);
     const [editingContact, setEditingContact] = useState<Contact | null>(null);
-    const [descExpanded, setDescExpanded] = useState(false);
-
     const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
 
     const { data: company, isLoading } = useQuery<Company>({
@@ -111,7 +109,6 @@ export default function CompanyDetailPage() {
             linkedin: '',
             country: '',
             seniority: '',
-            department: '',
             is_primary: false,
             notes: '',
         },
@@ -171,7 +168,6 @@ export default function CompanyDetailPage() {
             linkedin: contact.linkedin || '',
             country: contact.country || '',
             seniority: contact.seniority || '',
-            department: contact.department || '',
             is_primary: contact.is_primary,
             notes: contact.notes || '',
         });
@@ -276,19 +272,19 @@ export default function CompanyDetailPage() {
                     {company.product_services && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.productServices')}</Text>
-                            <Text size="sm">{company.product_services}</Text>
+                            <TruncatedText size="sm" maxLength={350} inline>{company.product_services}</TruncatedText>
                         </Box>
                     )}
                     {company.deal_summary && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.dealSummary')}</Text>
-                            <Text size="sm">{company.deal_summary}</Text>
+                            <TruncatedText size="sm" maxLength={350} inline>{company.deal_summary}</TruncatedText>
                         </Box>
                     )}
                     {company.next_step && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.nextStep')}</Text>
-                            <Text size="sm">{company.next_step}</Text>
+                            <TruncatedText size="sm" maxLength={350} inline>{company.next_step}</TruncatedText>
                         </Box>
                     )}
                 </SimpleGrid>
@@ -299,23 +295,7 @@ export default function CompanyDetailPage() {
                         <Divider my="lg" />
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase" mb={4}>{t('company.description')}</Text>
-                            <Text size="sm">
-                                {descExpanded || company.description.length <= 500
-                                    ? company.description
-                                    : company.description.slice(0, 500) + '...'}
-                            </Text>
-                            {company.description.length > 500 && (
-                                <Button
-                                    variant="subtle"
-                                    size="xs"
-                                    color="blue"
-                                    mt={4}
-                                    p={0}
-                                    onClick={() => setDescExpanded(!descExpanded)}
-                                >
-                                    {descExpanded ? t('common.showLess') : t('common.showMore')}
-                                </Button>
-                            )}
+                            <TruncatedText size="sm" maxLength={350} inline>{company.description}</TruncatedText>
                         </Box>
                     </>
                 )}
@@ -368,7 +348,6 @@ export default function CompanyDetailPage() {
                                             </Group>
                                             <Group gap="xs" mt={2}>
                                                 {contact.title && <Text size="xs" c="dimmed">{contact.title}</Text>}
-                                                {contact.department && <Text size="xs" c="dimmed">· {contact.department}</Text>}
                                                 {contact.country && <Text size="xs" c="dimmed">· {contact.country}</Text>}
                                             </Group>
                                         </div>
@@ -427,7 +406,7 @@ export default function CompanyDetailPage() {
                                     </Group>
                                 </Group>
                                 {contact.notes && (
-                                    <Text size="xs" c="dimmed" mt="xs">{contact.notes}</Text>
+                                    <TruncatedText size="xs" c="dimmed" mt="xs" maxLength={350} inline>{contact.notes}</TruncatedText>
                                 )}
                             </Card>
                         ))}
@@ -451,7 +430,6 @@ export default function CompanyDetailPage() {
                         </Group>
                         <Group grow>
                             <TextInput label={t('contact.title')} radius="md" {...contactForm.getInputProps('title')} />
-                            <TextInput label={t('contact.department')} radius="md" {...contactForm.getInputProps('department')} />
                         </Group>
                         <Group grow>
                             <TextInput label={t('contact.seniority')} radius="md" {...contactForm.getInputProps('seniority')} />
