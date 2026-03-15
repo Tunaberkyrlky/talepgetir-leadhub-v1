@@ -6,7 +6,7 @@ import {
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconSearch, IconPlus, IconPencil, IconTrash, IconX, IconDotsVertical, IconUserOff, IconUserCheck } from '@tabler/icons-react';
+import { IconSearch, IconPlus, IconPencil, IconTrash, IconX, IconDotsVertical, IconUserOff } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import UserFormModal from './UserFormModal';

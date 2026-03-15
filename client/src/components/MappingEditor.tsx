@@ -42,7 +42,7 @@ export default function MappingEditor({ suggestions, mapping, availableFields, o
 
     const companyFields = availableFields.filter((f) => f.table === 'companies');
     const contactFields = availableFields.filter((f) => f.table === 'contacts');
-    const groups = [];
+    const groups: { group: string; items: { value: string; label: string }[] }[] = [];
     if (companyFields.length > 0) {
         groups.push({ group: t('import.fieldGroupCompany'), items: companyFields.map((f) => ({ value: f.value, label: f.label })) });
     }

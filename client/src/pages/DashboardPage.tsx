@@ -11,7 +11,6 @@ import {
     Group,
     Paper,
     Badge,
-    Flex,
 } from '@mantine/core';
 import {
     IconBuilding,
