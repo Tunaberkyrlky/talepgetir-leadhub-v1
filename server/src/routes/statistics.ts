@@ -78,8 +78,8 @@ router.get('/pipeline', async (req: Request, res: Response): Promise<void> => {
 
         // Pipeline stages in order (exclude terminal)
         const pipelineStages = [
-            'new', 'researching', 'contacted',
-            'meeting_scheduled', 'proposal_sent', 'negotiation',
+            'in_queue', 'first_contact', 'connected', 'qualified',
+            'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
         ];
 
         const stageCounts: Record<string, number> = {};

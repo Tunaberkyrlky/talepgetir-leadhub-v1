@@ -203,6 +203,8 @@ router.post(
                 suggestions,
                 availableFields,
                 previewRows,
+                companyHeaders: companyData.headers,
+                peopleHeaders: peopleData.headers,
             });
         } catch (err: any) {
             log.error({ err }, 'Match preview error');

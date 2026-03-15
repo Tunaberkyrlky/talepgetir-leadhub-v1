@@ -64,7 +64,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { stageColors } from '../lib/stages';
+import { STAGES, stageColors } from '../lib/stages';
+import type { Stage } from '../lib/stages';
 import CompanyForm from '../components/CompanyForm';
 import TruncatedText from '../components/TruncatedText';
 
@@ -232,7 +233,40 @@ export default function LeadsPage() {
     const [columns, setColumns] = useState<ColumnDef[]>(loadColumnConfig);
     const [colPopoverOpen, setColPopoverOpen] = useState(false);
 
+    // Bulk selection state
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
     const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
+
+    const toggleSelect = (id: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    // Clear selection when page/filters change
+    useEffect(() => {
+        setSelectedIds(new Set());
+    }, [page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
+
+    // Bulk stage update mutation
+    const bulkStageMutation = useMutation({
+        mutationFn: async (stage: string) => {
+            await api.patch('/companies/bulk-stage', { ids: Array.from(selectedIds), stage });
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['companies'] });
+            queryClient.invalidateQueries({ queryKey: ['filterOptions'] });
+            setSelectedIds(new Set());
+            notifications.show({ title: '✅', message: t('company.updated'), color: 'green' });
+        },
+        onError: () => {
+            notifications.show({ title: '❌', message: t('common.error'), color: 'red' });
+        },
+    });
 
     const columnLabels: Record<ColumnKey, string> = {
         name: t('company.name'),
@@ -320,6 +354,19 @@ export default function LeadsPage() {
         },
     });
 
+    // Bulk selection computed (after data query)
+    const allOnPage = data?.data.map(c => c.id) || [];
+    const allSelected = allOnPage.length > 0 && allOnPage.every(id => selectedIds.has(id));
+    const someSelected = allOnPage.some(id => selectedIds.has(id));
+
+    const toggleSelectAll = () => {
+        if (allSelected) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(allOnPage));
+        }
+    };
+
     // Delete mutation
     const deleteMutation = useMutation({
         mutationFn: async (id: string) => {
@@ -348,6 +395,7 @@ export default function LeadsPage() {
             setSortBy(key);
             setSortOrder('asc');
         }
+        setPage(1);
     };
 
     const formatDate = (dateStr: string) => {
@@ -636,6 +684,40 @@ export default function LeadsPage() {
                 )}
             </Paper>
 
+            {/* Bulk Action Bar */}
+            {selectedIds.size > 0 && isOpsOrAdmin && (
+                <Paper shadow="md" radius="lg" p="xs" px="md" mb="md" withBorder
+                    style={{ background: 'var(--mantine-color-violet-light)', border: '1px solid var(--mantine-color-violet-3)' }}
+                >
+                    <Group justify="space-between">
+                        <Group gap="sm">
+                            <Text size="sm" fw={600}>
+                                {selectedIds.size} {t('bulk.selected', 'seçili')}
+                            </Text>
+                            <Button variant="subtle" color="gray" size="xs" onClick={() => setSelectedIds(new Set())}>
+                                {t('bulk.clearSelection', 'Seçimi Temizle')}
+                            </Button>
+                        </Group>
+                        <Group gap="xs">
+                            <Text size="sm" fw={500} c="dimmed">{t('bulk.moveTo', 'Aşama:')}</Text>
+                            {STAGES.map((stage) => (
+                                <Button
+                                    key={stage}
+                                    size="compact-xs"
+                                    variant="light"
+                                    color={stageColors[stage as Stage] || 'gray'}
+                                    onClick={() => bulkStageMutation.mutate(stage)}
+                                    loading={bulkStageMutation.isPending}
+                                    radius="sm"
+                                >
+                                    {t(`stages.${stage}`)}
+                                </Button>
+                            ))}
+                        </Group>
+                    </Group>
+                </Paper>
+            )}
+
             {/* Table */}
             <Paper shadow="sm" radius="lg" withBorder style={{ overflow: 'hidden' }}>
                 {isLoading ? (
@@ -656,6 +738,7 @@ export default function LeadsPage() {
                     </Center>
                 ) : (
                     <>
+                        <Table.ScrollContainer minWidth={800}>
                         <Table
                             striped
                             highlightOnHover
@@ -677,6 +760,17 @@ export default function LeadsPage() {
                         >
                             <Table.Thead>
                                 <Table.Tr>
+                                    {isOpsOrAdmin && (
+                                        <Table.Th style={{ width: 40, padding: '0 12px' }}>
+                                            <Checkbox
+                                                checked={allSelected}
+                                                indeterminate={someSelected && !allSelected}
+                                                onChange={toggleSelectAll}
+                                                size="xs"
+                                                color="violet"
+                                            />
+                                        </Table.Th>
+                                    )}
                                     {visibleColumns.map(col => renderColumnHeader(col.key))}
                                     <Table.Th style={{ width: 40, padding: '0 4px' }}>
                                         <Popover
@@ -746,9 +840,23 @@ export default function LeadsPage() {
                                 {data?.data.map((company) => (
                                     <Table.Tr
                                         key={company.id}
-                                        style={{ cursor: 'pointer' }}
+                                        style={{
+                                            cursor: 'pointer',
+                                            background: selectedIds.has(company.id) ? 'var(--mantine-color-violet-light)' : undefined,
+                                        }}
                                         onClick={() => navigate(`/companies/${company.id}`)}
                                     >
+                                        {isOpsOrAdmin && (
+                                            <Table.Td style={{ width: 40, padding: '0 12px' }}>
+                                                <Checkbox
+                                                    checked={selectedIds.has(company.id)}
+                                                    onChange={() => toggleSelect(company.id)}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    size="xs"
+                                                    color="violet"
+                                                />
+                                            </Table.Td>
+                                        )}
                                         {visibleColumns.map(col => renderColumnCell(col.key, company))}
                                         <Table.Td style={{ padding: '0 4px' }}>
                                             {isOpsOrAdmin && (
@@ -792,6 +900,7 @@ export default function LeadsPage() {
                                 ))}
                             </Table.Tbody>
                         </Table>
+                        </Table.ScrollContainer>
 
                         {/* Pagination */}
                         {data && data.pagination.totalPages > 1 && (

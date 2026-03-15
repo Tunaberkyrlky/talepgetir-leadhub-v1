@@ -124,6 +124,10 @@
         "confidenceManual": "Manuel",
         "fieldGroupCompany": "Şirket",
         "fieldGroupPeople": "Kişi",
+        "mappedColumns": "Eşleşen Sütunlar",
+        "unmappedColumns": "Eşleşmeyen Sütunlar",
+        "source": "Kaynak",
+        "sourceShared": "Ortak",
         "progressCancelling": "İptal ediliyor...",
         "progressDone": "İçe Aktarma Tamamlandı",
         "progressImporting": "İçe Aktarılıyor...",
@@ -139,15 +143,17 @@
         "progressHide": "Gizle"
     },
     "stages": {
-        "new": "Yeni",
-        "researching": "Araştırılıyor",
-        "contacted": "İletişime Geçildi",
-        "meeting_scheduled": "Toplantı Planlandı",
+        "in_queue": "Sırada",
+        "first_contact": "İlk Temas",
+        "connected": "Bağlantı Kuruldu",
+        "qualified": "Nitelikli",
+        "in_meeting": "Görüşmede",
+        "follow_up": "Takipte",
         "proposal_sent": "Teklif Gönderildi",
         "negotiation": "Müzakere",
         "won": "Kazanıldı",
         "lost": "Kaybedildi",
-        "on_hold": "Beklemede"
+        "on_hold": "Askıda"
     },
     "pagination": {
         "showing": "Gösterilen",
@@ -231,6 +237,11 @@
         "companies": "Şirket",
         "upgradeTitle": "Gelişmiş Analitiği Açın",
         "upgradeDesc": "Pipeline huni grafikleri ve daha detaylı analizler için Pro'ya yükseltin."
+    },
+    "bulk": {
+        "selected": "seçili",
+        "clearSelection": "Seçimi Temizle",
+        "moveTo": "Aşama:"
     },
     "pipeline": {
         "comingSoon": "Pipeline görünümü Phase 4'te gelecek"

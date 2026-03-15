@@ -124,6 +124,10 @@
         "confidenceManual": "Manual",
         "fieldGroupCompany": "Company",
         "fieldGroupPeople": "Person",
+        "mappedColumns": "Mapped Columns",
+        "unmappedColumns": "Unmapped Columns",
+        "source": "Source",
+        "sourceShared": "Shared",
         "progressCancelling": "Cancelling...",
         "progressDone": "Import Completed",
         "progressImporting": "Importing...",
@@ -139,10 +143,12 @@
         "progressHide": "Hide"
     },
     "stages": {
-        "new": "New",
-        "researching": "Researching",
-        "contacted": "Contacted",
-        "meeting_scheduled": "Meeting Scheduled",
+        "in_queue": "In Queue",
+        "first_contact": "First Contact",
+        "connected": "Connected",
+        "qualified": "Qualified",
+        "in_meeting": "In Meeting",
+        "follow_up": "Follow Up",
         "proposal_sent": "Proposal Sent",
         "negotiation": "Negotiation",
         "won": "Won",
@@ -231,6 +237,11 @@
         "companies": "Companies",
         "upgradeTitle": "Unlock Advanced Analytics",
         "upgradeDesc": "Upgrade to Pro to access pipeline funnel charts and more detailed analytics."
+    },
+    "bulk": {
+        "selected": "selected",
+        "clearSelection": "Clear Selection",
+        "moveTo": "Stage:"
     },
     "pipeline": {
         "comingSoon": "Pipeline view coming in Phase 4"

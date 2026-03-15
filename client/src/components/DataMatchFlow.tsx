@@ -59,6 +59,8 @@ interface MatchPreviewData {
     suggestions: MappingSuggestion[];
     availableFields: AvailableField[];
     previewRows: Record<string, string>[];
+    companyHeaders: string[];
+    peopleHeaders: string[];
 }
 
 export default function DataMatchFlow() {
@@ -412,6 +414,8 @@ export default function DataMatchFlow() {
                             mapping={mapping}
                             availableFields={previewData.availableFields}
                             onMappingChange={handleMappingChange}
+                            companyHeaders={previewData.companyHeaders}
+                            peopleHeaders={previewData.peopleHeaders}
                         />
                     )}
 

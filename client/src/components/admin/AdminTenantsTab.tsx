@@ -141,6 +141,7 @@ export default function AdminTenantsTab() {
                     </Center>
                 ) : (
                     <>
+                        <Table.ScrollContainer minWidth={800}>
                         <Table striped highlightOnHover verticalSpacing="sm" horizontalSpacing="md"
                             styles={{
                                 thead: { background: 'linear-gradient(135deg, #1a1b2e 0%, #16213e 100%)' },
@@ -212,6 +213,7 @@ export default function AdminTenantsTab() {
                                 ))}
                             </Table.Tbody>
                         </Table>
+                        </Table.ScrollContainer>
 
                         {data && data.pagination.totalPages > 1 && (
                             <Box p="md">

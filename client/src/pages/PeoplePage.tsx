@@ -326,6 +326,7 @@ export default function PeoplePage() {
             setSortBy(key);
             setSortOrder('asc');
         }
+        setPage(1);
     };
 
     const openCreate = () => { setEditContact(null); openForm(); };
@@ -604,6 +605,7 @@ export default function PeoplePage() {
                     </Center>
                 ) : (
                     <>
+                        <Table.ScrollContainer minWidth={800}>
                         <Table
                             striped
                             highlightOnHover
@@ -742,6 +744,7 @@ export default function PeoplePage() {
                                 ))}
                             </Table.Tbody>
                         </Table>
+                        </Table.ScrollContainer>
 
                         {/* Pagination */}
                         {data && data.pagination.totalPages > 1 && (

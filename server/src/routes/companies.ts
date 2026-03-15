@@ -10,8 +10,9 @@ const router = Router();
 
 // Valid stages for companies
 const VALID_STAGES = [
-    'new', 'researching', 'contacted', 'meeting_scheduled',
-    'proposal_sent', 'negotiation', 'won', 'lost', 'on_hold',
+    'in_queue', 'first_contact', 'connected', 'qualified',
+    'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
+    'won', 'lost', 'on_hold',
 ] as const;
 
 // Valid sort columns (whitelist to prevent injection)
@@ -20,6 +21,8 @@ const SORT_COLUMNS: Record<string, string> = {
     stage: 'stage',
     industry: 'industry',
     location: 'location',
+    employee_size: 'employee_size',
+    contact_count: 'contact_count',
     updated_at: 'updated_at',
     created_at: 'created_at',
 };
@@ -49,10 +52,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
             .select('*', { count: 'exact', head: true })
             .eq('tenant_id', tenantId);
 
-        // Build data query with filters (contacts(count) gives embedded contact count)
+        // Use view that includes pre-computed contact_count (enables sorting by it)
         let dataQuery = supabaseAdmin
-            .from('companies')
-            .select('id, name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, stage, deal_summary, next_step, assigned_to, created_at, updated_at, contacts(count)')
+            .from('companies_with_counts')
+            .select('id, name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, stage, deal_summary, next_step, assigned_to, created_at, updated_at, contact_count')
             .eq('tenant_id', tenantId);
 
         // Apply search (ILIKE on multiple columns)
@@ -94,8 +97,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         }
 
         // Apply sort and pagination
+        // nullsFirst: false ensures NULLs always go to end regardless of sort direction
         const { data, error } = await dataQuery
-            .order(sortBy, { ascending: sortOrder })
+            .order(sortBy, { ascending: sortOrder, nullsFirst: false })
+            .order('id', { ascending: true })
             .range(offset, offset + limit - 1);
 
         if (error) {
@@ -104,15 +109,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
         const totalPages = Math.ceil((count || 0) / limit);
 
-        // Flatten contacts count: Supabase returns contacts as [{ count: N }]
-        const companies = (data || []).map((c: any) => ({
-            ...c,
-            contact_count: (c.contacts?.[0]?.count ?? 0) as number,
-            contacts: undefined,
-        }));
-
         res.json({
-            data: companies,
+            data: data || [],
             pagination: {
                 page,
                 limit,
@@ -204,7 +202,7 @@ router.post(
                     description: description || null,
                     linkedin: linkedin || null,
                     company_phone: company_phone || null,
-                    stage: stage || 'new',
+                    stage: stage || 'in_queue',
                     deal_summary: deal_summary || null,
                     internal_notes: internal_notes || null,
                     next_step: next_step || null,
@@ -320,6 +318,47 @@ router.put(
             if (err instanceof AppError) throw err;
             log.error({ err }, 'Update company error');
             res.status(500).json({ error: 'Failed to update company' });
+        }
+    }
+);
+
+// PATCH /api/companies/bulk-stage — Bulk update stage for multiple companies
+router.patch(
+    '/bulk-stage',
+    requireRole('superadmin', 'ops_agent'),
+    async (req: Request, res: Response): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { ids, stage } = req.body;
+
+            if (!Array.isArray(ids) || ids.length === 0) {
+                res.status(400).json({ error: 'ids must be a non-empty array' });
+                return;
+            }
+
+            if (!stage || !VALID_STAGES.includes(stage)) {
+                res.status(400).json({
+                    error: `Invalid stage. Valid stages: ${VALID_STAGES.join(', ')}`,
+                });
+                return;
+            }
+
+            const { data, error } = await supabaseAdmin
+                .from('companies')
+                .update({ stage, updated_at: new Date().toISOString() })
+                .in('id', ids)
+                .eq('tenant_id', tenantId)
+                .select('id');
+
+            if (error) {
+                throw new AppError('Failed to bulk update stages', 500);
+            }
+
+            res.json({ updated: data?.length || 0 });
+        } catch (err) {
+            if (err instanceof AppError) throw err;
+            log.error({ err }, 'Bulk stage update error');
+            res.status(500).json({ error: 'Failed to bulk update stages' });
         }
     }
 );

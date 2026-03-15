@@ -87,7 +87,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
             ? (req.query.countries as string).split(',').filter(Boolean)
             : [];
 
-        const allowedSortFields = ['first_name', 'last_name', 'email', 'updated_at'];
+        const allowedSortFields = ['first_name', 'last_name', 'email', 'country', 'seniority', 'created_at', 'updated_at'];
         const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'updated_at';
 
         let query = supabaseAdmin
@@ -104,8 +104,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         if (filterSeniorities.length > 0) query = query.in('seniority', filterSeniorities);
         if (filterCountries.length > 0) query = query.in('country', filterCountries);
 
+        // nullsFirst: false ensures NULLs always go to end regardless of sort direction
         query = query
-            .order(safeSortBy, { ascending: sortOrder })
+            .order(safeSortBy, { ascending: sortOrder, nullsFirst: false })
+            .order('id', { ascending: true })
             .range(offset, offset + limit - 1);
 
         const { data, error, count } = await query;

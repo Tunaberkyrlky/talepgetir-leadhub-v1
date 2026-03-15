@@ -14,22 +14,32 @@ import { createLogger } from './logger.js';
 const log = createLogger('importProcessor');
 const BATCH_SIZE = 500;
 
-// Valid stages
+// Valid stages (ordered enum)
 const VALID_STAGES = [
-    'new', 'researching', 'contacted', 'meeting_scheduled',
-    'proposal_sent', 'negotiation', 'won', 'lost', 'on_hold',
+    'in_queue', 'first_contact', 'connected', 'qualified',
+    'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
+    'won', 'lost', 'on_hold',
 ];
 
 // Turkish → English stage mapping for CSV import
 const STAGE_ALIASES: Record<string, string> = {
-    'yeni': 'new',
-    'araştırılıyor': 'researching',
-    'araştırma': 'researching',
-    'iletişime geçildi': 'contacted',
-    'görüşüldü': 'contacted',
-    'gorusuldu': 'contacted',
-    'toplantı planlandı': 'meeting_scheduled',
-    'toplanti planlandi': 'meeting_scheduled',
+    'sırada': 'in_queue',
+    'sirada': 'in_queue',
+    'yeni': 'in_queue',
+    'new': 'in_queue',
+    'ilk temas': 'first_contact',
+    'ilk iletişim': 'first_contact',
+    'bağlantı kuruldu': 'connected',
+    'baglanti kuruldu': 'connected',
+    'iletişime geçildi': 'connected',
+    'nitelikli': 'qualified',
+    'kalifiye': 'qualified',
+    'görüşmede': 'in_meeting',
+    'gorusmede': 'in_meeting',
+    'toplantı planlandı': 'in_meeting',
+    'toplanti planlandi': 'in_meeting',
+    'takipte': 'follow_up',
+    'takip': 'follow_up',
     'teklif gönderildi': 'proposal_sent',
     'teklif gonderildi': 'proposal_sent',
     'müzakere': 'negotiation',
@@ -41,6 +51,8 @@ const STAGE_ALIASES: Record<string, string> = {
     'ilgilenmiyor': 'lost',
     'reddedildi': 'lost',
     'iptal': 'lost',
+    'askıda': 'on_hold',
+    'askida': 'on_hold',
     'beklemede': 'on_hold',
     'bekleniyor': 'on_hold',
 };
@@ -62,7 +74,7 @@ function normalizeStage(raw: string): { stage: string; overflow: string | null }
     }
 
     // Unrecognized → default to 'new', save original as overflow note
-    return { stage: 'new', overflow: raw };
+    return { stage: 'in_queue', overflow: raw };
 }
 
 interface ImportError {
@@ -260,7 +272,7 @@ export async function executeImport(
         }
 
         const rawStage = getValue(row, 'companies.stage');
-        let resolvedStage = 'new';
+        let resolvedStage = 'in_queue';
         let stageOverflow: string | null = null;
         if (rawStage) {
             const { stage, overflow } = normalizeStage(rawStage);

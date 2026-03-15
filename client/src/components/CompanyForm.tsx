@@ -40,8 +40,9 @@ interface CompanyFormProps {
 }
 
 const STAGES = [
-    'new', 'researching', 'contacted', 'meeting_scheduled',
-    'proposal_sent', 'negotiation', 'won', 'lost', 'on_hold',
+    'in_queue', 'first_contact', 'connected', 'qualified',
+    'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
+    'won', 'lost', 'on_hold',
 ];
 
 export default function CompanyForm({ opened, onClose, company }: CompanyFormProps) {
@@ -60,7 +61,7 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
             description: '',
             linkedin: '',
             company_phone: '',
-            stage: 'new',
+            stage: 'in_queue',
             deal_summary: '',
             next_step: '',
             // Contact fields (only used on create)
@@ -87,7 +88,7 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
                 description: company.description || '',
                 linkedin: company.linkedin || '',
                 company_phone: company.company_phone || '',
-                stage: company.stage || 'new',
+                stage: company.stage || 'in_queue',
                 deal_summary: company.deal_summary || '',
                 next_step: company.next_step || '',
                 contact_name: '',
