@@ -100,6 +100,9 @@
         "errorRow": "Satır",
         "errorField": "Alan",
         "errorMessage": "Hata",
+        "defaultCompanyName": "Varsayılan Şirket Adı",
+        "defaultCompanyNameDesc": "Şirket adı boş olan satırlar için kullanılır. Boş bırakırsanız bu satırlar atlanır.",
+        "defaultCompanyNamePlaceholder": "ör. Bilinmeyen Şirket",
         "backToLeads": "Lead Listesine Dön",
         "importAnother": "Başka Dosya İçe Aktar",
         "singleImportTab": "Tekli Dosya",
@@ -143,6 +146,7 @@
         "progressHide": "Gizle"
     },
     "stages": {
+        "cold": "Soğuk",
         "in_queue": "Sırada",
         "first_contact": "İlk Temas",
         "connected": "Bağlantı Kuruldu",

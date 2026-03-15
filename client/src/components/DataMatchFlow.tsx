@@ -51,7 +51,7 @@ interface MatchPreviewData {
     unmatchedPeople: Record<string, string>[];
     totalCompanyRows: number;
     totalPeopleRows: number;
-    filePath: string;
+    fileId: string;
     fileName: string;
     fileType: string;
     totalRows: number;
@@ -113,7 +113,7 @@ export default function DataMatchFlow() {
 
             // Step 3: Execute import
             const res = await api.post('/import/execute', {
-                filePath: previewData!.filePath,
+                fileId: previewData!.fileId,
                 fileName: previewData!.fileName,
                 fileType: previewData!.fileType,
                 mapping,

@@ -8,9 +8,15 @@ const log = createLogger('route:companies');
 
 const router = Router();
 
+// Sanitize search input for safe use in PostgREST .or() filter strings.
+// Strips characters that PostgREST interprets as structural delimiters.
+function sanitizeSearch(value: string): string {
+    return value.replace(/[,().\\]/g, '');
+}
+
 // Valid stages for companies
 const VALID_STAGES = [
-    'in_queue', 'first_contact', 'connected', 'qualified',
+    'cold', 'in_queue', 'first_contact', 'connected', 'qualified',
     'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
     'won', 'lost', 'on_hold',
 ] as const;
@@ -60,10 +66,13 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
         // Apply search (ILIKE on multiple columns)
         if (search) {
-            const pattern = `%${search}%`;
-            const searchFilter = `name.ilike.${pattern},website.ilike.${pattern},industry.ilike.${pattern},next_step.ilike.${pattern}`;
-            countQuery = countQuery.or(searchFilter);
-            dataQuery = dataQuery.or(searchFilter);
+            const safe = sanitizeSearch(search);
+            if (safe.length > 0) {
+                const pattern = `%${safe}%`;
+                const searchFilter = `name.ilike.${pattern},website.ilike.${pattern},industry.ilike.${pattern},next_step.ilike.${pattern}`;
+                countQuery = countQuery.or(searchFilter);
+                dataQuery = dataQuery.or(searchFilter);
+            }
         }
 
         // Apply stage filter
@@ -202,7 +211,7 @@ router.post(
                     description: description || null,
                     linkedin: linkedin || null,
                     company_phone: company_phone || null,
-                    stage: stage || 'in_queue',
+                    stage: stage || 'cold',
                     deal_summary: deal_summary || null,
                     internal_notes: internal_notes || null,
                     next_step: next_step || null,

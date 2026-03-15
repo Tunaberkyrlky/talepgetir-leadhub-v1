@@ -404,7 +404,7 @@ export default function LeadsPage() {
         });
     };
 
-    const hasActiveFilters = debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedProducts.length;
+    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedProducts.length);
 
     const clearAllFilters = () => {
         setSearch('');
@@ -685,7 +685,7 @@ export default function LeadsPage() {
             </Paper>
 
             {/* Bulk Action Bar */}
-            {selectedIds.size > 0 && isOpsOrAdmin && (
+            {selectedIds.size > 0 && (
                 <Paper shadow="md" radius="lg" p="xs" px="md" mb="md" withBorder
                     style={{ background: 'var(--mantine-color-violet-light)', border: '1px solid var(--mantine-color-violet-3)' }}
                 >
@@ -760,17 +760,15 @@ export default function LeadsPage() {
                         >
                             <Table.Thead>
                                 <Table.Tr>
-                                    {isOpsOrAdmin && (
-                                        <Table.Th style={{ width: 40, padding: '0 12px' }}>
-                                            <Checkbox
-                                                checked={allSelected}
-                                                indeterminate={someSelected && !allSelected}
-                                                onChange={toggleSelectAll}
-                                                size="xs"
-                                                color="violet"
-                                            />
-                                        </Table.Th>
-                                    )}
+                                    <Table.Th style={{ width: 40, padding: '0 12px' }}>
+                                        <Checkbox
+                                            checked={allSelected}
+                                            indeterminate={someSelected && !allSelected}
+                                            onChange={toggleSelectAll}
+                                            size="xs"
+                                            color="violet"
+                                        />
+                                    </Table.Th>
                                     {visibleColumns.map(col => renderColumnHeader(col.key))}
                                     <Table.Th style={{ width: 40, padding: '0 4px' }}>
                                         <Popover
@@ -846,17 +844,15 @@ export default function LeadsPage() {
                                         }}
                                         onClick={() => navigate(`/companies/${company.id}`)}
                                     >
-                                        {isOpsOrAdmin && (
-                                            <Table.Td style={{ width: 40, padding: '0 12px' }}>
-                                                <Checkbox
-                                                    checked={selectedIds.has(company.id)}
-                                                    onChange={() => toggleSelect(company.id)}
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    size="xs"
-                                                    color="violet"
-                                                />
-                                            </Table.Td>
-                                        )}
+                                        <Table.Td style={{ width: 40, padding: '0 12px' }}>
+                                            <Checkbox
+                                                checked={selectedIds.has(company.id)}
+                                                onChange={() => toggleSelect(company.id)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                size="xs"
+                                                color="violet"
+                                            />
+                                        </Table.Td>
                                         {visibleColumns.map(col => renderColumnCell(col.key, company))}
                                         <Table.Td style={{ padding: '0 4px' }}>
                                             {isOpsOrAdmin && (

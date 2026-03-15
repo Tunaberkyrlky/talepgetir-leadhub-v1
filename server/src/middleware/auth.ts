@@ -151,3 +151,37 @@ export function requireRole(...roles: string[]) {
         next();
     };
 }
+
+// Tier check middleware factory. Internal roles (superadmin, ops_agent) are always allowed.
+const INTERNAL_ROLES = ['superadmin', 'ops_agent'];
+
+export function requireTier(...tiers: string[]) {
+    return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        if (!req.user) {
+            res.status(401).json({ error: 'Not authenticated' });
+            return;
+        }
+
+        // Internal roles bypass tier checks
+        if (INTERNAL_ROLES.includes(req.user.role)) {
+            next();
+            return;
+        }
+
+        // Look up tenant tier
+        const { data: tenant } = await supabaseAdmin
+            .from('tenants')
+            .select('tier')
+            .eq('id', req.tenantId!)
+            .single();
+
+        const tenantTier = tenant?.tier || 'basic';
+
+        if (!tiers.includes(tenantTier)) {
+            res.status(403).json({ error: 'This feature requires a higher plan' });
+            return;
+        }
+
+        next();
+    };
+}

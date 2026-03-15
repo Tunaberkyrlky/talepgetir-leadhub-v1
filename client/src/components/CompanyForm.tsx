@@ -40,7 +40,7 @@ interface CompanyFormProps {
 }
 
 const STAGES = [
-    'in_queue', 'first_contact', 'connected', 'qualified',
+    'cold', 'in_queue', 'first_contact', 'connected', 'qualified',
     'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
     'won', 'lost', 'on_hold',
 ];
@@ -61,7 +61,7 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
             description: '',
             linkedin: '',
             company_phone: '',
-            stage: 'in_queue',
+            stage: 'cold',
             deal_summary: '',
             next_step: '',
             // Contact fields (only used on create)

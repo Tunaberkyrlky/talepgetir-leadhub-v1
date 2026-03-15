@@ -4,6 +4,12 @@ import { requireRole } from '../middleware/auth.js';
 import { createLogger } from '../lib/logger.js';
 
 const log = createLogger('route:contacts');
+
+// Sanitize search input for safe use in PostgREST .or() filter strings.
+function sanitizeSearch(value: string): string {
+    return value.replace(/[,().\\]/g, '');
+}
+
 const router = Router();
 
 // GET /api/contacts/filter-options — distinct filter values for PeoplePage dropdowns
@@ -96,9 +102,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
             .eq('tenant_id', tenantId);
 
         if (search) {
-            query = query.or(
-                `first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,title.ilike.%${search}%`
-            );
+            const safe = sanitizeSearch(search);
+            if (safe.length > 0) {
+                query = query.or(
+                    `first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,email.ilike.%${safe}%,title.ilike.%${safe}%`
+                );
+            }
         }
         if (filterCompanyIds.length > 0) query = query.in('company_id', filterCompanyIds);
         if (filterSeniorities.length > 0) query = query.in('seniority', filterSeniorities);

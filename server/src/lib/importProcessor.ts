@@ -16,13 +16,15 @@ const BATCH_SIZE = 500;
 
 // Valid stages (ordered enum)
 const VALID_STAGES = [
-    'in_queue', 'first_contact', 'connected', 'qualified',
+    'cold', 'in_queue', 'first_contact', 'connected', 'qualified',
     'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
     'won', 'lost', 'on_hold',
 ];
 
 // Turkish → English stage mapping for CSV import
 const STAGE_ALIASES: Record<string, string> = {
+    'soğuk': 'cold',
+    'soguk': 'cold',
     'sırada': 'in_queue',
     'sirada': 'in_queue',
     'yeni': 'in_queue',
@@ -73,8 +75,8 @@ function normalizeStage(raw: string): { stage: string; overflow: string | null }
         return { stage: STAGE_ALIASES[lower], overflow: null };
     }
 
-    // Unrecognized → default to 'new', save original as overflow note
-    return { stage: 'in_queue', overflow: raw };
+    // Unrecognized → default to 'cold', save original as overflow note
+    return { stage: 'cold', overflow: raw };
 }
 
 interface ImportError {
@@ -214,6 +216,7 @@ export async function executeImport(
     rows: Record<string, string>[],
     mapping: ColumnMapping,
     jobId: string,
+    defaultCompanyName?: string,
 ): Promise<ImportResult> {
     const t0 = Date.now();
     const errors: ImportError[] = [];
@@ -262,17 +265,16 @@ export async function executeImport(
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         const rowNum = i + 2;
-        const companyName = getValue(row, 'companies.name');
+        const companyName = getValue(row, 'companies.name') || defaultCompanyName || '';
         const rawWebsite = getValue(row, 'companies.website');
         const websiteKey = cleanWebsite(rawWebsite);
-
         if (!companyName) {
             errors.push({ row: rowNum, field: 'company_name', error: 'Required field is empty' });
             continue;
         }
 
         const rawStage = getValue(row, 'companies.stage');
-        let resolvedStage = 'in_queue';
+        let resolvedStage = 'cold';
         let stageOverflow: string | null = null;
         if (rawStage) {
             const { stage, overflow } = normalizeStage(rawStage);

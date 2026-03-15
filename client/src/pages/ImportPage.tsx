@@ -16,6 +16,7 @@ import {
     Card,
     Box,
     Tabs,
+    TextInput,
 } from '@mantine/core';
 import { Dropzone, MIME_TYPES } from '@mantine/dropzone';
 import {
@@ -41,7 +42,7 @@ import type { MappingSuggestion, AvailableField, ImportResult } from '../lib/typ
 interface PreviewData {
     fileName: string;
     fileType: string;
-    filePath: string;
+    fileId: string;
     totalRows: number;
     headers: string[];
     suggestions: MappingSuggestion[];
@@ -56,6 +57,7 @@ export default function ImportPage() {
     const [previewData, setPreviewData] = useState<PreviewData | null>(null);
     const [mapping, setMapping] = useState<Record<string, string | null>>({});
     const [importResult, setImportResult] = useState<ImportResult | null>(null);
+    const [defaultCompanyName, setDefaultCompanyName] = useState('');
     const { startImport, finishImport, cancelImport } = useImportProgress();
 
     // Upload mutation
@@ -97,11 +99,12 @@ export default function ImportPage() {
 
             // Step 3: Execute import (long-running, server streams progress to DB)
             const res = await api.post('/import/execute', {
-                filePath: previewData!.filePath,
+                fileId: previewData!.fileId,
                 fileName: previewData!.fileName,
                 fileType: previewData!.fileType,
                 mapping,
                 jobId,
+                defaultCompanyName: defaultCompanyName.trim() || undefined,
             });
             return res.data as ImportResult;
         },
@@ -228,6 +231,16 @@ export default function ImportPage() {
                                 onMappingChange={handleMappingChange}
                             />
                         )}
+
+                        <TextInput
+                            label={t('import.defaultCompanyName')}
+                            description={t('import.defaultCompanyNameDesc')}
+                            placeholder={t('import.defaultCompanyNamePlaceholder')}
+                            value={defaultCompanyName}
+                            onChange={(e) => setDefaultCompanyName(e.currentTarget.value)}
+                            mt="lg"
+                            leftSection={<IconBuildingSkyscraper size={16} />}
+                        />
 
                         <Group justify="flex-end" mt="xl">
                             <Button variant="default" onClick={() => setActive(0)} leftSection={<IconArrowLeft size={16} />}>
@@ -388,6 +401,7 @@ export default function ImportPage() {
                                         setPreviewData(null);
                                         setImportResult(null);
                                         setMapping({});
+                                        setDefaultCompanyName('');
                                     }}
                                     leftSection={<IconRefresh size={16} />}
                                     color="violet"

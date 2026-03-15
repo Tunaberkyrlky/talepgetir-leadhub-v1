@@ -3,8 +3,9 @@
  * Index = stage order (0-based). Pipeline progress is tracked by position.
  */
 export const STAGES = [
-    'in_queue',        // 0 - Sırada
-    'first_contact',   // 1 - İlk Temas
+    'cold',            // 0 - Soğuk
+    'in_queue',        // 1 - Sırada
+    'first_contact',   // 2 - İlk Temas
     'connected',       // 2 - Bağlantı Kuruldu
     'qualified',       // 3 - Nitelikli
     'in_meeting',      // 4 - Görüşmede
@@ -24,6 +25,7 @@ export const STAGE_ORDER: Record<Stage, number> = Object.fromEntries(
 ) as Record<Stage, number>;
 
 export const stageColors: Record<Stage, string> = {
+    cold: 'gray',
     in_queue: 'blue',
     first_contact: 'cyan',
     connected: 'indigo',

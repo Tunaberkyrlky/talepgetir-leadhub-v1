@@ -100,6 +100,9 @@
         "errorRow": "Row",
         "errorField": "Field",
         "errorMessage": "Error",
+        "defaultCompanyName": "Default Company Name",
+        "defaultCompanyNameDesc": "Used for rows where company name is empty. Leave blank to skip those rows.",
+        "defaultCompanyNamePlaceholder": "e.g. Unknown Company",
         "backToLeads": "Back to Leads",
         "importAnother": "Import Another File",
         "singleImportTab": "Single File",
@@ -143,6 +146,7 @@
         "progressHide": "Hide"
     },
     "stages": {
+        "cold": "Cold",
         "in_queue": "In Queue",
         "first_contact": "First Contact",
         "connected": "Connected",

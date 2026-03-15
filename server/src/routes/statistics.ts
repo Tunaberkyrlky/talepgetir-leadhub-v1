@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
+import { requireTier } from '../middleware/auth.js';
 import { createLogger } from '../lib/logger.js';
 
 const log = createLogger('route:statistics');
@@ -61,8 +62,8 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
     }
 });
 
-// GET /api/statistics/pipeline — Funnel data for pipeline stages
-router.get('/pipeline', async (req: Request, res: Response): Promise<void> => {
+// GET /api/statistics/pipeline — Funnel data for pipeline stages (pro tier only)
+router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
 
@@ -78,7 +79,7 @@ router.get('/pipeline', async (req: Request, res: Response): Promise<void> => {
 
         // Pipeline stages in order (exclude terminal)
         const pipelineStages = [
-            'in_queue', 'first_contact', 'connected', 'qualified',
+            'cold', 'in_queue', 'first_contact', 'connected', 'qualified',
             'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
         ];
 

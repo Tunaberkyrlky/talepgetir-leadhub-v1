@@ -17,6 +17,10 @@ const router = Router();
 const UPLOAD_DIR = '/tmp/leadhub-uploads/';
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
+// In-memory store mapping opaque file IDs to server-side file paths.
+// Prevents exposing internal file paths to the client.
+const fileStore = new Map<string, string>();
+
 // Configure multer for file uploads
 const upload = multer({
     dest: UPLOAD_DIR,
@@ -64,7 +68,7 @@ router.post(
             res.json({ jobId });
         } catch (err: any) {
             log.error({ err }, 'Import begin error');
-            res.status(500).json({ error: err.message || 'Failed to begin import' });
+            res.status(500).json({ error: 'Failed to begin import' });
         }
     }
 );
@@ -104,10 +108,14 @@ router.post(
             // Return preview (first 5 rows)
             const previewRows = rows.slice(0, 5);
 
+            // Store file path server-side and return opaque ID to client
+            const fileId = crypto.randomUUID();
+            fileStore.set(fileId, filePath);
+
             res.json({
                 fileName: req.file.originalname,
                 fileType: ext.replace('.', ''),
-                filePath, // server-side temp path for execute step
+                fileId,
                 totalRows: rows.length,
                 headers,
                 suggestions,
@@ -117,7 +125,7 @@ router.post(
         } catch (err: any) {
             log.error({ err }, 'Import preview error');
             const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 500;
-            res.status(status).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 10MB)' : (err.message || 'Failed to preview file') });
+            res.status(status).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 10MB)' : 'Failed to preview file' });
         }
     }
 );
@@ -186,6 +194,10 @@ router.post(
             try { fs.unlinkSync(companyFile.path); } catch { /* ignore */ }
             try { fs.unlinkSync(peopleFile.path); } catch { /* ignore */ }
 
+            // Store merged file path server-side and return opaque ID
+            const fileId = crypto.randomUUID();
+            fileStore.set(fileId, mergedFilePath);
+
             res.json({
                 // Match info
                 matchStrategy: strategy,
@@ -195,7 +207,7 @@ router.post(
                 totalCompanyRows: matchResult.totalCompanyRows,
                 totalPeopleRows: matchResult.totalPeopleRows,
                 // Standard preview fields
-                filePath: mergedFilePath,
+                fileId,
                 fileName: `${companyFile.originalname} + ${peopleFile.originalname}`,
                 fileType: 'matched',
                 totalRows: matchResult.mergedRows.length,
@@ -209,7 +221,7 @@ router.post(
         } catch (err: any) {
             log.error({ err }, 'Match preview error');
             const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 500;
-            res.status(status).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 10MB)' : (err.message || 'Failed to match files') });
+            res.status(status).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 10MB)' : 'Failed to match files' });
         }
     }
 );
@@ -220,10 +232,10 @@ router.post(
     requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response): Promise<void> => {
         try {
-            const { filePath, fileName, fileType, mapping, jobId } = req.body;
+            const { fileId, fileName, fileType, mapping, jobId, defaultCompanyName } = req.body;
 
-            if (!filePath || !fileName || !fileType || !mapping) {
-                res.status(400).json({ error: 'Missing required fields: filePath, fileName, fileType, mapping' });
+            if (!fileId || !fileName || !fileType || !mapping) {
+                res.status(400).json({ error: 'Missing required fields: fileId, fileName, fileType, mapping' });
                 return;
             }
 
@@ -234,11 +246,21 @@ router.post(
 
             log.info({ fileName, fileType, jobId }, 'Import execute started');
 
-            // Verify file is within the upload directory (prevent path traversal)
+            // Resolve file path from opaque ID (never trust client-supplied paths)
+            const filePath = fileStore.get(fileId);
+            if (!filePath) {
+                res.status(400).json({ error: 'Upload expired or invalid. Please re-upload the file.' });
+                return;
+            }
+
+            // Remove from store so the ID cannot be reused
+            fileStore.delete(fileId);
+
+            // Verify file is within the upload directory (defense-in-depth)
             const resolvedPath = path.resolve(filePath);
             const resolvedUploadDir = path.resolve(UPLOAD_DIR);
             if (!resolvedPath.startsWith(resolvedUploadDir + path.sep)) {
-                res.status(400).json({ error: 'Invalid file path.' });
+                res.status(400).json({ error: 'Invalid file reference.' });
                 return;
             }
 
@@ -271,6 +293,7 @@ router.post(
                 rows,
                 mapping,
                 jobId,
+                defaultCompanyName || undefined,
             );
 
             // Clean up temp file
@@ -280,7 +303,7 @@ router.post(
             res.json(result);
         } catch (err: any) {
             log.error({ err }, 'Import execute error');
-            res.status(500).json({ error: err.message || 'Import failed' });
+            res.status(500).json({ error: 'Import failed' });
         }
     }
 );
