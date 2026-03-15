@@ -14,7 +14,8 @@ export type RoleFeature =
     | 'pipeline_dragdrop'
     | 'invite_members'
     | 'export_full'
-    | 'export_masked';
+    | 'export_masked'
+    | 'admin_panel';
 
 // Tier-based features (only affect client roles; internal roles are exempt)
 export type TierFeature =
@@ -34,6 +35,7 @@ const ROLE_PERMISSIONS: Record<RoleFeature, Role[]> = {
     invite_members: ['superadmin', 'client_admin'],
     export_full: ['superadmin', 'ops_agent', 'client_admin'],
     export_masked: ['superadmin', 'ops_agent', 'client_admin', 'client_viewer'],
+    admin_panel: ['superadmin'],
 };
 
 const TIER_FEATURES: Record<TierFeature, Tier[]> = {

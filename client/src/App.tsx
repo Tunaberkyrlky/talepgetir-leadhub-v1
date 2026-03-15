@@ -20,6 +20,7 @@ import DashboardPage from './pages/DashboardPage';
 import PeoplePage from './pages/PeoplePage';
 import PersonDetailPage from './pages/PersonDetailPage';
 import PipelinePage from './pages/PipelinePage';
+import AdminPage from './pages/AdminPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -70,6 +71,8 @@ function App() {
                   <Route path="/people/:id" element={<PersonDetailPage />} />
                   <Route path="/pipeline" element={<PipelinePage />} />
                   <Route path="/import" element={<ImportPage />} />
+                  <Route path="/admin" element={<AdminPage />} />
+                  <Route path="/admin/:tab" element={<AdminPage />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>

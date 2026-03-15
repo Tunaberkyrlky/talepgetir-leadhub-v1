@@ -8,7 +8,7 @@ import pinoHttp from 'pino-http';
 dotenv.config({ path: '../.env' });
 
 import logger from './lib/logger.js';
-import { authMiddleware } from './middleware/auth.js';
+import { authMiddleware, requireRole } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import authRoutes from './routes/auth.js';
 import companiesRoutes from './routes/companies.js';
@@ -17,6 +17,7 @@ import importRoutes from './routes/import.js';
 import filterOptionsRoutes from './routes/filter-options.js';
 import tenantsRoutes from './routes/tenants.js';
 import statisticsRoutes from './routes/statistics.js';
+import adminRoutes from './routes/admin.js';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -57,6 +58,7 @@ app.use('/api/import', authMiddleware, importRoutes);
 app.use('/api/filter-options', authMiddleware, filterOptionsRoutes);
 app.use('/api/tenants', authMiddleware, tenantsRoutes);
 app.use('/api/statistics', authMiddleware, statisticsRoutes);
+app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);
