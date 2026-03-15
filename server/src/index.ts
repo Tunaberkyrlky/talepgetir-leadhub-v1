@@ -29,10 +29,10 @@ const PORT = process.env.API_PORT || 3001;
 app.use(helmet());
 app.use(pinoHttp({
     logger,
-    customSuccessMessage: (req, res, responseTime) =>
+    customSuccessMessage: (req: any, res: any, responseTime: any) =>
         `${req.method} ${req.url} ${res.statusCode} ${responseTime}ms`,
-    customErrorMessage: (req, res, err, responseTime) =>
-        `${req.method} ${req.url} ${res.statusCode} ${responseTime}ms — ${err.message}`,
+    customErrorMessage: (req: any, res: any, err: any) =>
+        `${req.method} ${req.url} ${res.statusCode} — ${err.message}`,
     serializers: {
         req: () => undefined as never,
         res: () => undefined as never,
