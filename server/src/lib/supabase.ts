@@ -1,16 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 
-dotenv.config({ path: '../.env' });
+if (!process.env.VERCEL) {
+    dotenv.config({ path: '../.env' });
+}
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseServiceKey || !supabaseAnonKey) {
-    // Use process.stderr directly here since the logger isn't available yet at module init
-    process.stderr.write('Missing Supabase environment variables. Check .env file.\n');
-    process.exit(1);
+    throw new Error('Missing Supabase environment variables (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY)');
 }
 
 // Admin client — uses service_role key, bypasses RLS
