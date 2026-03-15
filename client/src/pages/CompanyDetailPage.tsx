@@ -329,7 +329,7 @@ export default function CompanyDetailPage() {
                 ) : (
                     <Stack gap="sm">
                         {company.contacts.map((contact) => (
-                            <Card key={contact.id} withBorder radius="md" p="md">
+                            <Card key={contact.id} withBorder radius="md" p="md" style={{ cursor: 'pointer' }} onClick={() => navigate(`/people/${contact.id}`)}>
                                 <Group justify="space-between">
                                     <Group>
                                         {contact.is_primary && (
@@ -369,6 +369,7 @@ export default function CompanyDetailPage() {
                                             <Anchor
                                                 href={contact.linkedin.startsWith('http') ? contact.linkedin : `https://${contact.linkedin}`}
                                                 target="_blank"
+                                                onClick={(e: React.MouseEvent) => e.stopPropagation()}
                                             >
                                                 <IconBrandLinkedin size={16} color="#0A66C2" />
                                             </Anchor>
@@ -376,7 +377,7 @@ export default function CompanyDetailPage() {
                                         {isOpsOrAdmin && (
                                             <Menu withinPortal position="bottom-end" shadow="sm">
                                                 <Menu.Target>
-                                                    <ActionIcon variant="subtle" color="gray" size="sm">
+                                                    <ActionIcon variant="subtle" color="gray" size="sm" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                                                         <IconDotsVertical size={14} />
                                                     </ActionIcon>
                                                 </Menu.Target>
@@ -385,7 +386,7 @@ export default function CompanyDetailPage() {
                                                         leftSection={<IconPencil size={14} />}
                                                         onClick={() => handleEditContact(contact)}
                                                     >
-                                                        {t('company.editTitle')}
+                                                        {t('contact.editContact')}
                                                     </Menu.Item>
                                                     {user?.role === 'superadmin' && (
                                                         <Menu.Item

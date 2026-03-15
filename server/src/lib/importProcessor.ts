@@ -8,6 +8,7 @@ import ExcelJS from 'exceljs';
 import fs from 'fs';
 import { supabaseAdmin } from './supabase.js';
 import { sanitizeCell } from './importMapper.js';
+import { cleanWebsite } from './dataMatcher.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('importProcessor');
@@ -221,22 +222,26 @@ export async function executeImport(
     // ── Phase 1: Pre-fetch existing data (2 parallel queries) ──
     log.info({ rows: rows.length, jobId }, 'Import started — pre-fetching');
     const [companiesRes, contactsRes] = await Promise.all([
-        supabaseAdmin.from('companies').select('id, name, custom_fields').eq('tenant_id', tenantId),
+        supabaseAdmin.from('companies').select('id, name, website, custom_fields').eq('tenant_id', tenantId),
         supabaseAdmin.from('contacts').select('email, company_id').eq('tenant_id', tenantId).not('email', 'is', null),
     ]);
 
-    const companyByName = new Map<string, { id: string; custom_fields: Record<string, unknown> }>();
+    // Primary lookup: cleaned website → company (used for dedup)
+    const companyByWebsite = new Map<string, { id: string; custom_fields: Record<string, unknown> }>();
     for (const c of companiesRes.data || []) {
-        companyByName.set(c.name.toLowerCase(), { id: c.id, custom_fields: c.custom_fields || {} });
+        const cleanedSite = cleanWebsite(c.website || '');
+        if (cleanedSite) {
+            companyByWebsite.set(cleanedSite, { id: c.id, custom_fields: c.custom_fields || {} });
+        }
     }
     const contactKeySet = new Set<string>();
     for (const c of contactsRes.data || []) {
         if (c.email && c.company_id) contactKeySet.add(`${c.email.toLowerCase()}::${c.company_id}`);
     }
-    log.info({ existingCompanies: companyByName.size, existingContacts: contactKeySet.size, elapsed: Date.now() - t0 }, 'Pre-fetch done');
+    log.info({ existingCompanies: companyByWebsite.size, existingContacts: contactKeySet.size, elapsed: Date.now() - t0 }, 'Pre-fetch done');
 
     // ── Phase 2: Scan rows — build company insert/update maps ──
-    // Map key = normalizedName, value = latest payload (last-row-wins per company)
+    // Map key = cleanedWebsite, value = latest payload (last-row-wins per company)
     const newCompanyMap = new Map<string, Record<string, unknown>>();
     const updateCompanyMap = new Map<string, Record<string, unknown> & { id: string }>();
     const rowValid: boolean[] = new Array(rows.length).fill(false);
@@ -246,6 +251,8 @@ export async function executeImport(
         const row = rows[i];
         const rowNum = i + 2;
         const companyName = getValue(row, 'companies.name');
+        const rawWebsite = getValue(row, 'companies.website');
+        const websiteKey = cleanWebsite(rawWebsite);
 
         if (!companyName) {
             errors.push({ row: rowNum, field: 'company_name', error: 'Required field is empty' });
@@ -270,7 +277,7 @@ export async function executeImport(
 
         const companyPayload: Record<string, unknown> = {
             name: companyName,
-            website: getValue(row, 'companies.website') || null,
+            website: rawWebsite || null,
             location: getValue(row, 'companies.location') || null,
             industry: (() => { const v = getValue(row, 'companies.industry'); return v ? v.charAt(0).toUpperCase() + v.slice(1) : null; })(),
             employee_size: getValue(row, 'companies.employee_size') || null,
@@ -283,25 +290,27 @@ export async function executeImport(
             next_step: getValue(row, 'companies.next_step') || null,
         };
 
-        const nameLower = companyName.toLowerCase();
-        const existing = companyByName.get(nameLower);
+        // Dedup by website if available; otherwise treat as new company
+        const existing = websiteKey ? companyByWebsite.get(websiteKey) : undefined;
+        // Use websiteKey for dedup, or generate a unique key for website-less rows
+        const mapKey = websiteKey || `__no_website_${i}`;
 
         if (existing) {
             if (Object.keys(customFields).length > 0) {
-                const prevCustom = (updateCompanyMap.get(nameLower)?.custom_fields as Record<string, string>) ?? existing.custom_fields;
+                const prevCustom = (updateCompanyMap.get(mapKey)?.custom_fields as Record<string, string>) ?? existing.custom_fields;
                 companyPayload.custom_fields = { ...prevCustom, ...customFields };
             }
-            updateCompanyMap.set(nameLower, { ...companyPayload, id: existing.id });
+            updateCompanyMap.set(mapKey, { ...companyPayload, id: existing.id });
         } else {
             if (Object.keys(customFields).length > 0) {
-                const prevCustom = (newCompanyMap.get(nameLower)?.custom_fields as Record<string, string>) ?? {};
+                const prevCustom = (newCompanyMap.get(mapKey)?.custom_fields as Record<string, string>) ?? {};
                 companyPayload.custom_fields = { ...prevCustom, ...customFields };
             }
-            newCompanyMap.set(nameLower, companyPayload);
+            newCompanyMap.set(mapKey, companyPayload);
         }
 
         rowValid[i] = true;
-        rowCompanyKey[i] = nameLower;
+        rowCompanyKey[i] = mapKey;
     }
 
     log.info({
@@ -321,21 +330,25 @@ export async function executeImport(
 
     // ── Phase 3: Batch insert new companies ──
     let createdCompanies = 0;
-    const failedCompanyNames = new Set<string>();
+    const failedCompanyKeys = new Set<string>();
 
     if (newCompanyMap.size > 0) {
-        const toInsert = Array.from(newCompanyMap.values()).map(p => ({ ...p, tenant_id: tenantId, assigned_to: userId })) as unknown as Array<Record<string, unknown> & { name: string }>;
+        const newEntries = Array.from(newCompanyMap.entries()); // [mapKey, payload]
+        const toInsert = newEntries.map(([, p]) => ({ ...p, tenant_id: tenantId, assigned_to: userId }));
         log.info({ count: toInsert.length }, 'Batch inserting new companies');
         const t1 = Date.now();
 
         for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
             const chunk = toInsert.slice(i, i + BATCH_SIZE);
-            const { data: inserted, error } = await supabaseAdmin.from('companies').insert(chunk).select('id, name');
+            const chunkKeys = newEntries.slice(i, i + BATCH_SIZE).map(([k]) => k);
+            const { data: inserted, error } = await supabaseAdmin.from('companies').insert(chunk).select('id');
             if (error || !inserted) {
-                for (const c of chunk) failedCompanyNames.add((c.name as string).toLowerCase());
+                for (const k of chunkKeys) failedCompanyKeys.add(k);
                 log.error({ error: error?.message, batch: Math.floor(i / BATCH_SIZE) + 1 }, 'Company insert batch failed');
             } else {
-                for (const c of inserted) companyByName.set(c.name.toLowerCase(), { id: c.id, custom_fields: {} });
+                for (let j = 0; j < inserted.length; j++) {
+                    companyByWebsite.set(chunkKeys[j], { id: inserted[j].id, custom_fields: {} });
+                }
                 createdCompanies += inserted.length;
                 log.info({ batch: Math.floor(i / BATCH_SIZE) + 1, inserted: inserted.length, elapsed: Date.now() - t1 }, 'Company insert batch done');
             }
@@ -347,15 +360,17 @@ export async function executeImport(
     let updatedCompanies = 0;
 
     if (updateCompanyMap.size > 0) {
-        const toUpdate = Array.from(updateCompanyMap.values()).map(p => ({ ...p, tenant_id: tenantId })) as unknown as Array<Record<string, unknown> & { name: string }>;
+        const updateEntries = Array.from(updateCompanyMap.entries());
+        const toUpdate = updateEntries.map(([, p]) => ({ ...p, tenant_id: tenantId }));
         log.info({ count: toUpdate.length }, 'Batch upserting existing companies');
         const t2 = Date.now();
 
         for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
             const chunk = toUpdate.slice(i, i + BATCH_SIZE);
+            const chunkKeys = updateEntries.slice(i, i + BATCH_SIZE).map(([k]) => k);
             const { error } = await supabaseAdmin.from('companies').upsert(chunk, { onConflict: 'id' });
             if (error) {
-                for (const c of chunk) failedCompanyNames.add((c.name as string).toLowerCase());
+                for (const k of chunkKeys) failedCompanyKeys.add(k);
                 log.error({ error: error.message, batch: Math.floor(i / BATCH_SIZE) + 1 }, 'Company upsert batch failed');
             } else {
                 updatedCompanies += chunk.length;
@@ -378,12 +393,12 @@ export async function executeImport(
 
     for (let i = 0; i < rows.length; i++) {
         if (!rowValid[i]) continue;
-        const nameLower = rowCompanyKey[i];
-        if (failedCompanyNames.has(nameLower)) {
+        const companyKey = rowCompanyKey[i];
+        if (failedCompanyKeys.has(companyKey)) {
             errors.push({ row: i + 2, field: 'company', error: 'Company operation failed' });
             continue;
         }
-        const companyInfo = companyByName.get(nameLower);
+        const companyInfo = companyByWebsite.get(companyKey);
         if (!companyInfo) {
             errors.push({ row: i + 2, field: 'company', error: 'Company not resolved after insert' });
             continue;

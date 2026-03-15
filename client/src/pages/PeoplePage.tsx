@@ -439,9 +439,9 @@ export default function PeoplePage() {
                 return <Table.Td key="phone"><TruncatedText size="sm">{contact.phone_e164}</TruncatedText></Table.Td>;
             case 'seniority':
                 return (
-                    <Table.Td key="seniority">
+                    <Table.Td key="seniority" style={{ whiteSpace: 'nowrap' }}>
                         {contact.seniority ? (
-                            <Badge size="sm" variant="light" color="blue">{contact.seniority}</Badge>
+                            <Text size="sm" c="blue" fw={500}>{contact.seniority}</Text>
                         ) : <Text size="sm">—</Text>}
                     </Table.Td>
                 );
@@ -618,6 +618,8 @@ export default function PeoplePage() {
                                     fontSize: '0.85rem',
                                     textTransform: 'uppercase',
                                     letterSpacing: '0.5px',
+                                    padding: '12px 16px',
+                                    whiteSpace: 'nowrap',
                                 },
                             }}
                         >

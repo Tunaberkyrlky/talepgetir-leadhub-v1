@@ -219,7 +219,17 @@
         "back": "Geri Dön"
     },
     "dashboard": {
-        "comingSoon": "Dashboard Phase 2'de gelecek"
+        "totalCompanies": "Toplam Şirket",
+        "totalContacts": "Toplam Kişi",
+        "activeDeals": "Aktif Fırsatlar",
+        "wonDeals": "Kazanılan Fırsatlar",
+        "conversionRate": "Dönüşüm Oranı",
+        "conversionDesc": "Kazanılan / (Kazanılan + Kaybedilen)",
+        "stageDistribution": "Aşama Dağılımı",
+        "pipelineFunnel": "Pipeline Huni",
+        "companies": "Şirket",
+        "upgradeTitle": "Gelişmiş Analitiği Açın",
+        "upgradeDesc": "Pipeline huni grafikleri ve daha detaylı analizler için Pro'ya yükseltin."
     },
     "pipeline": {
         "comingSoon": "Pipeline görünümü Phase 4'te gelecek"

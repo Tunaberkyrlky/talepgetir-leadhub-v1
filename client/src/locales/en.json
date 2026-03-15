@@ -219,7 +219,17 @@
         "back": "Back"
     },
     "dashboard": {
-        "comingSoon": "Dashboard coming in Phase 2"
+        "totalCompanies": "Total Companies",
+        "totalContacts": "Total Contacts",
+        "activeDeals": "Active Deals",
+        "wonDeals": "Won Deals",
+        "conversionRate": "Conversion Rate",
+        "conversionDesc": "Won / (Won + Lost)",
+        "stageDistribution": "Stage Distribution",
+        "pipelineFunnel": "Pipeline Funnel",
+        "companies": "Companies",
+        "upgradeTitle": "Unlock Advanced Analytics",
+        "upgradeDesc": "Upgrade to Pro to access pipeline funnel charts and more detailed analytics."
     },
     "pipeline": {
         "comingSoon": "Pipeline view coming in Phase 4"

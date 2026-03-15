@@ -25,7 +25,7 @@ export type TierFeature =
     | 'advanced_filters';
 
 const ROLE_PERMISSIONS: Record<RoleFeature, Role[]> = {
-    import: ['superadmin', 'ops_agent'],
+    import: ['superadmin', 'ops_agent', 'client_admin'],
     delete_records: ['superadmin'],
     crud: ['superadmin', 'ops_agent'],
     internal_notes: ['superadmin', 'ops_agent'],

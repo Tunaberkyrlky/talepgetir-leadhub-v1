@@ -16,6 +16,7 @@ import contactsRoutes from './routes/contacts.js';
 import importRoutes from './routes/import.js';
 import filterOptionsRoutes from './routes/filter-options.js';
 import tenantsRoutes from './routes/tenants.js';
+import statisticsRoutes from './routes/statistics.js';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -55,6 +56,7 @@ app.use('/api/contacts', authMiddleware, contactsRoutes);
 app.use('/api/import', authMiddleware, importRoutes);
 app.use('/api/filter-options', authMiddleware, filterOptionsRoutes);
 app.use('/api/tenants', authMiddleware, tenantsRoutes);
+app.use('/api/statistics', authMiddleware, statisticsRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);

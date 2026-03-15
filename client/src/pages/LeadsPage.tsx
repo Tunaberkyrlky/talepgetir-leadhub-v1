@@ -670,6 +670,8 @@ export default function LeadsPage() {
                                     fontSize: '0.85rem',
                                     textTransform: 'uppercase',
                                     letterSpacing: '0.5px',
+                                    padding: '12px 16px',
+                                    whiteSpace: 'nowrap',
                                 },
                             }}
                         >

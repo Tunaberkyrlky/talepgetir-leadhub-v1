@@ -32,7 +32,7 @@ import {
 import SettingsModal from './SettingsModal';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
-import { isInternal } from '../lib/permissions';
+import { hasRolePermission } from '../lib/permissions';
 
 export default function Layout() {
     const {
@@ -64,7 +64,7 @@ export default function Layout() {
     };
 
     const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
-    const userIsInternal = isInternal(user?.role || '');
+
 
     const tenantSelectData = accessibleTenants.map((t) => ({
         value: t.id,
@@ -76,7 +76,7 @@ export default function Layout() {
         { path: '/companies', label: t('nav.companies'), icon: <IconBuilding size={20} /> },
         { path: '/people', label: t('nav.people'), icon: <IconUsers size={20} /> },
         { path: '/pipeline', label: t('nav.pipeline'), icon: <IconColumns size={20} /> },
-        ...(userIsInternal
+        ...(hasRolePermission(user?.role || '', 'import')
             ? [{ path: '/import', label: t('nav.import'), icon: <IconFileImport size={20} /> }]
             : []),
     ];

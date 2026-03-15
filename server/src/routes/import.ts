@@ -42,7 +42,7 @@ function runMulter(middleware: any) {
 // POST /api/import/begin — Pre-create import job and return jobId for progress polling
 router.post(
     '/begin',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response): Promise<void> => {
         try {
             const { fileName, fileType, totalRows, mapping } = req.body;
@@ -72,7 +72,7 @@ router.post(
 // POST /api/import/preview — Upload file and get header mapping suggestions
 router.post(
     '/preview',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response): Promise<void> => {
         try {
             await runMulter(upload.single('file'))(req, res);
@@ -125,7 +125,7 @@ router.post(
 // POST /api/import/match-preview — Upload two files and get matching preview
 router.post(
     '/match-preview',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response): Promise<void> => {
         try {
             await runMulter(upload.fields([
@@ -215,7 +215,7 @@ router.post(
 // POST /api/import/execute — Execute import with confirmed mapping
 router.post(
     '/execute',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response): Promise<void> => {
         try {
             const { filePath, fileName, fileType, mapping, jobId } = req.body;
@@ -286,7 +286,7 @@ router.post(
 // POST /api/import/cancel/:id — Cancel an in-progress import
 router.post(
     '/cancel/:id',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response): Promise<void> => {
         try {
             const { error } = await supabaseAdmin
@@ -312,7 +312,7 @@ router.post(
 // GET /api/import/jobs — List import history
 router.get(
     '/jobs',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response): Promise<void> => {
         try {
             const { data, error } = await supabaseAdmin
@@ -338,7 +338,7 @@ router.get(
 // GET /api/import/jobs/:id — Get specific job with error details
 router.get(
     '/jobs/:id',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response): Promise<void> => {
         try {
             const { data, error } = await supabaseAdmin
