@@ -33,9 +33,8 @@ import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { TierGate } from '../components/FeatureGate';
-import { hasRolePermission, hasTierAccess, type Tier } from '../lib/permissions';
-import { PIPELINE_STAGES, getStageColor, stageColors } from '../lib/stages';
-import type { Stage } from '../lib/stages';
+import { hasRolePermission } from '../lib/permissions';
+import { PIPELINE_STAGES, getStageColor } from '../lib/stages';
 import KanbanBoard from '../components/pipeline/KanbanBoard';
 import type { PipelineCompany } from '../components/pipeline/PipelineCard';
 
@@ -46,12 +45,10 @@ interface PipelineData {
 
 export default function PipelinePage() {
     const { t } = useTranslation();
-    const { user, activeTenantTier } = useAuth();
+    const { user } = useAuth();
     const queryClient = useQueryClient();
     const navigate = useNavigate();
     const role = user?.role || '';
-    const tier = (activeTenantTier || 'basic') as Tier;
-
     const [search, setSearch] = useState('');
     const [debouncedSearch] = useDebouncedValue(search, 300);
     const [viewMode, setViewMode] = useState<string>('board');

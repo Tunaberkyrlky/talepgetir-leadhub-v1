@@ -1,10 +1,9 @@
 import { Paper, Text, Group, Badge, Stack } from '@mantine/core';
-import { IconBuilding, IconUsers } from '@tabler/icons-react';
+import { IconUsers } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { getStageColor } from '../../lib/stages';
 
 export interface PipelineCompany {
     id: string;

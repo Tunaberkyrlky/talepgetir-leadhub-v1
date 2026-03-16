@@ -8,7 +8,6 @@ import {
     ScrollArea,
     Group,
     Center,
-    Loader,
 } from '@mantine/core';
 import { useTranslation } from 'react-i18next';
 import {
