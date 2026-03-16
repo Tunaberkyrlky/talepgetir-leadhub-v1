@@ -128,6 +128,7 @@ export default function DashboardPage() {
                 </Text>
                 <Group gap="xs" wrap="wrap">
                     {Object.entries(overview?.companiesByStage || {})
+                        .filter(([stage]) => stage !== 'cold')
                         .sort((a, b) => b[1] - a[1])
                         .map(([stage, count]) => (
                             <Badge

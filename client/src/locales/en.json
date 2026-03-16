@@ -248,7 +248,15 @@
         "moveTo": "Stage:"
     },
     "pipeline": {
-        "comingSoon": "Pipeline view coming in Phase 4"
+        "search": "Search pipeline...",
+        "noData": "No active deals in pipeline",
+        "days": "d",
+        "daysInStage": "Days in Stage",
+        "emptyColumn": "No companies",
+        "stageMoved": "Stage updated",
+        "moveError": "Failed to move company",
+        "upgradeTitle": "Unlock Pipeline Board",
+        "upgradeDesc": "Upgrade to Pro to access the Kanban pipeline board and track deals visually."
     },
     "admin": {
         "title": "Admin Panel",

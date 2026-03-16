@@ -39,9 +39,9 @@ export const stageColors: Record<Stage, string> = {
     on_hold: 'gray',
 };
 
-/** Active pipeline stages (excludes terminal states) */
+/** Active pipeline stages (excludes cold + terminal states) */
 export const PIPELINE_STAGES = STAGES.filter(
-    (s) => !['won', 'lost', 'on_hold'].includes(s)
+    (s) => !['cold', 'won', 'lost', 'on_hold'].includes(s)
 );
 
 /** Terminal stages */

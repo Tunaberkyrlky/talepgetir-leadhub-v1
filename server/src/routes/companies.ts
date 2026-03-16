@@ -136,6 +136,103 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     }
 });
 
+// Active pipeline stages (excludes cold + terminal: won, lost, on_hold)
+const PIPELINE_STAGES = VALID_STAGES.filter(
+    (s) => !['cold', 'won', 'lost', 'on_hold'].includes(s)
+);
+
+// GET /api/companies/pipeline — Companies grouped by active stage (for kanban board)
+router.get('/pipeline', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const search = (req.query.search as string || '').trim();
+
+        // Fetch companies in active pipeline stages
+        // Try with stage_changed_at first; fall back without it if column doesn't exist yet
+        let data: any[] | null = null;
+        let error: any = null;
+
+        let query = supabaseAdmin
+            .from('companies_with_counts')
+            .select('id, name, industry, stage, next_step, deal_summary, updated_at, stage_changed_at, contact_count')
+            .eq('tenant_id', tenantId)
+            .in('stage', PIPELINE_STAGES);
+
+        if (search) {
+            const safe = sanitizeSearch(search);
+            if (safe.length > 0) {
+                const pattern = `%${safe}%`;
+                query = query.or(`name.ilike.${pattern},next_step.ilike.${pattern},deal_summary.ilike.${pattern}`);
+            }
+        }
+
+        const result = await query
+            .order('updated_at', { ascending: false });
+
+        data = result.data;
+        error = result.error;
+
+        // Fallback: if stage_changed_at column doesn't exist yet (migration not applied)
+        if (error) {
+            log.warn({ err: error }, 'Pipeline query failed, retrying without stage_changed_at');
+            let fallback = supabaseAdmin
+                .from('companies_with_counts')
+                .select('id, name, industry, stage, next_step, deal_summary, updated_at, contact_count')
+                .eq('tenant_id', tenantId)
+                .in('stage', PIPELINE_STAGES);
+
+            if (search) {
+                const safe = sanitizeSearch(search);
+                if (safe.length > 0) {
+                    const pattern = `%${safe}%`;
+                    fallback = fallback.or(`name.ilike.${pattern},next_step.ilike.${pattern},deal_summary.ilike.${pattern}`);
+                }
+            }
+
+            const fallbackResult = await fallback.order('updated_at', { ascending: false });
+            data = (fallbackResult.data || []).map((c: any) => ({ ...c, stage_changed_at: null }));
+            error = fallbackResult.error;
+        }
+
+        if (error) {
+            log.error({ err: error }, 'Pipeline query error');
+            throw new AppError('Failed to fetch pipeline data', 500);
+        }
+
+        // Group by stage
+        const columns: Record<string, typeof data> = {};
+        for (const stage of PIPELINE_STAGES) {
+            columns[stage] = [];
+        }
+        for (const company of data ?? []) {
+            const col = columns[company.stage];
+            if (col) {
+                col.push(company);
+            }
+        }
+
+        // Terminal stage counts
+        const { data: terminalData, error: terminalError } = await supabaseAdmin
+            .from('companies')
+            .select('stage')
+            .eq('tenant_id', tenantId)
+            .in('stage', ['won', 'lost', 'on_hold']);
+
+        const terminalCounts: Record<string, number> = { won: 0, lost: 0, on_hold: 0 };
+        if (!terminalError && terminalData) {
+            for (const row of terminalData) {
+                terminalCounts[row.stage] = (terminalCounts[row.stage] || 0) + 1;
+            }
+        }
+
+        res.json({ columns, terminalCounts });
+    } catch (err) {
+        if (err instanceof AppError) throw err;
+        log.error({ err }, 'Pipeline data error');
+        res.status(500).json({ error: 'Failed to fetch pipeline data' });
+    }
+});
+
 // GET /api/companies/:id — Get single company
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     try {
@@ -368,6 +465,45 @@ router.patch(
             if (err instanceof AppError) throw err;
             log.error({ err }, 'Bulk stage update error');
             res.status(500).json({ error: 'Failed to bulk update stages' });
+        }
+    }
+);
+
+// PATCH /api/companies/:id/stage — Lightweight stage update (drag-drop)
+router.patch(
+    '/:id/stage',
+    requireRole('superadmin', 'ops_agent'),
+    async (req: Request, res: Response): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { id } = req.params;
+            const { stage } = req.body;
+
+            if (!stage || !VALID_STAGES.includes(stage)) {
+                res.status(400).json({
+                    error: `Invalid stage. Valid stages: ${VALID_STAGES.join(', ')}`,
+                });
+                return;
+            }
+
+            const { data, error } = await supabaseAdmin
+                .from('companies')
+                .update({ stage, updated_at: new Date().toISOString() })
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .select('id, name, stage, updated_at')
+                .single();
+
+            if (error || !data) {
+                res.status(404).json({ error: 'Company not found' });
+                return;
+            }
+
+            res.json({ data });
+        } catch (err) {
+            if (err instanceof AppError) throw err;
+            log.error({ err }, 'Patch stage error');
+            res.status(500).json({ error: 'Failed to update stage' });
         }
     }
 );

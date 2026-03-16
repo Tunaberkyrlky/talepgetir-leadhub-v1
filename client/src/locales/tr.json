@@ -248,7 +248,15 @@
         "moveTo": "Aşama:"
     },
     "pipeline": {
-        "comingSoon": "Pipeline görünümü Phase 4'te gelecek"
+        "search": "Pipeline'da ara...",
+        "noData": "Pipeline'da aktif anlaşma yok",
+        "days": "g",
+        "daysInStage": "Aşamadaki Gün",
+        "emptyColumn": "Şirket yok",
+        "stageMoved": "Aşama güncellendi",
+        "moveError": "Şirket taşınamadı",
+        "upgradeTitle": "Pipeline Board'u Açın",
+        "upgradeDesc": "Kanban pipeline board'a erişmek ve anlaşmaları görsel olarak takip etmek için Pro'ya yükseltin."
     },
     "admin": {
         "title": "Yönetim Paneli",
