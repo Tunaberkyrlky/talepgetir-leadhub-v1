@@ -106,6 +106,9 @@ function maskContactFields(obj: any): any {
     if (result.company_phone && typeof result.company_phone === 'string') {
         result.company_phone = maskPhone(result.company_phone);
     }
+    if (result.company_email && typeof result.company_email === 'string') {
+        result.company_email = maskEmail(result.company_email);
+    }
 
     // Also mask nested contacts
     if (result.contacts && Array.isArray(result.contacts)) {

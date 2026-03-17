@@ -68,6 +68,7 @@ import { STAGES, stageColors } from '../lib/stages';
 import type { Stage } from '../lib/stages';
 import CompanyForm from '../components/CompanyForm';
 import TruncatedText from '../components/TruncatedText';
+import EmailStatusIcon from '../components/EmailStatusIcon';
 
 interface Company {
     id: string;
@@ -80,6 +81,8 @@ interface Company {
     description: string | null;
     linkedin: string | null;
     company_phone: string | null;
+    company_email: string | null;
+    email_status: 'valid' | 'uncertain' | 'invalid' | null;
     stage: string;
     deal_summary: string | null;
     next_step: string | null;
@@ -115,7 +118,7 @@ type SortKey = 'name' | 'stage' | 'industry' | 'location' | 'updated_at' | 'crea
 type ColumnKey =
     | 'name' | 'website' | 'stage' | 'industry' | 'location'
     | 'employee_size' | 'product_services' | 'description'
-    | 'linkedin' | 'company_phone' | 'deal_summary'
+    | 'linkedin' | 'company_phone' | 'company_email' | 'deal_summary'
     | 'next_step' | 'assigned_to' | 'contact_count'
     | 'created_at' | 'updated_at';
 
@@ -139,6 +142,7 @@ const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'description', visible: false },
     { key: 'linkedin', visible: false },
     { key: 'company_phone', visible: false },
+    { key: 'company_email', visible: false },
     { key: 'deal_summary', visible: false },
     { key: 'assigned_to', visible: false },
     { key: 'contact_count', visible: false },
@@ -260,6 +264,7 @@ export default function LeadsPage() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['companies'] });
             queryClient.invalidateQueries({ queryKey: ['filterOptions'] });
+            queryClient.invalidateQueries({ queryKey: ['statistics'] });
             setSelectedIds(new Set());
             notifications.show({ title: '✅', message: t('company.updated'), color: 'green' });
         },
@@ -279,6 +284,7 @@ export default function LeadsPage() {
         description: t('company.description'),
         linkedin: t('company.linkedin'),
         company_phone: t('company.companyPhone'),
+        company_email: t('company.companyEmail'),
         deal_summary: t('company.dealSummary'),
         next_step: t('company.nextStep'),
         assigned_to: t('company.assignedTo'),
@@ -374,6 +380,7 @@ export default function LeadsPage() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['companies'] });
+            queryClient.invalidateQueries({ queryKey: ['statistics'] });
             notifications.show({ title: '✅', message: t('company.deleted'), color: 'green' });
         },
         onError: () => {
@@ -516,6 +523,19 @@ export default function LeadsPage() {
                 );
             case 'company_phone':
                 return <Table.Td key="company_phone"><TruncatedText size="sm">{company.company_phone}</TruncatedText></Table.Td>;
+            case 'company_email':
+                return (
+                    <Table.Td key="company_email">
+                        {company.company_email ? (
+                            <Group gap={4} wrap="nowrap">
+                                <Text size="sm" lineClamp={1}>{company.company_email}</Text>
+                                <EmailStatusIcon status={company.email_status} style={{ flexShrink: 0 }} />
+                            </Group>
+                        ) : (
+                            <Text size="sm" c="dimmed">—</Text>
+                        )}
+                    </Table.Td>
+                );
             case 'deal_summary':
                 return (
                     <Table.Td key="deal_summary">
@@ -692,14 +712,14 @@ export default function LeadsPage() {
                     <Group justify="space-between">
                         <Group gap="sm">
                             <Text size="sm" fw={600}>
-                                {selectedIds.size} {t('bulk.selected', 'seçili')}
+                                {selectedIds.size} {t('bulk.selected')}
                             </Text>
                             <Button variant="subtle" color="gray" size="xs" onClick={() => setSelectedIds(new Set())}>
-                                {t('bulk.clearSelection', 'Seçimi Temizle')}
+                                {t('bulk.clearSelection')}
                             </Button>
                         </Group>
                         <Group gap="xs">
-                            <Text size="sm" fw={500} c="dimmed">{t('bulk.moveTo', 'Aşama:')}</Text>
+                            <Text size="sm" fw={500} c="dimmed">{t('bulk.moveTo')}</Text>
                             {STAGES.map((stage) => (
                                 <Button
                                     key={stage}
@@ -760,14 +780,19 @@ export default function LeadsPage() {
                         >
                             <Table.Thead>
                                 <Table.Tr>
-                                    <Table.Th style={{ width: 40, padding: '0 12px' }}>
-                                        <Checkbox
-                                            checked={allSelected}
-                                            indeterminate={someSelected && !allSelected}
-                                            onChange={toggleSelectAll}
-                                            size="xs"
-                                            color="violet"
-                                        />
+                                    <Table.Th style={{ width: 48, padding: '0 8px' }}>
+                                        {someSelected ? (
+                                            <Checkbox
+                                                checked={allSelected}
+                                                indeterminate={someSelected && !allSelected}
+                                                onChange={toggleSelectAll}
+                                                size="sm"
+                                                color="violet"
+                                                styles={{ input: { cursor: 'pointer' }, root: { padding: 4 } }}
+                                            />
+                                        ) : (
+                                            <Box style={{ width: 20, height: 20 }} />
+                                        )}
                                     </Table.Th>
                                     {visibleColumns.map(col => renderColumnHeader(col.key))}
                                     <Table.Th style={{ width: 40, padding: '0 4px' }}>
@@ -779,7 +804,7 @@ export default function LeadsPage() {
                                             withArrow
                                         >
                                             <Popover.Target>
-                                                <Tooltip label={t('leads.editColumns', 'Sütunları düzenle')} withArrow position="left">
+                                                <Tooltip label={t('leads.editColumns')} withArrow position="left">
                                                     <ActionIcon
                                                         variant="subtle"
                                                         size="sm"
@@ -795,7 +820,7 @@ export default function LeadsPage() {
                                             </Popover.Target>
                                             <Popover.Dropdown p="sm" style={{ minWidth: 240 }}>
                                                 <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs" style={{ letterSpacing: '0.5px' }}>
-                                                    {t('leads.columns', 'Sütunlar')}
+                                                    {t('leads.columns')}
                                                 </Text>
                                                 <Divider mb="xs" />
                                                 <DndContext
@@ -827,7 +852,7 @@ export default function LeadsPage() {
                                                     fullWidth
                                                     onClick={() => saveColumns(DEFAULT_COLUMNS)}
                                                 >
-                                                    {t('leads.resetColumns', 'Varsayılana sıfırla')}
+                                                    {t('leads.resetColumns')}
                                                 </Button>
                                             </Popover.Dropdown>
                                         </Popover>
@@ -844,13 +869,20 @@ export default function LeadsPage() {
                                         }}
                                         onClick={() => navigate(`/companies/${company.id}`)}
                                     >
-                                        <Table.Td style={{ width: 40, padding: '0 12px' }}>
+                                        <Table.Td
+                                            style={{ width: 48, padding: '0 8px' }}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                toggleSelect(company.id);
+                                            }}
+                                        >
                                             <Checkbox
                                                 checked={selectedIds.has(company.id)}
                                                 onChange={() => toggleSelect(company.id)}
                                                 onClick={(e) => e.stopPropagation()}
-                                                size="xs"
+                                                size="sm"
                                                 color="violet"
+                                                styles={{ input: { cursor: 'pointer' }, root: { padding: 4 } }}
                                             />
                                         </Table.Td>
                                         {visibleColumns.map(col => renderColumnCell(col.key, company))}

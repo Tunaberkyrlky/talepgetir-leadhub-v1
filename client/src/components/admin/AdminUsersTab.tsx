@@ -70,6 +70,9 @@ export default function AdminUsersTab() {
             queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
             notifications.show({ message: t('admin.userDeactivated'), color: 'green' });
         },
+        onError: (err: any) => {
+            notifications.show({ message: err.response?.data?.error || t('common.error'), color: 'red' });
+        },
     });
 
     const deleteMutation = useMutation({
@@ -77,6 +80,9 @@ export default function AdminUsersTab() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
             notifications.show({ message: t('admin.userDeleted'), color: 'green' });
+        },
+        onError: (err: any) => {
+            notifications.show({ message: err.response?.data?.error || t('common.error'), color: 'red' });
         },
     });
 

@@ -14,12 +14,15 @@ import {
     DndContext,
     DragOverlay,
     useDroppable,
-    closestCorners,
+    pointerWithin,
+    rectIntersection,
     PointerSensor,
+    TouchSensor,
     useSensor,
     useSensors,
     type DragStartEvent,
     type DragEndEvent,
+    type CollisionDetection,
 } from '@dnd-kit/core';
 import { PIPELINE_STAGES, getStageColor } from '../../lib/stages';
 import PipelineCard, { type PipelineCompany } from './PipelineCard';
@@ -106,6 +109,27 @@ function StageColumn({
     );
 }
 
+// Custom collision: prefer pointerWithin (precise), fall back to rectIntersection
+const collisionDetection: CollisionDetection = (args) => {
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) return pointerCollisions;
+    return rectIntersection(args);
+};
+
+/** Resolve over.id to a stage name — handles dropping on a card (UUID) or on a column (stage) */
+function resolveTargetStage(
+    overId: string,
+    columns: Record<string, PipelineCompany[]>,
+): string | null {
+    // Dropped directly on a column
+    if ((PIPELINE_STAGES as readonly string[]).includes(overId)) return overId;
+    // Dropped on a card — find which column contains it
+    for (const stage of PIPELINE_STAGES) {
+        if (columns[stage]?.some((c) => c.id === overId)) return stage;
+    }
+    return null;
+}
+
 export default function KanbanBoard({
     columns,
     isDragEnabled,
@@ -115,7 +139,8 @@ export default function KanbanBoard({
     const [overColumnId, setOverColumnId] = useState<string | null>(null);
 
     const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+        useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })
     );
 
     const handleDragStart = useCallback((event: DragStartEvent) => {
@@ -124,8 +149,15 @@ export default function KanbanBoard({
     }, []);
 
     const handleDragOver = useCallback((event: { over: { id: string | number } | null }) => {
-        setOverColumnId(event.over ? String(event.over.id) : null);
-    }, []);
+        if (!event.over) {
+            setOverColumnId(null);
+            return;
+        }
+        const id = String(event.over.id);
+        // Resolve to column stage for highlight
+        const stage = resolveTargetStage(id, columns);
+        setOverColumnId(stage);
+    }, [columns]);
 
     const handleDragEnd = useCallback(
         (event: DragEndEvent) => {
@@ -138,12 +170,12 @@ export default function KanbanBoard({
             const company = active.data.current?.company as PipelineCompany | undefined;
             if (!company) return;
 
-            const newStage = String(over.id);
-            if (newStage !== company.stage && PIPELINE_STAGES.includes(newStage as any)) {
+            const newStage = resolveTargetStage(String(over.id), columns);
+            if (newStage && newStage !== company.stage) {
                 onStageChange(company.id, newStage, company.stage);
             }
         },
-        [onStageChange]
+        [onStageChange, columns]
     );
 
     const handleDragCancel = useCallback(() => {
@@ -154,7 +186,7 @@ export default function KanbanBoard({
     return (
         <DndContext
             sensors={sensors}
-            collisionDetection={closestCorners}
+            collisionDetection={collisionDetection}
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
