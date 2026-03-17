@@ -49,9 +49,9 @@ export default function AdminMembershipsTab() {
         },
     });
 
-    const tenantOptions = (tenantsData?.data || []).map((t: any) => ({
-        value: t.id,
-        label: t.name,
+    const tenantOptions = (tenantsData?.data || []).map((tn: any) => ({
+        value: tn.id,
+        label: tn.name,
     }));
 
     const roleOptions = [

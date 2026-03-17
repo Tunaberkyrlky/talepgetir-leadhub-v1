@@ -79,6 +79,19 @@ function normalizeStage(raw: string): { stage: string; overflow: string | null }
     return { stage: 'cold', overflow: raw };
 }
 
+/**
+ * Normalize email_status values from external sources (e.g. OmniVerifier)
+ */
+function normalizeEmailStatus(raw: string | null | undefined): string | null {
+    if (!raw) return null;
+    const lower = raw.toLowerCase().trim();
+    if (lower === 'valid') return 'valid';
+    if (lower === 'catch-all' || lower === 'catch_all' || lower === 'catchall') return 'uncertain';
+    if (lower === 'uncertain') return 'uncertain';
+    if (lower === 'unvalid' || lower === 'invalid' || lower === 'not valid') return 'invalid';
+    return null;
+}
+
 interface ImportError {
     row: number;
     field: string;
@@ -299,6 +312,8 @@ export async function executeImport(
             description: getValue(row, 'companies.description') || null,
             linkedin: getValue(row, 'companies.linkedin') || null,
             company_phone: getValue(row, 'companies.company_phone') || null,
+            company_email: getValue(row, 'companies.company_email') || null,
+            ...(() => { const es = normalizeEmailStatus(getValue(row, 'companies.email_status')); return es ? { email_status: es } : {}; })(),
             stage: resolvedStage,
             deal_summary: getValue(row, 'companies.deal_summary') || null,
             next_step: getValue(row, 'companies.next_step') || null,

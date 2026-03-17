@@ -11,11 +11,13 @@ import {
     Group,
     SimpleGrid,
     Title,
-    Divider
+    Divider,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
+import { STAGES } from '../lib/stages';
+import EmailStatusIcon from './EmailStatusIcon';
 
 interface Company {
     id: string;
@@ -28,6 +30,8 @@ interface Company {
     description: string | null;
     linkedin: string | null;
     company_phone: string | null;
+    company_email: string | null;
+    email_status: 'valid' | 'uncertain' | 'invalid' | null;
     stage: string;
     deal_summary: string | null;
     next_step: string | null;
@@ -38,12 +42,6 @@ interface CompanyFormProps {
     onClose: () => void;
     company: Company | null; // null = create mode
 }
-
-const STAGES = [
-    'cold', 'in_queue', 'first_contact', 'connected', 'qualified',
-    'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
-    'won', 'lost', 'on_hold',
-];
 
 export default function CompanyForm({ opened, onClose, company }: CompanyFormProps) {
     const { t } = useTranslation();
@@ -61,6 +59,8 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
             description: '',
             linkedin: '',
             company_phone: '',
+            company_email: '',
+            email_status: null as string | null,
             stage: 'cold',
             deal_summary: '',
             next_step: '',
@@ -88,6 +88,8 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
                 description: company.description || '',
                 linkedin: company.linkedin || '',
                 company_phone: company.company_phone || '',
+                company_email: company.company_email || '',
+                email_status: company.email_status || null,
                 stage: company.stage || 'in_queue',
                 deal_summary: company.deal_summary || '',
                 next_step: company.next_step || '',
@@ -109,6 +111,7 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['companies'] });
+            queryClient.invalidateQueries({ queryKey: ['statistics'] });
             notifications.show({
                 title: '✅',
                 message: t('company.created'),
@@ -135,6 +138,7 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['companies'] });
+            queryClient.invalidateQueries({ queryKey: ['statistics'] });
             notifications.show({
                 title: '✅',
                 message: t('company.updated'),
@@ -232,7 +236,34 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
                         />
                     </SimpleGrid>
 
-                    {/* Row 4: Stage + Location */}
+                    {/* Row 4: Company Email + Email Status */}
+                    <SimpleGrid cols={2}>
+                        <TextInput
+                            label={t('company.companyEmail')}
+                            placeholder="info@company.com"
+                            radius="md"
+                            rightSection={
+                                <EmailStatusIcon
+                                    status={form.values.email_status as 'valid' | 'uncertain' | 'invalid' | null}
+                                    size={18}
+                                />
+                            }
+                            {...form.getInputProps('company_email')}
+                        />
+                        <Select
+                            label={t('company.emailStatus')}
+                            data={[
+                                { value: 'valid', label: t('company.emailValid') },
+                                { value: 'uncertain', label: t('company.emailUncertain') },
+                                { value: 'invalid', label: t('company.emailInvalid') },
+                            ]}
+                            radius="md"
+                            clearable
+                            {...form.getInputProps('email_status')}
+                        />
+                    </SimpleGrid>
+
+                    {/* Row 5: Stage + Location */}
                     <SimpleGrid cols={2}>
                         <Select
                             label={t('company.stage')}
@@ -289,18 +320,18 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
                         <>
                             <Divider my="sm" />
                             <Title order={5} style={{ color: '#495057' }}>
-                                Add Primary Contact (Optional)
+                                {t('contact.addPrimaryContact')}
                             </Title>
 
                             <SimpleGrid cols={2}>
                                 <TextInput
-                                    label="Contact Full Name"
+                                    label={t('contact.contactFullName')}
                                     placeholder="John Doe"
                                     radius="md"
                                     {...form.getInputProps('contact_name')}
                                 />
                                 <TextInput
-                                    label="Job Title"
+                                    label={t('contact.jobTitle')}
                                     placeholder="CEO"
                                     radius="md"
                                     {...form.getInputProps('contact_title')}
@@ -309,13 +340,13 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
 
                             <SimpleGrid cols={2}>
                                 <TextInput
-                                    label="Email Address"
+                                    label={t('contact.emailAddress')}
                                     placeholder="john@example.com"
                                     radius="md"
                                     {...form.getInputProps('contact_email')}
                                 />
                                 <TextInput
-                                    label="Phone Number"
+                                    label={t('contact.phoneNumber')}
                                     placeholder="+1234567890"
                                     radius="md"
                                     {...form.getInputProps('contact_phone_e164')}

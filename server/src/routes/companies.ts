@@ -21,6 +21,13 @@ const VALID_STAGES = [
     'won', 'lost', 'on_hold',
 ] as const;
 
+const VALID_EMAIL_STATUSES = ['valid', 'uncertain', 'invalid'] as const;
+
+/** Basic email format validation */
+function isValidEmail(email: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 // Valid sort columns (whitelist to prevent injection)
 const SORT_COLUMNS: Record<string, string> = {
     name: 'name',
@@ -61,7 +68,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         // Use view that includes pre-computed contact_count (enables sorting by it)
         let dataQuery = supabaseAdmin
             .from('companies_with_counts')
-            .select('id, name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, stage, deal_summary, next_step, assigned_to, created_at, updated_at, contact_count')
+            .select('id, name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, company_email, email_status, stage, deal_summary, next_step, assigned_to, created_at, updated_at, contact_count')
             .eq('tenant_id', tenantId);
 
         // Apply search (ILIKE on multiple columns)
@@ -211,19 +218,21 @@ router.get('/pipeline', async (req: Request, res: Response): Promise<void> => {
             }
         }
 
-        // Terminal stage counts
-        const { data: terminalData, error: terminalError } = await supabaseAdmin
-            .from('companies')
-            .select('stage')
-            .eq('tenant_id', tenantId)
-            .in('stage', ['won', 'lost', 'on_hold']);
-
+        // Terminal stage counts (parallel count queries instead of fetching all rows)
+        const terminalStages = ['won', 'lost', 'on_hold'] as const;
+        const terminalResults = await Promise.all(
+            terminalStages.map((stage) =>
+                supabaseAdmin
+                    .from('companies')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId)
+                    .eq('stage', stage)
+            )
+        );
         const terminalCounts: Record<string, number> = { won: 0, lost: 0, on_hold: 0 };
-        if (!terminalError && terminalData) {
-            for (const row of terminalData) {
-                terminalCounts[row.stage] = (terminalCounts[row.stage] || 0) + 1;
-            }
-        }
+        terminalStages.forEach((stage, i) => {
+            terminalCounts[stage] = terminalResults[i].count || 0;
+        });
 
         res.json({ columns, terminalCounts });
     } catch (err) {
@@ -277,6 +286,7 @@ router.post(
             const tenantId = req.tenantId!;
             const {
                 name, website, location, industry, employee_size, product_services, description, linkedin, company_phone,
+                company_email, email_status,
                 stage, deal_summary, internal_notes, next_step, custom_fields,
                 contact_first_name, contact_last_name, contact_title, contact_email, contact_phone_e164
             } = req.body;
@@ -294,6 +304,26 @@ router.post(
                 return;
             }
 
+            // Validate email_status if provided
+            if (email_status && !VALID_EMAIL_STATUSES.includes(email_status)) {
+                res.status(400).json({
+                    error: `Invalid email_status. Valid values: ${VALID_EMAIL_STATUSES.join(', ')}`
+                });
+                return;
+            }
+
+            // Validate company_email format if provided
+            if (company_email && !isValidEmail(company_email)) {
+                res.status(400).json({ error: 'Invalid company email format' });
+                return;
+            }
+
+            // Validate contact_email format if provided
+            if (contact_email && !isValidEmail(contact_email)) {
+                res.status(400).json({ error: 'Invalid contact email format' });
+                return;
+            }
+
             // 1. Insert Company
             const { data: company, error: companyError } = await supabaseAdmin
                 .from('companies')
@@ -308,6 +338,8 @@ router.post(
                     description: description || null,
                     linkedin: linkedin || null,
                     company_phone: company_phone || null,
+                    company_email: company_email || null,
+                    email_status: email_status || null,
                     stage: stage || 'cold',
                     deal_summary: deal_summary || null,
                     internal_notes: internal_notes || null,
@@ -380,13 +412,27 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, stage, deal_summary, internal_notes, next_step, custom_fields } = req.body;
+            const { name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, company_email, email_status, stage, deal_summary, internal_notes, next_step, custom_fields } = req.body;
 
             // Validate stage if provided
             if (stage && !VALID_STAGES.includes(stage)) {
                 res.status(400).json({
                     error: `Invalid stage. Valid stages: ${VALID_STAGES.join(', ')}`
                 });
+                return;
+            }
+
+            // Validate email_status if provided
+            if (email_status && !VALID_EMAIL_STATUSES.includes(email_status)) {
+                res.status(400).json({
+                    error: `Invalid email_status. Valid values: ${VALID_EMAIL_STATUSES.join(', ')}`
+                });
+                return;
+            }
+
+            // Validate company_email format if provided
+            if (company_email && !isValidEmail(company_email)) {
+                res.status(400).json({ error: 'Invalid company email format' });
                 return;
             }
 
@@ -401,6 +447,8 @@ router.put(
             if (description !== undefined) updateData.description = description;
             if (linkedin !== undefined) updateData.linkedin = linkedin;
             if (company_phone !== undefined) updateData.company_phone = company_phone;
+            if (company_email !== undefined) updateData.company_email = company_email;
+            if (email_status !== undefined) updateData.email_status = email_status;
             if (stage !== undefined) updateData.stage = stage;
             if (deal_summary !== undefined) updateData.deal_summary = deal_summary;
             if (internal_notes !== undefined) updateData.internal_notes = internal_notes;

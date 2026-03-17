@@ -8,82 +8,156 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
     'companies.name': {
         table: 'companies',
         field: 'name',
-        aliases: ['company_name', 'şirket adı', 'firma', 'company name', 'firma adı', 'şirket', 'name'],
+        aliases: [
+            'company_name', 'company name', 'name', 'firma', 'firma adı', 'şirket', 'şirket adı',
+            'sirket', 'sirket adi', 'kurum', 'kurum adı', 'işletme', 'isletme', 'organization',
+            'organisation', 'account name', 'account',
+        ],
         required: true,
     },
     'companies.website': {
         table: 'companies',
         field: 'website',
-        aliases: ['website', 'web', 'url', 'site', 'web sitesi', 'web site', 'company website', 'company url'],
+        aliases: [
+            'website', 'web', 'url', 'site', 'domain', 'web sitesi', 'web site',
+            'company website', 'company url', 'company domain', 'web adresi', 'internet adresi',
+            'homepage', 'ana sayfa',
+        ],
         required: false,
     },
     'companies.location': {
         table: 'companies',
         field: 'location',
-        aliases: ['location', 'konum', 'şehir', 'city', 'lokasyon', 'address', 'adres', 'company location', 'headquarters', 'hq location'],
+        aliases: [
+            'location', 'konum', 'lokasyon', 'address', 'adres', 'şehir', 'sehir', 'city',
+            'il', 'ilçe', 'ilce', 'company location', 'headquarters', 'hq location',
+            'company address', 'merkez', 'genel merkez', 'bölge', 'region',
+        ],
         required: false,
     },
     'companies.industry': {
         table: 'companies',
         field: 'industry',
-        aliases: ['industry', 'sektör', 'sector', 'sektoru', 'endüstri', 'company type', 'company_type', 'business type', 'type of business', 'vertical'],
+        aliases: [
+            'industry', 'sektör', 'sektor', 'sector', 'sektoru', 'endüstri', 'endustri',
+            'company type', 'company_type', 'business type', 'type of business', 'vertical',
+            'iş alanı', 'is alani', 'faaliyet alanı', 'faaliyet alani',
+        ],
         required: false,
     },
     'companies.employee_size': {
         table: 'companies',
         field: 'employee_size',
-        aliases: ['employee_size', 'employee_count', 'çalışan sayısı', 'employees', 'çalışan', 'personel sayısı', 'employee', 'headcount', 'head count', 'number of employees', 'staff size', 'workforce', 'team size', 'company size'],
+        aliases: [
+            'employee_size', 'employee_count', 'employees', 'employee', 'headcount', 'head count',
+            'çalışan sayısı', 'calisan sayisi', 'çalışan', 'calisan', 'personel sayısı', 'personel',
+            'number of employees', 'staff size', 'workforce', 'team size', 'company size',
+        ],
         required: false,
     },
     'companies.product_services': {
         table: 'companies',
         field: 'product_services',
-        aliases: ['product_services', 'products', 'services', 'ürün hizmet', 'ürünler', 'hizmetler', 'product/service', 'products and services'],
+        aliases: [
+            'product_services', 'products', 'services', 'product/service', 'products and services',
+            'ürün hizmet', 'urun hizmet', 'ürünler', 'urunler', 'hizmetler',
+            'ürün ve hizmetler', 'urun ve hizmetler', 'specialties', 'uzmanlık alanı',
+        ],
         required: false,
     },
     'companies.description': {
         table: 'companies',
         field: 'description',
-        aliases: ['description', 'about', 'hakkında', 'açıklama', 'aciklama', 'desc', 'about company', 'company description', 'overview', 'short description'],
+        aliases: [
+            'description', 'about', 'desc', 'overview', 'short description',
+            'hakkında', 'hakkinda', 'açıklama', 'aciklama', 'tanım', 'tanim',
+            'about company', 'company description', 'company overview',
+        ],
         required: false,
     },
     'companies.linkedin': {
         table: 'companies',
         field: 'linkedin',
-        aliases: ['linkedin', 'linkedin_url', 'linkedin url', 'company linkedin', 'linkedin profil', 'company linkedin url'],
+        aliases: [
+            'linkedin', 'linkedin_url', 'linkedin url', 'company linkedin',
+            'company linkedin url', 'linkedin profil', 'linkedin profili',
+            'şirket linkedin', 'sirket linkedin',
+        ],
         required: false,
     },
     'companies.company_phone': {
         table: 'companies',
         field: 'company_phone',
-        aliases: ['company_phone', 'şirket telefonu', 'şirket tel', 'company phone', 'office phone', 'ofis telefon', 'central phone', 'primary company phone', 'main phone', 'office number', 'business phone', 'corporate phone'],
+        aliases: [
+            'company_phone', 'company phone', 'phone', 'office phone', 'business phone',
+            'corporate phone', 'main phone', 'central phone', 'office number',
+            'şirket telefonu', 'sirket telefonu', 'şirket tel', 'ofis telefon',
+            'primary company phone', 'genel telefon', 'santral',
+        ],
         required: false,
     },
     'companies.stage': {
         table: 'companies',
         field: 'stage',
-        aliases: ['stage', 'durum', 'status', 'aşama', 'asama', 'safha', 'pipeline stage', 'deal stage'],
+        aliases: [
+            'stage', 'status', 'durum', 'aşama', 'asama', 'safha',
+            'pipeline stage', 'deal stage', 'lead status', 'lead stage',
+            'müşteri durumu', 'musteri durumu',
+        ],
         required: false,
     },
     'companies.deal_summary': {
         table: 'companies',
         field: 'deal_summary',
-        aliases: ['deal_summary', 'özet', 'summary', 'anlaşma özeti', 'deal summary', 'notes'],
+        aliases: [
+            'deal_summary', 'deal summary', 'summary', 'notes', 'not',
+            'özet', 'ozet', 'anlaşma özeti', 'anlasma ozeti',
+            'deal notes', 'anlaşma notları', 'notlar',
+        ],
         required: false,
     },
     'companies.next_step': {
         table: 'companies',
         field: 'next_step',
-        aliases: ['next_step', 'sonraki adım', 'follow_up', 'sonraki_adim', 'takip', 'next step', 'follow up', 'action item'],
+        aliases: [
+            'next_step', 'next step', 'follow_up', 'follow up', 'action item',
+            'sonraki adım', 'sonraki adim', 'sonraki_adim', 'takip',
+            'yapılacak', 'yapilacak', 'aksiyon', 'to do', 'todo',
+        ],
         required: false,
     },
+    'companies.company_email': {
+        table: 'companies',
+        field: 'company_email',
+        aliases: [
+            'company_email', 'company email', 'company mail', 'email', 'e-posta',
+            'şirket e-posta', 'sirket email', 'şirket mail', 'sirket mail',
+            'email adresi', 'kurumsal mail', 'kurumsal e-posta', 'info mail',
+            'info email', 'genel mail', 'iletisim mail',
+        ],
+        required: false,
+    },
+    'companies.email_status': {
+        table: 'companies',
+        field: 'email_status',
+        aliases: [
+            'email_status', 'email status', 'e-posta durumu', 'mail durumu',
+            'OmniVerifier Status', 'omniverifie status', 'omniversifier', 'omniverifier',
+            'verification', 'email verification', 'mail doğrulama', 'mail dogrulama',
+            'verification status', 'doğrulama durumu', 'dogrulama durumu',
+        ],
+        required: false,
+    },
+
+    // People fields (contacts table)
     'contacts.first_name': {
         table: 'contacts',
         field: 'first_name',
         aliases: [
-            'first_name', 'first name', 'firstname', 'isim', 'kişi adı', 'contact name',
-            'full_name', 'full name', 'fullname', 'yetkili', 'yetkili kişi', 'ad soyad', 'isim soyisim',
-            'contact first name', 'given name',
+            'first_name', 'first name', 'firstname', 'given name', 'contact first name',
+            'isim', 'ad', 'adı', 'kişi adı', 'kisi adi', 'contact name',
+            'full_name', 'full name', 'fullname', 'yetkili', 'yetkili kişi', 'yetkili kisi',
+            'ad soyad', 'isim soyisim', 'ad soyadı',
         ],
         required: false,
     },
@@ -91,51 +165,79 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
         table: 'contacts',
         field: 'last_name',
         aliases: [
-            'last_name', 'last name', 'lastname', 'surname', 'soyad', 'soy isim', 'soyadı',
-            'contact last name', 'family name',
+            'last_name', 'last name', 'lastname', 'surname', 'family name',
+            'contact last name', 'soyad', 'soyadı', 'soyadi', 'soy isim', 'soy ad',
         ],
         required: false,
     },
     'contacts.title': {
         table: 'contacts',
         field: 'title',
-        aliases: ['contact_title', 'pozisyon', 'title', 'ünvan', 'unvan', 'görev', 'gorev', 'job title', 'job_title', 'position', 'role'],
+        aliases: [
+            'contact_title', 'title', 'job title', 'job_title', 'position', 'role',
+            'pozisyon', 'ünvan', 'unvan', 'görev', 'gorev', 'görevi', 'gorevi',
+            'iş unvanı', 'is unvani', 'meslek', 'occupation',
+        ],
         required: false,
     },
     'contacts.email': {
         table: 'contacts',
         field: 'email',
-        aliases: ['contact_email', 'email', 'e-posta', 'eposta', 'e_posta', 'mail', 'email address', 'work email', 'business email', 'email 1'],
+        aliases: [
+            'contact_email', 'contact email', 'email', 'e-posta', 'eposta', 'e_posta',
+            'mail', 'email address', 'work email', 'business email', 'email 1',
+            'kişi mail', 'kisi mail', 'kişi e-posta', 'personal email',
+        ],
         required: false,
     },
     'contacts.phone_e164': {
         table: 'contacts',
         field: 'phone_e164',
-        aliases: ['contact_phone', 'telefon', 'phone', 'cep', 'cep telefonu', 'mobile', 'phone number', 'mobile phone', 'direct phone', 'personal phone', 'contact phone'],
+        aliases: [
+            'contact_phone', 'contact phone', 'phone', 'telefon', 'tel',
+            'cep', 'cep telefonu', 'cep tel', 'mobile', 'mobile phone',
+            'phone number', 'direct phone', 'personal phone', 'gsm',
+            'kişi telefon', 'kisi telefon', 'cep numarası', 'cep numarasi',
+        ],
         required: false,
     },
     'contacts.country': {
         table: 'contacts',
         field: 'country',
-        aliases: ['contact country', 'ülke', 'ulke', 'contact location'],
+        aliases: [
+            'country', 'contact country', 'contact location',
+            'ülke', 'ulke', 'kişi ülke', 'kisi ulke',
+        ],
         required: false,
     },
     'contacts.seniority': {
         table: 'contacts',
         field: 'seniority',
-        aliases: ['seniority', 'kıdem', 'kidem', 'seviye', 'level', 'seniority level', 'experience level', 'management level'],
+        aliases: [
+            'seniority', 'seniority level', 'experience level', 'management level',
+            'kıdem', 'kidem', 'seviye', 'level', 'deneyim seviyesi',
+            'yönetim seviyesi', 'yonetim seviyesi',
+        ],
         required: false,
     },
     'contacts.department': {
         table: 'contacts',
         field: 'department',
-        aliases: ['department', 'departman', 'bölüm', 'bolum', 'team', 'takım', 'takim', 'division', 'business unit'],
+        aliases: [
+            'department', 'departman', 'bölüm', 'bolum', 'birim',
+            'team', 'takım', 'takim', 'division', 'business unit',
+            'departmanı', 'departmani', 'çalıştığı birim',
+        ],
         required: false,
     },
     'contacts.linkedin': {
         table: 'contacts',
         field: 'linkedin',
-        aliases: ['contact linkedin', 'contact linkedin url', 'person linkedin', 'people linkedin', 'linkedin profil', 'kişi linkedin', 'linkedin'],
+        aliases: [
+            'contact linkedin', 'contact linkedin url', 'person linkedin',
+            'people linkedin', 'linkedin profil', 'linkedin profili',
+            'kişi linkedin', 'kisi linkedin', 'linkedin',
+        ],
         required: false,
     },
 };
@@ -150,18 +252,61 @@ export interface MappingSuggestion {
 }
 
 /**
- * Normalize a string for comparison: lowercase, trim, remove special chars
+ * Turkish character transliteration map
+ */
+const TR_MAP: Record<string, string> = {
+    'ş': 's', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ü': 'u', 'ç': 'c',
+    'Ş': 's', 'Ğ': 'g', 'İ': 'i', 'Ö': 'o', 'Ü': 'u', 'Ç': 'c',
+};
+
+/**
+ * Transliterate Turkish characters to ASCII equivalents
+ */
+function transliterateTR(str: string): string {
+    return str.replace(/[şğıöüçŞĞİÖÜÇ]/g, (ch) => TR_MAP[ch] || ch);
+}
+
+/**
+ * Normalize a string for comparison: transliterate Turkish, lowercase,
+ * trim, remove special chars, collapse whitespace
  */
 function normalize(str: string): string {
-    return str
+    return transliterateTR(str)
         .toLowerCase()
         .trim()
-        .replace(/[_\-\.]/g, ' ')
+        .replace(/[_\-\.\/\(\)#:;,'"]/g, ' ')
         .replace(/\s+/g, ' ');
 }
 
 /**
- * Simple string similarity (Dice coefficient + word overlap)
+ * Levenshtein distance between two strings (two-row optimisation)
+ */
+function levenshtein(a: string, b: string): number {
+    if (a === b) return 0;
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+
+    let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+    let curr = new Array<number>(b.length + 1);
+
+    for (let i = 1; i <= a.length; i++) {
+        curr[0] = i;
+        for (let j = 1; j <= b.length; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+        }
+        [prev, curr] = [curr, prev];
+    }
+    return prev[b.length];
+}
+
+/**
+ * String similarity combining multiple strategies:
+ * 1. Exact match after normalization (with Turkish transliteration)
+ * 2. Substring coverage
+ * 3. Word-level overlap
+ * 4. Levenshtein for short strings (catches typos)
+ * 5. Bigram Dice coefficient
  */
 function similarity(a: string, b: string): number {
     const na = normalize(a);
@@ -175,7 +320,6 @@ function similarity(a: string, b: string): number {
     const shorter = na.length <= nb.length ? na : nb;
     const longer = na.length <= nb.length ? nb : na;
     if (shorter.length >= 5 && longer.includes(shorter)) {
-        // Score proportional to how much of the longer string is covered
         const coverage = shorter.length / longer.length;
         return 0.6 + coverage * 0.35;
     }
@@ -190,6 +334,14 @@ function similarity(a: string, b: string): number {
             const wordScore = (2 * wordMatches) / (wordsA.length + wordsB.length);
             if (wordScore >= 0.5) return wordScore;
         }
+    }
+
+    // Levenshtein for short strings (≤15 chars): catch typos like "compny" → "company"
+    if (na.length <= 15 && nb.length <= 15) {
+        const maxLen = Math.max(na.length, nb.length);
+        const dist = levenshtein(na, nb);
+        const levScore = 1 - dist / maxLen;
+        if (levScore >= 0.7) return levScore;
     }
 
     // Bigram-based Dice coefficient

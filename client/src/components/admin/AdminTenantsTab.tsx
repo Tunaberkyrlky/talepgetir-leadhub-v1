@@ -65,6 +65,9 @@ export default function AdminTenantsTab() {
             queryClient.invalidateQueries({ queryKey: ['admin', 'tenants'] });
             notifications.show({ message: t('admin.tenantUpdated'), color: 'green' });
         },
+        onError: (err: any) => {
+            notifications.show({ message: err.response?.data?.error || t('common.error'), color: 'red' });
+        },
     });
 
     const handleEdit = (tenant: Tenant) => {

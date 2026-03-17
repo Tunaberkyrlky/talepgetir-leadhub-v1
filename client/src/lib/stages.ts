@@ -6,15 +6,15 @@ export const STAGES = [
     'cold',            // 0 - Soğuk
     'in_queue',        // 1 - Sırada
     'first_contact',   // 2 - İlk Temas
-    'connected',       // 2 - Bağlantı Kuruldu
-    'qualified',       // 3 - Nitelikli
-    'in_meeting',      // 4 - Görüşmede
-    'follow_up',       // 5 - Takipte
-    'proposal_sent',   // 6 - Teklif Gönderildi
-    'negotiation',     // 7 - Müzakere
-    'won',             // 8 - Kazanıldı
-    'lost',            // 9 - Kaybedildi
-    'on_hold',         // 10 - Askıda
+    'connected',       // 3 - Bağlantı Kuruldu
+    'qualified',       // 4 - Nitelikli
+    'in_meeting',      // 5 - Görüşmede
+    'follow_up',       // 6 - Takipte
+    'proposal_sent',   // 7 - Teklif Gönderildi
+    'negotiation',     // 8 - Müzakere
+    'won',             // 9 - Kazanıldı
+    'lost',            // 10 - Kaybedildi
+    'on_hold',         // 11 - Askıda
 ] as const;
 
 export type Stage = (typeof STAGES)[number];
