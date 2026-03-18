@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Container,
@@ -43,6 +43,8 @@ import {
     IconDotsVertical,
     IconAdjustments,
     IconGripVertical,
+    IconArrowLeft,
+    IconMap,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -217,12 +219,14 @@ export default function LeadsPage() {
     const { user } = useAuth();
     const queryClient = useQueryClient();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const fromMap = searchParams.get('fromMap') === 'true';
     const [page, setPage] = useState(1);
     const [opened, { open, close }] = useDisclosure(false);
     const [editingCompany, setEditingCompany] = useState<Company | null>(null);
 
-    // Search & filter state
-    const [search, setSearch] = useState('');
+    // Search & filter state — initialise from URL param when coming from the map
+    const [search, setSearch] = useState(() => searchParams.get('search') || '');
     const [debouncedSearch] = useDebouncedValue(search, 300);
     const [selectedStages, setSelectedStages] = useState<string[]>([]);
     const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
@@ -602,6 +606,27 @@ export default function LeadsPage() {
 
     return (
         <Container size="xl" py="lg">
+            {/* Back to map banner */}
+            {fromMap && (
+                <Group mb="md" gap="xs">
+                    <Button
+                        leftSection={<IconArrowLeft size={16} />}
+                        variant="light"
+                        color="violet"
+                        radius="md"
+                        size="sm"
+                        onClick={() => navigate('/')}
+                    >
+                        <IconMap size={14} style={{ marginRight: 4 }} />
+                        {t('dashboard.companyLocations')}
+                    </Button>
+                    {search && (
+                        <Badge variant="light" color="blue" size="md" radius="md">
+                            {search}
+                        </Badge>
+                    )}
+                </Group>
+            )}
             {/* Header */}
             <Flex justify="space-between" align="center" mb="lg">
                 <Title order={2} fw={700}>

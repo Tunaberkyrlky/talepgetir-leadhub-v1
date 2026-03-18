@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
+import { lookupCoordinates } from '../lib/geocoder.js';
 
 const log = createLogger('route:companies');
 
@@ -76,7 +77,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
             const safe = sanitizeSearch(search);
             if (safe.length > 0) {
                 const pattern = `%${safe}%`;
-                const searchFilter = `name.ilike.${pattern},website.ilike.${pattern},industry.ilike.${pattern},next_step.ilike.${pattern}`;
+                const searchFilter = `name.ilike.${pattern},website.ilike.${pattern},industry.ilike.${pattern},next_step.ilike.${pattern},location.ilike.${pattern}`;
                 countQuery = countQuery.or(searchFilter);
                 dataQuery = dataQuery.or(searchFilter);
             }
@@ -236,85 +237,6 @@ router.get('/pipeline', async (req: Request, res: Response): Promise<void> => {
     }
 });
 
-// POST /api/companies/geocode — Resolve location text to lat/lng via Nominatim and persist
-router.post('/geocode', requireRole('superadmin', 'ops_agent', 'client_admin'), async (req: Request, res: Response): Promise<void> => {
-    try {
-        const tenantId = req.tenantId!;
-        const { companyId } = req.body as { companyId?: string };
-
-        if (!companyId || typeof companyId !== 'string') {
-            res.status(400).json({ error: 'companyId is required' });
-            return;
-        }
-
-        const { data: company, error: fetchError } = await supabaseAdmin
-            .from('companies')
-            .select('id, location, latitude, longitude')
-            .eq('id', companyId)
-            .eq('tenant_id', tenantId)
-            .single();
-
-        if (fetchError || !company) {
-            res.status(404).json({ error: 'Company not found' });
-            return;
-        }
-
-        if (!company.location) {
-            res.status(422).json({ error: 'Company has no location text to geocode' });
-            return;
-        }
-
-        if (company.latitude !== null && company.longitude !== null) {
-            res.json({ latitude: company.latitude, longitude: company.longitude, cached: true });
-            return;
-        }
-
-        const encoded = encodeURIComponent(company.location);
-        const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`;
-
-        const nominatimRes = await fetch(nominatimUrl, {
-            headers: {
-                'User-Agent': 'LeadHub-CRM/1.0',
-                'Accept-Language': 'en',
-            },
-        });
-
-        if (!nominatimRes.ok) {
-            log.warn({ status: nominatimRes.status }, 'Nominatim request failed');
-            res.status(502).json({ error: 'Geocoding service unavailable' });
-            return;
-        }
-
-        const results = await nominatimRes.json() as Array<{ lat: string; lon: string }>;
-
-        if (!results || results.length === 0) {
-            res.status(404).json({ error: 'Location not found', location: company.location });
-            return;
-        }
-
-        const latitude = parseFloat(results[0].lat);
-        const longitude = parseFloat(results[0].lon);
-
-        const { error: updateError } = await supabaseAdmin
-            .from('companies')
-            .update({ latitude, longitude, updated_at: new Date().toISOString() })
-            .eq('id', companyId)
-            .eq('tenant_id', tenantId);
-
-        if (updateError) {
-            log.error({ err: updateError }, 'Failed to save coordinates');
-            throw new AppError('Failed to save geocoding result', 500);
-        }
-
-        log.info({ companyId, latitude, longitude }, 'Geocoded company location');
-        res.json({ latitude, longitude, cached: false });
-    } catch (err) {
-        if (err instanceof AppError) throw err;
-        log.error({ err }, 'Geocode company error');
-        res.status(500).json({ error: 'Failed to geocode location' });
-    }
-});
-
 // GET /api/companies/:id — Get single company
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     try {
@@ -454,6 +376,17 @@ router.post(
                 }
             }
 
+            // Auto-geocode location if provided
+            if (location && company?.id) {
+                const coords = lookupCoordinates(location);
+                if (coords) {
+                    await supabaseAdmin
+                        .from('companies')
+                        .update({ latitude: coords.lat, longitude: coords.lng })
+                        .eq('id', company.id);
+                }
+            }
+
             res.status(201).json({ data: { ...company, contacts: contact ? [contact] : [] } });
         } catch (err) {
             if (err instanceof AppError) throw err;
@@ -527,6 +460,13 @@ router.put(
             if (internal_notes !== undefined) updateData.internal_notes = internal_notes;
             if (next_step !== undefined) updateData.next_step = next_step;
             if (custom_fields !== undefined) updateData.custom_fields = custom_fields;
+
+            // Re-geocode when location changes
+            if (location !== undefined) {
+                const coords = location ? lookupCoordinates(location) : null;
+                updateData.latitude  = coords?.lat ?? null;
+                updateData.longitude = coords?.lng ?? null;
+            }
 
             const { data, error } = await supabaseAdmin
                 .from('companies')
