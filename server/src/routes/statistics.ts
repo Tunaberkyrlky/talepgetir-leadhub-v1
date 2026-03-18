@@ -108,7 +108,7 @@ router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response):
 });
 
 // GET /api/statistics/company-locations — Companies with geocoded coordinates for globe map
-router.get('/company-locations', async (req: Request, res: Response): Promise<void> => {
+router.get('/company-locations', requireTier('pro'), async (req: Request, res: Response): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
 
@@ -133,4 +133,3 @@ router.get('/company-locations', async (req: Request, res: Response): Promise<vo
 });
 
 export default router;
-

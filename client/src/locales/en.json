@@ -258,6 +258,12 @@
         "companyLocations": "Company Locations",
         "noLocations": "No geocoded locations yet. Open a company and click \"Geocode Location\" to add it to the map."
     },
+    "stageGroups": {
+        "firstContact": "First Contact",
+        "qualification": "Qualification",
+        "evaluation": "Evaluation",
+        "closing": "Closing"
+    },
     "bulk": {
         "selected": "selected",
         "clearSelection": "Clear Selection",

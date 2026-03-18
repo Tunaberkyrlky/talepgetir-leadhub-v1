@@ -10,6 +10,7 @@ import { supabaseAdmin } from './supabase.js';
 import { sanitizeCell } from './importMapper.js';
 import { cleanWebsite } from './dataMatcher.js';
 import { createLogger } from './logger.js';
+import { lookupCoordinates } from './geocoder.js';
 
 const log = createLogger('importProcessor');
 const BATCH_SIZE = 500;
@@ -363,7 +364,10 @@ export async function executeImport(
 
     if (newCompanyMap.size > 0) {
         const newEntries = Array.from(newCompanyMap.entries()); // [mapKey, payload]
-        const toInsert = newEntries.map(([, p]) => ({ ...p, tenant_id: tenantId, assigned_to: userId }));
+        const toInsert = newEntries.map(([, p]) => {
+            const coords = p.location ? lookupCoordinates(p.location as string) : null;
+            return { ...p, tenant_id: tenantId, assigned_to: userId, latitude: coords?.lat ?? null, longitude: coords?.lng ?? null };
+        });
         log.info({ count: toInsert.length }, 'Batch inserting new companies');
         const t1 = Date.now();
 
@@ -390,7 +394,10 @@ export async function executeImport(
 
     if (updateCompanyMap.size > 0) {
         const updateEntries = Array.from(updateCompanyMap.entries());
-        const toUpdate = updateEntries.map(([, p]) => ({ ...p, tenant_id: tenantId }));
+        const toUpdate = updateEntries.map(([, p]) => {
+            const coords = p.location ? lookupCoordinates(p.location as string) : null;
+            return { ...p, tenant_id: tenantId, latitude: coords?.lat ?? null, longitude: coords?.lng ?? null };
+        });
         log.info({ count: toUpdate.length }, 'Batch upserting existing companies');
         const t2 = Date.now();
 

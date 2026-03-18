@@ -258,6 +258,12 @@
         "companyLocations": "Şirket Konumları",
         "noLocations": "Henüz konum eklenmemiş. Bir şirketi açıp \"Konumu Bul\" butonuna tıklayarak haritaya ekleyebilirsiniz."
     },
+    "stageGroups": {
+        "firstContact": "İlk Temas",
+        "qualification": "Kalifikasyon",
+        "evaluation": "Değerlendirme",
+        "closing": "Karar"
+    },
     "bulk": {
         "selected": "seçili",
         "clearSelection": "Seçimi Temizle",
