@@ -31,7 +31,7 @@ const ROLE_PERMISSIONS: Record<RoleFeature, Role[]> = {
     crud: ['superadmin', 'ops_agent'],
     internal_notes: ['superadmin', 'ops_agent'],
     activity_write: ['superadmin', 'ops_agent'],
-    pipeline_dragdrop: ['superadmin', 'ops_agent'],
+    pipeline_dragdrop: ['superadmin', 'ops_agent', 'client_admin'],
     invite_members: ['superadmin', 'client_admin'],
     export_full: ['superadmin', 'ops_agent', 'client_admin'],
     export_masked: ['superadmin', 'ops_agent', 'client_admin', 'client_viewer'],

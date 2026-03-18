@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
@@ -36,7 +36,7 @@ async function logAuditAction(
 // =====================
 
 // GET /api/admin/users — List all users with their memberships
-router.get('/users', async (req: Request, res: Response): Promise<void> => {
+router.get('/users', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const page = Math.max(1, parseInt(req.query.page as string) || 1);
         const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 25));
@@ -117,14 +117,14 @@ router.get('/users', async (req: Request, res: Response): Promise<void> => {
             },
         });
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'List users error');
         res.status(500).json({ error: 'Failed to fetch users' });
     }
 });
 
 // GET /api/admin/users/:id — Single user detail
-router.get('/users/:id', async (req: Request, res: Response): Promise<void> => {
+router.get('/users/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const id = req.params.id as string;
 
@@ -166,7 +166,7 @@ router.get('/users/:id', async (req: Request, res: Response): Promise<void> => {
 });
 
 // POST /api/admin/users — Create new user
-router.post('/users', async (req: Request, res: Response): Promise<void> => {
+router.post('/users', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { email, password, tenantId, role } = req.body;
 
@@ -251,14 +251,14 @@ router.post('/users', async (req: Request, res: Response): Promise<void> => {
             },
         });
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'Create user error');
         res.status(500).json({ error: 'Failed to create user' });
     }
 });
 
 // PUT /api/admin/users/:id — Update user
-router.put('/users/:id', async (req: Request, res: Response): Promise<void> => {
+router.put('/users/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const id = req.params.id as string;
         const { email, password } = req.body;
@@ -294,14 +294,14 @@ router.put('/users/:id', async (req: Request, res: Response): Promise<void> => {
             },
         });
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'Update user error');
         res.status(500).json({ error: 'Failed to update user' });
     }
 });
 
 // DELETE /api/admin/users/:id — Deactivate or delete user
-router.delete('/users/:id', async (req: Request, res: Response): Promise<void> => {
+router.delete('/users/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const id = req.params.id as string;
         const hard = req.query.hard === 'true';
@@ -334,7 +334,7 @@ router.delete('/users/:id', async (req: Request, res: Response): Promise<void> =
 
         res.status(204).send();
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'Delete user error');
         res.status(500).json({ error: 'Failed to delete user' });
     }
@@ -345,7 +345,7 @@ router.delete('/users/:id', async (req: Request, res: Response): Promise<void> =
 // =====================
 
 // GET /api/admin/tenants — List all tenants
-router.get('/tenants', async (req: Request, res: Response): Promise<void> => {
+router.get('/tenants', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const page = Math.max(1, parseInt(req.query.page as string) || 1);
         const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 25));
@@ -413,14 +413,14 @@ router.get('/tenants', async (req: Request, res: Response): Promise<void> => {
             },
         });
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'List tenants error');
         res.status(500).json({ error: 'Failed to fetch tenants' });
     }
 });
 
 // GET /api/admin/tenants/:id — Single tenant with members
-router.get('/tenants/:id', async (req: Request, res: Response): Promise<void> => {
+router.get('/tenants/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const id = req.params.id as string;
 
@@ -464,7 +464,7 @@ router.get('/tenants/:id', async (req: Request, res: Response): Promise<void> =>
 });
 
 // POST /api/admin/tenants — Create tenant
-router.post('/tenants', async (req: Request, res: Response): Promise<void> => {
+router.post('/tenants', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { name, slug, tier, is_active } = req.body;
 
@@ -516,14 +516,14 @@ router.post('/tenants', async (req: Request, res: Response): Promise<void> => {
 
         res.status(201).json({ data });
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'Create tenant error');
         res.status(500).json({ error: 'Failed to create tenant' });
     }
 });
 
 // PUT /api/admin/tenants/:id — Update tenant
-router.put('/tenants/:id', async (req: Request, res: Response): Promise<void> => {
+router.put('/tenants/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const id = req.params.id as string;
         const { name, slug, tier, is_active, settings } = req.body;
@@ -563,14 +563,14 @@ router.put('/tenants/:id', async (req: Request, res: Response): Promise<void> =>
 
         res.json({ data });
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'Update tenant error');
         res.status(500).json({ error: 'Failed to update tenant' });
     }
 });
 
 // DELETE /api/admin/tenants/:id — Delete tenant
-router.delete('/tenants/:id', async (req: Request, res: Response): Promise<void> => {
+router.delete('/tenants/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const id = req.params.id as string;
 
@@ -593,7 +593,7 @@ router.delete('/tenants/:id', async (req: Request, res: Response): Promise<void>
 
         res.status(204).send();
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'Delete tenant error');
         res.status(500).json({ error: 'Failed to delete tenant' });
     }
@@ -604,7 +604,7 @@ router.delete('/tenants/:id', async (req: Request, res: Response): Promise<void>
 // =====================
 
 // GET /api/admin/memberships — List memberships
-router.get('/memberships', async (req: Request, res: Response): Promise<void> => {
+router.get('/memberships', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const page = Math.max(1, parseInt(req.query.page as string) || 1);
         const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 25));
@@ -675,14 +675,14 @@ router.get('/memberships', async (req: Request, res: Response): Promise<void> =>
             },
         });
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'List memberships error');
         res.status(500).json({ error: 'Failed to fetch memberships' });
     }
 });
 
 // POST /api/admin/memberships — Assign user to tenant
-router.post('/memberships', async (req: Request, res: Response): Promise<void> => {
+router.post('/memberships', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { user_id, tenant_id, role } = req.body;
 
@@ -746,14 +746,14 @@ router.post('/memberships', async (req: Request, res: Response): Promise<void> =
 
         res.status(201).json({ data });
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'Create membership error');
         res.status(500).json({ error: 'Failed to create membership' });
     }
 });
 
 // PUT /api/admin/memberships/:id — Update membership
-router.put('/memberships/:id', async (req: Request, res: Response): Promise<void> => {
+router.put('/memberships/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const id = req.params.id as string;
         const { role, is_active } = req.body;
@@ -789,14 +789,14 @@ router.put('/memberships/:id', async (req: Request, res: Response): Promise<void
 
         res.json({ data });
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'Update membership error');
         res.status(500).json({ error: 'Failed to update membership' });
     }
 });
 
 // DELETE /api/admin/memberships/:id — Remove membership
-router.delete('/memberships/:id', async (req: Request, res: Response): Promise<void> => {
+router.delete('/memberships/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const id = req.params.id as string;
 
@@ -814,7 +814,7 @@ router.delete('/memberships/:id', async (req: Request, res: Response): Promise<v
 
         res.status(204).send();
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'Delete membership error');
         res.status(500).json({ error: 'Failed to delete membership' });
     }

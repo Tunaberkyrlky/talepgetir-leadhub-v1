@@ -62,10 +62,11 @@ export default function DashboardPage() {
         refetchInterval: 5 * 60_000,
     });
 
-    // Company locations — for globe map
+    // Company locations — for globe map (pro tier only)
     const { data: companyLocations, isLoading: locationsLoading } = useQuery<{ data: CompanyLocation[] }>({
         queryKey: ['statistics', 'company-locations'],
         queryFn: async () => (await api.get('/statistics/company-locations')).data,
+        enabled: isAdvanced,
         staleTime: 5 * 60_000,
         refetchOnWindowFocus: false,
     });

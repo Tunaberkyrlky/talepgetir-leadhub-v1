@@ -1,5 +1,6 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
+import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 
 const log = createLogger('route:tenants');
@@ -13,7 +14,7 @@ interface TenantInfo {
 }
 
 // GET /api/tenants — List tenants accessible by the current user
-router.get('/', async (req: Request, res: Response): Promise<void> => {
+router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const userId = req.user!.id;
         const userRole = req.user!.role;
@@ -77,6 +78,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
         res.json({ tenants });
     } catch (err) {
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'List tenants error');
         res.status(500).json({ error: 'Failed to list tenants' });
     }

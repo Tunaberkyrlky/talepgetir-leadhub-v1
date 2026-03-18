@@ -1,6 +1,7 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
+import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 
 const log = createLogger('route:contacts');
@@ -13,7 +14,7 @@ function sanitizeSearch(value: string): string {
 const router = Router();
 
 // GET /api/contacts/filter-options — distinct filter values for PeoplePage dropdowns
-router.get('/filter-options', async (req: Request, res: Response): Promise<void> => {
+router.get('/filter-options', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
 
@@ -46,13 +47,14 @@ router.get('/filter-options', async (req: Request, res: Response): Promise<void>
             },
         });
     } catch (err) {
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'Filter options error');
         res.status(500).json({ error: 'Failed to fetch filter options' });
     }
 });
 
 // GET /api/contacts — List contacts with pagination, search, sort, filter
-router.get('/', async (req: Request, res: Response): Promise<void> => {
+router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
         const companyId = req.query.company_id as string | undefined;
@@ -142,13 +144,14 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
             },
         });
     } catch (err) {
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'List contacts error');
         res.status(500).json({ error: 'Failed to fetch contacts' });
     }
 });
 
 // GET /api/contacts/:id — Single contact + company info
-router.get('/:id', async (req: Request, res: Response): Promise<void> => {
+router.get('/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
         const { id } = req.params;
@@ -167,6 +170,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 
         res.json({ data });
     } catch (err) {
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'Get contact error');
         res.status(500).json({ error: 'Failed to fetch contact' });
     }
@@ -176,7 +180,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 router.post(
     '/',
     requireRole('superadmin', 'ops_agent'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
             const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary, notes } = req.body;
@@ -225,6 +229,7 @@ router.post(
 
             res.status(201).json({ data });
         } catch (err) {
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Create contact error');
             res.status(500).json({ error: 'Failed to create contact' });
         }
@@ -235,7 +240,7 @@ router.post(
 router.put(
     '/:id',
     requireRole('superadmin', 'ops_agent'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
             const { id } = req.params;
@@ -270,6 +275,7 @@ router.put(
 
             res.json({ data });
         } catch (err) {
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Update contact error');
             res.status(500).json({ error: 'Failed to update contact' });
         }
@@ -280,7 +286,7 @@ router.put(
 router.delete(
     '/:id',
     requireRole('superadmin'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { error } = await supabaseAdmin
                 .from('contacts')
@@ -295,6 +301,7 @@ router.delete(
 
             res.status(204).send();
         } catch (err) {
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Delete contact error');
             res.status(500).json({ error: 'Failed to delete contact' });
         }

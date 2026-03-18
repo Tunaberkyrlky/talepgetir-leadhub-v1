@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { createLogger } from '../lib/logger.js';
 
@@ -6,6 +6,7 @@ const log = createLogger('route:import');
 import path from 'path';
 import fs from 'fs';
 import { requireRole } from '../middleware/auth.js';
+import { AppError } from '../middleware/errorHandler.js';
 import { autoMapHeaders, getAvailableDbFields } from '../lib/importMapper.js';
 import { parseCSV, parseXLSX, executeImport, createImportJob } from '../lib/importProcessor.js';
 import { detectMatchStrategy, matchFiles } from '../lib/dataMatcher.js';
@@ -47,7 +48,7 @@ function runMulter(middleware: any) {
 router.post(
     '/begin',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { fileName, fileType, totalRows, mapping } = req.body;
 
@@ -67,6 +68,7 @@ router.post(
 
             res.json({ jobId });
         } catch (err: any) {
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Import begin error');
             res.status(500).json({ error: 'Failed to begin import' });
         }
@@ -77,7 +79,7 @@ router.post(
 router.post(
     '/preview',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             await runMulter(upload.single('file'))(req, res);
             if (!req.file) {
@@ -123,6 +125,7 @@ router.post(
                 previewRows,
             });
         } catch (err: any) {
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Import preview error');
             const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 500;
             res.status(status).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 10MB)' : 'Failed to preview file' });
@@ -134,7 +137,7 @@ router.post(
 router.post(
     '/match-preview',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             await runMulter(upload.fields([
                 { name: 'companyFile', maxCount: 1 },
@@ -219,6 +222,7 @@ router.post(
                 peopleHeaders: peopleData.headers,
             });
         } catch (err: any) {
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Match preview error');
             const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 500;
             res.status(status).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 10MB)' : 'Failed to match files' });
@@ -230,7 +234,7 @@ router.post(
 router.post(
     '/execute',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { fileId, fileName, fileType, mapping, jobId, defaultCompanyName } = req.body;
 
@@ -302,6 +306,7 @@ router.post(
             log.info({ jobId, successCount: result.successCount, errorCount: result.errorCount }, 'Import execute completed');
             res.json(result);
         } catch (err: any) {
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Import execute error');
             res.status(500).json({ error: 'Import failed' });
         }
@@ -312,7 +317,7 @@ router.post(
 router.post(
     '/cancel/:id',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { error } = await supabaseAdmin
                 .from('import_jobs')
@@ -328,6 +333,7 @@ router.post(
 
             res.json({ ok: true });
         } catch (err) {
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Cancel import error');
             res.status(500).json({ error: 'Failed to cancel import' });
         }
@@ -338,7 +344,7 @@ router.post(
 router.get(
     '/jobs',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { data, error } = await supabaseAdmin
                 .from('import_jobs')
@@ -354,6 +360,7 @@ router.get(
 
             res.json({ data: data || [] });
         } catch (err) {
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'List jobs error');
             res.status(500).json({ error: 'Failed to fetch import jobs' });
         }
@@ -364,7 +371,7 @@ router.get(
 router.get(
     '/jobs/:id',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { data, error } = await supabaseAdmin
                 .from('import_jobs')
@@ -380,6 +387,7 @@ router.get(
 
             res.json({ data });
         } catch (err) {
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Get job error');
             res.status(500).json({ error: 'Failed to fetch import job' });
         }
