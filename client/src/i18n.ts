@@ -11,7 +11,7 @@ i18n.use(initReactI18next).init({
     lng: localStorage.getItem('lang') || 'tr',
     fallbackLng: 'tr',
     interpolation: {
-        escapeValue: false,
+        escapeValue: true,
     },
 });
 

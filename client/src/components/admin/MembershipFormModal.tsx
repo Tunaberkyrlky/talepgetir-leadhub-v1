@@ -65,9 +65,9 @@ export default function MembershipFormModal({ opened, onClose, membership }: Mem
         label: u.email,
     }));
 
-    const tenantOptions = (tenantsData?.data || []).map((t: any) => ({
-        value: t.id,
-        label: `${t.name} (${t.tier})`,
+    const tenantOptions = (tenantsData?.data || []).map((tn: any) => ({
+        value: tn.id,
+        label: `${tn.name} (${tn.tier})`,
     }));
 
     const roleOptions = [

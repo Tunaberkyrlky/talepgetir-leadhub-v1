@@ -6,7 +6,7 @@ import {
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconSearch, IconPlus, IconPencil, IconTrash, IconX, IconDotsVertical, IconUserOff, IconUserCheck } from '@tabler/icons-react';
+import { IconSearch, IconPlus, IconPencil, IconTrash, IconX, IconDotsVertical, IconUserOff } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import UserFormModal from './UserFormModal';
@@ -70,6 +70,9 @@ export default function AdminUsersTab() {
             queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
             notifications.show({ message: t('admin.userDeactivated'), color: 'green' });
         },
+        onError: (err: any) => {
+            notifications.show({ message: err.response?.data?.error || t('common.error'), color: 'red' });
+        },
     });
 
     const deleteMutation = useMutation({
@@ -77,6 +80,9 @@ export default function AdminUsersTab() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
             notifications.show({ message: t('admin.userDeleted'), color: 'green' });
+        },
+        onError: (err: any) => {
+            notifications.show({ message: err.response?.data?.error || t('common.error'), color: 'red' });
         },
     });
 

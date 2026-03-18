@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import pinoHttp from 'pino-http';
 
@@ -29,10 +30,10 @@ const PORT = process.env.API_PORT || 3001;
 app.use(helmet());
 app.use(pinoHttp({
     logger,
-    customSuccessMessage: (req, res, responseTime) =>
+    customSuccessMessage: (req: any, res: any, responseTime: any) =>
         `${req.method} ${req.url} ${res.statusCode} ${responseTime}ms`,
-    customErrorMessage: (req, res, err, responseTime) =>
-        `${req.method} ${req.url} ${res.statusCode} ${responseTime}ms — ${err.message}`,
+    customErrorMessage: (req: any, res: any, err: any) =>
+        `${req.method} ${req.url} ${res.statusCode} — ${err.message}`,
     serializers: {
         req: () => undefined as never,
         res: () => undefined as never,
@@ -40,24 +41,54 @@ app.use(pinoHttp({
 }));
 app.use(cors({
     origin: process.env.NODE_ENV === 'production' || process.env.VERCEL
-        ? [process.env.CLIENT_URL || 'https://leadhub.app', /\.vercel\.app$/]
+        ? [process.env.CLIENT_URL || 'https://leadhub.app']
         : ['http://localhost:5173', 'http://localhost:3000'],
     credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
+
+// Rate limiters
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later' },
+});
+
+const importLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many import requests, please try again later' },
+});
+
+const generalLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    limit: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later' },
+});
+
+// Apply general rate limit to all API routes
+app.use('/api', generalLimiter);
 
 // Health check (no auth)
 app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Auth routes (login/signup don't need auth middleware)
+// Auth routes — strict rate limit on login/refresh
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/refresh', authLimiter);
 app.use('/api/auth', authRoutes);
 
 // Protected routes — auth middleware applied
 app.use('/api/companies', authMiddleware, stripInternalNotes, maskSensitiveData, companiesRoutes);
 app.use('/api/contacts', authMiddleware, maskSensitiveData, contactsRoutes);
-app.use('/api/import', authMiddleware, importRoutes);
+app.use('/api/import', authMiddleware, importLimiter, importRoutes);
 app.use('/api/filter-options', authMiddleware, filterOptionsRoutes);
 app.use('/api/tenants', authMiddleware, tenantsRoutes);
 app.use('/api/statistics', authMiddleware, statisticsRoutes);

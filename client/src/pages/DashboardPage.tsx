@@ -12,7 +12,6 @@ import {
     Group,
     Paper,
     Badge,
-    Flex,
 } from '@mantine/core';
 import {
     IconBuilding,
@@ -54,10 +53,13 @@ export default function DashboardPage() {
     const tier = (activeTenantTier || 'basic') as Tier;
     const isAdvanced = hasTierAccess(role, tier, 'advanced_stats');
 
-    // Overview — always loaded
+    // Overview — always loaded, refetch every visit & periodically
     const { data: overview, isLoading: overviewLoading, error: overviewError } = useQuery<OverviewData>({
         queryKey: ['statistics', 'overview'],
         queryFn: async () => (await api.get('/statistics/overview')).data,
+        staleTime: 30_000,
+        refetchOnWindowFocus: true,
+        refetchInterval: 5 * 60_000,
     });
 
     // Company locations — for globe map
@@ -73,6 +75,9 @@ export default function DashboardPage() {
         queryKey: ['statistics', 'pipeline'],
         queryFn: async () => (await api.get('/statistics/pipeline')).data,
         enabled: isAdvanced,
+        staleTime: 30_000,
+        refetchOnWindowFocus: true,
+        refetchInterval: isAdvanced ? 5 * 60_000 : false,
     });
 
     if (overviewError) {
@@ -141,6 +146,7 @@ export default function DashboardPage() {
                 </Text>
                 <Group gap="xs" wrap="wrap">
                     {Object.entries(overview?.companiesByStage || {})
+                        .filter(([stage]) => stage !== 'cold')
                         .sort((a, b) => b[1] - a[1])
                         .map(([stage, count]) => (
                             <Badge

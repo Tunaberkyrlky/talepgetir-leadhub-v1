@@ -42,10 +42,10 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
         const totalDecided = wonCount + lostCount;
         const conversionRate = totalDecided > 0 ? Math.round((wonCount / totalDecided) * 100) : 0;
 
-        // Active deals = everything except won, lost, on_hold
-        const terminalStages = ['won', 'lost', 'on_hold'];
+        // Active deals = everything except cold, won, lost, on_hold
+        const excludedStages = ['cold', 'won', 'lost', 'on_hold'];
         const activeDeals = Object.entries(stageCounts)
-            .filter(([stage]) => !terminalStages.includes(stage))
+            .filter(([stage]) => !excludedStages.includes(stage))
             .reduce((sum, [, count]) => sum + count, 0);
 
         res.json({
@@ -79,7 +79,7 @@ router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response):
 
         // Pipeline stages in order (exclude terminal)
         const pipelineStages = [
-            'cold', 'in_queue', 'first_contact', 'connected', 'qualified',
+            'in_queue', 'first_contact', 'connected', 'qualified',
             'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
         ];
 

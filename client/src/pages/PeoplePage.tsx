@@ -393,7 +393,7 @@ export default function PeoplePage() {
                             </Text>
                             {contact.is_primary && (
                                 <Badge size="xs" variant="dot" color="violet">
-                                    primary
+                                    {t('contact.isPrimary')}
                                 </Badge>
                             )}
                         </Group>
@@ -637,7 +637,7 @@ export default function PeoplePage() {
                                             withArrow
                                         >
                                             <Popover.Target>
-                                                <Tooltip label={t('leads.editColumns', 'Sütunları düzenle')} withArrow position="left">
+                                                <Tooltip label={t('leads.editColumns')} withArrow position="left">
                                                     <ActionIcon
                                                         variant="subtle"
                                                         size="sm"
@@ -653,7 +653,7 @@ export default function PeoplePage() {
                                             </Popover.Target>
                                             <Popover.Dropdown p="sm" style={{ minWidth: 240 }}>
                                                 <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs" style={{ letterSpacing: '0.5px' }}>
-                                                    {t('leads.columns', 'Sütunlar')}
+                                                    {t('leads.columns')}
                                                 </Text>
                                                 <Divider mb="xs" />
                                                 <DndContext
@@ -685,7 +685,7 @@ export default function PeoplePage() {
                                                     fullWidth
                                                     onClick={() => saveColumns(DEFAULT_COLUMNS)}
                                                 >
-                                                    {t('leads.resetColumns', 'Varsayılana sıfırla')}
+                                                    {t('leads.resetColumns')}
                                                 </Button>
                                             </Popover.Dropdown>
                                         </Popover>

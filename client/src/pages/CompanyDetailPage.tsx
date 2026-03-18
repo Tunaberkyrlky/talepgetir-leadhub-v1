@@ -20,6 +20,7 @@ import {
     Modal,
     TextInput,
     Textarea,
+    Select,
     Switch,
     Box,
     Anchor,
@@ -47,6 +48,7 @@ import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { getStageColor } from '../lib/stages';
 import TruncatedText from '../components/TruncatedText';
+import EmailStatusIcon from '../components/EmailStatusIcon';
 
 interface Contact {
     id: string;
@@ -73,6 +75,8 @@ interface Company {
     description: string | null;
     linkedin: string | null;
     company_phone: string | null;
+    company_email: string | null;
+    email_status: 'valid' | 'uncertain' | 'invalid' | null;
     stage: string;
     deal_summary: string | null;
     next_step: string | null;
@@ -123,9 +127,13 @@ export default function CompanyDetailPage() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['company', id] });
-            notifications.show({ title: '✅', message: t('contact.created'), color: 'green' });
+            queryClient.invalidateQueries({ queryKey: ['statistics'] });
+            notifications.show({ title: t('contact.created'), message: '', color: 'green' });
             close();
             contactForm.reset();
+        },
+        onError: () => {
+            notifications.show({ title: t('common.error'), message: '', color: 'red' });
         },
     });
 
@@ -135,9 +143,13 @@ export default function CompanyDetailPage() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['company', id] });
-            notifications.show({ title: '✅', message: t('contact.updated'), color: 'green' });
+            queryClient.invalidateQueries({ queryKey: ['statistics'] });
+            notifications.show({ title: t('contact.updated'), message: '', color: 'green' });
             close();
             setEditingContact(null);
+        },
+        onError: () => {
+            notifications.show({ title: t('common.error'), message: '', color: 'red' });
         },
     });
 
@@ -147,6 +159,7 @@ export default function CompanyDetailPage() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['company', id] });
+            queryClient.invalidateQueries({ queryKey: ['statistics'] });
             notifications.show({ title: '✅', message: t('contact.deleted'), color: 'green' });
         },
     });
@@ -201,7 +214,7 @@ export default function CompanyDetailPage() {
                 <Button
                     variant="subtle"
                     leftSection={<IconArrowLeft size={16} />}
-                    onClick={() => navigate('/')}
+                    onClick={() => navigate('/companies')}
                     color="gray"
                 >
                     {t('company.back')}
@@ -262,6 +275,13 @@ export default function CompanyDetailPage() {
                             <Group gap={4}>
                                 <IconPhone size={15} color="gray" />
                                 <Text size="sm" c="dimmed">{company.company_phone}</Text>
+                            </Group>
+                        )}
+                        {company.company_email && (
+                            <Group gap={4}>
+                                <IconMail size={15} color="gray" />
+                                <Text size="sm" c="dimmed">{company.company_email}</Text>
+                                <EmailStatusIcon status={company.email_status} />
                             </Group>
                         )}
                     </Stack>
@@ -433,7 +453,13 @@ export default function CompanyDetailPage() {
                             <TextInput label={t('contact.title')} radius="md" {...contactForm.getInputProps('title')} />
                         </Group>
                         <Group grow>
-                            <TextInput label={t('contact.seniority')} radius="md" {...contactForm.getInputProps('seniority')} />
+                            <Select
+                                label={t('contact.seniority')}
+                                radius="md"
+                                data={['C-Suite', 'VP', 'Director', 'Manager', 'Senior', 'Mid-Level', 'Junior', 'Intern', 'Other']}
+                                clearable
+                                {...contactForm.getInputProps('seniority')}
+                            />
                             <TextInput label={t('contact.country')} radius="md" {...contactForm.getInputProps('country')} />
                         </Group>
                         <TextInput label={t('contact.email')} radius="md" {...contactForm.getInputProps('email')} />
