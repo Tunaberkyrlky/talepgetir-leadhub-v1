@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -42,7 +42,7 @@ const SORT_COLUMNS: Record<string, string> = {
 };
 
 // GET /api/companies — List with pagination, search, filter, sort
-router.get('/', async (req: Request, res: Response): Promise<void> => {
+router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
         const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -138,7 +138,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
             },
         });
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'List companies error');
         res.status(500).json({ error: 'Failed to fetch companies' });
     }
@@ -150,7 +150,7 @@ const PIPELINE_STAGES = VALID_STAGES.filter(
 );
 
 // GET /api/companies/pipeline — Companies grouped by active stage (for kanban board)
-router.get('/pipeline', async (req: Request, res: Response): Promise<void> => {
+router.get('/pipeline', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
         const search = (req.query.search as string || '').trim();
@@ -231,14 +231,14 @@ router.get('/pipeline', async (req: Request, res: Response): Promise<void> => {
 
         res.json({ columns, terminalCounts });
     } catch (err) {
-        if (err instanceof AppError) throw err;
+        if (err instanceof AppError) return next(err);
         log.error({ err }, 'Pipeline data error');
         res.status(500).json({ error: 'Failed to fetch pipeline data' });
     }
 });
 
 // GET /api/companies/:id — Get single company
-router.get('/:id', async (req: Request, res: Response): Promise<void> => {
+router.get('/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
         const { id } = req.params;
@@ -276,7 +276,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 router.post(
     '/',
     requireRole('superadmin', 'ops_agent'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
             const {
@@ -389,7 +389,7 @@ router.post(
 
             res.status(201).json({ data: { ...company, contacts: contact ? [contact] : [] } });
         } catch (err) {
-            if (err instanceof AppError) throw err;
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Create company error');
             res.status(500).json({ error: 'Failed to create company' });
         }
@@ -400,7 +400,7 @@ router.post(
 router.put(
     '/:id',
     requireRole('superadmin', 'ops_agent'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
             const { id } = req.params;
@@ -482,7 +482,7 @@ router.put(
 
             res.json({ data });
         } catch (err) {
-            if (err instanceof AppError) throw err;
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Update company error');
             res.status(500).json({ error: 'Failed to update company' });
         }
@@ -493,7 +493,7 @@ router.put(
 router.patch(
     '/bulk-stage',
     requireRole('superadmin', 'ops_agent'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
             const { ids, stage } = req.body;
@@ -523,7 +523,7 @@ router.patch(
 
             res.json({ updated: data?.length || 0 });
         } catch (err) {
-            if (err instanceof AppError) throw err;
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Bulk stage update error');
             res.status(500).json({ error: 'Failed to bulk update stages' });
         }
@@ -534,7 +534,7 @@ router.patch(
 router.patch(
     '/:id/stage',
     requireRole('superadmin', 'ops_agent'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
             const { id } = req.params;
@@ -562,7 +562,7 @@ router.patch(
 
             res.json({ data });
         } catch (err) {
-            if (err instanceof AppError) throw err;
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Patch stage error');
             res.status(500).json({ error: 'Failed to update stage' });
         }
@@ -573,7 +573,7 @@ router.patch(
 router.delete(
     '/:id',
     requireRole('superadmin'),
-    async (req: Request, res: Response): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
             const { id } = req.params;
@@ -590,7 +590,7 @@ router.delete(
 
             res.status(204).send();
         } catch (err) {
-            if (err instanceof AppError) throw err;
+            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Delete company error');
             res.status(500).json({ error: 'Failed to delete company' });
         }
