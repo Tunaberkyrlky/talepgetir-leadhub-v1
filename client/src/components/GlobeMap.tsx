@@ -24,12 +24,14 @@ const BUILDING_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height=
 // Arrow right icon for navigation pointer
 const ARROW_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>`;
 
+type GeoFeature = { id?: string | number; [key: string]: unknown };
+
 // Bundled country polygons — computed once at module load, no runtime fetch needed
-const GEO_FEATURES: object[] = (
+const GEO_FEATURES: GeoFeature[] = (
     topojson.feature(
-        topoData as Parameters<typeof topojson.feature>[0],
+        topoData as unknown as Parameters<typeof topojson.feature>[0],
         (topoData as any).objects.countries
-    ) as { features: object[] }
+    ) as unknown as { features: GeoFeature[] }
 ).features ?? [];
 
 export interface CompanyLocation {
