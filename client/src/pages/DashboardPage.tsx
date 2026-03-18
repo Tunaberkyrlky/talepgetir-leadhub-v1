@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { lazy, Suspense } from 'react';
 import {
     Container,
     Title,
@@ -28,6 +29,9 @@ import { hasTierAccess, type Tier } from '../lib/permissions';
 import { stageColors } from '../lib/stages';
 import StatCard from '../components/StatCard';
 import PipelineFunnel from '../components/charts/PipelineFunnel';
+import type { CompanyLocation } from '../components/GlobeMap';
+
+const GlobeMap = lazy(() => import('../components/GlobeMap'));
 
 interface OverviewData {
     totalCompanies: number;
@@ -54,6 +58,14 @@ export default function DashboardPage() {
     const { data: overview, isLoading: overviewLoading, error: overviewError } = useQuery<OverviewData>({
         queryKey: ['statistics', 'overview'],
         queryFn: async () => (await api.get('/statistics/overview')).data,
+    });
+
+    // Company locations — for globe map
+    const { data: companyLocations, isLoading: locationsLoading } = useQuery<{ data: CompanyLocation[] }>({
+        queryKey: ['statistics', 'company-locations'],
+        queryFn: async () => (await api.get('/statistics/company-locations')).data,
+        staleTime: 5 * 60_000,
+        refetchOnWindowFocus: false,
     });
 
     // Pipeline — Pro tier or internal
@@ -156,6 +168,14 @@ export default function DashboardPage() {
                     />
                 </SimpleGrid>
             )}
+
+            {/* Globe Map — company geographic distribution */}
+            <Suspense fallback={<Center style={{ height: 420 }}><Loader color="violet" /></Center>}>
+                <GlobeMap
+                    data={companyLocations?.data || []}
+                    isLoading={locationsLoading}
+                />
+            </Suspense>
 
             {/* Pro tier / Internal — pipeline funnel */}
             {isAdvanced && pipeline && (

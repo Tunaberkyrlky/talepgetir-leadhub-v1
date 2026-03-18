@@ -136,6 +136,88 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     }
 });
 
+// POST /api/companies/geocode — Resolve location text to lat/lng via Nominatim and persist
+router.post('/geocode', requireRole('superadmin', 'ops_agent', 'client_admin'), async (req: Request, res: Response): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const { companyId } = req.body as { companyId?: string };
+
+        if (!companyId || typeof companyId !== 'string') {
+            res.status(400).json({ error: 'companyId is required' });
+            return;
+        }
+
+        // Fetch company (verifies tenant ownership)
+        const { data: company, error: fetchError } = await supabaseAdmin
+            .from('companies')
+            .select('id, location, latitude, longitude')
+            .eq('id', companyId)
+            .eq('tenant_id', tenantId)
+            .single();
+
+        if (fetchError || !company) {
+            res.status(404).json({ error: 'Company not found' });
+            return;
+        }
+
+        if (!company.location) {
+            res.status(422).json({ error: 'Company has no location text to geocode' });
+            return;
+        }
+
+        // Return cached coordinates if already geocoded
+        if (company.latitude !== null && company.longitude !== null) {
+            res.json({ latitude: company.latitude, longitude: company.longitude, cached: true });
+            return;
+        }
+
+        // Call Nominatim (must set descriptive User-Agent per ToS; rate limit: 1 req/sec)
+        const encoded = encodeURIComponent(company.location);
+        const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`;
+
+        const nominatimRes = await fetch(nominatimUrl, {
+            headers: {
+                'User-Agent': 'LeadHub-CRM/1.0',
+                'Accept-Language': 'en',
+            },
+        });
+
+        if (!nominatimRes.ok) {
+            log.warn({ status: nominatimRes.status }, 'Nominatim request failed');
+            res.status(502).json({ error: 'Geocoding service unavailable' });
+            return;
+        }
+
+        const results = await nominatimRes.json() as Array<{ lat: string; lon: string }>;
+
+        if (!results || results.length === 0) {
+            res.status(404).json({ error: 'Location not found', location: company.location });
+            return;
+        }
+
+        const latitude = parseFloat(results[0].lat);
+        const longitude = parseFloat(results[0].lon);
+
+        const { error: updateError } = await supabaseAdmin
+            .from('companies')
+            .update({ latitude, longitude, updated_at: new Date().toISOString() })
+            .eq('id', companyId)
+            .eq('tenant_id', tenantId);
+
+        if (updateError) {
+            log.error({ err: updateError }, 'Failed to save coordinates');
+            throw new AppError('Failed to save geocoding result', 500);
+        }
+
+        log.info({ companyId, latitude, longitude }, 'Geocoded company location');
+        res.json({ latitude, longitude, cached: false });
+    } catch (err) {
+        if (err instanceof AppError) throw err;
+        log.error({ err }, 'Geocode company error');
+        res.status(500).json({ error: 'Failed to geocode location' });
+    }
+});
+
 // GET /api/companies/:id — Get single company
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     try {

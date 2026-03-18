@@ -240,7 +240,9 @@
         "pipelineFunnel": "Pipeline Funnel",
         "companies": "Companies",
         "upgradeTitle": "Unlock Advanced Analytics",
-        "upgradeDesc": "Upgrade to Pro to access pipeline funnel charts and more detailed analytics."
+        "upgradeDesc": "Upgrade to Pro to access pipeline funnel charts and more detailed analytics.",
+        "companyLocations": "Company Locations",
+        "noLocations": "No geocoded locations yet. Open a company and click \"Geocode Location\" to add it to the map."
     },
     "bulk": {
         "selected": "selected",

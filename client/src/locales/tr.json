@@ -240,7 +240,9 @@
         "pipelineFunnel": "Pipeline Huni",
         "companies": "Şirket",
         "upgradeTitle": "Gelişmiş Analitiği Açın",
-        "upgradeDesc": "Pipeline huni grafikleri ve daha detaylı analizler için Pro'ya yükseltin."
+        "upgradeDesc": "Pipeline huni grafikleri ve daha detaylı analizler için Pro'ya yükseltin.",
+        "companyLocations": "Şirket Konumları",
+        "noLocations": "Henüz konum eklenmemiş. Bir şirketi açıp \"Konumu Bul\" butonuna tıklayarak haritaya ekleyebilirsiniz."
     },
     "bulk": {
         "selected": "seçili",
