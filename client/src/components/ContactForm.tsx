@@ -51,7 +51,7 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
     // Fetch company list for the selector
     const { data: companiesData } = useQuery({
         queryKey: ['companies-list-simple'],
-        queryFn: () => api.get('/companies?limit=500&sortBy=name&sortOrder=asc').then((r) => r.data),
+        queryFn: () => api.get('/companies?limit=100&sortBy=name&sortOrder=asc').then((r) => r.data),
         enabled: opened,
     });
 

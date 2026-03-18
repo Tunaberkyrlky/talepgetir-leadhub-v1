@@ -21,6 +21,13 @@ const VALID_STAGES = [
     'won', 'lost', 'on_hold',
 ] as const;
 
+const VALID_EMAIL_STATUSES = ['valid', 'uncertain', 'invalid'] as const;
+
+/** Basic email format validation */
+function isValidEmail(email: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 // Valid sort columns (whitelist to prevent injection)
 const SORT_COLUMNS: Record<string, string> = {
     name: 'name',
@@ -61,7 +68,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         // Use view that includes pre-computed contact_count (enables sorting by it)
         let dataQuery = supabaseAdmin
             .from('companies_with_counts')
-            .select('id, name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, stage, deal_summary, next_step, assigned_to, created_at, updated_at, contact_count')
+            .select('id, name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, company_email, email_status, stage, deal_summary, next_step, assigned_to, created_at, updated_at, contact_count')
             .eq('tenant_id', tenantId);
 
         // Apply search (ILIKE on multiple columns)
@@ -136,6 +143,99 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     }
 });
 
+// Active pipeline stages (excludes cold + terminal: won, lost, on_hold)
+const PIPELINE_STAGES = VALID_STAGES.filter(
+    (s) => !['cold', 'won', 'lost', 'on_hold'].includes(s)
+);
+
+// GET /api/companies/pipeline — Companies grouped by active stage (for kanban board)
+router.get('/pipeline', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const search = (req.query.search as string || '').trim();
+
+        let data: any[] | null = null;
+        let error: any = null;
+
+        let query = supabaseAdmin
+            .from('companies_with_counts')
+            .select('id, name, industry, stage, next_step, deal_summary, updated_at, stage_changed_at, contact_count')
+            .eq('tenant_id', tenantId)
+            .in('stage', PIPELINE_STAGES);
+
+        if (search) {
+            const safe = sanitizeSearch(search);
+            if (safe.length > 0) {
+                const pattern = `%${safe}%`;
+                query = query.or(`name.ilike.${pattern},next_step.ilike.${pattern},deal_summary.ilike.${pattern}`);
+            }
+        }
+
+        const result = await query.order('updated_at', { ascending: false });
+        data = result.data;
+        error = result.error;
+
+        // Fallback: if stage_changed_at column doesn't exist yet (migration not applied)
+        if (error) {
+            log.warn({ err: error }, 'Pipeline query failed, retrying without stage_changed_at');
+            let fallback = supabaseAdmin
+                .from('companies_with_counts')
+                .select('id, name, industry, stage, next_step, deal_summary, updated_at, contact_count')
+                .eq('tenant_id', tenantId)
+                .in('stage', PIPELINE_STAGES);
+
+            if (search) {
+                const safe = sanitizeSearch(search);
+                if (safe.length > 0) {
+                    const pattern = `%${safe}%`;
+                    fallback = fallback.or(`name.ilike.${pattern},next_step.ilike.${pattern},deal_summary.ilike.${pattern}`);
+                }
+            }
+
+            const fallbackResult = await fallback.order('updated_at', { ascending: false });
+            data = (fallbackResult.data || []).map((c: any) => ({ ...c, stage_changed_at: null }));
+            error = fallbackResult.error;
+        }
+
+        if (error) {
+            log.error({ err: error }, 'Pipeline query error');
+            throw new AppError('Failed to fetch pipeline data', 500);
+        }
+
+        // Group by stage
+        const columns: Record<string, typeof data> = {};
+        for (const stage of PIPELINE_STAGES) {
+            columns[stage] = [];
+        }
+        for (const company of data ?? []) {
+            const col = columns[company.stage];
+            if (col) col.push(company);
+        }
+
+        // Terminal stage counts
+        const terminalStages = ['won', 'lost', 'on_hold'] as const;
+        const terminalResults = await Promise.all(
+            terminalStages.map((stage) =>
+                supabaseAdmin
+                    .from('companies')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId)
+                    .eq('stage', stage)
+            )
+        );
+        const terminalCounts: Record<string, number> = { won: 0, lost: 0, on_hold: 0 };
+        terminalStages.forEach((stage, i) => {
+            terminalCounts[stage] = terminalResults[i].count || 0;
+        });
+
+        res.json({ columns, terminalCounts });
+    } catch (err) {
+        if (err instanceof AppError) throw err;
+        log.error({ err }, 'Pipeline data error');
+        res.status(500).json({ error: 'Failed to fetch pipeline data' });
+    }
+});
+
 // POST /api/companies/geocode — Resolve location text to lat/lng via Nominatim and persist
 router.post('/geocode', requireRole('superadmin', 'ops_agent', 'client_admin'), async (req: Request, res: Response): Promise<void> => {
     try {
@@ -147,7 +247,6 @@ router.post('/geocode', requireRole('superadmin', 'ops_agent', 'client_admin'), 
             return;
         }
 
-        // Fetch company (verifies tenant ownership)
         const { data: company, error: fetchError } = await supabaseAdmin
             .from('companies')
             .select('id, location, latitude, longitude')
@@ -165,13 +264,11 @@ router.post('/geocode', requireRole('superadmin', 'ops_agent', 'client_admin'), 
             return;
         }
 
-        // Return cached coordinates if already geocoded
         if (company.latitude !== null && company.longitude !== null) {
             res.json({ latitude: company.latitude, longitude: company.longitude, cached: true });
             return;
         }
 
-        // Call Nominatim (must set descriptive User-Agent per ToS; rate limit: 1 req/sec)
         const encoded = encodeURIComponent(company.location);
         const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`;
 
@@ -262,6 +359,7 @@ router.post(
             const tenantId = req.tenantId!;
             const {
                 name, website, location, industry, employee_size, product_services, description, linkedin, company_phone,
+                company_email, email_status,
                 stage, deal_summary, internal_notes, next_step, custom_fields,
                 contact_first_name, contact_last_name, contact_title, contact_email, contact_phone_e164
             } = req.body;
@@ -279,6 +377,26 @@ router.post(
                 return;
             }
 
+            // Validate email_status if provided
+            if (email_status && !VALID_EMAIL_STATUSES.includes(email_status)) {
+                res.status(400).json({
+                    error: `Invalid email_status. Valid values: ${VALID_EMAIL_STATUSES.join(', ')}`
+                });
+                return;
+            }
+
+            // Validate company_email format if provided
+            if (company_email && !isValidEmail(company_email)) {
+                res.status(400).json({ error: 'Invalid company email format' });
+                return;
+            }
+
+            // Validate contact_email format if provided
+            if (contact_email && !isValidEmail(contact_email)) {
+                res.status(400).json({ error: 'Invalid contact email format' });
+                return;
+            }
+
             // 1. Insert Company
             const { data: company, error: companyError } = await supabaseAdmin
                 .from('companies')
@@ -293,6 +411,8 @@ router.post(
                     description: description || null,
                     linkedin: linkedin || null,
                     company_phone: company_phone || null,
+                    company_email: company_email || null,
+                    email_status: email_status || null,
                     stage: stage || 'cold',
                     deal_summary: deal_summary || null,
                     internal_notes: internal_notes || null,
@@ -365,13 +485,27 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, stage, deal_summary, internal_notes, next_step, custom_fields } = req.body;
+            const { name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, company_email, email_status, stage, deal_summary, internal_notes, next_step, custom_fields } = req.body;
 
             // Validate stage if provided
             if (stage && !VALID_STAGES.includes(stage)) {
                 res.status(400).json({
                     error: `Invalid stage. Valid stages: ${VALID_STAGES.join(', ')}`
                 });
+                return;
+            }
+
+            // Validate email_status if provided
+            if (email_status && !VALID_EMAIL_STATUSES.includes(email_status)) {
+                res.status(400).json({
+                    error: `Invalid email_status. Valid values: ${VALID_EMAIL_STATUSES.join(', ')}`
+                });
+                return;
+            }
+
+            // Validate company_email format if provided
+            if (company_email && !isValidEmail(company_email)) {
+                res.status(400).json({ error: 'Invalid company email format' });
                 return;
             }
 
@@ -386,6 +520,8 @@ router.put(
             if (description !== undefined) updateData.description = description;
             if (linkedin !== undefined) updateData.linkedin = linkedin;
             if (company_phone !== undefined) updateData.company_phone = company_phone;
+            if (company_email !== undefined) updateData.company_email = company_email;
+            if (email_status !== undefined) updateData.email_status = email_status;
             if (stage !== undefined) updateData.stage = stage;
             if (deal_summary !== undefined) updateData.deal_summary = deal_summary;
             if (internal_notes !== undefined) updateData.internal_notes = internal_notes;
@@ -450,6 +586,45 @@ router.patch(
             if (err instanceof AppError) throw err;
             log.error({ err }, 'Bulk stage update error');
             res.status(500).json({ error: 'Failed to bulk update stages' });
+        }
+    }
+);
+
+// PATCH /api/companies/:id/stage — Lightweight stage update (drag-drop)
+router.patch(
+    '/:id/stage',
+    requireRole('superadmin', 'ops_agent'),
+    async (req: Request, res: Response): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { id } = req.params;
+            const { stage } = req.body;
+
+            if (!stage || !VALID_STAGES.includes(stage)) {
+                res.status(400).json({
+                    error: `Invalid stage. Valid stages: ${VALID_STAGES.join(', ')}`,
+                });
+                return;
+            }
+
+            const { data, error } = await supabaseAdmin
+                .from('companies')
+                .update({ stage, updated_at: new Date().toISOString() })
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .select('id, name, stage, updated_at')
+                .single();
+
+            if (error || !data) {
+                res.status(404).json({ error: 'Company not found' });
+                return;
+            }
+
+            res.json({ data });
+        } catch (err) {
+            if (err instanceof AppError) throw err;
+            log.error({ err }, 'Patch stage error');
+            res.status(500).json({ error: 'Failed to update stage' });
         }
     }
 );

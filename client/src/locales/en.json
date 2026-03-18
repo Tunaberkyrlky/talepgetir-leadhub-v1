@@ -20,7 +20,10 @@
         "addCompany": "New Company",
         "importData": "Import",
         "noData": "No leads yet",
-        "noDataDescription": "Add your first lead or import a CSV/XLSX file."
+        "noDataDescription": "Add your first lead or import a CSV/XLSX file.",
+        "editColumns": "Edit Columns",
+        "columns": "Columns",
+        "resetColumns": "Reset to default"
     },
     "company": {
         "name": "Company Name",
@@ -32,6 +35,11 @@
         "description": "Description",
         "linkedin": "LinkedIn",
         "companyPhone": "Company Phone",
+        "companyEmail": "Company Email",
+        "emailStatus": "Email Status",
+        "emailValid": "Valid",
+        "emailUncertain": "Uncertain",
+        "emailInvalid": "Invalid",
         "stage": "Stage",
         "dealSummary": "Deal Summary",
         "internalNotes": "Internal Notes",
@@ -71,7 +79,12 @@
         "created": "Contact created",
         "updated": "Contact updated",
         "deleted": "Contact deleted",
-        "deleteConfirm": "Are you sure you want to delete this contact?"
+        "deleteConfirm": "Are you sure you want to delete this contact?",
+        "contactFullName": "Contact Full Name",
+        "addPrimaryContact": "Add Primary Contact (Optional)",
+        "jobTitle": "Job Title",
+        "emailAddress": "Email Address",
+        "phoneNumber": "Phone Number"
     },
     "import": {
         "title": "Import Data",
@@ -143,7 +156,8 @@
         "progressExpand": "Expand",
         "progressMinimize": "Minimize",
         "progressClose": "Close",
-        "progressHide": "Hide"
+        "progressHide": "Hide",
+        "matchZeroRows": "No rows matched. Please check your files."
     },
     "stages": {
         "cold": "Cold",
@@ -250,7 +264,15 @@
         "moveTo": "Stage:"
     },
     "pipeline": {
-        "comingSoon": "Pipeline view coming in Phase 4"
+        "search": "Search pipeline...",
+        "noData": "No active deals in pipeline",
+        "days": "d",
+        "daysInStage": "Days in Stage",
+        "emptyColumn": "No companies",
+        "stageMoved": "Stage updated",
+        "moveError": "Failed to move company",
+        "upgradeTitle": "Unlock Pipeline Board",
+        "upgradeDesc": "Upgrade to Pro to access the Kanban pipeline board and track deals visually."
     },
     "admin": {
         "title": "Admin Panel",

@@ -20,7 +20,10 @@
         "addCompany": "Yeni Şirket",
         "importData": "İçe Aktar",
         "noData": "Henüz lead eklenmemiş",
-        "noDataDescription": "İlk lead'inizi ekleyin veya CSV/XLSX dosyası import edin."
+        "noDataDescription": "İlk lead'inizi ekleyin veya CSV/XLSX dosyası import edin.",
+        "editColumns": "Sütunları düzenle",
+        "columns": "Sütunlar",
+        "resetColumns": "Varsayılana sıfırla"
     },
     "company": {
         "name": "Şirket Adı",
@@ -32,6 +35,11 @@
         "description": "Açıklama",
         "linkedin": "LinkedIn",
         "companyPhone": "Şirket Telefonu",
+        "companyEmail": "Şirket E-postası",
+        "emailStatus": "E-posta Durumu",
+        "emailValid": "Geçerli",
+        "emailUncertain": "Belirsiz",
+        "emailInvalid": "Geçersiz",
         "stage": "Aşama",
         "dealSummary": "Anlaşma Özeti",
         "internalNotes": "İç Notlar",
@@ -71,7 +79,12 @@
         "created": "Kişi oluşturuldu",
         "updated": "Kişi güncellendi",
         "deleted": "Kişi silindi",
-        "deleteConfirm": "Bu kişiyi silmek istediğinizden emin misiniz?"
+        "deleteConfirm": "Bu kişiyi silmek istediğinizden emin misiniz?",
+        "contactFullName": "Kişi Adı Soyadı",
+        "addPrimaryContact": "Birincil Kişi Ekle (Opsiyonel)",
+        "jobTitle": "İş Unvanı",
+        "emailAddress": "E-posta Adresi",
+        "phoneNumber": "Telefon Numarası"
     },
     "import": {
         "title": "Veri İçe Aktar",
@@ -143,7 +156,8 @@
         "progressExpand": "Genişlet",
         "progressMinimize": "Küçült",
         "progressClose": "Kapat",
-        "progressHide": "Gizle"
+        "progressHide": "Gizle",
+        "matchZeroRows": "Eşleşen satır bulunamadı. Lütfen dosyalarınızı kontrol edin."
     },
     "stages": {
         "cold": "Soğuk",
@@ -250,7 +264,15 @@
         "moveTo": "Aşama:"
     },
     "pipeline": {
-        "comingSoon": "Pipeline görünümü Phase 4'te gelecek"
+        "search": "Pipeline'da ara...",
+        "noData": "Pipeline'da aktif anlaşma yok",
+        "days": "g",
+        "daysInStage": "Aşamadaki Gün",
+        "emptyColumn": "Şirket yok",
+        "stageMoved": "Aşama güncellendi",
+        "moveError": "Şirket taşınamadı",
+        "upgradeTitle": "Pipeline Board'u Açın",
+        "upgradeDesc": "Kanban pipeline board'a erişmek ve anlaşmaları görsel olarak takip etmek için Pro'ya yükseltin."
     },
     "admin": {
         "title": "Yönetim Paneli",

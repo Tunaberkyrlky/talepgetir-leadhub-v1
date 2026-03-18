@@ -45,7 +45,7 @@ export default function PipelineFunnel({ data, title }: PipelineFunnelProps) {
                     <XAxis type="number" allowDecimals={false} />
                     <YAxis type="category" dataKey="label" width={120} tick={{ fontSize: 12 }} />
                     <Tooltip
-                        formatter={(value: number) => [value, t('dashboard.companies', 'Companies')]}
+                        formatter={(value) => [value as number, t('dashboard.companies', 'Companies')]}
                         contentStyle={{ borderRadius: 8, border: '1px solid #e9ecef' }}
                     />
                     <Bar dataKey="count" radius={[0, 6, 6, 0]} maxBarSize={32}>
