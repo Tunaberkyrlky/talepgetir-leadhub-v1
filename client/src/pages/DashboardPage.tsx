@@ -9,7 +9,6 @@ import {
     Stack,
     Text,
     Button,
-    Group,
     Paper,
 } from '@mantine/core';
 import {

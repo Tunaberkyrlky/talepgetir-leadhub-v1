@@ -48,7 +48,6 @@ import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { getStageColor } from '../lib/stages';
-import TruncatedText from '../components/TruncatedText';
 import TranslatableField from '../components/TranslatableField';
 import EmailStatusIcon from '../components/EmailStatusIcon';
 import CompanyForm from '../components/CompanyForm';
