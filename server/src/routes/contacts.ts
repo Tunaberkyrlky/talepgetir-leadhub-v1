@@ -1,10 +1,31 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'crypto';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
+import { translateTexts } from '../lib/deepl.js';
 
 const log = createLogger('route:contacts');
+
+interface ContactNote {
+    id: string;
+    text: string;
+    created_at: string;
+    created_by: string;
+}
+
+/** Parse notes from DB — handles both JSONB (array) and TEXT (JSON string) formats */
+function parseNotes(raw: unknown): ContactNote[] {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed;
+        } catch { /* not JSON */ }
+    }
+    return [];
+}
 
 // Sanitize search input for safe use in PostgREST .or() filter strings.
 function sanitizeSearch(value: string): string {
@@ -202,23 +223,26 @@ router.post(
                 return;
             }
 
+            // Build payload
+            const contactPayload: Record<string, unknown> = {
+                tenant_id: tenantId,
+                company_id,
+                first_name,
+                last_name: last_name || null,
+                title: title || null,
+                email: email || null,
+                phone_e164: phone_e164 || null,
+                linkedin: linkedin || null,
+                country: country || null,
+                seniority: seniority || null,
+                department: department || null,
+                is_primary: is_primary || false,
+                notes: notes ? [{ id: randomUUID(), text: notes, created_at: new Date().toISOString(), created_by: req.user?.email || 'unknown' }] : [],
+            };
+
             const { data, error } = await supabaseAdmin
                 .from('contacts')
-                .insert({
-                    tenant_id: tenantId,
-                    company_id,
-                    first_name,
-                    last_name: last_name || null,
-                    title: title || null,
-                    email: email || null,
-                    phone_e164: phone_e164 || null,
-                    linkedin: linkedin || null,
-                    country: country || null,
-                    seniority: seniority || null,
-                    department: department || null,
-                    is_primary: is_primary || false,
-                    notes: notes || null,
-                })
+                .insert(contactPayload)
                 .select()
                 .single();
 
@@ -245,7 +269,7 @@ router.put(
             const tenantId = req.tenantId!;
             const { id } = req.params;
 
-            const { first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary, notes } = req.body;
+            const { first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary } = req.body;
 
             const updateData: Record<string, unknown> = {};
             if (first_name !== undefined) updateData.first_name = first_name;
@@ -258,7 +282,6 @@ router.put(
             if (seniority !== undefined) updateData.seniority = seniority;
             if (department !== undefined) updateData.department = department;
             if (is_primary !== undefined) updateData.is_primary = is_primary;
-            if (notes !== undefined) updateData.notes = notes;
 
             const { data, error } = await supabaseAdmin
                 .from('contacts')
@@ -278,6 +301,200 @@ router.put(
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Update contact error');
             res.status(500).json({ error: 'Failed to update contact' });
+        }
+    }
+);
+
+// POST /api/contacts/:id/notes — Add a note to a contact
+router.post(
+    '/:id/notes',
+    requireRole('superadmin', 'ops_agent'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { id } = req.params;
+            const { text } = req.body;
+
+            if (!text || typeof text !== 'string' || text.trim().length === 0) {
+                res.status(400).json({ error: 'Note text is required' });
+                return;
+            }
+
+            // Fetch current notes
+            const { data: contact, error: fetchError } = await supabaseAdmin
+                .from('contacts')
+                .select('notes')
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .single();
+
+            if (fetchError || !contact) {
+                res.status(404).json({ error: 'Contact not found' });
+                return;
+            }
+
+            const existingNotes: ContactNote[] = parseNotes(contact.notes);
+
+            const newNote: ContactNote = {
+                id: randomUUID(),
+                text: text.trim(),
+                created_at: new Date().toISOString(),
+                created_by: req.user?.email || 'unknown',
+            };
+
+            const updatedNotes = [newNote, ...existingNotes];
+
+            const { data, error } = await supabaseAdmin
+                .from('contacts')
+                .update({ notes: updatedNotes })
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .select()
+                .single();
+
+            if (error || !data) {
+                res.status(500).json({ error: 'Failed to add note' });
+                return;
+            }
+
+            res.status(201).json({ data });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Add note error');
+            res.status(500).json({ error: 'Failed to add note' });
+        }
+    }
+);
+
+// DELETE /api/contacts/:id/notes/:noteId — Remove a note from a contact
+router.delete(
+    '/:id/notes/:noteId',
+    requireRole('superadmin', 'ops_agent'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { id, noteId } = req.params;
+
+            const { data: contact, error: fetchError } = await supabaseAdmin
+                .from('contacts')
+                .select('notes')
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .single();
+
+            if (fetchError || !contact) {
+                res.status(404).json({ error: 'Contact not found' });
+                return;
+            }
+
+            const existingNotes: ContactNote[] = parseNotes(contact.notes);
+            const updatedNotes = existingNotes.filter((n) => n.id !== noteId);
+
+            if (updatedNotes.length === existingNotes.length) {
+                res.status(404).json({ error: 'Note not found' });
+                return;
+            }
+
+            const { data, error } = await supabaseAdmin
+                .from('contacts')
+                .update({ notes: updatedNotes })
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .select()
+                .single();
+
+            if (error || !data) {
+                res.status(500).json({ error: 'Failed to delete note' });
+                return;
+            }
+
+            res.json({ data });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Delete note error');
+            res.status(500).json({ error: 'Failed to delete note' });
+        }
+    }
+);
+
+// POST /api/contacts/:id/translate — Translate contact text fields + notes to Turkish
+router.post(
+    '/:id/translate',
+    requireRole('superadmin', 'ops_agent'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { id } = req.params;
+
+            const { data: contact, error: fetchError } = await supabaseAdmin
+                .from('contacts')
+                .select('*')
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .single();
+
+            if (fetchError || !contact) {
+                res.status(404).json({ error: 'Contact not found' });
+                return;
+            }
+
+            // Collect translatable texts: title + each note
+            const texts: Array<{ field: string; text: string }> = [];
+
+            if (contact.title && contact.title.trim().length >= 2) {
+                texts.push({ field: 'title', text: contact.title });
+            }
+
+            const notes: ContactNote[] = parseNotes(contact.notes);
+            for (const note of notes) {
+                if (note.text && note.text.trim().length >= 2) {
+                    texts.push({ field: `note:${note.id}`, text: note.text });
+                }
+            }
+
+            if (texts.length === 0) {
+                res.status(400).json({ error: 'No translatable text fields found' });
+                return;
+            }
+
+            const translated = await translateTexts(texts);
+
+            if (Object.keys(translated).length === 0) {
+                res.status(200).json({ data: contact, message: 'Already in Turkish or no translation needed' });
+                return;
+            }
+
+            // Build translations object
+            const translations: Record<string, unknown> = { translated_at: new Date().toISOString() };
+            if (translated.title) translations.title = translated.title;
+
+            const noteTranslations: Record<string, string> = {};
+            for (const [key, value] of Object.entries(translated)) {
+                if (key.startsWith('note:')) {
+                    noteTranslations[key.slice(5)] = value;
+                }
+            }
+            if (Object.keys(noteTranslations).length > 0) {
+                translations.notes = noteTranslations;
+            }
+
+            const { data: updated, error: updateError } = await supabaseAdmin
+                .from('contacts')
+                .update({ translations })
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .select()
+                .single();
+
+            if (updateError) {
+                throw new AppError('Failed to save translations', 500);
+            }
+
+            res.json({ data: updated });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Translate contact error');
+            res.status(500).json({ error: 'Translation failed' });
         }
     }
 );

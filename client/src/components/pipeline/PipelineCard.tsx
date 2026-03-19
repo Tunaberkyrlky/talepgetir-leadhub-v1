@@ -71,11 +71,9 @@ export default function PipelineCard({ company, isDragEnabled }: PipelineCardPro
                     <Text size="sm" fw={600} lineClamp={1} style={{ flex: 1 }}>
                         {company.name}
                     </Text>
-                    {company.contact_count > 0 && (
-                        <Badge size="xs" variant="light" color="violet" leftSection={<IconUsers size={10} />}>
-                            {company.contact_count}
-                        </Badge>
-                    )}
+                    <Badge size="xs" variant="light" color={company.contact_count > 0 ? 'violet' : 'gray'} leftSection={<IconUsers size={10} />}>
+                        {company.contact_count ?? 0}
+                    </Badge>
                 </Group>
 
                 {company.industry && (

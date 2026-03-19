@@ -22,6 +22,7 @@ import filterOptionsRoutes from './routes/filter-options.js';
 import tenantsRoutes from './routes/tenants.js';
 import statisticsRoutes from './routes/statistics.js';
 import adminRoutes from './routes/admin.js';
+import settingsRoutes from './routes/settings.js';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -91,6 +92,7 @@ app.use('/api/contacts', authMiddleware, maskSensitiveData, contactsRoutes);
 app.use('/api/import', authMiddleware, importLimiter, importRoutes);
 app.use('/api/filter-options', authMiddleware, filterOptionsRoutes);
 app.use('/api/tenants', authMiddleware, tenantsRoutes);
+app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/statistics', authMiddleware, statisticsRoutes);
 app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 

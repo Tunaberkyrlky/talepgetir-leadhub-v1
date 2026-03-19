@@ -41,9 +41,10 @@ interface CompanyFormProps {
     opened: boolean;
     onClose: () => void;
     company: Company | null; // null = create mode
+    onSuccess?: () => void;
 }
 
-export default function CompanyForm({ opened, onClose, company }: CompanyFormProps) {
+export default function CompanyForm({ opened, onClose, company, onSuccess }: CompanyFormProps) {
     const { t } = useTranslation();
     const queryClient = useQueryClient();
     const isEdit = !!company;
@@ -145,6 +146,7 @@ export default function CompanyForm({ opened, onClose, company }: CompanyFormPro
                 color: 'green',
             });
             onClose();
+            onSuccess?.();
         },
         onError: () => {
             notifications.show({

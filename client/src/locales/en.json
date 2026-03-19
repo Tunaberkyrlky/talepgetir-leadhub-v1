@@ -190,7 +190,9 @@
         "actions": "Actions",
         "back": "Back",
         "showMore": "Show more",
-        "showLess": "Show less"
+        "showLess": "Show less",
+        "fullscreen": "Fullscreen",
+        "exitFullscreen": "Exit fullscreen"
     },
     "filter": {
         "stage": "Filter by stage...",
@@ -209,7 +211,27 @@
     },
     "settings": {
         "title": "Settings",
-        "darkMode": "Dark Mode"
+        "darkMode": "Dark Mode",
+        "general": "General",
+        "pipelineTab": "Pipeline Stages"
+    },
+    "pipelineSettings": {
+        "flowPreview": "Pipeline Flow",
+        "editGroups": "Edit Stage Groups",
+        "phase": "Phase",
+        "stagesCount": "sub-stages",
+        "noGroups": "No pipeline groups defined yet",
+        "groupName": "Group Name",
+        "groupNamePlaceholder": "e.g. First Contact",
+        "assignedStages": "Assigned Stages",
+        "noStagesAssigned": "No stages assigned yet",
+        "addStage": "Add Stage",
+        "addGroup": "Add New Group",
+        "removeGroup": "Remove Group",
+        "resetDefault": "Reset to Default",
+        "saved": "Pipeline Saved",
+        "savedDesc": "Pipeline stages updated successfully.",
+        "saveError": "Failed to save pipeline settings."
     },
     "nav": {
         "dashboard": "Dashboard",
@@ -241,6 +263,12 @@
         "noPhone": "No phone",
         "noLinkedIn": "No LinkedIn",
         "notes": "Notes",
+        "addNote": "Add Note",
+        "deleteNote": "Delete Note",
+        "notePlaceholder": "Write a note...",
+        "noNotes": "No notes yet",
+        "contacted": "Contacted",
+        "notContacted": "Not Contacted",
         "back": "Back"
     },
     "dashboard": {
@@ -256,7 +284,8 @@
         "upgradeTitle": "Unlock Advanced Analytics",
         "upgradeDesc": "Upgrade to Pro to access pipeline funnel charts and more detailed analytics.",
         "companyLocations": "Company Locations",
-        "noLocations": "No geocoded locations yet. Open a company and click \"Geocode Location\" to add it to the map."
+        "noLocations": "No geocoded locations yet. Open a company and click \"Geocode Location\" to add it to the map.",
+        "noStageData": "No stage data yet. Move companies to a stage and they will appear here."
     },
     "stageGroups": {
         "firstContact": "First Contact",
@@ -272,13 +301,24 @@
     "pipeline": {
         "search": "Search pipeline...",
         "noData": "No active deals in pipeline",
-        "days": "d",
+        "days": " days",
         "daysInStage": "Days in Stage",
         "emptyColumn": "No companies",
         "stageMoved": "Stage updated",
         "moveError": "Failed to move company",
         "upgradeTitle": "Unlock Pipeline Board",
         "upgradeDesc": "Upgrade to Pro to access the Kanban pipeline board and track deals visually."
+    },
+    "translate": {
+        "button": "Translate",
+        "retranslate": "Re-translate",
+        "translating": "Translating...",
+        "showTranslation": "Show translations",
+        "hideTranslation": "Hide translations",
+        "stale": "Translation may be outdated",
+        "error": "Translation failed",
+        "noFields": "No translatable text found",
+        "alreadyTurkish": "Content is already in Turkish"
     },
     "admin": {
         "title": "Admin Panel",

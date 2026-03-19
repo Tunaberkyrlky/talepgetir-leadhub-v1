@@ -4,8 +4,11 @@ import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
+import { translateTexts } from '../lib/deepl.js';
 
 const log = createLogger('route:companies');
+
+const COMPANY_TRANSLATE_FIELDS = ['product_services', 'description', 'deal_summary', 'next_step', 'industry'] as const;
 
 const router = Router();
 
@@ -319,29 +322,31 @@ router.post(
                 return;
             }
 
-            // 1. Insert Company
+            // 1. Build payload
+            const companyPayload: Record<string, unknown> = {
+                tenant_id: tenantId,
+                name: name.trim(),
+                website: website || null,
+                location: location || null,
+                industry: industry ? industry.charAt(0).toUpperCase() + industry.slice(1) : null,
+                employee_size: employee_size || null,
+                product_services: product_services || null,
+                description: description || null,
+                linkedin: linkedin || null,
+                company_phone: company_phone || null,
+                company_email: company_email || null,
+                email_status: email_status || null,
+                stage: stage || 'cold',
+                deal_summary: deal_summary || null,
+                internal_notes: internal_notes || null,
+                next_step: next_step || null,
+                custom_fields: custom_fields || {},
+                assigned_to: req.user!.id,
+            };
+
             const { data: company, error: companyError } = await supabaseAdmin
                 .from('companies')
-                .insert({
-                    tenant_id: tenantId,
-                    name: name.trim(),
-                    website: website || null,
-                    location: location || null,
-                    industry: industry ? industry.charAt(0).toUpperCase() + industry.slice(1) : null,
-                    employee_size: employee_size || null,
-                    product_services: product_services || null,
-                    description: description || null,
-                    linkedin: linkedin || null,
-                    company_phone: company_phone || null,
-                    company_email: company_email || null,
-                    email_status: email_status || null,
-                    stage: stage || 'cold',
-                    deal_summary: deal_summary || null,
-                    internal_notes: internal_notes || null,
-                    next_step: next_step || null,
-                    custom_fields: custom_fields || {},
-                    assigned_to: req.user!.id,
-                })
+                .insert(companyPayload)
                 .select()
                 .single();
 
@@ -565,6 +570,67 @@ router.patch(
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Patch stage error');
             res.status(500).json({ error: 'Failed to update stage' });
+        }
+    }
+);
+
+// POST /api/companies/:id/translate — Translate company text fields to Turkish
+router.post(
+    '/:id/translate',
+    requireRole('superadmin', 'ops_agent'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { id } = req.params;
+
+            const { data: company, error: fetchError } = await supabaseAdmin
+                .from('companies')
+                .select('*')
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .single();
+
+            if (fetchError || !company) {
+                res.status(404).json({ error: 'Company not found' });
+                return;
+            }
+
+            // Collect non-empty translatable fields
+            const texts = COMPANY_TRANSLATE_FIELDS
+                .filter((f) => typeof company[f] === 'string' && company[f].trim().length >= 2)
+                .map((f) => ({ field: f, text: company[f] as string }));
+
+            if (texts.length === 0) {
+                res.status(400).json({ error: 'No translatable text fields found' });
+                return;
+            }
+
+            const translated = await translateTexts(texts);
+
+            if (Object.keys(translated).length === 0) {
+                res.status(200).json({ data: company, message: 'Already in Turkish or no translation needed' });
+                return;
+            }
+
+            const translations = { ...translated, translated_at: new Date().toISOString() };
+
+            const { data: updated, error: updateError } = await supabaseAdmin
+                .from('companies')
+                .update({ translations })
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .select()
+                .single();
+
+            if (updateError) {
+                throw new AppError('Failed to save translations', 500);
+            }
+
+            res.json({ data: updated });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Translate company error');
+            res.status(500).json({ error: 'Translation failed' });
         }
     }
 );
