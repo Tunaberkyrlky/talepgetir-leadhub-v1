@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
     Container,
     Title,
@@ -14,6 +15,8 @@ import {
     Anchor,
     ActionIcon,
     Tooltip,
+    Textarea,
+    Divider,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -24,6 +27,12 @@ import {
     IconBrandLinkedin,
     IconBuilding,
     IconUser,
+    IconNotes,
+    IconPlus,
+    IconSend,
+    IconTrash,
+    IconX,
+    IconLanguage,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -31,7 +40,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { isInternal } from '../lib/permissions';
 import { getStageColor } from '../lib/stages';
 import ContactForm from '../components/ContactForm';
-import TruncatedText from '../components/TruncatedText';
+import type { ContactNote } from '../types/contact';
 
 interface ContactDetail {
     id: string;
@@ -45,7 +54,8 @@ interface ContactDetail {
     phone_e164: string | null;
     linkedin: string | null;
     is_primary: boolean;
-    notes: string | null;
+    notes: ContactNote[];
+    translations: { title?: string; notes?: Record<string, string>; translated_at?: string } | null;
     updated_at: string;
     companies: {
         id: string;
@@ -57,15 +67,43 @@ interface ContactDetail {
     } | null;
 }
 
+function formatNoteDate(isoString: string): string {
+    const date = new Date(isoString);
+    return date.toLocaleDateString('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
 export default function PersonDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { t } = useTranslation();
     const { user } = useAuth();
 
+    const queryClient = useQueryClient();
     const [formOpened, { open: openForm, close: closeForm }] = useDisclosure(false);
+    const [noteInputOpen, setNoteInputOpen] = useState(false);
+    const [noteValue, setNoteValue] = useState('');
+    const [noteSaving, setNoteSaving] = useState(false);
+    const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
+    const [showTranslation, setShowTranslation] = useState(false);
 
     const userIsInternal = isInternal(user?.role || '');
+
+    const translateMutation = useMutation({
+        mutationFn: () => api.post(`/contacts/${id}/translate`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['person', id] });
+            setShowTranslation(true);
+        },
+        onError: () => {
+            // handled by interceptor
+        },
+    });
 
     const { data, isLoading, error } = useQuery<{ data: ContactDetail }>({
         queryKey: ['person', id],
@@ -74,6 +112,35 @@ export default function PersonDetailPage() {
     });
 
     const contact = data?.data;
+    const notes: ContactNote[] = Array.isArray(contact?.notes) ? contact.notes : [];
+
+    const handleAddNote = async () => {
+        if (!contact || !noteValue.trim()) return;
+        setNoteSaving(true);
+        try {
+            await api.post(`/contacts/${contact.id}/notes`, { text: noteValue.trim() });
+            await queryClient.invalidateQueries({ queryKey: ['person', id] });
+            setNoteValue('');
+            setNoteInputOpen(false);
+        } catch {
+            // error handled by interceptor
+        } finally {
+            setNoteSaving(false);
+        }
+    };
+
+    const handleDeleteNote = async (noteId: string) => {
+        if (!contact) return;
+        setDeletingNoteId(noteId);
+        try {
+            await api.delete(`/contacts/${contact.id}/notes/${noteId}`);
+            await queryClient.invalidateQueries({ queryKey: ['person', id] });
+        } catch {
+            // error handled by interceptor
+        } finally {
+            setDeletingNoteId(null);
+        }
+    };
 
     if (isLoading) {
         return (
@@ -89,7 +156,7 @@ export default function PersonDetailPage() {
                 <Stack align="center" gap="xs">
                     <IconUser size={48} stroke={1.5} color="var(--mantine-color-gray-4)" />
                     <Text c="dimmed">{t('common.error')}</Text>
-                    <Button variant="subtle" onClick={() => navigate('/people')}>
+                    <Button variant="subtle" onClick={() => navigate(-1)}>
                         {t('people.back')}
                     </Button>
                 </Stack>
@@ -102,18 +169,41 @@ export default function PersonDetailPage() {
             {/* Header */}
             <Group mb="md">
                 <Tooltip label={t('people.back')}>
-                    <ActionIcon variant="subtle" onClick={() => navigate('/people')}>
+                    <ActionIcon variant="subtle" onClick={() => navigate(-1)}>
                         <IconArrowLeft size={20} />
                     </ActionIcon>
                 </Tooltip>
                 <Title order={2} style={{ flex: 1 }}>
                     {contact.first_name} {contact.last_name || ''}
                 </Title>
-                {userIsInternal && (
-                    <Button leftSection={<IconPencil size={16} />} variant="light" onClick={openForm}>
-                        {t('contact.editContact')}
-                    </Button>
-                )}
+                <Group gap="xs">
+                    {userIsInternal && (
+                        <Button
+                            variant="light"
+                            color="blue"
+                            leftSection={<IconLanguage size={16} />}
+                            onClick={() => translateMutation.mutate()}
+                            loading={translateMutation.isPending}
+                        >
+                            {contact.translations ? t('translate.retranslate') : t('translate.button')}
+                        </Button>
+                    )}
+                    {contact.translations && (
+                        <Button
+                            variant={showTranslation ? 'filled' : 'light'}
+                            color="violet"
+                            size="sm"
+                            onClick={() => setShowTranslation((v) => !v)}
+                        >
+                            {showTranslation ? t('translate.hideTranslation') : t('translate.showTranslation')}
+                        </Button>
+                    )}
+                    {userIsInternal && (
+                        <Button leftSection={<IconPencil size={16} />} variant="light" onClick={openForm}>
+                            {t('contact.editContact')}
+                        </Button>
+                    )}
+                </Group>
             </Group>
 
             <Stack gap="md">
@@ -132,9 +222,15 @@ export default function PersonDetailPage() {
                             </Group>
 
                             {contact.title && (
-                                <Text c="dimmed" size="sm">
-                                    {contact.title}
-                                </Text>
+                                <div>
+                                    <Text c="dimmed" size="sm">{contact.title}</Text>
+                                    {showTranslation && contact.translations?.title && (
+                                        <Group gap={4} mt={2}>
+                                            <Badge size="xs" variant="light" color="violet" style={{ flexShrink: 0 }}>TR</Badge>
+                                            <Text size="sm" c="violet" fs="italic">{contact.translations.title}</Text>
+                                        </Group>
+                                    )}
+                                </div>
                             )}
 
                             <Group gap="xs" mt={4}>
@@ -223,12 +319,137 @@ export default function PersonDetailPage() {
                 )}
 
                 {/* Notes */}
-                {contact.notes && (
-                    <Paper withBorder p="lg" radius="md">
-                        <Text fw={600} mb="sm">{t('people.notes')}</Text>
-                        <TruncatedText size="sm" maxLength={350} inline>{contact.notes}</TruncatedText>
-                    </Paper>
-                )}
+                <Paper withBorder p="lg" radius="md">
+                    <Group justify="space-between" mb="sm">
+                        <Group gap="xs">
+                            <IconNotes size={18} color="var(--mantine-color-violet-6)" />
+                            <Text fw={600}>{t('people.notes')}</Text>
+                            {notes.length > 0 && (
+                                <Badge size="sm" variant="light" color="gray" circle>
+                                    {notes.length}
+                                </Badge>
+                            )}
+                        </Group>
+                        {userIsInternal && !noteInputOpen && (
+                            <Button
+                                variant="light"
+                                size="xs"
+                                leftSection={<IconPlus size={14} />}
+                                onClick={() => setNoteInputOpen(true)}
+                            >
+                                {t('people.addNote')}
+                            </Button>
+                        )}
+                    </Group>
+
+                    {/* Add note input */}
+                    {noteInputOpen && (
+                        <>
+                            <Group align="flex-end" gap="xs" mb={notes.length > 0 ? 'md' : 0}>
+                                <Textarea
+                                    value={noteValue}
+                                    onChange={(e) => setNoteValue(e.currentTarget.value)}
+                                    placeholder={t('people.notePlaceholder')}
+                                    minRows={2}
+                                    maxRows={6}
+                                    autosize
+                                    autoFocus
+                                    style={{ flex: 1 }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleAddNote();
+                                        }
+                                        if (e.key === 'Escape') {
+                                            setNoteInputOpen(false);
+                                            setNoteValue('');
+                                        }
+                                    }}
+                                />
+                                <Stack gap={4}>
+                                    <Tooltip label={t('common.save') + ' (Ctrl+Enter)'}>
+                                        <ActionIcon
+                                            variant="filled"
+                                            color="violet"
+                                            size="lg"
+                                            onClick={handleAddNote}
+                                            loading={noteSaving}
+                                            disabled={!noteValue.trim()}
+                                        >
+                                            <IconSend size={16} />
+                                        </ActionIcon>
+                                    </Tooltip>
+                                    <Tooltip label={t('common.cancel')}>
+                                        <ActionIcon
+                                            variant="subtle"
+                                            color="gray"
+                                            size="lg"
+                                            onClick={() => {
+                                                setNoteInputOpen(false);
+                                                setNoteValue('');
+                                            }}
+                                            disabled={noteSaving}
+                                        >
+                                            <IconX size={16} />
+                                        </ActionIcon>
+                                    </Tooltip>
+                                </Stack>
+                            </Group>
+                            {notes.length > 0 && <Divider />}
+                        </>
+                    )}
+
+                    {/* Notes list */}
+                    {notes.length > 0 ? (
+                        <Stack gap="sm">
+                            {notes.map((note, idx) => (
+                                <div key={note.id}>
+                                    <Group justify="space-between" align="flex-start" wrap="nowrap">
+                                        <Stack gap={2} style={{ flex: 1 }}>
+                                            <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
+                                                {note.text}
+                                            </Text>
+                                            {showTranslation && contact.translations?.notes?.[note.id] && (
+                                                <Group gap={4} mt={2}>
+                                                    <Badge size="xs" variant="light" color="violet" style={{ flexShrink: 0 }}>TR</Badge>
+                                                    <Text size="sm" c="violet" fs="italic" style={{ whiteSpace: 'pre-wrap' }}>
+                                                        {contact.translations.notes[note.id]}
+                                                    </Text>
+                                                </Group>
+                                            )}
+                                            <Group gap="xs">
+                                                <Text size="xs" c="dimmed">
+                                                    {formatNoteDate(note.created_at)}
+                                                </Text>
+                                                {note.created_by && note.created_by !== 'system' && (
+                                                    <Text size="xs" c="dimmed">
+                                                        &middot; {note.created_by}
+                                                    </Text>
+                                                )}
+                                            </Group>
+                                        </Stack>
+                                        {userIsInternal && (
+                                            <Tooltip label={t('people.deleteNote')}>
+                                                <ActionIcon
+                                                    variant="subtle"
+                                                    color="gray"
+                                                    size="sm"
+                                                    onClick={() => handleDeleteNote(note.id)}
+                                                    loading={deletingNoteId === note.id}
+                                                >
+                                                    <IconTrash size={14} />
+                                                </ActionIcon>
+                                            </Tooltip>
+                                        )}
+                                    </Group>
+                                    {idx < notes.length - 1 && <Divider mt="sm" />}
+                                </div>
+                            ))}
+                        </Stack>
+                    ) : !noteInputOpen ? (
+                        <Text size="sm" c="dimmed" fs="italic">{t('people.noNotes')}</Text>
+                    ) : null}
+                </Paper>
             </Stack>
 
             <ContactForm

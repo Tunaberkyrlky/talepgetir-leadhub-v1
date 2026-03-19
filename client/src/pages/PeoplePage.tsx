@@ -78,7 +78,7 @@ interface Contact {
     phone_e164: string | null;
     linkedin: string | null;
     is_primary: boolean;
-    notes: string | null;
+    notes: import('../types/contact').ContactNote[] | null;
     company_id: string;
     created_at: string;
     updated_at: string;
@@ -465,7 +465,7 @@ export default function PeoplePage() {
             case 'notes':
                 return (
                     <Table.Td key="notes">
-                        <TruncatedText size="sm">{contact.notes}</TruncatedText>
+                        <TruncatedText size="sm">{Array.isArray(contact.notes) ? contact.notes.map((n) => n.text).join(' | ') : ''}</TruncatedText>
                     </Table.Td>
                 );
             case 'created_at':

@@ -23,18 +23,20 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
                 .select('*', { count: 'exact', head: true })
                 .eq('tenant_id', tenantId),
             supabaseAdmin
-                .from('companies')
-                .select('stage')
-                .eq('tenant_id', tenantId),
+                .rpc('get_stage_counts', { p_tenant_id: tenantId }),
         ]);
+
+        if (stagesRes.error) {
+            log.error({ err: stagesRes.error }, 'Stage counts RPC error');
+        }
 
         const totalCompanies = companiesRes.count || 0;
         const totalContacts = contactsRes.count || 0;
 
-        // Compute stage counts
+        // Build stage counts from RPC result
         const stageCounts: Record<string, number> = {};
         for (const row of stagesRes.data || []) {
-            stageCounts[row.stage] = (stageCounts[row.stage] || 0) + 1;
+            stageCounts[row.stage] = Number(row.count);
         }
 
         const wonCount = stageCounts['won'] || 0;
@@ -68,11 +70,10 @@ router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response):
         const tenantId = req.tenantId!;
 
         const { data, error } = await supabaseAdmin
-            .from('companies')
-            .select('stage')
-            .eq('tenant_id', tenantId);
+            .rpc('get_stage_counts', { p_tenant_id: tenantId });
 
         if (error) {
+            log.error({ err: error }, 'Pipeline stage counts RPC error');
             res.status(500).json({ error: 'Failed to fetch pipeline data' });
             return;
         }
@@ -85,7 +86,7 @@ router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response):
 
         const stageCounts: Record<string, number> = {};
         for (const row of data || []) {
-            stageCounts[row.stage] = (stageCounts[row.stage] || 0) + 1;
+            stageCounts[row.stage] = Number(row.count);
         }
 
         const funnel = pipelineStages.map((stage) => ({

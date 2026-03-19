@@ -190,7 +190,9 @@
         "actions": "İşlemler",
         "back": "Geri Dön",
         "showMore": "Daha fazla",
-        "showLess": "Daha az"
+        "showLess": "Daha az",
+        "fullscreen": "Tam ekran",
+        "exitFullscreen": "Tam ekrandan çık"
     },
     "filter": {
         "stage": "Aşamaya göre filtrele...",
@@ -209,7 +211,27 @@
     },
     "settings": {
         "title": "Ayarlar",
-        "darkMode": "Koyu Mod"
+        "darkMode": "Koyu Mod",
+        "general": "Genel",
+        "pipelineTab": "Pipeline Aşamaları"
+    },
+    "pipelineSettings": {
+        "flowPreview": "Pipeline Akışı",
+        "editGroups": "Aşama Gruplarını Düzenle",
+        "phase": "Aşama",
+        "stagesCount": "alt aşama",
+        "noGroups": "Henüz pipeline grubu tanımlanmamış",
+        "groupName": "Grup Adı",
+        "groupNamePlaceholder": "ör. İlk Temas",
+        "assignedStages": "Atanmış Aşamalar",
+        "noStagesAssigned": "Henüz aşama atanmamış",
+        "addStage": "Aşama Ekle",
+        "addGroup": "Yeni Grup Ekle",
+        "removeGroup": "Grubu Sil",
+        "resetDefault": "Varsayılana Sıfırla",
+        "saved": "Pipeline Kaydedildi",
+        "savedDesc": "Pipeline aşamaları başarıyla güncellendi.",
+        "saveError": "Pipeline ayarları kaydedilemedi."
     },
     "nav": {
         "dashboard": "Dashboard",
@@ -241,6 +263,12 @@
         "noPhone": "Telefon yok",
         "noLinkedIn": "LinkedIn yok",
         "notes": "Notlar",
+        "addNote": "Not Ekle",
+        "deleteNote": "Notu Sil",
+        "notePlaceholder": "Bir not yazın...",
+        "noNotes": "Henüz not eklenmemiş",
+        "contacted": "Kontak Geçildi",
+        "notContacted": "Kontak Geçilmedi",
         "back": "Geri Dön"
     },
     "dashboard": {
@@ -256,7 +284,8 @@
         "upgradeTitle": "Gelişmiş Analitiği Açın",
         "upgradeDesc": "Pipeline huni grafikleri ve daha detaylı analizler için Pro'ya yükseltin.",
         "companyLocations": "Şirket Konumları",
-        "noLocations": "Henüz konum eklenmemiş. Bir şirketi açıp \"Konumu Bul\" butonuna tıklayarak haritaya ekleyebilirsiniz."
+        "noLocations": "Henüz konum eklenmemiş. Bir şirketi açıp \"Konumu Bul\" butonuna tıklayarak haritaya ekleyebilirsiniz.",
+        "noStageData": "Henüz aşama verisi bulunmuyor. Şirketleri bir aşamaya taşıdığınızda burada görünecektir."
     },
     "stageGroups": {
         "firstContact": "İlk Temas",
@@ -272,13 +301,24 @@
     "pipeline": {
         "search": "Pipeline'da ara...",
         "noData": "Pipeline'da aktif anlaşma yok",
-        "days": "g",
+        "days": " gün",
         "daysInStage": "Aşamadaki Gün",
         "emptyColumn": "Şirket yok",
         "stageMoved": "Aşama güncellendi",
         "moveError": "Şirket taşınamadı",
         "upgradeTitle": "Pipeline Board'u Açın",
         "upgradeDesc": "Kanban pipeline board'a erişmek ve anlaşmaları görsel olarak takip etmek için Pro'ya yükseltin."
+    },
+    "translate": {
+        "button": "Çevir",
+        "retranslate": "Tekrar Çevir",
+        "translating": "Çevriliyor...",
+        "showTranslation": "Çevirileri göster",
+        "hideTranslation": "Çevirileri gizle",
+        "stale": "Çeviri güncel olmayabilir",
+        "error": "Çeviri başarısız oldu",
+        "noFields": "Çevrilecek metin bulunamadı",
+        "alreadyTurkish": "İçerik zaten Türkçe"
     },
     "admin": {
         "title": "Yönetim Paneli",

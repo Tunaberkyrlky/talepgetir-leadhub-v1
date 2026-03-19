@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Modal,
     TextInput,
-    Textarea,
     Select,
     Checkbox,
     Button,
@@ -28,7 +27,7 @@ interface Contact {
     phone_e164: string | null;
     linkedin: string | null;
     is_primary: boolean;
-    notes: string | null;
+    notes: import('../types/contact').ContactNote[];
 }
 
 interface ContactFormProps {
@@ -72,7 +71,6 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
             phone_e164: '',
             linkedin: '',
             is_primary: false,
-            notes: '',
         },
         validate: {
             first_name: (v) => v.trim() ? null : t('contact.firstName') + ' required',
@@ -94,7 +92,6 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
                     phone_e164: contact.phone_e164 || '',
                     linkedin: contact.linkedin || '',
                     is_primary: contact.is_primary || false,
-                    notes: contact.notes || '',
                 });
             } else {
                 form.reset();
@@ -116,7 +113,6 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
                 email: values.email || null,
                 phone_e164: values.phone_e164 || null,
                 linkedin: values.linkedin || null,
-                notes: values.notes || null,
             };
             if (isEdit) {
                 return api.put(`/contacts/${contact!.id}`, payload);
@@ -214,12 +210,6 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
                     <Checkbox
                         label={t('contact.isPrimary')}
                         {...form.getInputProps('is_primary', { type: 'checkbox' })}
-                    />
-
-                    <Textarea
-                        label={t('contact.notes')}
-                        rows={3}
-                        {...form.getInputProps('notes')}
                     />
 
                     <Group justify="flex-end">

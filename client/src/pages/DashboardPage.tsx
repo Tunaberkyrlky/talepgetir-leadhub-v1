@@ -11,7 +11,6 @@ import {
     Button,
     Group,
     Paper,
-    Badge,
 } from '@mantine/core';
 import {
     IconBuilding,
@@ -25,8 +24,8 @@ import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { hasTierAccess, type Tier } from '../lib/permissions';
-import { stageColors } from '../lib/stages';
 import StatCard from '../components/StatCard';
+import StageVerticalBar from '../components/charts/StageVerticalBar';
 import PipelineFunnel from '../components/charts/PipelineFunnel';
 import type { CompanyLocation } from '../components/GlobeMap';
 
@@ -145,22 +144,15 @@ export default function DashboardPage() {
                 <Text size="sm" fw={700} mb="md" tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
                     {t('dashboard.stageDistribution')}
                 </Text>
-                <Group gap="xs" wrap="wrap">
-                    {Object.entries(overview?.companiesByStage || {})
-                        .filter(([stage]) => stage !== 'cold')
-                        .sort((a, b) => b[1] - a[1])
-                        .map(([stage, count]) => (
-                            <Badge
-                                key={stage}
-                                color={stageColors[stage as keyof typeof stageColors] || 'gray'}
-                                variant="light"
-                                size="lg"
-                                radius="md"
-                            >
-                                {t(`stages.${stage}`)} — {count}
-                            </Badge>
-                        ))}
-                </Group>
+                {Object.entries(overview?.companiesByStage || {}).some(
+                    ([stage, count]) => stage !== 'cold' && count > 0
+                ) ? (
+                    <StageVerticalBar data={overview?.companiesByStage || {}} />
+                ) : (
+                    <Text c="dimmed" size="sm" ta="center" py="md">
+                        {t('dashboard.noStageData')}
+                    </Text>
+                )}
             </Paper>
 
             {/* Conversion Rate — always visible */}
@@ -176,7 +168,7 @@ export default function DashboardPage() {
                 </SimpleGrid>
             )}
 
-            {/* Globe Map — company geographic distribution */}
+            {/* World Map — company geographic distribution */}
             <Suspense fallback={<Center style={{ height: 420 }}><Loader color="violet" /></Center>}>
                 <GlobeMap
                     data={companyLocations?.data || []}

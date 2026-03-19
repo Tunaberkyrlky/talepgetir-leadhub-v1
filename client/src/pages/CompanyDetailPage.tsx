@@ -19,7 +19,6 @@ import {
     Divider,
     Modal,
     TextInput,
-    Textarea,
     Select,
     Switch,
     Box,
@@ -42,13 +41,17 @@ import {
     IconWorld,
     IconUsers,
     IconDotsVertical,
+    IconNotes,
+    IconLanguage,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { getStageColor } from '../lib/stages';
 import TruncatedText from '../components/TruncatedText';
+import TranslatableField from '../components/TranslatableField';
 import EmailStatusIcon from '../components/EmailStatusIcon';
+import CompanyForm from '../components/CompanyForm';
 
 interface Contact {
     id: string;
@@ -81,6 +84,7 @@ interface Company {
     deal_summary: string | null;
     next_step: string | null;
     contacts: Contact[];
+    translations: Record<string, string> | null;
     created_at: string;
     updated_at: string;
 }
@@ -92,8 +96,22 @@ export default function CompanyDetailPage() {
     const { user } = useAuth();
     const queryClient = useQueryClient();
     const [opened, { open, close }] = useDisclosure(false);
+    const [editCompanyOpened, { open: openEditCompany, close: closeEditCompany }] = useDisclosure(false);
     const [editingContact, setEditingContact] = useState<Contact | null>(null);
+    const [showTranslation, setShowTranslation] = useState(false);
     const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
+
+    const translateMutation = useMutation({
+        mutationFn: () => api.post(`/companies/${id}/translate`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['company', id] });
+            setShowTranslation(true);
+            notifications.show({ title: t('translate.button'), message: '', color: 'green' });
+        },
+        onError: () => {
+            notifications.show({ title: t('translate.error'), message: '', color: 'red' });
+        },
+    });
 
     const { data: company, isLoading } = useQuery<Company>({
         queryKey: ['company', id],
@@ -114,7 +132,6 @@ export default function CompanyDetailPage() {
             country: '',
             seniority: '',
             is_primary: false,
-            notes: '',
         },
         validate: {
             first_name: (v: string) => (v.trim() ? null : 'Required'),
@@ -182,7 +199,6 @@ export default function CompanyDetailPage() {
             country: contact.country || '',
             seniority: contact.seniority || '',
             is_primary: contact.is_primary,
-            notes: contact.notes || '',
         });
         open();
     };
@@ -209,16 +225,52 @@ export default function CompanyDetailPage() {
 
     return (
         <Container size="lg" py="lg">
-            {/* Back button + Title */}
-            <Group mb="lg">
+            {/* Back button + Edit */}
+            <Group mb="lg" justify="space-between">
                 <Button
                     variant="subtle"
                     leftSection={<IconArrowLeft size={16} />}
-                    onClick={() => navigate('/companies')}
+                    onClick={() => navigate(-1)}
                     color="gray"
                 >
                     {t('company.back')}
                 </Button>
+                <Group gap="xs">
+                    {isOpsOrAdmin && (
+                        <Button
+                            variant="light"
+                            color="blue"
+                            leftSection={<IconLanguage size={16} />}
+                            radius="md"
+                            onClick={() => translateMutation.mutate()}
+                            loading={translateMutation.isPending}
+                        >
+                            {company?.translations ? t('translate.retranslate') : t('translate.button')}
+                        </Button>
+                    )}
+                    {company?.translations && (
+                        <Button
+                            variant={showTranslation ? 'filled' : 'light'}
+                            color="violet"
+                            size="sm"
+                            radius="md"
+                            onClick={() => setShowTranslation((v) => !v)}
+                        >
+                            {showTranslation ? t('translate.hideTranslation') : t('translate.showTranslation')}
+                        </Button>
+                    )}
+                    {isOpsOrAdmin && (
+                        <Button
+                            variant="light"
+                            color="violet"
+                            leftSection={<IconPencil size={16} />}
+                            radius="md"
+                            onClick={openEditCompany}
+                        >
+                            {t('company.editTitle')}
+                        </Button>
+                    )}
+                </Group>
             </Group>
 
             {/* Company Header */}
@@ -292,19 +344,19 @@ export default function CompanyDetailPage() {
                     {company.product_services && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.productServices')}</Text>
-                            <TruncatedText size="sm" maxLength={350} inline>{company.product_services}</TruncatedText>
+                            <TranslatableField original={company.product_services} translated={company.translations?.product_services} showTranslation={showTranslation} maxLength={350} />
                         </Box>
                     )}
                     {company.deal_summary && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.dealSummary')}</Text>
-                            <TruncatedText size="sm" maxLength={350} inline>{company.deal_summary}</TruncatedText>
+                            <TranslatableField original={company.deal_summary} translated={company.translations?.deal_summary} showTranslation={showTranslation} maxLength={350} />
                         </Box>
                     )}
                     {company.next_step && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.nextStep')}</Text>
-                            <TruncatedText size="sm" maxLength={350} inline>{company.next_step}</TruncatedText>
+                            <TranslatableField original={company.next_step} translated={company.translations?.next_step} showTranslation={showTranslation} maxLength={350} />
                         </Box>
                     )}
                 </SimpleGrid>
@@ -315,7 +367,7 @@ export default function CompanyDetailPage() {
                         <Divider my="lg" />
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase" mb={4}>{t('company.description')}</Text>
-                            <TruncatedText size="sm" maxLength={350} inline>{company.description}</TruncatedText>
+                            <TranslatableField original={company.description} translated={company.translations?.description} showTranslation={showTranslation} maxLength={350} />
                         </Box>
                     </>
                 )}
@@ -347,8 +399,11 @@ export default function CompanyDetailPage() {
                         </Stack>
                     </Center>
                 ) : (
-                    <Stack gap="sm">
-                        {company.contacts.map((contact) => (
+                    (() => {
+                        const contacted = company.contacts.filter((c) => Array.isArray(c.notes) && c.notes.length > 0);
+                        const notContacted = company.contacts.filter((c) => !Array.isArray(c.notes) || c.notes.length === 0);
+
+                        const renderContactCard = (contact: Contact) => (
                             <Card key={contact.id} withBorder radius="md" p="md" style={{ cursor: 'pointer' }} onClick={() => navigate(`/people/${contact.id}`)}>
                                 <Group justify="space-between">
                                     <Group>
@@ -426,14 +481,54 @@ export default function CompanyDetailPage() {
                                         )}
                                     </Group>
                                 </Group>
-                                {contact.notes && (
-                                    <TruncatedText size="xs" c="dimmed" mt="xs" maxLength={350} inline>{contact.notes}</TruncatedText>
+                                {Array.isArray(contact.notes) && contact.notes.length > 0 && (
+                                    <Group gap={4} mt="xs" wrap="nowrap">
+                                        <Text size="xs" c="dimmed" lineClamp={1}>{contact.notes[0].text}</Text>
+                                        <IconNotes size={14} color="var(--mantine-color-violet-5)" style={{ flexShrink: 0 }} />
+                                        <Text size="xs" c="violet" fw={500} style={{ flexShrink: 0 }}>{contact.notes.length}</Text>
+                                    </Group>
                                 )}
                             </Card>
-                        ))}
-                    </Stack>
+                        );
+
+                        return (
+                            <Stack gap="md">
+                                {contacted.length > 0 && (
+                                    <Stack gap="sm">
+                                        <Group gap="xs">
+                                            <IconNotes size={16} color="var(--mantine-color-violet-5)" />
+                                            <Text size="sm" fw={600} c="violet">{t('people.contacted')}</Text>
+                                            <Badge size="xs" variant="light" color="violet" circle>{contacted.length}</Badge>
+                                        </Group>
+                                        {contacted.map(renderContactCard)}
+                                    </Stack>
+                                )}
+                                {contacted.length > 0 && notContacted.length > 0 && <Divider />}
+                                {notContacted.length > 0 && (
+                                    <Stack gap="sm">
+                                        {contacted.length > 0 && (
+                                            <Group gap="xs">
+                                                <IconUser size={16} color="var(--mantine-color-gray-5)" />
+                                                <Text size="sm" fw={600} c="dimmed">{t('people.notContacted')}</Text>
+                                                <Badge size="xs" variant="light" color="gray" circle>{notContacted.length}</Badge>
+                                            </Group>
+                                        )}
+                                        {notContacted.map(renderContactCard)}
+                                    </Stack>
+                                )}
+                            </Stack>
+                        );
+                    })()
                 )}
             </Paper>
+
+            {/* Company Edit Modal */}
+            <CompanyForm
+                opened={editCompanyOpened}
+                onClose={closeEditCompany}
+                company={company}
+                onSuccess={() => queryClient.invalidateQueries({ queryKey: ['company', id] })}
+            />
 
             {/* Contact Form Modal */}
             <Modal
@@ -466,7 +561,6 @@ export default function CompanyDetailPage() {
                         <TextInput label={t('contact.phone')} radius="md" {...contactForm.getInputProps('phone_e164')} />
                         <TextInput label={t('contact.linkedin')} radius="md" {...contactForm.getInputProps('linkedin')} />
                         <Switch label={t('contact.isPrimary')} {...contactForm.getInputProps('is_primary', { type: 'checkbox' })} />
-                        <Textarea label={t('contact.notes')} autosize minRows={2} radius="md" {...contactForm.getInputProps('notes')} />
                         <Group justify="flex-end">
                             <Button variant="default" onClick={close}>{t('common.cancel')}</Button>
                             <Button

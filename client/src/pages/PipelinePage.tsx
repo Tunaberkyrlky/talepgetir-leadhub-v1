@@ -27,6 +27,7 @@ import {
     IconTrophy,
     IconXboxX,
     IconClock,
+    IconUsers,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -305,7 +306,14 @@ export default function PipelinePage() {
                                                     onClick={() => navigate(`/companies/${company.id}`)}
                                                 >
                                                     <Table.Td>
-                                                        <Text size="sm" fw={600}>{company.name}</Text>
+                                                        <Group gap="xs" wrap="nowrap">
+                                                            <Text size="sm" fw={600}>{company.name}</Text>
+                                                            {company.contact_count > 0 && (
+                                                                <Badge size="xs" variant="light" color="violet" leftSection={<IconUsers size={10} />}>
+                                                                    {company.contact_count}
+                                                                </Badge>
+                                                            )}
+                                                        </Group>
                                                     </Table.Td>
                                                     <Table.Td>
                                                         <Badge
