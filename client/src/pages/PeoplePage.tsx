@@ -535,7 +535,7 @@ export default function PeoplePage() {
                         )}
                     />
                     <MultiSelect
-                        placeholder={t('people.filterCompany')}
+                        placeholder={filterCompanies.length === 0 ? t('people.filterCompany') : undefined}
                         data={(filterOptions?.companies || []).map((c) => ({ value: c.id, label: c.name }))}
                         value={filterCompanies}
                         onChange={setFilterCompanies}
@@ -545,7 +545,7 @@ export default function PeoplePage() {
                         maxDropdownHeight={200}
                     />
                     <MultiSelect
-                        placeholder={t('people.filterSeniority')}
+                        placeholder={filterSeniorities.length === 0 ? t('people.filterSeniority') : undefined}
                         data={filterOptions?.seniorities || []}
                         value={filterSeniorities}
                         onChange={setFilterSeniorities}
@@ -556,7 +556,7 @@ export default function PeoplePage() {
                 </Group>
                 <Group mt="xs">
                     <MultiSelect
-                        placeholder={t('people.filterCountry')}
+                        placeholder={filterCountries.length === 0 ? t('people.filterCountry') : undefined}
                         data={filterOptions?.countries || []}
                         value={filterCountries}
                         onChange={setFilterCountries}

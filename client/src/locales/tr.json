@@ -223,6 +223,7 @@
         "stagesCount": "alt aşama",
         "noGroups": "Henüz pipeline grubu tanımlanmamış",
         "groupName": "Grup Adı",
+        "stageName": "Aşama Adı",
         "groupNamePlaceholder": "ör. İlk Temas",
         "assignedStages": "Atanmış Aşamalar",
         "noStagesAssigned": "Henüz aşama atanmamış",
@@ -230,6 +231,10 @@
         "addGroup": "Yeni Grup Ekle",
         "removeGroup": "Grubu Sil",
         "resetDefault": "Varsayılana Sıfırla",
+        "unsavedTitle": "Kaydedilmemiş Değişiklikler",
+        "unsavedDesc": "Kaydedilmemiş değişiklikleriniz var. Vazgeçmek istiyor musunuz?",
+        "discard": "Vazgeç",
+        "goBack": "Geri Dön",
         "saved": "Pipeline Kaydedildi",
         "savedDesc": "Pipeline aşamaları başarıyla güncellendi.",
         "saveError": "Pipeline ayarları kaydedilemedi.",
@@ -321,7 +326,13 @@
         "stageMoved": "Aşama güncellendi",
         "moveError": "Şirket taşınamadı",
         "upgradeTitle": "Pipeline Board'u Açın",
-        "upgradeDesc": "Kanban pipeline board'a erişmek ve anlaşmaları görsel olarak takip etmek için Pro'ya yükseltin."
+        "upgradeDesc": "Kanban pipeline board'a erişmek ve anlaşmaları görsel olarak takip etmek için Pro'ya yükseltin.",
+        "spotlight": {
+            "hint": "Kişileri görüntülemek için tıklayın",
+            "exit": "Kapatmak için ESC",
+            "contacts": "Kişiler",
+            "noContacts": "Bu aşamada kişisi olan şirket yok"
+        }
     },
     "translate": {
         "button": "Çevir",

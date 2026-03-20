@@ -223,6 +223,7 @@
         "stagesCount": "sub-stages",
         "noGroups": "No pipeline groups defined yet",
         "groupName": "Group Name",
+        "stageName": "Stage Name",
         "groupNamePlaceholder": "e.g. First Contact",
         "assignedStages": "Assigned Stages",
         "noStagesAssigned": "No stages assigned yet",
@@ -230,6 +231,10 @@
         "addGroup": "Add New Group",
         "removeGroup": "Remove Group",
         "resetDefault": "Reset to Default",
+        "unsavedTitle": "Unsaved Changes",
+        "unsavedDesc": "You have unsaved changes. Do you want to discard them?",
+        "discard": "Discard",
+        "goBack": "Go Back",
         "saved": "Pipeline Saved",
         "savedDesc": "Pipeline stages updated successfully.",
         "saveError": "Failed to save pipeline settings.",
@@ -321,7 +326,13 @@
         "stageMoved": "Stage updated",
         "moveError": "Failed to move company",
         "upgradeTitle": "Unlock Pipeline Board",
-        "upgradeDesc": "Upgrade to Pro to access the Kanban pipeline board and track deals visually."
+        "upgradeDesc": "Upgrade to Pro to access the Kanban pipeline board and track deals visually.",
+        "spotlight": {
+            "hint": "Click to view contacts",
+            "exit": "Press ESC to close",
+            "contacts": "Contacts",
+            "noContacts": "No companies with contacts in this stage"
+        }
     },
     "translate": {
         "button": "Translate",

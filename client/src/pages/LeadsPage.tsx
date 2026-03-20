@@ -672,7 +672,7 @@ export default function LeadsPage() {
                         )}
                     />
                     <MultiSelect
-                        placeholder={t('filter.stage')}
+                        placeholder={selectedStages.length === 0 ? t('filter.stage') : undefined}
                         data={stageOptions}
                         value={selectedStages}
                         onChange={setSelectedStages}
@@ -681,7 +681,7 @@ export default function LeadsPage() {
                         maxDropdownHeight={200}
                     />
                     <MultiSelect
-                        placeholder={t('filter.industry')}
+                        placeholder={selectedIndustries.length === 0 ? t('filter.industry') : undefined}
                         data={industryOptions}
                         value={selectedIndustries}
                         onChange={setSelectedIndustries}
@@ -690,7 +690,7 @@ export default function LeadsPage() {
                         maxDropdownHeight={200}
                     />
                     <MultiSelect
-                        placeholder={t('filter.location')}
+                        placeholder={selectedLocations.length === 0 ? t('filter.location') : undefined}
                         data={locationOptions}
                         value={selectedLocations}
                         onChange={setSelectedLocations}
@@ -699,7 +699,7 @@ export default function LeadsPage() {
                         maxDropdownHeight={200}
                     />
                     <MultiSelect
-                        placeholder={t('filter.product')}
+                        placeholder={selectedProducts.length === 0 ? t('filter.product') : undefined}
                         data={productOptions}
                         value={selectedProducts}
                         onChange={setSelectedProducts}

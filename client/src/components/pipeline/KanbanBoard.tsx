@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
     Box,
     Paper,
@@ -8,8 +8,13 @@ import {
     ScrollArea,
     Group,
     Center,
+    Tooltip,
+    Skeleton,
+    ThemeIcon,
 } from '@mantine/core';
+import { IconUser, IconNote } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import {
     DndContext,
     DragOverlay,
@@ -25,12 +30,100 @@ import {
     type CollisionDetection,
 } from '@dnd-kit/core';
 import { useStages } from '../../contexts/StagesContext';
+import api from '../../lib/api';
 import PipelineCard, { type PipelineCompany } from './PipelineCard';
+
+interface ContactNote {
+    id: string;
+    text: string;
+    created_at: string;
+    created_by: string;
+}
+
+interface Contact {
+    id: string;
+    first_name: string;
+    last_name: string | null;
+    title: string | null;
+    email: string | null;
+    phone_e164: string | null;
+    is_primary: boolean;
+    notes: ContactNote[] | null;
+}
 
 interface KanbanBoardProps {
     columns: Record<string, PipelineCompany[]>;
     isDragEnabled: boolean;
     onStageChange: (companyId: string, newStage: string, oldStage: string) => void;
+}
+
+/** Lazy-loaded detail panel for a single company card */
+function CompanyDetailCell({ companyId }: { companyId: string }) {
+    const ref = useRef<HTMLDivElement>(null);
+    const [isVisible, setIsVisible] = useState(false);
+
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const observer = new IntersectionObserver(
+            ([entry]) => { if (entry.isIntersecting) { setIsVisible(true); observer.disconnect(); } },
+            { threshold: 0.1 },
+        );
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
+
+    const { data, isLoading } = useQuery<{ contacts: Contact[] }>({
+        queryKey: ['company', companyId],
+        queryFn: async () => (await api.get(`/companies/${companyId}`)).data.data,
+        enabled: isVisible,
+        staleTime: 60_000,
+    });
+
+    const contacts = data?.contacts?.filter(c =>
+        c.notes && c.notes.length > 0
+    ) ?? [];
+
+    return (
+        <Box ref={ref} style={{ flex: 1, minWidth: 0 }}>
+            {!isVisible || isLoading ? (
+                <Stack gap={6}>
+                    <Skeleton height={12} width="60%" radius="sm" />
+                    <Skeleton height={10} width="80%" radius="sm" />
+                    <Skeleton height={10} width="40%" radius="sm" />
+                </Stack>
+            ) : contacts.length === 0 ? (
+                <Text size="xs" c="dimmed" fs="italic">—</Text>
+            ) : (
+                <Stack gap={8}>
+                    {contacts.map((contact) => (
+                        <Box key={contact.id}>
+                            <Group gap={6} wrap="nowrap">
+                                <ThemeIcon size={16} variant="light" color="violet" radius="xl">
+                                    <IconUser size={10} />
+                                </ThemeIcon>
+                                <Text size="xs" fw={500} lineClamp={1}>
+                                    {contact.first_name}{contact.last_name ? ` ${contact.last_name}` : ''}
+                                </Text>
+                            </Group>
+                            {contact.notes && contact.notes.length > 0 && (
+                                <Stack gap={2} mt={2} ml={22}>
+                                    {contact.notes.slice(0, 2).map((note) => (
+                                        <Group key={note.id} gap={4} align="flex-start" wrap="nowrap">
+                                            <IconNote size={10} color="var(--mantine-color-dimmed)" style={{ marginTop: 2, flexShrink: 0 }} />
+                                            <Text size="xs" c="dimmed" lineClamp={2}>
+                                                {note.text}
+                                            </Text>
+                                        </Group>
+                                    ))}
+                                </Stack>
+                            )}
+                        </Box>
+                    ))}
+                </Stack>
+            )}
+        </Box>
+    );
 }
 
 /** A single droppable column */
@@ -39,16 +132,76 @@ function StageColumn({
     companies,
     isDragEnabled,
     isOver,
+    isSpotlight,
+    isCollapsed,
+    onHeaderClick,
 }: {
     stage: string;
     companies: PipelineCompany[];
     isDragEnabled: boolean;
     isOver: boolean;
+    isSpotlight: boolean;
+    isCollapsed: boolean;
+    onHeaderClick: (stage: string) => void;
 }) {
     const { t } = useTranslation();
-    const { getStageColor } = useStages();
+    const { getStageColor, getStageLabel } = useStages();
     const { setNodeRef } = useDroppable({ id: stage });
     const color = getStageColor(stage);
+
+    // Collapsed column — vertical title + badge
+    if (isCollapsed) {
+        return (
+            <Paper
+                ref={setNodeRef}
+                radius="lg"
+                p={0}
+                withBorder
+                style={{
+                    flex: '0 0 48px',
+                    minWidth: 48,
+                    maxWidth: 48,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    maxHeight: '100%',
+                    overflow: 'hidden',
+                    transition: 'flex 300ms ease, min-width 300ms ease, max-width 300ms ease, border-color 150ms ease, background-color 150ms ease',
+                    borderColor: isOver ? `var(--mantine-color-${color}-4)` : undefined,
+                    backgroundColor: `var(--mantine-color-${color}-0)`,
+                    cursor: 'pointer',
+                }}
+                onClick={() => onHeaderClick(stage)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onHeaderClick(stage); } }}
+            >
+                <Box py="sm" px={4} style={{ textAlign: 'center' }}>
+                    <Badge size="sm" variant="light" color={color} mb="xs" style={{ minWidth: 22, paddingInline: 6 }}>
+                        {companies.length}
+                    </Badge>
+                    <Text
+                        size="xs"
+                        fw={700}
+                        tt="uppercase"
+                        style={{
+                            writingMode: 'vertical-rl',
+                            textOrientation: 'mixed',
+                            letterSpacing: '1px',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        {getStageLabel(stage)}
+                    </Text>
+                </Box>
+            </Paper>
+        );
+    }
+
+    // Normal or spotlight column
+    const flexStyle = isSpotlight
+        ? { flex: '1 1 auto', minWidth: 500, maxWidth: 'none' as const }
+        : { flex: '0 0 280px', minWidth: 260, maxWidth: 300 };
 
     return (
         <Paper
@@ -57,36 +210,50 @@ function StageColumn({
             p={0}
             withBorder
             style={{
-                minWidth: 260,
-                maxWidth: 300,
-                flex: '0 0 280px',
+                ...flexStyle,
                 display: 'flex',
                 flexDirection: 'column',
                 maxHeight: '100%',
-                transition: 'border-color 150ms ease, background-color 150ms ease',
-                borderColor: isOver ? `var(--mantine-color-${color}-4)` : undefined,
+                transition: 'flex 300ms ease, min-width 300ms ease, max-width 300ms ease, border-color 150ms ease, background-color 150ms ease',
+                borderColor: isOver
+                    ? `var(--mantine-color-${color}-4)`
+                    : isSpotlight
+                    ? `var(--mantine-color-${color}-5)`
+                    : undefined,
                 backgroundColor: isOver ? `var(--mantine-color-${color}-0)` : undefined,
             }}
         >
             {/* Column Header */}
-            <Box
-                px="sm"
-                py="xs"
-                style={{
-                    borderBottom: '1px solid var(--mantine-color-default-border)',
-                    background: `var(--mantine-color-${color}-0)`,
-                    borderRadius: 'var(--mantine-radius-lg) var(--mantine-radius-lg) 0 0',
-                }}
+            <Tooltip
+                label={isSpotlight ? t('pipeline.spotlight.exit') : t('pipeline.spotlight.hint')}
+                position="top"
+                withArrow
+                openDelay={500}
             >
-                <Group justify="space-between" wrap="nowrap">
-                    <Text size="xs" fw={700} tt="uppercase" style={{ letterSpacing: '0.5px' }}>
-                        {t(`stages.${stage}`)}
-                    </Text>
-                    <Badge size="sm" variant="light" color={color} style={{ minWidth: 22, paddingInline: 6 }}>
-                        {companies.length}
-                    </Badge>
-                </Group>
-            </Box>
+                <Box
+                    px="sm"
+                    py="xs"
+                    style={{
+                        borderBottom: '1px solid var(--mantine-color-default-border)',
+                        background: `var(--mantine-color-${color}-0)`,
+                        borderRadius: 'var(--mantine-radius-lg) var(--mantine-radius-lg) 0 0',
+                        cursor: 'pointer',
+                    }}
+                    onClick={() => onHeaderClick(stage)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onHeaderClick(stage); } }}
+                >
+                    <Group justify="space-between" wrap="nowrap">
+                        <Text size="xs" fw={700} tt="uppercase" style={{ letterSpacing: '0.5px' }}>
+                            {getStageLabel(stage)}
+                        </Text>
+                        <Badge size="sm" variant="light" color={color} style={{ minWidth: 22, paddingInline: 6 }}>
+                            {companies.length}
+                        </Badge>
+                    </Group>
+                </Box>
+            </Tooltip>
 
             {/* Cards */}
             <ScrollArea.Autosize mah="calc(100vh - 280px)" offsetScrollbars type="auto">
@@ -96,13 +263,40 @@ function StageColumn({
                             <Text size="xs" c="dimmed">{t('pipeline.emptyColumn')}</Text>
                         </Center>
                     ) : (
-                        companies.map((company) => (
-                            <PipelineCard
-                                key={company.id}
-                                company={company}
-                                isDragEnabled={isDragEnabled}
-                            />
-                        ))
+                        companies.map((company) =>
+                            isSpotlight ? (
+                                <Box
+                                    key={company.id}
+                                    style={{
+                                        display: 'flex',
+                                        gap: 12,
+                                        alignItems: 'stretch',
+                                    }}
+                                >
+                                    <Box style={{ flex: '0 0 260px', minWidth: 260 }}>
+                                        <PipelineCard company={company} isDragEnabled={isDragEnabled} />
+                                    </Box>
+                                    <Paper
+                                        p="sm"
+                                        radius="md"
+                                        withBorder
+                                        style={{
+                                            flex: 1,
+                                            minWidth: 0,
+                                            background: 'var(--mantine-color-gray-0)',
+                                        }}
+                                    >
+                                        <CompanyDetailCell companyId={company.id} />
+                                    </Paper>
+                                </Box>
+                            ) : (
+                                <PipelineCard
+                                    key={company.id}
+                                    company={company}
+                                    isDragEnabled={isDragEnabled}
+                                />
+                            )
+                        )
                     )}
                 </Stack>
             </ScrollArea.Autosize>
@@ -123,9 +317,7 @@ function resolveTargetStage(
     columns: Record<string, PipelineCompany[]>,
     pipelineSlugs: string[],
 ): string | null {
-    // Dropped directly on a column
     if (pipelineSlugs.includes(overId)) return overId;
-    // Dropped on a card — find which column contains it
     for (const stage of pipelineSlugs) {
         if (columns[stage]?.some((c) => c.id === overId)) return stage;
     }
@@ -140,6 +332,20 @@ export default function KanbanBoard({
     const { pipelineStageSlugs } = useStages();
     const [activeCompany, setActiveCompany] = useState<PipelineCompany | null>(null);
     const [overColumnId, setOverColumnId] = useState<string | null>(null);
+    const [spotlightStage, setSpotlightStage] = useState<string | null>(null);
+
+    const toggleSpotlight = useCallback((stage: string) => {
+        setSpotlightStage((prev) => (prev === stage ? null : stage));
+    }, []);
+
+    useEffect(() => {
+        if (!spotlightStage) return;
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setSpotlightStage(null);
+        };
+        document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+    }, [spotlightStage]);
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -157,7 +363,6 @@ export default function KanbanBoard({
             return;
         }
         const id = String(event.over.id);
-        // Resolve to column stage for highlight
         const stage = resolveTargetStage(id, columns, pipelineStageSlugs);
         setOverColumnId(stage);
     }, [columns, pipelineStageSlugs]);
@@ -211,6 +416,9 @@ export default function KanbanBoard({
                         companies={columns[stage] || []}
                         isDragEnabled={isDragEnabled}
                         isOver={overColumnId === stage}
+                        isSpotlight={spotlightStage === stage}
+                        isCollapsed={spotlightStage !== null && spotlightStage !== stage}
+                        onHeaderClick={toggleSpotlight}
                     />
                 ))}
             </Box>

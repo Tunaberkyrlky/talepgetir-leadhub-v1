@@ -30,7 +30,7 @@ interface StagesContextValue {
 const StagesContext = createContext<StagesContextValue | null>(null);
 
 export function StagesProvider({ children }: { children: React.ReactNode }) {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
 
     const { data, isLoading, refetch } = useQuery<StageDefinition[]>({
         queryKey: ['settings', 'stages'],
@@ -51,17 +51,28 @@ export function StagesProvider({ children }: { children: React.ReactNode }) {
             return stageMap.get(slug)?.color || 'gray';
         };
 
+        const resolveLabel = (slug: string, displayName: string): string => {
+            // If an English default exists and display_name still matches it,
+            // the user hasn't customised this stage → use the active locale translation.
+            const englishDefault = i18n.exists(`stages.${slug}`)
+                ? i18n.t(`stages.${slug}`, { lng: 'en' })
+                : null;
+            if (englishDefault && displayName === englishDefault) {
+                return t(`stages.${slug}`);
+            }
+            // Custom name set by the user → use as-is
+            return displayName;
+        };
+
         const getStageLabel = (slug: string): string => {
             const stage = stageMap.get(slug);
             if (!stage) return slug;
-            // Try i18n key first (for built-in stages), fall back to display_name
-            const translated = t(`stages.${slug}`, { defaultValue: '' });
-            return translated || stage.display_name;
+            return resolveLabel(slug, stage.display_name);
         };
 
         const stageOptions = allStages.map((s) => ({
             value: s.slug,
-            label: t(`stages.${s.slug}`, { defaultValue: '' }) || s.display_name,
+            label: resolveLabel(s.slug, s.display_name),
         }));
 
         return {
@@ -77,7 +88,7 @@ export function StagesProvider({ children }: { children: React.ReactNode }) {
             isLoading,
             refetch: () => { refetch(); },
         };
-    }, [data, isLoading, t, refetch]);
+    }, [data, isLoading, refetch, t, i18n]);
 
     return (
         <StagesContext.Provider value={value}>
