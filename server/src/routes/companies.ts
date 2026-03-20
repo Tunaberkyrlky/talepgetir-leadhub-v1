@@ -5,6 +5,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
+import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs } from './settings.js';
 
 const log = createLogger('route:companies');
 
@@ -13,17 +14,9 @@ const COMPANY_TRANSLATE_FIELDS = ['product_services', 'description', 'deal_summa
 const router = Router();
 
 // Sanitize search input for safe use in PostgREST .or() filter strings.
-// Strips characters that PostgREST interprets as structural delimiters.
 function sanitizeSearch(value: string): string {
     return value.replace(/[,().\\]/g, '');
 }
-
-// Valid stages for companies
-const VALID_STAGES = [
-    'cold', 'in_queue', 'first_contact', 'connected', 'qualified',
-    'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
-    'won', 'lost', 'on_hold',
-] as const;
 
 const VALID_EMAIL_STATUSES = ['valid', 'uncertain', 'invalid'] as const;
 
@@ -147,25 +140,21 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
     }
 });
 
-// Active pipeline stages (excludes cold + terminal: won, lost, on_hold)
-const PIPELINE_STAGES = VALID_STAGES.filter(
-    (s) => !['cold', 'won', 'lost', 'on_hold'].includes(s)
-);
-
 // GET /api/companies/pipeline — Companies grouped by active stage (for kanban board)
 router.get('/pipeline', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
         const search = (req.query.search as string || '').trim();
 
-        let data: any[] | null = null;
-        let error: any = null;
+        // Dynamic pipeline stages from tenant config
+        const pipelineStages = await getPipelineStageSlugs(tenantId);
+        const terminalStages = await getTerminalStageSlugs(tenantId);
 
         let query = supabaseAdmin
             .from('companies_with_counts')
             .select('id, name, industry, stage, next_step, deal_summary, updated_at, stage_changed_at, contact_count')
             .eq('tenant_id', tenantId)
-            .in('stage', PIPELINE_STAGES);
+            .in('stage', pipelineStages);
 
         if (search) {
             const safe = sanitizeSearch(search);
@@ -175,31 +164,7 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
             }
         }
 
-        const result = await query.order('updated_at', { ascending: false });
-        data = result.data;
-        error = result.error;
-
-        // Fallback: if stage_changed_at column doesn't exist yet (migration not applied)
-        if (error) {
-            log.warn({ err: error }, 'Pipeline query failed, retrying without stage_changed_at');
-            let fallback = supabaseAdmin
-                .from('companies_with_counts')
-                .select('id, name, industry, stage, next_step, deal_summary, updated_at, contact_count')
-                .eq('tenant_id', tenantId)
-                .in('stage', PIPELINE_STAGES);
-
-            if (search) {
-                const safe = sanitizeSearch(search);
-                if (safe.length > 0) {
-                    const pattern = `%${safe}%`;
-                    fallback = fallback.or(`name.ilike.${pattern},next_step.ilike.${pattern},deal_summary.ilike.${pattern}`);
-                }
-            }
-
-            const fallbackResult = await fallback.order('updated_at', { ascending: false });
-            data = (fallbackResult.data || []).map((c: any) => ({ ...c, stage_changed_at: null }));
-            error = fallbackResult.error;
-        }
+        const { data, error } = await query.order('updated_at', { ascending: false });
 
         if (error) {
             log.error({ err: error }, 'Pipeline query error');
@@ -207,8 +172,8 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
         }
 
         // Group by stage
-        const columns: Record<string, typeof data> = {};
-        for (const stage of PIPELINE_STAGES) {
+        const columns: Record<string, any[]> = {};
+        for (const stage of pipelineStages) {
             columns[stage] = [];
         }
         for (const company of data ?? []) {
@@ -217,7 +182,6 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
         }
 
         // Terminal stage counts
-        const terminalStages = ['won', 'lost', 'on_hold'] as const;
         const terminalResults = await Promise.all(
             terminalStages.map((stage) =>
                 supabaseAdmin
@@ -227,7 +191,7 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
                     .eq('stage', stage)
             )
         );
-        const terminalCounts: Record<string, number> = { won: 0, lost: 0, on_hold: 0 };
+        const terminalCounts: Record<string, number> = {};
         terminalStages.forEach((stage, i) => {
             terminalCounts[stage] = terminalResults[i].count || 0;
         });
@@ -295,11 +259,12 @@ router.post(
             }
 
             // Validate stage if provided
-            if (stage && !VALID_STAGES.includes(stage)) {
-                res.status(400).json({
-                    error: `Invalid stage. Valid stages: ${VALID_STAGES.join(', ')}`
-                });
-                return;
+            if (stage) {
+                const validSlugs = await getValidStageSlugs(tenantId);
+                if (!validSlugs.includes(stage)) {
+                    res.status(400).json({ error: `Invalid stage. Valid stages: ${validSlugs.join(', ')}` });
+                    return;
+                }
             }
 
             // Validate email_status if provided
@@ -426,11 +391,12 @@ router.put(
             const { name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, company_email, email_status, stage, deal_summary, internal_notes, next_step, custom_fields } = req.body;
 
             // Validate stage if provided
-            if (stage && !VALID_STAGES.includes(stage)) {
-                res.status(400).json({
-                    error: `Invalid stage. Valid stages: ${VALID_STAGES.join(', ')}`
-                });
-                return;
+            if (stage) {
+                const validSlugs = await getValidStageSlugs(tenantId);
+                if (!validSlugs.includes(stage)) {
+                    res.status(400).json({ error: `Invalid stage. Valid stages: ${validSlugs.join(', ')}` });
+                    return;
+                }
             }
 
             // Validate email_status if provided
@@ -508,10 +474,9 @@ router.patch(
                 return;
             }
 
-            if (!stage || !VALID_STAGES.includes(stage)) {
-                res.status(400).json({
-                    error: `Invalid stage. Valid stages: ${VALID_STAGES.join(', ')}`,
-                });
+            const validSlugs = await getValidStageSlugs(tenantId);
+            if (!stage || !validSlugs.includes(stage)) {
+                res.status(400).json({ error: `Invalid stage. Valid stages: ${validSlugs.join(', ')}` });
                 return;
             }
 
@@ -545,10 +510,9 @@ router.patch(
             const { id } = req.params;
             const { stage } = req.body;
 
-            if (!stage || !VALID_STAGES.includes(stage)) {
-                res.status(400).json({
-                    error: `Invalid stage. Valid stages: ${VALID_STAGES.join(', ')}`,
-                });
+            const validSlugs = await getValidStageSlugs(tenantId);
+            if (!stage || !validSlugs.includes(stage)) {
+                res.status(400).json({ error: `Invalid stage. Valid stages: ${validSlugs.join(', ')}` });
                 return;
             }
 

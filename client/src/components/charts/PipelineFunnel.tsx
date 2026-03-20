@@ -3,7 +3,7 @@ import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import { useTranslation } from 'react-i18next';
-import { stageColors } from '../../lib/stages';
+import { useStages } from '../../contexts/StagesContext';
 
 const MANTINE_COLORS: Record<string, string> = {
     blue: '#339af0',
@@ -29,6 +29,7 @@ interface PipelineFunnelProps {
 
 export default function PipelineFunnel({ data, title }: PipelineFunnelProps) {
     const { t } = useTranslation();
+    const { getStageColor } = useStages();
 
     const chartData = data.map((item) => ({
         ...item,
@@ -52,7 +53,7 @@ export default function PipelineFunnel({ data, title }: PipelineFunnelProps) {
                         {chartData.map((entry) => (
                             <Cell
                                 key={entry.stage}
-                                fill={MANTINE_COLORS[stageColors[entry.stage as keyof typeof stageColors]] || '#868e96'}
+                                fill={MANTINE_COLORS[getStageColor(entry.stage)] || '#868e96'}
                             />
                         ))}
                     </Bar>

@@ -38,7 +38,7 @@ import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { isInternal } from '../lib/permissions';
-import { getStageColor } from '../lib/stages';
+import { useStages } from '../contexts/StagesContext';
 import ContactForm from '../components/ContactForm';
 import type { ContactNote } from '../types/contact';
 
@@ -83,6 +83,7 @@ export default function PersonDetailPage() {
     const navigate = useNavigate();
     const { t } = useTranslation();
     const { user } = useAuth();
+    const { getStageColor, getStageLabel } = useStages();
 
     const queryClient = useQueryClient();
     const [formOpened, { open: openForm, close: closeForm }] = useDisclosure(false);
@@ -304,7 +305,7 @@ export default function PersonDetailPage() {
                                         variant="light"
                                         color={getStageColor(contact.companies.stage)}
                                     >
-                                        {t(`stages.${contact.companies.stage}`)}
+                                        {getStageLabel(contact.companies.stage)}
                                     </Badge>
                                     {contact.companies.industry && (
                                         <Text size="xs" c="dimmed">{contact.companies.industry}</Text>

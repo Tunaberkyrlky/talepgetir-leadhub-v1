@@ -63,7 +63,7 @@ import { CSS } from '@dnd-kit/utilities';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { canDelete, isInternal } from '../lib/permissions';
-import { stageColors } from '../lib/stages';
+import { useStages } from '../contexts/StagesContext';
 import ContactForm from '../components/ContactForm';
 import TruncatedText from '../components/TruncatedText';
 
@@ -206,6 +206,7 @@ export default function PeoplePage() {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { getStageColor, getStageLabel } = useStages();
     const queryClient = useQueryClient();
 
     const [page, setPage] = useState(1);
@@ -418,9 +419,9 @@ export default function PeoplePage() {
                                 <Badge
                                     size="xs"
                                     variant="light"
-                                    color={stageColors[contact.companies.stage as keyof typeof stageColors] || 'gray'}
+                                    color={getStageColor(contact.companies.stage)}
                                 >
-                                    {t(`stages.${contact.companies.stage}`)}
+                                    {getStageLabel(contact.companies.stage)}
                                 </Badge>
                             )}
                         </Group>

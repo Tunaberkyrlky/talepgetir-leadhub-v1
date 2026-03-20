@@ -16,7 +16,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
-import { STAGES } from '../lib/stages';
+import { useStages } from '../contexts/StagesContext';
 import EmailStatusIcon from './EmailStatusIcon';
 
 interface Company {
@@ -167,10 +167,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
 
     const isSaving = createMutation.isPending || updateMutation.isPending;
 
-    const stageOptions = STAGES.map((s) => ({
-        value: s,
-        label: t(`stages.${s}`),
-    }));
+    const { stageOptions } = useStages();
 
     return (
         <Modal

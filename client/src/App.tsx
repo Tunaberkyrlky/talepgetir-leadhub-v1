@@ -11,6 +11,7 @@ import '@mantine/dropzone/styles.css';
 import './i18n';
 
 import { AuthProvider } from './contexts/AuthContext';
+import { StagesProvider } from './contexts/StagesContext';
 import { ImportProgressProvider } from './contexts/ImportProgressContext';
 import ImportProgressBar from './components/ImportProgressBar';
 import Layout from './components/Layout';
@@ -63,6 +64,7 @@ function App() {
             <ImportProgressBar />
           <BrowserRouter>
             <AuthProvider>
+              <StagesProvider>
               <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
@@ -81,6 +83,7 @@ function App() {
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
               </Suspense>
+              </StagesProvider>
             </AuthProvider>
           </BrowserRouter>
           </ImportProgressProvider>

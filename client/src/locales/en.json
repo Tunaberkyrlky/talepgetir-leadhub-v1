@@ -212,6 +212,7 @@
     "settings": {
         "title": "Settings",
         "darkMode": "Dark Mode",
+        "language": "Language",
         "general": "General",
         "pipelineTab": "Pipeline Stages"
     },
@@ -231,7 +232,20 @@
         "resetDefault": "Reset to Default",
         "saved": "Pipeline Saved",
         "savedDesc": "Pipeline stages updated successfully.",
-        "saveError": "Failed to save pipeline settings."
+        "saveError": "Failed to save pipeline settings.",
+        "stagesTab": "Stages",
+        "groupsTab": "Groups",
+        "initialStage": "Initial Stage",
+        "pipelineStages": "Pipeline Stages",
+        "terminalStages": "Terminal Stages",
+        "addNewStage": "Add New Stage",
+        "newStageName": "Stage name",
+        "stageCreated": "Stage created",
+        "stageDeleted": "Stage deleted",
+        "deleteStageTitle": "Delete Stage",
+        "deleteStageDesc": "{{count}} companies are in this stage. Which stage should they be moved to?",
+        "reassignTo": "Move to stage",
+        "deleteAndMove": "Delete & Move"
     },
     "nav": {
         "dashboard": "Dashboard",

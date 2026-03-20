@@ -1,30 +1,10 @@
 /**
- * Company pipeline stages — ordered enum.
- * Index = stage order (0-based). Pipeline progress is tracked by position.
+ * Pipeline stage defaults — used as fallback values.
+ * Components should use useStages() hook from StagesContext for dynamic, tenant-specific stages.
  */
-export const STAGES = [
-    'cold',            // 0 - Soğuk
-    'in_queue',        // 1 - Sırada
-    'first_contact',   // 2 - İlk Temas
-    'connected',       // 3 - Bağlantı Kuruldu
-    'qualified',       // 4 - Nitelikli
-    'in_meeting',      // 5 - Görüşmede
-    'follow_up',       // 6 - Takipte
-    'proposal_sent',   // 7 - Teklif Gönderildi
-    'negotiation',     // 8 - Müzakere
-    'won',             // 9 - Kazanıldı
-    'lost',            // 10 - Kaybedildi
-    'on_hold',         // 11 - Askıda
-] as const;
 
-export type Stage = (typeof STAGES)[number];
-
-/** Stage order index (0-based). Use for comparing pipeline progress. */
-export const STAGE_ORDER: Record<Stage, number> = Object.fromEntries(
-    STAGES.map((s, i) => [s, i])
-) as Record<Stage, number>;
-
-export const stageColors: Record<Stage, string> = {
+/** Default stage color mapping (fallback when StagesContext is unavailable) */
+export const DEFAULT_STAGE_COLORS: Record<string, string> = {
     cold: 'gray',
     in_queue: 'blue',
     first_contact: 'cyan',
@@ -39,20 +19,7 @@ export const stageColors: Record<Stage, string> = {
     on_hold: 'gray',
 };
 
-/** Active pipeline stages (excludes cold + terminal states) */
-export const PIPELINE_STAGES = STAGES.filter(
-    (s) => !['cold', 'won', 'lost', 'on_hold'].includes(s)
-);
-
-/** Terminal stages */
-export const TERMINAL_STAGES: Stage[] = ['won', 'lost', 'on_hold'];
-
-/** Get stage color safely (returns 'gray' for unknown stages) */
+/** Get stage color safely (returns 'gray' for unknown stages) — fallback only */
 export function getStageColor(stage: string): string {
-    return stageColors[stage as Stage] || 'gray';
-}
-
-/** Compare two stages by pipeline order. Returns negative if a < b, 0 if equal, positive if a > b */
-export function compareStages(a: Stage, b: Stage): number {
-    return STAGE_ORDER[a] - STAGE_ORDER[b];
+    return DEFAULT_STAGE_COLORS[stage] || 'gray';
 }

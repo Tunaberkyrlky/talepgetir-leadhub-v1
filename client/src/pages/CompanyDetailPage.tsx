@@ -47,7 +47,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { getStageColor } from '../lib/stages';
+import { useStages } from '../contexts/StagesContext';
 import TranslatableField from '../components/TranslatableField';
 import EmailStatusIcon from '../components/EmailStatusIcon';
 import CompanyForm from '../components/CompanyForm';
@@ -93,6 +93,7 @@ export default function CompanyDetailPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { getStageColor, getStageLabel } = useStages();
     const queryClient = useQueryClient();
     const [opened, { open, close }] = useDisclosure(false);
     const [editCompanyOpened, { open: openEditCompany, close: closeEditCompany }] = useDisclosure(false);
@@ -285,7 +286,7 @@ export default function CompanyDetailPage() {
                         </Group>
                         <Group mt="xs" gap="sm">
                             <Badge color={getStageColor(company.stage)} size="lg" variant="light">
-                                {t(`stages.${company.stage}`)}
+                                {getStageLabel(company.stage)}
                             </Badge>
                             {company.employee_size && (
                                 <Group gap={4}>

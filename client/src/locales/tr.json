@@ -212,6 +212,7 @@
     "settings": {
         "title": "Ayarlar",
         "darkMode": "Koyu Mod",
+        "language": "Dil",
         "general": "Genel",
         "pipelineTab": "Pipeline Aşamaları"
     },
@@ -231,7 +232,20 @@
         "resetDefault": "Varsayılana Sıfırla",
         "saved": "Pipeline Kaydedildi",
         "savedDesc": "Pipeline aşamaları başarıyla güncellendi.",
-        "saveError": "Pipeline ayarları kaydedilemedi."
+        "saveError": "Pipeline ayarları kaydedilemedi.",
+        "stagesTab": "Aşamalar",
+        "groupsTab": "Gruplar",
+        "initialStage": "Başlangıç Aşaması",
+        "pipelineStages": "Pipeline Aşamaları",
+        "terminalStages": "Sonuç Aşamaları",
+        "addNewStage": "Yeni Aşama Ekle",
+        "newStageName": "Aşama adı",
+        "stageCreated": "Aşama eklendi",
+        "stageDeleted": "Aşama silindi",
+        "deleteStageTitle": "Aşamayı Sil",
+        "deleteStageDesc": "Bu aşamada {{count}} firma var. Firmaları hangi aşamaya taşımak istiyorsunuz?",
+        "reassignTo": "Taşınacak aşama",
+        "deleteAndMove": "Sil ve Taşı"
     },
     "nav": {
         "dashboard": "Dashboard",
