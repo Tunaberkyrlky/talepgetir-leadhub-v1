@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import {
     Container,
     Title,
@@ -16,6 +16,8 @@ import {
     Loader,
     Drawer,
     Tooltip,
+    Modal,
+    Button,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
@@ -41,7 +43,7 @@ import { hasRolePermission } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
 import KanbanBoard from '../components/pipeline/KanbanBoard';
 import type { PipelineCompany } from '../components/pipeline/PipelineCard';
-import PipelineSettingsEditor from '../components/PipelineSettingsEditor';
+import PipelineSettingsEditor, { type PipelineSettingsEditorHandle } from '../components/PipelineSettingsEditor';
 
 interface PipelineData {
     columns: Record<string, PipelineCompany[]>;
@@ -59,6 +61,30 @@ export default function PipelinePage() {
     const [debouncedSearch] = useDebouncedValue(search, 300);
     const [viewMode, setViewMode] = useState<string>('board');
     const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
+    const [confirmCloseOpened, setConfirmCloseOpened] = useState(false);
+    const settingsDirtyRef = useRef(false);
+    const settingsSaveRef = useRef<PipelineSettingsEditorHandle | null>(null);
+
+    const handleSettingsClose = useCallback(() => {
+        if (settingsDirtyRef.current) {
+            setConfirmCloseOpened(true);
+        } else {
+            closeSettings();
+        }
+    }, [closeSettings]);
+
+    const handleConfirmDiscard = useCallback(() => {
+        setConfirmCloseOpened(false);
+        settingsDirtyRef.current = false;
+        closeSettings();
+    }, [closeSettings]);
+
+    const handleConfirmSave = useCallback(() => {
+        settingsSaveRef.current?.save();
+        setConfirmCloseOpened(false);
+        settingsDirtyRef.current = false;
+        closeSettings();
+    }, [closeSettings]);
 
     const canDrag = hasRolePermission(role, 'pipeline_dragdrop');
 
@@ -370,14 +396,32 @@ export default function PipelinePage() {
 
             <Drawer
                 opened={settingsOpened}
-                onClose={closeSettings}
+                onClose={handleSettingsClose}
                 title={t('settings.pipelineTab')}
                 position="right"
                 size="lg"
                 padding="md"
             >
-                <PipelineSettingsEditor />
+                <PipelineSettingsEditor onDirtyChange={(dirty) => { settingsDirtyRef.current = dirty; }} saveRef={settingsSaveRef} />
             </Drawer>
+
+            <Modal
+                opened={confirmCloseOpened}
+                onClose={() => setConfirmCloseOpened(false)}
+                title={t('pipelineSettings.unsavedTitle')}
+                size="sm"
+                centered
+            >
+                <Text size="sm" mb="lg">{t('pipelineSettings.unsavedDesc')}</Text>
+                <Group justify="flex-end">
+                    <Button variant="subtle" color="gray" onClick={handleConfirmDiscard}>
+                        {t('pipelineSettings.discard')}
+                    </Button>
+                    <Button onClick={handleConfirmSave}>
+                        {t('common.save')}
+                    </Button>
+                </Group>
+            </Modal>
         </TierGate>
     );
 }

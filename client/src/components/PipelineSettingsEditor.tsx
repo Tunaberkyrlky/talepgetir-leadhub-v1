@@ -22,13 +22,26 @@ import {
     IconArrowRight,
     IconPlus,
     IconTrash,
-    IconGripVertical,
     IconDeviceFloppy,
     IconArrowBack,
     IconEdit,
-    IconChevronUp,
-    IconChevronDown,
+    IconGripVertical,
 } from '@tabler/icons-react';
+import {
+    DndContext,
+    closestCenter,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+    arrayMove,
+    SortableContext,
+    useSortable,
+    verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notifications } from '@mantine/notifications';
@@ -40,10 +53,92 @@ import {
 } from '../lib/pipelineConfig';
 import { useStages, type StageDefinition } from '../contexts/StagesContext';
 
-export default function PipelineSettingsEditor() {
+export interface PipelineSettingsEditorHandle {
+    save: () => void;
+}
+
+/** Sortable stage row — defined outside to prevent remounting on parent re-render */
+function SortableStageRow({ slug, groupColor, stage, isEditing, label, editName, editColor, onEditNameChange, onEditColorChange, onSave, isSaving, onCancel, onStartEdit, onRemoveFromGroup, onDelete }: {
+    slug: string;
+    groupColor: string;
+    stage: StageDefinition;
+    isEditing: boolean;
+    label: string;
+    editName: string;
+    editColor: string;
+    onEditNameChange: (v: string) => void;
+    onEditColorChange: (v: string) => void;
+    onSave: () => void;
+    isSaving: boolean;
+    onCancel: () => void;
+    onStartEdit: () => void;
+    onRemoveFromGroup: () => void;
+    onDelete: () => void;
+}) {
+    const { t } = useTranslation();
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: slug });
+
+    return (
+        <Group ref={setNodeRef} justify="space-between" wrap="nowrap" py={4} px="xs"
+            style={{
+                borderRadius: 6,
+                background: `var(--mantine-color-${groupColor}-0)`,
+                transform: CSS.Transform.toString(transform),
+                transition,
+                opacity: isDragging ? 0.5 : 1,
+                zIndex: isDragging ? 1 : undefined,
+            }}
+        >
+            <Group gap="xs" wrap="nowrap" style={{ flex: 1 }}>
+                <Box {...attributes} {...listeners} style={{ cursor: 'grab', display: 'flex', alignItems: 'center' }}>
+                    <IconGripVertical size={14} color="var(--mantine-color-dimmed)" />
+                </Box>
+                <ColorSwatch color={`var(--mantine-color-${stage.color}-6)`} size={14} />
+                {isEditing ? (
+                    <Group gap="xs" style={{ flex: 1 }}>
+                        <TextInput value={editName} onChange={(e) => onEditNameChange(e.currentTarget.value)} size="xs" style={{ flex: 1 }} />
+                        <ColorPickerPopover color={editColor} onChange={onEditColorChange} />
+                        <Button size="compact-xs" onClick={onSave} loading={isSaving}>{t('common.save')}</Button>
+                        <Button size="compact-xs" variant="subtle" color="gray" onClick={onCancel}>{t('common.cancel', 'İptal')}</Button>
+                    </Group>
+                ) : (
+                    <Text size="sm" fw={500}>{label}</Text>
+                )}
+            </Group>
+            {!isEditing && (
+                <Group gap={2}>
+                    <Tooltip label={t('common.edit', 'Düzenle')}>
+                        <ActionIcon variant="subtle" color="gray" size="xs" onClick={onStartEdit}>
+                            <IconEdit size={12} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t('pipelineSettings.removeFromGroup', 'Gruptan çıkar')}>
+                        <ActionIcon variant="subtle" color="gray" size="xs" onClick={onRemoveFromGroup}>
+                            <IconTrash size={12} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t('common.delete', 'Sil')}>
+                        <ActionIcon variant="subtle" color="red" size="xs" onClick={onDelete}>
+                            <IconTrash size={12} />
+                        </ActionIcon>
+                    </Tooltip>
+                </Group>
+            )}
+        </Group>
+    );
+}
+
+export default function PipelineSettingsEditor({ onDirtyChange, saveRef }: {
+    onDirtyChange?: (dirty: boolean) => void;
+    saveRef?: React.MutableRefObject<PipelineSettingsEditorHandle | null>;
+}) {
     const { t } = useTranslation();
     const queryClient = useQueryClient();
     const { allStages, pipelineStageSlugs, getStageLabel, refetch } = useStages();
+
+    const sortSensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    );
 
     // ─── Stage CRUD state ───
     const [editingSlug, setEditingSlug] = useState<string | null>(null);
@@ -74,6 +169,10 @@ export default function PipelineSettingsEditor() {
     useEffect(() => {
         if (groupData) { setGroups(groupData); setHasGroupChanges(false); }
     }, [groupData]);
+
+    useEffect(() => {
+        onDirtyChange?.(hasGroupChanges);
+    }, [hasGroupChanges, onDirtyChange]);
 
     const invalidateAll = () => {
         queryClient.invalidateQueries({ queryKey: ['settings', 'stages'] });
@@ -141,17 +240,31 @@ export default function PipelineSettingsEditor() {
 
     // ─── Group mutations ───
     const saveGroupsMutation = useMutation({
-        mutationFn: async (updatedGroups: PipelineStageGroup[]) =>
-            (await api.put('/settings/pipeline', { groups: updatedGroups })).data,
+        mutationFn: async (updatedGroups: PipelineStageGroup[]) => {
+            // Save group config
+            await api.put('/settings/pipeline', { groups: updatedGroups });
+            // Reorder stages globally based on group order
+            const allSlugs = [
+                ...initialStages.map((s) => s.slug),
+                ...updatedGroups.flatMap((g) => g.stages),
+                ...pipelineStageSlugs.filter((s) => !updatedGroups.some((g) => g.stages.includes(s))),
+                ...terminalStages.map((s) => s.slug),
+            ];
+            await api.put('/settings/stages-reorder', { order: allSlugs });
+        },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['settings', 'pipeline'] });
-            queryClient.invalidateQueries({ queryKey: ['statistics'] });
+            invalidateAll();
             setHasGroupChanges(false);
             notifications.show({ title: t('pipelineSettings.saved'), message: t('pipelineSettings.savedDesc'), color: 'green' });
         },
         onError: () => {
             notifications.show({ title: t('common.error'), message: t('pipelineSettings.saveError'), color: 'red' });
         },
+    });
+
+    // Expose save to parent
+    useEffect(() => {
+        if (saveRef) saveRef.current = { save: () => saveGroupsMutation.mutate(groups) };
     });
 
     // ─── Stage actions ───
@@ -171,14 +284,16 @@ export default function PipelineSettingsEditor() {
         deleteMutation.mutate({ slug: deleteSlug, reassign_to: reassignTo });
     };
 
-    const moveStageInGroup = (groupIndex: number, stageSlug: string, direction: 'up' | 'down') => {
+    const handleStageDragEnd = (groupIndex: number, event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!over || active.id === over.id) return;
+
         const group = groups[groupIndex];
-        const idx = group.stages.indexOf(stageSlug);
-        if (idx < 0) return;
-        const newIdx = direction === 'up' ? idx - 1 : idx + 1;
-        if (newIdx < 0 || newIdx >= group.stages.length) return;
-        const newStages = [...group.stages];
-        [newStages[idx], newStages[newIdx]] = [newStages[newIdx], newStages[idx]];
+        const oldIdx = group.stages.indexOf(String(active.id));
+        const newIdx = group.stages.indexOf(String(over.id));
+        if (oldIdx < 0 || newIdx < 0) return;
+
+        const newStages = arrayMove(group.stages, oldIdx, newIdx);
         setGroups((prev) => prev.map((g, i) => i === groupIndex ? { ...g, stages: newStages } : g));
         setHasGroupChanges(true);
 
@@ -186,7 +301,6 @@ export default function PipelineSettingsEditor() {
         const allSlugs = [
             ...initialStages.map((s) => s.slug),
             ...groups.flatMap((g, i) => i === groupIndex ? newStages : g.stages),
-            // include unassigned pipeline stages
             ...pipelineStageSlugs.filter((s) => !groups.some((g) => g.stages.includes(s))),
             ...terminalStages.map((s) => s.slug),
         ];
@@ -222,63 +336,7 @@ export default function PipelineSettingsEditor() {
         setHasGroupChanges(true);
     };
 
-    // ─── Inline stage row (within a group) ───
-    const renderInlineStage = (slug: string, groupIndex: number, groupColor: string, stageList: string[]) => {
-        const stage = stageMap.get(slug);
-        if (!stage) return null;
-        const isEditing = editingSlug === slug;
-        const idx = stageList.indexOf(slug);
-
-        return (
-            <Group key={slug} justify="space-between" wrap="nowrap" py={4} px="xs"
-                style={{ borderRadius: 6, background: `var(--mantine-color-${groupColor}-0)` }}>
-                <Group gap="xs" wrap="nowrap" style={{ flex: 1 }}>
-                    <Stack gap={0}>
-                        <ActionIcon variant="subtle" color="gray" size={16}
-                            onClick={() => moveStageInGroup(groupIndex, slug, 'up')}
-                            disabled={idx === 0}>
-                            <IconChevronUp size={10} />
-                        </ActionIcon>
-                        <ActionIcon variant="subtle" color="gray" size={16}
-                            onClick={() => moveStageInGroup(groupIndex, slug, 'down')}
-                            disabled={idx === stageList.length - 1}>
-                            <IconChevronDown size={10} />
-                        </ActionIcon>
-                    </Stack>
-                    <ColorSwatch color={`var(--mantine-color-${stage.color}-6)`} size={14} />
-                    {isEditing ? (
-                        <Group gap="xs" style={{ flex: 1 }}>
-                            <TextInput value={editName} onChange={(e) => setEditName(e.currentTarget.value)} size="xs" style={{ flex: 1 }} />
-                            <ColorPickerPopover color={editColor} onChange={setEditColor} />
-                            <Button size="compact-xs" onClick={saveEdit} loading={updateMutation.isPending}>{t('common.save')}</Button>
-                            <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setEditingSlug(null)}>{t('common.cancel', 'İptal')}</Button>
-                        </Group>
-                    ) : (
-                        <Text size="sm" fw={500}>{getStageLabel(slug)}</Text>
-                    )}
-                </Group>
-                {!isEditing && (
-                    <Group gap={2}>
-                        <Tooltip label={t('common.edit', 'Düzenle')}>
-                            <ActionIcon variant="subtle" color="gray" size="xs" onClick={() => startEdit(stage)}>
-                                <IconEdit size={12} />
-                            </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label={t('pipelineSettings.removeFromGroup', 'Gruptan çıkar')}>
-                            <ActionIcon variant="subtle" color="gray" size="xs" onClick={() => removeStageFromGroup(groupIndex, slug)}>
-                                <IconTrash size={12} />
-                            </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label={t('common.delete', 'Sil')}>
-                            <ActionIcon variant="subtle" color="red" size="xs" onClick={() => handleDelete(slug)}>
-                                <IconTrash size={12} />
-                            </ActionIcon>
-                        </Tooltip>
-                    </Group>
-                )}
-            </Group>
-        );
-    };
+    // SortableStageRow is defined outside the component (see above)
 
     // ─── Simple stage row (initial / terminal) ───
     const renderSimpleStageRow = (stage: StageDefinition) => {
@@ -363,35 +421,58 @@ export default function PipelineSettingsEditor() {
 
             {groups.map((group, gi) => (
                 <Paper key={group.id} p="md" radius="md" withBorder>
-                    {/* Group header */}
-                    <Group justify="space-between" mb="sm">
-                        <Group gap="xs">
-                            <IconGripVertical size={16} color="var(--mantine-color-dimmed)" />
-                            <Text size="sm" fw={600}>{t('pipelineSettings.phase')} {gi + 1}</Text>
-                        </Group>
+                    {/* Group name + color + delete */}
+                    <Group gap="sm" mb="md" align="flex-end">
+                        <TextInput label={t('pipelineSettings.stageName')} placeholder={t('pipelineSettings.groupNamePlaceholder')}
+                            value={group.label ? t(`stageGroups.${group.label}`, group.label) : ''}
+                            onChange={(e) => updateGroup(gi, { label: e.currentTarget.value })} size="sm" style={{ flex: 1 }} />
+                        <ColorPickerPopover color={group.color} onChange={(color) => updateGroup(gi, { color })} />
                         <Tooltip label={t('pipelineSettings.removeGroup')}>
-                            <ActionIcon variant="subtle" color="red" size="sm" onClick={() => removeGroup(gi)} disabled={groups.length <= 1}>
+                            <ActionIcon variant="subtle" color="red" size="lg" onClick={() => removeGroup(gi)} disabled={groups.length <= 1}>
                                 <IconTrash size={14} />
                             </ActionIcon>
                         </Tooltip>
                     </Group>
 
-                    {/* Group name + color */}
-                    <Group gap="sm" mb="md" align="flex-end">
-                        <TextInput label={t('pipelineSettings.groupName')} placeholder={t('pipelineSettings.groupNamePlaceholder')}
-                            value={group.label ? t(`stageGroups.${group.label}`, group.label) : ''}
-                            onChange={(e) => updateGroup(gi, { label: e.currentTarget.value })} size="sm" style={{ flex: 1 }} />
-                        <ColorPickerPopover color={group.color} onChange={(color) => updateGroup(gi, { color })} />
-                    </Group>
-
                     {/* Inline stages */}
                     <Text size="xs" c="dimmed" mb={6}>{t('pipelineSettings.assignedStages')}</Text>
-                    <Stack gap={4} mb="sm">
-                        {group.stages.length === 0 && (
-                            <Text size="xs" c="dimmed" fs="italic" py={4}>{t('pipelineSettings.noStagesAssigned')}</Text>
-                        )}
-                        {group.stages.map((slug) => renderInlineStage(slug, gi, group.color, group.stages))}
-                    </Stack>
+                    <DndContext
+                        sensors={sortSensors}
+                        collisionDetection={closestCenter}
+                        onDragEnd={(event) => handleStageDragEnd(gi, event)}
+                    >
+                        <SortableContext items={group.stages} strategy={verticalListSortingStrategy}>
+                            <Stack gap={4} mb="sm">
+                                {group.stages.length === 0 && (
+                                    <Text size="xs" c="dimmed" fs="italic" py={4}>{t('pipelineSettings.noStagesAssigned')}</Text>
+                                )}
+                                {group.stages.map((slug) => {
+                                    const stg = stageMap.get(slug);
+                                    if (!stg) return null;
+                                    return (
+                                        <SortableStageRow
+                                            key={slug}
+                                            slug={slug}
+                                            groupColor={group.color}
+                                            stage={stg}
+                                            isEditing={editingSlug === slug}
+                                            label={getStageLabel(slug)}
+                                            editName={editName}
+                                            editColor={editColor}
+                                            onEditNameChange={setEditName}
+                                            onEditColorChange={setEditColor}
+                                            onSave={saveEdit}
+                                            isSaving={updateMutation.isPending}
+                                            onCancel={() => setEditingSlug(null)}
+                                            onStartEdit={() => startEdit(stg)}
+                                            onRemoveFromGroup={() => removeStageFromGroup(gi, slug)}
+                                            onDelete={() => handleDelete(slug)}
+                                        />
+                                    );
+                                })}
+                            </Stack>
+                        </SortableContext>
+                    </DndContext>
 
                     {/* Add existing or create new stage */}
                     <Group gap="xs">
