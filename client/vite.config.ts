@@ -7,4 +7,15 @@ export default defineConfig({
   optimizeDeps: {
     include: ['react-simple-maps'],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          mantine: ['@mantine/core', '@mantine/hooks', '@mantine/notifications', '@mantine/modals', '@mantine/dropzone'],
+          query: ['@tanstack/react-query'],
+        },
+      },
+    },
+  },
 })

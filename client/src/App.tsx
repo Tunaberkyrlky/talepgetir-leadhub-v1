@@ -1,8 +1,10 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { MantineProvider, createTheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { ModalsProvider } from '@mantine/modals';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Center, Loader } from '@mantine/core';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/dropzone/styles.css';
@@ -12,15 +14,16 @@ import { AuthProvider } from './contexts/AuthContext';
 import { ImportProgressProvider } from './contexts/ImportProgressContext';
 import ImportProgressBar from './components/ImportProgressBar';
 import Layout from './components/Layout';
-import LoginPage from './pages/LoginPage';
-import LeadsPage from './pages/LeadsPage';
-import ImportPage from './pages/ImportPage';
-import CompanyDetailPage from './pages/CompanyDetailPage';
-import DashboardPage from './pages/DashboardPage';
-import PeoplePage from './pages/PeoplePage';
-import PersonDetailPage from './pages/PersonDetailPage';
-import PipelinePage from './pages/PipelinePage';
-import AdminPage from './pages/AdminPage';
+
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const LeadsPage = lazy(() => import('./pages/LeadsPage'));
+const ImportPage = lazy(() => import('./pages/ImportPage'));
+const CompanyDetailPage = lazy(() => import('./pages/CompanyDetailPage'));
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const PeoplePage = lazy(() => import('./pages/PeoplePage'));
+const PersonDetailPage = lazy(() => import('./pages/PersonDetailPage'));
+const PipelinePage = lazy(() => import('./pages/PipelinePage'));
+const AdminPage = lazy(() => import('./pages/AdminPage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -60,22 +63,24 @@ function App() {
             <ImportProgressBar />
           <BrowserRouter>
             <AuthProvider>
-              <Routes>
-                <Route path="/login" element={<LoginPage />} />
-                <Route element={<Layout />}>
-                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/dashboard" element={<DashboardPage />} />
-                  <Route path="/companies" element={<LeadsPage />} />
-                  <Route path="/companies/:id" element={<CompanyDetailPage />} />
-                  <Route path="/people" element={<PeoplePage />} />
-                  <Route path="/people/:id" element={<PersonDetailPage />} />
-                  <Route path="/pipeline" element={<PipelinePage />} />
-                  <Route path="/import" element={<ImportPage />} />
-                  <Route path="/admin" element={<AdminPage />} />
-                  <Route path="/admin/:tab" element={<AdminPage />} />
-                </Route>
-                <Route path="*" element={<Navigate to="/dashboard" replace />} />
-              </Routes>
+              <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
+                <Routes>
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route element={<Layout />}>
+                    <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                    <Route path="/dashboard" element={<DashboardPage />} />
+                    <Route path="/companies" element={<LeadsPage />} />
+                    <Route path="/companies/:id" element={<CompanyDetailPage />} />
+                    <Route path="/people" element={<PeoplePage />} />
+                    <Route path="/people/:id" element={<PersonDetailPage />} />
+                    <Route path="/pipeline" element={<PipelinePage />} />
+                    <Route path="/import" element={<ImportPage />} />
+                    <Route path="/admin" element={<AdminPage />} />
+                    <Route path="/admin/:tab" element={<AdminPage />} />
+                  </Route>
+                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                </Routes>
+              </Suspense>
             </AuthProvider>
           </BrowserRouter>
           </ImportProgressProvider>

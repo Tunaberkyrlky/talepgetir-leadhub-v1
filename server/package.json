@@ -9,6 +9,7 @@
     },
     "dependencies": {
         "@supabase/supabase-js": "^2.49.1",
+        "compression": "^1.8.1",
         "cors": "^2.8.5",
         "dotenv": "^16.4.7",
         "exceljs": "^4.4.0",
@@ -21,6 +22,7 @@
         "pino-http": "^11.0.0"
     },
     "devDependencies": {
+        "@types/compression": "^1.8.1",
         "@types/cors": "^2.8.17",
         "@types/express": "^5.0.0",
         "@types/multer": "^2.0.0",

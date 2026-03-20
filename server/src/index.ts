@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -26,6 +27,9 @@ import settingsRoutes from './routes/settings.js';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
+
+// Compression (before all routes for smaller responses)
+app.use(compression());
 
 // Security middleware
 app.use(helmet());
