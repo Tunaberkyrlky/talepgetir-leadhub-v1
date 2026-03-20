@@ -14,10 +14,325 @@ const DEFAULT_PIPELINE_GROUPS = [
     { id: 'closing', label: 'closing', color: 'green', stages: ['negotiation'] },
 ];
 
-const VALID_STAGES = [
-    'in_queue', 'first_contact', 'connected', 'qualified',
-    'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
-];
+// ─── Stage cache (per tenant, 60s TTL) ───
+interface CachedStages {
+    all: { slug: string; stage_type: string }[];
+    ts: number;
+}
+const stageCache = new Map<string, CachedStages>();
+const CACHE_TTL = 60_000;
+
+/** Fetch tenant's valid stage slugs (cached) */
+export async function getTenantStages(tenantId: string): Promise<{ slug: string; stage_type: string }[]> {
+    const cached = stageCache.get(tenantId);
+    if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.all;
+
+    const { data, error } = await supabaseAdmin
+        .from('pipeline_stages')
+        .select('slug, stage_type')
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true)
+        .order('sort_order');
+
+    if (error) {
+        log.error({ err: error }, 'Failed to fetch tenant stages');
+        return [];
+    }
+
+    const result = data || [];
+    stageCache.set(tenantId, { all: result, ts: Date.now() });
+    return result;
+}
+
+export async function getValidStageSlugs(tenantId: string): Promise<string[]> {
+    return (await getTenantStages(tenantId)).map((s) => s.slug);
+}
+
+export async function getPipelineStageSlugs(tenantId: string): Promise<string[]> {
+    return (await getTenantStages(tenantId))
+        .filter((s) => s.stage_type === 'pipeline')
+        .map((s) => s.slug);
+}
+
+export async function getTerminalStageSlugs(tenantId: string): Promise<string[]> {
+    return (await getTenantStages(tenantId))
+        .filter((s) => s.stage_type === 'terminal')
+        .map((s) => s.slug);
+}
+
+function invalidateStageCache(tenantId: string) {
+    stageCache.delete(tenantId);
+}
+
+function isAdmin(role: string): boolean {
+    return ['superadmin', 'ops_agent', 'client_admin'].includes(role);
+}
+
+function slugify(text: string): string {
+    return text.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+// ─── Stages CRUD ───
+
+// GET /api/settings/stages — All pipeline stages for current tenant
+router.get('/stages', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+
+        const { data, error } = await supabaseAdmin
+            .from('pipeline_stages')
+            .select('*')
+            .eq('tenant_id', tenantId)
+            .eq('is_active', true)
+            .order('sort_order');
+
+        if (error) {
+            log.error({ err: error }, 'Failed to fetch stages');
+            throw new AppError('Failed to fetch stages', 500);
+        }
+
+        res.json({ data: data || [] });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Get stages error');
+        res.status(500).json({ error: 'Failed to fetch stages' });
+    }
+});
+
+// POST /api/settings/stages — Create a new stage
+router.post('/stages', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Insufficient permissions' });
+            return;
+        }
+
+        const { display_name, color, sort_order, stage_type } = req.body;
+        let { slug } = req.body;
+
+        if (!display_name || typeof display_name !== 'string' || display_name.trim().length === 0) {
+            res.status(400).json({ error: 'display_name is required' });
+            return;
+        }
+
+        if (!slug) slug = slugify(display_name);
+
+        const validTypes = ['initial', 'pipeline', 'terminal'];
+        const type = validTypes.includes(stage_type) ? stage_type : 'pipeline';
+
+        // Don't allow creating more than one initial stage
+        if (type === 'initial') {
+            const existing = await getTenantStages(tenantId);
+            if (existing.some((s) => s.stage_type === 'initial')) {
+                res.status(400).json({ error: 'Only one initial stage is allowed' });
+                return;
+            }
+        }
+
+        const { data, error } = await supabaseAdmin
+            .from('pipeline_stages')
+            .insert({
+                tenant_id: tenantId,
+                slug,
+                display_name: display_name.trim(),
+                color: color || 'gray',
+                sort_order: sort_order ?? 99,
+                stage_type: type,
+            })
+            .select()
+            .single();
+
+        if (error) {
+            if (error.code === '23505') {
+                res.status(409).json({ error: `Stage "${slug}" already exists` });
+                return;
+            }
+            log.error({ err: error }, 'Create stage error');
+            throw new AppError('Failed to create stage', 500);
+        }
+
+        invalidateStageCache(tenantId);
+        res.status(201).json({ data });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Create stage error');
+        res.status(500).json({ error: 'Failed to create stage' });
+    }
+});
+
+// PUT /api/settings/stages/:slug — Update a stage
+router.put('/stages/:slug', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Insufficient permissions' });
+            return;
+        }
+
+        const { slug } = req.params;
+        const { display_name, color, sort_order } = req.body;
+
+        const updateData: Record<string, unknown> = {};
+        if (display_name !== undefined) updateData.display_name = display_name.trim();
+        if (color !== undefined) updateData.color = color;
+        if (sort_order !== undefined) updateData.sort_order = sort_order;
+
+        if (Object.keys(updateData).length === 0) {
+            res.status(400).json({ error: 'No fields to update' });
+            return;
+        }
+
+        const { data, error } = await supabaseAdmin
+            .from('pipeline_stages')
+            .update(updateData)
+            .eq('tenant_id', tenantId)
+            .eq('slug', slug)
+            .select()
+            .single();
+
+        if (error || !data) {
+            res.status(404).json({ error: 'Stage not found' });
+            return;
+        }
+
+        invalidateStageCache(tenantId);
+        res.json({ data });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Update stage error');
+        res.status(500).json({ error: 'Failed to update stage' });
+    }
+});
+
+// DELETE /api/settings/stages/:slug — Delete a stage (reassign companies)
+router.delete('/stages/:slug', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Insufficient permissions' });
+            return;
+        }
+
+        const { slug } = req.params;
+        const { reassign_to } = req.body;
+
+        // Fetch the stage to check its type
+        const { data: stage } = await supabaseAdmin
+            .from('pipeline_stages')
+            .select('stage_type')
+            .eq('tenant_id', tenantId)
+            .eq('slug', slug)
+            .single();
+
+        if (!stage) {
+            res.status(404).json({ error: 'Stage not found' });
+            return;
+        }
+
+        // Cannot delete initial or terminal stages
+        if (stage.stage_type === 'initial') {
+            res.status(400).json({ error: 'Cannot delete the initial stage' });
+            return;
+        }
+        if (stage.stage_type === 'terminal') {
+            res.status(400).json({ error: 'Cannot delete terminal stages (won/lost/on_hold)' });
+            return;
+        }
+
+        // Check if any companies use this stage
+        const { count } = await supabaseAdmin
+            .from('companies')
+            .select('*', { count: 'exact', head: true })
+            .eq('tenant_id', tenantId)
+            .eq('stage', slug);
+
+        if ((count || 0) > 0) {
+            if (!reassign_to) {
+                res.status(400).json({
+                    error: `${count} companies are in this stage. Provide reassign_to to move them.`,
+                    company_count: count,
+                });
+                return;
+            }
+
+            // Validate reassign_to is a valid stage
+            const validSlugs = await getValidStageSlugs(tenantId);
+            if (!validSlugs.includes(reassign_to) || reassign_to === slug) {
+                res.status(400).json({ error: `Invalid reassign_to stage: "${reassign_to}"` });
+                return;
+            }
+
+            // Reassign companies
+            const { error: reassignError } = await supabaseAdmin
+                .from('companies')
+                .update({ stage: reassign_to, updated_at: new Date().toISOString() })
+                .eq('tenant_id', tenantId)
+                .eq('stage', slug);
+
+            if (reassignError) {
+                log.error({ err: reassignError }, 'Reassign companies error');
+                throw new AppError('Failed to reassign companies', 500);
+            }
+        }
+
+        // Delete the stage
+        const { error: deleteError } = await supabaseAdmin
+            .from('pipeline_stages')
+            .delete()
+            .eq('tenant_id', tenantId)
+            .eq('slug', slug);
+
+        if (deleteError) {
+            log.error({ err: deleteError }, 'Delete stage error');
+            throw new AppError('Failed to delete stage', 500);
+        }
+
+        invalidateStageCache(tenantId);
+        res.json({ deleted: slug, reassigned_to: reassign_to || null, companies_moved: count || 0 });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Delete stage error');
+        res.status(500).json({ error: 'Failed to delete stage' });
+    }
+});
+
+// PUT /api/settings/stages/reorder — Bulk reorder stages
+router.put('/stages-reorder', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Insufficient permissions' });
+            return;
+        }
+
+        const { order } = req.body;
+        if (!Array.isArray(order) || order.length === 0) {
+            res.status(400).json({ error: 'order must be a non-empty array of slugs' });
+            return;
+        }
+
+        // Update sort_order for each slug
+        const updates = order.map((slug: string, index: number) =>
+            supabaseAdmin
+                .from('pipeline_stages')
+                .update({ sort_order: index })
+                .eq('tenant_id', tenantId)
+                .eq('slug', slug)
+        );
+
+        await Promise.all(updates);
+
+        invalidateStageCache(tenantId);
+        res.json({ success: true });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Reorder stages error');
+        res.status(500).json({ error: 'Failed to reorder stages' });
+    }
+});
+
+// ─── Pipeline Groups (existing) ───
 
 // GET /api/settings/pipeline — Get pipeline stage groups for current tenant
 router.get('/pipeline', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -52,7 +367,7 @@ router.put('/pipeline', async (req: Request, res: Response, next: NextFunction):
         const userRole = req.user!.role;
 
         // Only admins can update settings
-        if (!['superadmin', 'ops_agent', 'client_admin'].includes(userRole)) {
+        if (!isAdmin(userRole)) {
             res.status(403).json({ error: 'Insufficient permissions to update pipeline settings' });
             return;
         }
@@ -63,6 +378,9 @@ router.put('/pipeline', async (req: Request, res: Response, next: NextFunction):
             res.status(400).json({ error: 'Pipeline groups must be a non-empty array' });
             return;
         }
+
+        // Dynamic stage validation
+        const validStageSlugs = await getPipelineStageSlugs(tenantId);
 
         // Validate each group
         for (const group of groups) {
@@ -75,7 +393,7 @@ router.put('/pipeline', async (req: Request, res: Response, next: NextFunction):
                 return;
             }
             for (const stage of group.stages) {
-                if (!VALID_STAGES.includes(stage)) {
+                if (!validStageSlugs.includes(stage)) {
                     res.status(400).json({ error: `Invalid stage "${stage}" in group "${group.id}"` });
                     return;
                 }

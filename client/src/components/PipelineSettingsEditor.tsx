@@ -5,7 +5,6 @@ import {
     Paper,
     Text,
     TextInput,
-    Badge,
     ActionIcon,
     Button,
     ColorSwatch,
@@ -16,6 +15,8 @@ import {
     Center,
     Tooltip,
     Divider,
+    Modal,
+    Select,
 } from '@mantine/core';
 import {
     IconArrowRight,
@@ -24,6 +25,9 @@ import {
     IconGripVertical,
     IconDeviceFloppy,
     IconArrowBack,
+    IconEdit,
+    IconChevronUp,
+    IconChevronDown,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -33,311 +37,455 @@ import {
     type PipelineStageGroup,
     DEFAULT_PIPELINE_GROUPS,
     PIPELINE_GROUP_COLORS,
-    ASSIGNABLE_STAGES,
 } from '../lib/pipelineConfig';
+import { useStages, type StageDefinition } from '../contexts/StagesContext';
 
 export default function PipelineSettingsEditor() {
     const { t } = useTranslation();
     const queryClient = useQueryClient();
-    const [groups, setGroups] = useState<PipelineStageGroup[]>([]);
-    const [hasChanges, setHasChanges] = useState(false);
+    const { allStages, pipelineStageSlugs, getStageLabel, refetch } = useStages();
 
-    // Fetch current pipeline config
-    const { data, isLoading } = useQuery<PipelineStageGroup[]>({
+    // ─── Stage CRUD state ───
+    const [editingSlug, setEditingSlug] = useState<string | null>(null);
+    const [editName, setEditName] = useState('');
+    const [editColor, setEditColor] = useState('gray');
+    const [addingInGroup, setAddingInGroup] = useState<number | null>(null);
+    const [newName, setNewName] = useState('');
+    const [newColor, setNewColor] = useState('blue');
+    const [deleteSlug, setDeleteSlug] = useState<string | null>(null);
+    const [reassignTo, setReassignTo] = useState<string | null>(null);
+    const [deleteCompanyCount, setDeleteCompanyCount] = useState(0);
+
+    // ─── Group state ───
+    const [groups, setGroups] = useState<PipelineStageGroup[]>([]);
+    const [hasGroupChanges, setHasGroupChanges] = useState(false);
+
+    const initialStages = allStages.filter((s) => s.stage_type === 'initial');
+    const pipelineStages = allStages.filter((s) => s.stage_type === 'pipeline');
+    const terminalStages = allStages.filter((s) => s.stage_type === 'terminal');
+    const stageMap = new Map(allStages.map((s) => [s.slug, s]));
+
+    // ─── Fetch groups ───
+    const { data: groupData, isLoading: groupsLoading } = useQuery<PipelineStageGroup[]>({
         queryKey: ['settings', 'pipeline'],
         queryFn: async () => (await api.get('/settings/pipeline')).data.data,
     });
 
     useEffect(() => {
-        if (data) {
-            setGroups(data);
-            setHasChanges(false);
-        }
-    }, [data]);
+        if (groupData) { setGroups(groupData); setHasGroupChanges(false); }
+    }, [groupData]);
 
-    // Save mutation
-    const saveMutation = useMutation({
-        mutationFn: async (updatedGroups: PipelineStageGroup[]) => {
-            return (await api.put('/settings/pipeline', { groups: updatedGroups })).data;
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['settings', 'pipeline'] });
-            queryClient.invalidateQueries({ queryKey: ['statistics'] });
-            setHasChanges(false);
-            notifications.show({
-                title: t('pipelineSettings.saved'),
-                message: t('pipelineSettings.savedDesc'),
-                color: 'green',
-            });
+    const invalidateAll = () => {
+        queryClient.invalidateQueries({ queryKey: ['settings', 'stages'] });
+        queryClient.invalidateQueries({ queryKey: ['settings', 'pipeline'] });
+        queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+        queryClient.invalidateQueries({ queryKey: ['statistics'] });
+        refetch();
+    };
+
+    // ─── Stage mutations ───
+    const createMutation = useMutation({
+        mutationFn: async (payload: { display_name: string; color: string; sort_order: number }) =>
+            (await api.post('/settings/stages', { ...payload, stage_type: 'pipeline' })).data,
+        onSuccess: (data) => {
+            invalidateAll();
+            // Auto-assign new stage to the group where it was created
+            if (addingInGroup !== null && data?.data?.slug) {
+                setGroups((prev) => prev.map((g, i) =>
+                    i === addingInGroup ? { ...g, stages: [...g.stages, data.data.slug] } : g
+                ));
+                setHasGroupChanges(true);
+            }
+            setNewName(''); setNewColor('blue'); setAddingInGroup(null);
+            notifications.show({ message: t('pipelineSettings.stageCreated'), color: 'green' });
         },
         onError: () => {
-            notifications.show({
-                title: t('common.error'),
-                message: t('pipelineSettings.saveError'),
-                color: 'red',
-            });
+            notifications.show({ title: t('common.error'), message: t('pipelineSettings.saveError'), color: 'red' });
         },
     });
 
-    // Collect stages already assigned to a group
+    const updateMutation = useMutation({
+        mutationFn: async ({ slug, ...payload }: { slug: string; display_name?: string; color?: string }) =>
+            (await api.put(`/settings/stages/${slug}`, payload)).data,
+        onSuccess: () => {
+            invalidateAll(); setEditingSlug(null);
+            notifications.show({ message: t('pipelineSettings.saved'), color: 'green' });
+        },
+        onError: () => {
+            notifications.show({ title: t('common.error'), message: t('pipelineSettings.saveError'), color: 'red' });
+        },
+    });
+
+    const deleteMutation = useMutation({
+        mutationFn: async ({ slug, reassign_to }: { slug: string; reassign_to?: string }) =>
+            (await api.delete(`/settings/stages/${slug}`, { data: { reassign_to } })).data,
+        onSuccess: (_data, vars) => {
+            invalidateAll();
+            // Also remove from groups
+            setGroups((prev) => prev.map((g) => ({ ...g, stages: g.stages.filter((s) => s !== vars.slug) })));
+            setHasGroupChanges(true);
+            setDeleteSlug(null); setReassignTo(null); setDeleteCompanyCount(0);
+            notifications.show({ message: t('pipelineSettings.stageDeleted'), color: 'green' });
+        },
+        onError: (err: any) => {
+            const data = err?.response?.data;
+            if (data?.company_count) { setDeleteCompanyCount(data.company_count); }
+            else { notifications.show({ title: t('common.error'), message: data?.error || t('pipelineSettings.saveError'), color: 'red' }); }
+        },
+    });
+
+    const reorderMutation = useMutation({
+        mutationFn: async (order: string[]) => (await api.put('/settings/stages-reorder', { order })).data,
+        onSuccess: () => { invalidateAll(); },
+    });
+
+    // ─── Group mutations ───
+    const saveGroupsMutation = useMutation({
+        mutationFn: async (updatedGroups: PipelineStageGroup[]) =>
+            (await api.put('/settings/pipeline', { groups: updatedGroups })).data,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['settings', 'pipeline'] });
+            queryClient.invalidateQueries({ queryKey: ['statistics'] });
+            setHasGroupChanges(false);
+            notifications.show({ title: t('pipelineSettings.saved'), message: t('pipelineSettings.savedDesc'), color: 'green' });
+        },
+        onError: () => {
+            notifications.show({ title: t('common.error'), message: t('pipelineSettings.saveError'), color: 'red' });
+        },
+    });
+
+    // ─── Stage actions ───
+    const startEdit = (stage: StageDefinition) => {
+        setEditingSlug(stage.slug); setEditName(stage.display_name); setEditColor(stage.color);
+    };
+    const saveEdit = () => {
+        if (!editingSlug) return;
+        updateMutation.mutate({ slug: editingSlug, display_name: editName, color: editColor });
+    };
+    const handleDelete = (slug: string) => {
+        setDeleteSlug(slug); setDeleteCompanyCount(0); setReassignTo(null);
+        deleteMutation.mutate({ slug });
+    };
+    const confirmDeleteWithReassign = () => {
+        if (!deleteSlug || !reassignTo) return;
+        deleteMutation.mutate({ slug: deleteSlug, reassign_to: reassignTo });
+    };
+
+    const moveStageInGroup = (groupIndex: number, stageSlug: string, direction: 'up' | 'down') => {
+        const group = groups[groupIndex];
+        const idx = group.stages.indexOf(stageSlug);
+        if (idx < 0) return;
+        const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+        if (newIdx < 0 || newIdx >= group.stages.length) return;
+        const newStages = [...group.stages];
+        [newStages[idx], newStages[newIdx]] = [newStages[newIdx], newStages[idx]];
+        setGroups((prev) => prev.map((g, i) => i === groupIndex ? { ...g, stages: newStages } : g));
+        setHasGroupChanges(true);
+
+        // Also reorder globally
+        const allSlugs = [
+            ...initialStages.map((s) => s.slug),
+            ...groups.flatMap((g, i) => i === groupIndex ? newStages : g.stages),
+            // include unassigned pipeline stages
+            ...pipelineStageSlugs.filter((s) => !groups.some((g) => g.stages.includes(s))),
+            ...terminalStages.map((s) => s.slug),
+        ];
+        reorderMutation.mutate(allSlugs);
+    };
+
+    // ─── Group actions ───
     const assignedStages = groups.flatMap((g) => g.stages);
-    const unassignedStages = ASSIGNABLE_STAGES.filter((s) => !assignedStages.includes(s));
+    const unassignedPipelineStages = pipelineStageSlugs.filter((s) => !assignedStages.includes(s));
 
     const updateGroup = (index: number, updates: Partial<PipelineStageGroup>) => {
         setGroups((prev) => prev.map((g, i) => (i === index ? { ...g, ...updates } : g)));
-        setHasChanges(true);
+        setHasGroupChanges(true);
     };
-
-    const removeStageFromGroup = (groupIndex: number, stage: string) => {
-        setGroups((prev) =>
-            prev.map((g, i) =>
-                i === groupIndex ? { ...g, stages: g.stages.filter((s) => s !== stage) } : g
-            )
-        );
-        setHasChanges(true);
+    const removeStageFromGroup = (gi: number, stage: string) => {
+        setGroups((prev) => prev.map((g, i) => i === gi ? { ...g, stages: g.stages.filter((s) => s !== stage) } : g));
+        setHasGroupChanges(true);
     };
-
-    const addStageToGroup = (groupIndex: number, stage: string) => {
-        setGroups((prev) =>
-            prev.map((g, i) =>
-                i === groupIndex ? { ...g, stages: [...g.stages, stage] } : g
-            )
-        );
-        setHasChanges(true);
+    const addStageToGroup = (gi: number, stage: string) => {
+        setGroups((prev) => prev.map((g, i) => i === gi ? { ...g, stages: [...g.stages, stage] } : g));
+        setHasGroupChanges(true);
     };
-
     const addGroup = () => {
-        const newId = `group_${Date.now()}`;
-        setGroups((prev) => [
-            ...prev,
-            { id: newId, label: '', color: 'gray', stages: [] },
-        ]);
-        setHasChanges(true);
+        setGroups((prev) => [...prev, { id: `group_${Date.now()}`, label: '', color: 'gray', stages: [] }]);
+        setHasGroupChanges(true);
     };
-
     const removeGroup = (index: number) => {
         setGroups((prev) => prev.filter((_, i) => i !== index));
-        setHasChanges(true);
+        setHasGroupChanges(true);
     };
-
-    const resetToDefault = () => {
+    const resetGroups = () => {
         setGroups(DEFAULT_PIPELINE_GROUPS.map((g) => ({ ...g })));
-        setHasChanges(true);
+        setHasGroupChanges(true);
     };
 
-    if (isLoading) {
+    // ─── Inline stage row (within a group) ───
+    const renderInlineStage = (slug: string, groupIndex: number, groupColor: string, stageList: string[]) => {
+        const stage = stageMap.get(slug);
+        if (!stage) return null;
+        const isEditing = editingSlug === slug;
+        const idx = stageList.indexOf(slug);
+
         return (
-            <Center py="xl">
-                <Loader size="sm" color="violet" />
-            </Center>
+            <Group key={slug} justify="space-between" wrap="nowrap" py={4} px="xs"
+                style={{ borderRadius: 6, background: `var(--mantine-color-${groupColor}-0)` }}>
+                <Group gap="xs" wrap="nowrap" style={{ flex: 1 }}>
+                    <Stack gap={0}>
+                        <ActionIcon variant="subtle" color="gray" size={16}
+                            onClick={() => moveStageInGroup(groupIndex, slug, 'up')}
+                            disabled={idx === 0}>
+                            <IconChevronUp size={10} />
+                        </ActionIcon>
+                        <ActionIcon variant="subtle" color="gray" size={16}
+                            onClick={() => moveStageInGroup(groupIndex, slug, 'down')}
+                            disabled={idx === stageList.length - 1}>
+                            <IconChevronDown size={10} />
+                        </ActionIcon>
+                    </Stack>
+                    <ColorSwatch color={`var(--mantine-color-${stage.color}-6)`} size={14} />
+                    {isEditing ? (
+                        <Group gap="xs" style={{ flex: 1 }}>
+                            <TextInput value={editName} onChange={(e) => setEditName(e.currentTarget.value)} size="xs" style={{ flex: 1 }} />
+                            <ColorPickerPopover color={editColor} onChange={setEditColor} />
+                            <Button size="compact-xs" onClick={saveEdit} loading={updateMutation.isPending}>{t('common.save')}</Button>
+                            <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setEditingSlug(null)}>{t('common.cancel', 'İptal')}</Button>
+                        </Group>
+                    ) : (
+                        <Text size="sm" fw={500}>{getStageLabel(slug)}</Text>
+                    )}
+                </Group>
+                {!isEditing && (
+                    <Group gap={2}>
+                        <Tooltip label={t('common.edit', 'Düzenle')}>
+                            <ActionIcon variant="subtle" color="gray" size="xs" onClick={() => startEdit(stage)}>
+                                <IconEdit size={12} />
+                            </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label={t('pipelineSettings.removeFromGroup', 'Gruptan çıkar')}>
+                            <ActionIcon variant="subtle" color="gray" size="xs" onClick={() => removeStageFromGroup(groupIndex, slug)}>
+                                <IconTrash size={12} />
+                            </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label={t('common.delete', 'Sil')}>
+                            <ActionIcon variant="subtle" color="red" size="xs" onClick={() => handleDelete(slug)}>
+                                <IconTrash size={12} />
+                            </ActionIcon>
+                        </Tooltip>
+                    </Group>
+                )}
+            </Group>
         );
+    };
+
+    // ─── Simple stage row (initial / terminal) ───
+    const renderSimpleStageRow = (stage: StageDefinition) => {
+        const isEditing = editingSlug === stage.slug;
+        return (
+            <Paper key={stage.slug} p="xs" radius="md" withBorder>
+                <Group justify="space-between" wrap="nowrap">
+                    <Group gap="xs" wrap="nowrap" style={{ flex: 1 }}>
+                        <ColorSwatch color={`var(--mantine-color-${stage.color}-6)`} size={16} />
+                        {isEditing ? (
+                            <Group gap="xs" style={{ flex: 1 }}>
+                                <TextInput value={editName} onChange={(e) => setEditName(e.currentTarget.value)} size="xs" style={{ flex: 1 }} />
+                                <ColorPickerPopover color={editColor} onChange={setEditColor} />
+                                <Button size="compact-xs" onClick={saveEdit} loading={updateMutation.isPending}>{t('common.save')}</Button>
+                                <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setEditingSlug(null)}>{t('common.cancel', 'İptal')}</Button>
+                            </Group>
+                        ) : (
+                            <Text size="sm" fw={500}>{getStageLabel(stage.slug)}</Text>
+                        )}
+                    </Group>
+                    {!isEditing && (
+                        <Tooltip label={t('common.edit', 'Düzenle')}>
+                            <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => startEdit(stage)}>
+                                <IconEdit size={14} />
+                            </ActionIcon>
+                        </Tooltip>
+                    )}
+                </Group>
+            </Paper>
+        );
+    };
+
+    if (allStages.length === 0 || groupsLoading) {
+        return <Center py="xl"><Loader size="sm" color="violet" /></Center>;
     }
 
     return (
-        <Stack gap="md">
-            {/* 4-Step Flow Visualization */}
+        <Stack gap="lg">
+            {/* ═══ Flow Preview ═══ */}
             <Paper p="md" radius="md" withBorder>
                 <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="sm" style={{ letterSpacing: '0.5px' }}>
                     {t('pipelineSettings.flowPreview')}
                 </Text>
-                <Box
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        overflowX: 'auto',
-                        paddingBottom: 4,
-                    }}
-                >
+                <Box style={{ display: 'flex', alignItems: 'center', gap: 4, overflowX: 'auto', paddingBottom: 4 }}>
                     {groups.map((group, index) => (
                         <Box key={group.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Paper
-                                p="sm"
-                                radius="md"
-                                style={{
-                                    background: `var(--mantine-color-${group.color}-light)`,
-                                    border: `2px solid var(--mantine-color-${group.color}-4)`,
-                                    minWidth: 120,
-                                    textAlign: 'center',
-                                }}
-                            >
+                            <Paper p="sm" radius="md" style={{
+                                background: `var(--mantine-color-${group.color}-light)`,
+                                border: `2px solid var(--mantine-color-${group.color}-4)`,
+                                minWidth: 120, textAlign: 'center',
+                            }}>
                                 <Text size="xs" fw={700} c={`${group.color}.7`}>
-                                    {group.label
-                                        ? t(`stageGroups.${group.label}`, group.label)
-                                        : `${t('pipelineSettings.phase')} ${index + 1}`}
+                                    {group.label ? t(`stageGroups.${group.label}`, group.label) : `${t('pipelineSettings.phase')} ${index + 1}`}
                                 </Text>
                                 <Text size="xs" c="dimmed" mt={2}>
                                     {group.stages.length} {t('pipelineSettings.stagesCount')}
                                 </Text>
                             </Paper>
-                            {index < groups.length - 1 && (
-                                <IconArrowRight size={18} color="var(--mantine-color-dimmed)" />
-                            )}
+                            {index < groups.length - 1 && <IconArrowRight size={18} color="var(--mantine-color-dimmed)" />}
                         </Box>
                     ))}
-                    {groups.length === 0 && (
-                        <Text size="sm" c="dimmed" py="md">
-                            {t('pipelineSettings.noGroups')}
-                        </Text>
-                    )}
+                    {groups.length === 0 && <Text size="sm" c="dimmed" py="md">{t('pipelineSettings.noGroups')}</Text>}
                 </Box>
             </Paper>
 
+            {/* ═══ Initial Stage ═══ */}
+            {initialStages.length > 0 && (
+                <>
+                    <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                        {t('pipelineSettings.initialStage')}
+                    </Text>
+                    {initialStages.map((s) => renderSimpleStageRow(s))}
+                </>
+            )}
+
             <Divider />
 
-            {/* Group Editor */}
+            {/* ═══ Groups with inline stages ═══ */}
             <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
                 {t('pipelineSettings.editGroups')}
             </Text>
 
-            {groups.map((group, index) => (
+            {groups.map((group, gi) => (
                 <Paper key={group.id} p="md" radius="md" withBorder>
+                    {/* Group header */}
                     <Group justify="space-between" mb="sm">
                         <Group gap="xs">
                             <IconGripVertical size={16} color="var(--mantine-color-dimmed)" />
-                            <Text size="sm" fw={600}>
-                                {t('pipelineSettings.phase')} {index + 1}
-                            </Text>
+                            <Text size="sm" fw={600}>{t('pipelineSettings.phase')} {gi + 1}</Text>
                         </Group>
                         <Tooltip label={t('pipelineSettings.removeGroup')}>
-                            <ActionIcon
-                                variant="subtle"
-                                color="red"
-                                size="sm"
-                                onClick={() => removeGroup(index)}
-                                disabled={groups.length <= 1}
-                            >
+                            <ActionIcon variant="subtle" color="red" size="sm" onClick={() => removeGroup(gi)} disabled={groups.length <= 1}>
                                 <IconTrash size={14} />
                             </ActionIcon>
                         </Tooltip>
                     </Group>
 
-                    <Group gap="sm" mb="sm" align="flex-end">
-                        <TextInput
-                            label={t('pipelineSettings.groupName')}
-                            placeholder={t('pipelineSettings.groupNamePlaceholder')}
+                    {/* Group name + color */}
+                    <Group gap="sm" mb="md" align="flex-end">
+                        <TextInput label={t('pipelineSettings.groupName')} placeholder={t('pipelineSettings.groupNamePlaceholder')}
                             value={group.label ? t(`stageGroups.${group.label}`, group.label) : ''}
-                            onChange={(e) => updateGroup(index, { label: e.currentTarget.value })}
-                            size="sm"
-                            style={{ flex: 1 }}
-                        />
-                        <ColorPickerPopover
-                            color={group.color}
-                            onChange={(color) => updateGroup(index, { color })}
-                        />
+                            onChange={(e) => updateGroup(gi, { label: e.currentTarget.value })} size="sm" style={{ flex: 1 }} />
+                        <ColorPickerPopover color={group.color} onChange={(color) => updateGroup(gi, { color })} />
                     </Group>
 
-                    {/* Assigned stages */}
-                    <Text size="xs" c="dimmed" mb={4}>
-                        {t('pipelineSettings.assignedStages')}
-                    </Text>
-                    <Group gap={6} mb="sm">
-                        {group.stages.map((stage) => (
-                            <Badge
-                                key={stage}
-                                variant="light"
-                                color={group.color}
-                                size="md"
-                                rightSection={
-                                    <ActionIcon
-                                        variant="transparent"
-                                        size="xs"
-                                        color={group.color}
-                                        onClick={() => removeStageFromGroup(index, stage)}
-                                    >
-                                        <IconTrash size={10} />
-                                    </ActionIcon>
-                                }
-                            >
-                                {t(`stages.${stage}`)}
-                            </Badge>
-                        ))}
+                    {/* Inline stages */}
+                    <Text size="xs" c="dimmed" mb={6}>{t('pipelineSettings.assignedStages')}</Text>
+                    <Stack gap={4} mb="sm">
                         {group.stages.length === 0 && (
-                            <Text size="xs" c="dimmed" fs="italic">
-                                {t('pipelineSettings.noStagesAssigned')}
-                            </Text>
+                            <Text size="xs" c="dimmed" fs="italic" py={4}>{t('pipelineSettings.noStagesAssigned')}</Text>
+                        )}
+                        {group.stages.map((slug) => renderInlineStage(slug, gi, group.color, group.stages))}
+                    </Stack>
+
+                    {/* Add existing or create new stage */}
+                    <Group gap="xs">
+                        {unassignedPipelineStages.length > 0 && (
+                            <Popover position="bottom-start" withArrow shadow="md">
+                                <Popover.Target>
+                                    <Button variant="light" size="xs" leftSection={<IconPlus size={12} />} color={group.color}>
+                                        {t('pipelineSettings.addStage')}
+                                    </Button>
+                                </Popover.Target>
+                                <Popover.Dropdown p="xs">
+                                    <Stack gap={4}>
+                                        {unassignedPipelineStages.map((slug) => (
+                                            <Button key={slug} variant="subtle" size="xs" justify="flex-start" onClick={() => addStageToGroup(gi, slug)}>
+                                                {getStageLabel(slug)}
+                                            </Button>
+                                        ))}
+                                    </Stack>
+                                </Popover.Dropdown>
+                            </Popover>
+                        )}
+
+                        {addingInGroup === gi ? (
+                            <Group gap="xs">
+                                <TextInput placeholder={t('pipelineSettings.newStageName')} value={newName}
+                                    onChange={(e) => setNewName(e.currentTarget.value)} size="xs" style={{ width: 160 }} />
+                                <ColorPickerPopover color={newColor} onChange={setNewColor} />
+                                <Button size="compact-xs"
+                                    onClick={() => createMutation.mutate({ display_name: newName, color: newColor, sort_order: pipelineStages.length + 1 })}
+                                    loading={createMutation.isPending} disabled={!newName.trim()}>{t('common.save')}</Button>
+                                <Button size="compact-xs" variant="subtle" color="gray"
+                                    onClick={() => setAddingInGroup(null)}>{t('common.cancel', 'İptal')}</Button>
+                            </Group>
+                        ) : (
+                            <Button variant="subtle" size="xs" color="gray" leftSection={<IconPlus size={12} />}
+                                onClick={() => { setAddingInGroup(gi); setNewName(''); setNewColor(group.color); }}>
+                                {t('pipelineSettings.addNewStage')}
+                            </Button>
                         )}
                     </Group>
-
-                    {/* Add stage dropdown */}
-                    {unassignedStages.length > 0 && (
-                        <Popover position="bottom-start" withArrow shadow="md">
-                            <Popover.Target>
-                                <Button
-                                    variant="light"
-                                    size="xs"
-                                    leftSection={<IconPlus size={12} />}
-                                    color={group.color}
-                                >
-                                    {t('pipelineSettings.addStage')}
-                                </Button>
-                            </Popover.Target>
-                            <Popover.Dropdown p="xs">
-                                <Stack gap={4}>
-                                    {unassignedStages.map((stage) => (
-                                        <Button
-                                            key={stage}
-                                            variant="subtle"
-                                            size="xs"
-                                            justify="flex-start"
-                                            onClick={() => addStageToGroup(index, stage)}
-                                        >
-                                            {t(`stages.${stage}`)}
-                                        </Button>
-                                    ))}
-                                </Stack>
-                            </Popover.Dropdown>
-                        </Popover>
-                    )}
                 </Paper>
             ))}
 
-            {/* Add Group */}
-            <Button
-                variant="light"
-                color="gray"
-                leftSection={<IconPlus size={14} />}
-                onClick={addGroup}
-                size="sm"
-            >
+            <Button variant="light" color="gray" leftSection={<IconPlus size={14} />} onClick={addGroup} size="sm">
                 {t('pipelineSettings.addGroup')}
             </Button>
 
             <Divider />
 
-            {/* Actions */}
+            {/* ═══ Terminal Stages ═══ */}
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                {t('pipelineSettings.terminalStages')}
+            </Text>
+            {terminalStages.map((s) => renderSimpleStageRow(s))}
+
+            <Divider />
+
+            {/* ═══ Actions ═══ */}
             <Group justify="space-between">
-                <Button
-                    variant="subtle"
-                    color="gray"
-                    size="sm"
-                    leftSection={<IconArrowBack size={14} />}
-                    onClick={resetToDefault}
-                >
+                <Button variant="subtle" color="gray" size="sm" leftSection={<IconArrowBack size={14} />} onClick={resetGroups}>
                     {t('pipelineSettings.resetDefault')}
                 </Button>
-                <Button
-                    leftSection={<IconDeviceFloppy size={16} />}
-                    onClick={() => saveMutation.mutate(groups)}
-                    loading={saveMutation.isPending}
-                    disabled={!hasChanges}
-                    size="sm"
-                >
+                <Button leftSection={<IconDeviceFloppy size={16} />} onClick={() => saveGroupsMutation.mutate(groups)}
+                    loading={saveGroupsMutation.isPending} disabled={!hasGroupChanges} size="sm">
                     {t('common.save')}
                 </Button>
             </Group>
+
+            {/* ═══ Delete Modal ═══ */}
+            <Modal opened={deleteCompanyCount > 0 && deleteSlug !== null}
+                onClose={() => { setDeleteSlug(null); setDeleteCompanyCount(0); }}
+                title={t('pipelineSettings.deleteStageTitle')} size="sm">
+                <Stack gap="md">
+                    <Text size="sm">{t('pipelineSettings.deleteStageDesc', { count: deleteCompanyCount })}</Text>
+                    <Select label={t('pipelineSettings.reassignTo')}
+                        data={allStages.filter((s) => s.slug !== deleteSlug).map((s) => ({ value: s.slug, label: getStageLabel(s.slug) }))}
+                        value={reassignTo} onChange={setReassignTo} size="sm" />
+                    <Group justify="flex-end">
+                        <Button variant="subtle" color="gray" onClick={() => { setDeleteSlug(null); setDeleteCompanyCount(0); }}>
+                            {t('common.cancel', 'İptal')}
+                        </Button>
+                        <Button color="red" onClick={confirmDeleteWithReassign} disabled={!reassignTo} loading={deleteMutation.isPending}>
+                            {t('pipelineSettings.deleteAndMove')}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
         </Stack>
     );
 }
 
-/** Small color picker popover */
-function ColorPickerPopover({
-    color,
-    onChange,
-}: {
-    color: string;
-    onChange: (color: string) => void;
-}) {
+// ─── Shared ───
+
+function ColorPickerPopover({ color, onChange }: { color: string; onChange: (color: string) => void }) {
     return (
         <Popover position="bottom" withArrow shadow="md">
             <Popover.Target>
@@ -348,13 +496,7 @@ function ColorPickerPopover({
             <Popover.Dropdown p="xs">
                 <SimpleGrid cols={4} spacing={6}>
                     {PIPELINE_GROUP_COLORS.map((c) => (
-                        <ActionIcon
-                            key={c}
-                            variant={c === color ? 'filled' : 'subtle'}
-                            color={c}
-                            size="md"
-                            onClick={() => onChange(c)}
-                        >
+                        <ActionIcon key={c} variant={c === color ? 'filled' : 'subtle'} color={c} size="md" onClick={() => onChange(c)}>
                             <ColorSwatch color={`var(--mantine-color-${c}-6)`} size={14} />
                         </ActionIcon>
                     ))}

@@ -1,0 +1,93 @@
+import { createContext, useContext, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import api from '../lib/api';
+
+export interface StageDefinition {
+    id: string;
+    slug: string;
+    display_name: string;
+    color: string;
+    sort_order: number;
+    stage_type: 'initial' | 'pipeline' | 'terminal';
+    is_active: boolean;
+}
+
+interface StagesContextValue {
+    allStages: StageDefinition[];
+    pipelineStages: StageDefinition[];
+    terminalStages: StageDefinition[];
+    initialStage: StageDefinition | null;
+    pipelineStageSlugs: string[];
+    terminalStageSlugs: string[];
+    getStageColor: (slug: string) => string;
+    getStageLabel: (slug: string) => string;
+    stageOptions: { value: string; label: string }[];
+    isLoading: boolean;
+    refetch: () => void;
+}
+
+const StagesContext = createContext<StagesContextValue | null>(null);
+
+export function StagesProvider({ children }: { children: React.ReactNode }) {
+    const { t } = useTranslation();
+
+    const { data, isLoading, refetch } = useQuery<StageDefinition[]>({
+        queryKey: ['settings', 'stages'],
+        queryFn: async () => (await api.get('/settings/stages')).data.data,
+        staleTime: 5 * 60 * 1000,
+    });
+
+    const value = useMemo<StagesContextValue>(() => {
+        const allStages = data || [];
+
+        const pipelineStages = allStages.filter((s) => s.stage_type === 'pipeline');
+        const terminalStages = allStages.filter((s) => s.stage_type === 'terminal');
+        const initialStage = allStages.find((s) => s.stage_type === 'initial') || null;
+
+        const stageMap = new Map(allStages.map((s) => [s.slug, s]));
+
+        const getStageColor = (slug: string): string => {
+            return stageMap.get(slug)?.color || 'gray';
+        };
+
+        const getStageLabel = (slug: string): string => {
+            const stage = stageMap.get(slug);
+            if (!stage) return slug;
+            // Try i18n key first (for built-in stages), fall back to display_name
+            const translated = t(`stages.${slug}`, { defaultValue: '' });
+            return translated || stage.display_name;
+        };
+
+        const stageOptions = allStages.map((s) => ({
+            value: s.slug,
+            label: t(`stages.${s.slug}`, { defaultValue: '' }) || s.display_name,
+        }));
+
+        return {
+            allStages,
+            pipelineStages,
+            terminalStages,
+            initialStage,
+            pipelineStageSlugs: pipelineStages.map((s) => s.slug),
+            terminalStageSlugs: terminalStages.map((s) => s.slug),
+            getStageColor,
+            getStageLabel,
+            stageOptions,
+            isLoading,
+            refetch: () => { refetch(); },
+        };
+    }, [data, isLoading, t, refetch]);
+
+    return (
+        <StagesContext.Provider value={value}>
+            {children}
+        </StagesContext.Provider>
+    );
+}
+
+export function useStages(): StagesContextValue {
+    const ctx = useContext(StagesContext);
+    if (!ctx) throw new Error('useStages must be used within StagesProvider');
+    return ctx;
+}

@@ -512,6 +512,26 @@ router.post('/tenants', async (req: Request, res: Response, next: NextFunction):
             throw new AppError('Failed to create tenant', 500);
         }
 
+        // Seed default pipeline stages for new tenant
+        const defaultStages = [
+            { slug: 'cold', display_name: 'Cold', color: 'gray', sort_order: 0, stage_type: 'initial' },
+            { slug: 'in_queue', display_name: 'In Queue', color: 'blue', sort_order: 1, stage_type: 'pipeline' },
+            { slug: 'first_contact', display_name: 'First Contact', color: 'cyan', sort_order: 2, stage_type: 'pipeline' },
+            { slug: 'connected', display_name: 'Connected', color: 'indigo', sort_order: 3, stage_type: 'pipeline' },
+            { slug: 'qualified', display_name: 'Qualified', color: 'teal', sort_order: 4, stage_type: 'pipeline' },
+            { slug: 'in_meeting', display_name: 'In Meeting', color: 'yellow', sort_order: 5, stage_type: 'pipeline' },
+            { slug: 'follow_up', display_name: 'Follow Up', color: 'orange', sort_order: 6, stage_type: 'pipeline' },
+            { slug: 'proposal_sent', display_name: 'Proposal Sent', color: 'violet', sort_order: 7, stage_type: 'pipeline' },
+            { slug: 'negotiation', display_name: 'Negotiation', color: 'grape', sort_order: 8, stage_type: 'pipeline' },
+            { slug: 'won', display_name: 'Won', color: 'green', sort_order: 9, stage_type: 'terminal' },
+            { slug: 'lost', display_name: 'Lost', color: 'red', sort_order: 10, stage_type: 'terminal' },
+            { slug: 'on_hold', display_name: 'On Hold', color: 'gray', sort_order: 11, stage_type: 'terminal' },
+        ];
+
+        await supabaseAdmin
+            .from('pipeline_stages')
+            .insert(defaultStages.map((s) => ({ ...s, tenant_id: data.id })));
+
         await logAuditAction(req.user!.id, 'tenant.create', 'tenant', data.id, { name, slug, tier });
 
         res.status(201).json({ data });

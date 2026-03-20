@@ -45,8 +45,4 @@ export const PIPELINE_GROUP_COLORS = [
     'violet', 'indigo',
 ];
 
-/** Stages that can be assigned to pipeline groups (active, non-terminal) */
-export const ASSIGNABLE_STAGES = [
-    'in_queue', 'first_contact', 'connected', 'qualified',
-    'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
-];
+// ASSIGNABLE_STAGES removed — now dynamic per tenant via StagesContext

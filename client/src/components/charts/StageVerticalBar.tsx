@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Box, Text, Tooltip, useMantineTheme } from '@mantine/core';
 import { useTranslation } from 'react-i18next';
-import { PIPELINE_STAGES, TERMINAL_STAGES, stageColors, type Stage } from '../../lib/stages';
+import { useStages } from '../../contexts/StagesContext';
 
 interface StageVerticalBarProps {
     data: Record<string, number>;
@@ -23,24 +23,25 @@ function scaleHeight(value: number, maxValue: number): number {
 export default function StageVerticalBar({ data }: StageVerticalBarProps) {
     const { t } = useTranslation();
     const theme = useMantineTheme();
+    const { pipelineStageSlugs, terminalStageSlugs, getStageColor } = useStages();
     const [hovered, setHovered] = useState<string | null>(null);
 
     const { bars, maxCount } = useMemo(() => {
-        // Show pipeline stages in order, then terminal (won, lost, on_hold)
-        const order = [...PIPELINE_STAGES, ...TERMINAL_STAGES];
+        // Show pipeline stages in order, then terminal
+        const order = [...pipelineStageSlugs, ...terminalStageSlugs];
         const bars = order
             .filter((stage) => (data[stage] || 0) > 0)
             .map((stage) => ({
                 stage,
                 count: data[stage] || 0,
-                color: theme.colors[stageColors[stage as Stage] || 'gray'][6],
-                isTerminal: TERMINAL_STAGES.includes(stage as Stage),
+                color: theme.colors[getStageColor(stage) || 'gray'][6],
+                isTerminal: terminalStageSlugs.includes(stage),
                 isWon: stage === 'won',
             }));
 
         const maxCount = Math.max(...bars.map((b) => b.count), 1);
         return { bars, maxCount };
-    }, [data, theme.colors]);
+    }, [data, theme.colors, pipelineStageSlugs, terminalStageSlugs, getStageColor]);
 
     if (bars.length === 0) return null;
 

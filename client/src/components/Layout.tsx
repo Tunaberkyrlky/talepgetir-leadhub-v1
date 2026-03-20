@@ -6,7 +6,6 @@ import {
     Title,
     Text,
     Menu,
-    ActionIcon,
     Badge,
     UnstyledButton,
     Flex,
@@ -20,7 +19,6 @@ import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
     IconUser,
     IconLogout,
-    IconLanguage,
     IconBuilding,
     IconSwitchHorizontal,
     IconSettings,
@@ -47,7 +45,7 @@ export default function Layout() {
         switchTenant,
         canSwitchTenants,
     } = useAuth();
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
     const [navbarOpened, { toggle: toggleNavbar, close: closeNavbar }] = useDisclosure(false);
     const location = useLocation();
@@ -57,12 +55,6 @@ export default function Layout() {
 
     if (isLoading) return null;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
-
-    const toggleLanguage = () => {
-        const newLang = i18n.language === 'tr' ? 'en' : 'tr';
-        i18n.changeLanguage(newLang);
-        localStorage.setItem('lang', newLang);
-    };
 
     const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
 
@@ -181,16 +173,6 @@ export default function Layout() {
                                 </Badge>
                             )
                         )}
-
-                        {/* Language toggle */}
-                        <ActionIcon
-                            variant="subtle"
-                            color="gray.3"
-                            onClick={toggleLanguage}
-                            title={i18n.language === 'tr' ? 'Switch to English' : 'Türkçeye Geç'}
-                        >
-                            <IconLanguage size={20} />
-                        </ActionIcon>
 
                         {/* User menu */}
                         <Menu shadow="md" width={200} position="bottom-end">

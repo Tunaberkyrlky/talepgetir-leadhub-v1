@@ -66,8 +66,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { STAGES, stageColors } from '../lib/stages';
-import type { Stage } from '../lib/stages';
+import { useStages } from '../contexts/StagesContext';
 import CompanyForm from '../components/CompanyForm';
 import TruncatedText from '../components/TruncatedText';
 import EmailStatusIcon from '../components/EmailStatusIcon';
@@ -217,6 +216,7 @@ function SortableColumnItem({
 export default function LeadsPage() {
     const { t } = useTranslation();
     const { user } = useAuth();
+    const { allStages, getStageColor, getStageLabel } = useStages();
     const queryClient = useQueryClient();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
@@ -492,12 +492,12 @@ export default function LeadsPage() {
                 return (
                     <Table.Td key="stage">
                         <Badge
-                            color={stageColors[company.stage as keyof typeof stageColors] || 'gray'}
+                            color={getStageColor(company.stage)}
                             variant="light"
                             size="sm"
                             radius="sm"
                         >
-                            {t(`stages.${company.stage}`)}
+                            {getStageLabel(company.stage)}
                         </Badge>
                     </Table.Td>
                 );
@@ -745,17 +745,17 @@ export default function LeadsPage() {
                         </Group>
                         <Group gap="xs">
                             <Text size="sm" fw={500} c="dimmed">{t('bulk.moveTo')}</Text>
-                            {STAGES.map((stage) => (
+                            {allStages.map((s) => (
                                 <Button
-                                    key={stage}
+                                    key={s.slug}
                                     size="compact-xs"
                                     variant="light"
-                                    color={stageColors[stage as Stage] || 'gray'}
-                                    onClick={() => bulkStageMutation.mutate(stage)}
+                                    color={s.color}
+                                    onClick={() => bulkStageMutation.mutate(s.slug)}
                                     loading={bulkStageMutation.isPending}
                                     radius="sm"
                                 >
-                                    {t(`stages.${stage}`)}
+                                    {getStageLabel(s.slug)}
                                 </Button>
                             ))}
                         </Group>

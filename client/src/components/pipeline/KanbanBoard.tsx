@@ -24,7 +24,7 @@ import {
     type DragEndEvent,
     type CollisionDetection,
 } from '@dnd-kit/core';
-import { PIPELINE_STAGES, getStageColor } from '../../lib/stages';
+import { useStages } from '../../contexts/StagesContext';
 import PipelineCard, { type PipelineCompany } from './PipelineCard';
 
 interface KanbanBoardProps {
@@ -46,6 +46,7 @@ function StageColumn({
     isOver: boolean;
 }) {
     const { t } = useTranslation();
+    const { getStageColor } = useStages();
     const { setNodeRef } = useDroppable({ id: stage });
     const color = getStageColor(stage);
 
@@ -81,7 +82,7 @@ function StageColumn({
                     <Text size="xs" fw={700} tt="uppercase" style={{ letterSpacing: '0.5px' }}>
                         {t(`stages.${stage}`)}
                     </Text>
-                    <Badge size="sm" variant="light" color={color} circle>
+                    <Badge size="sm" variant="light" color={color} style={{ minWidth: 22, paddingInline: 6 }}>
                         {companies.length}
                     </Badge>
                 </Group>
@@ -120,11 +121,12 @@ const collisionDetection: CollisionDetection = (args) => {
 function resolveTargetStage(
     overId: string,
     columns: Record<string, PipelineCompany[]>,
+    pipelineSlugs: string[],
 ): string | null {
     // Dropped directly on a column
-    if ((PIPELINE_STAGES as readonly string[]).includes(overId)) return overId;
+    if (pipelineSlugs.includes(overId)) return overId;
     // Dropped on a card — find which column contains it
-    for (const stage of PIPELINE_STAGES) {
+    for (const stage of pipelineSlugs) {
         if (columns[stage]?.some((c) => c.id === overId)) return stage;
     }
     return null;
@@ -135,6 +137,7 @@ export default function KanbanBoard({
     isDragEnabled,
     onStageChange,
 }: KanbanBoardProps) {
+    const { pipelineStageSlugs } = useStages();
     const [activeCompany, setActiveCompany] = useState<PipelineCompany | null>(null);
     const [overColumnId, setOverColumnId] = useState<string | null>(null);
 
@@ -155,9 +158,9 @@ export default function KanbanBoard({
         }
         const id = String(event.over.id);
         // Resolve to column stage for highlight
-        const stage = resolveTargetStage(id, columns);
+        const stage = resolveTargetStage(id, columns, pipelineStageSlugs);
         setOverColumnId(stage);
-    }, [columns]);
+    }, [columns, pipelineStageSlugs]);
 
     const handleDragEnd = useCallback(
         (event: DragEndEvent) => {
@@ -170,12 +173,12 @@ export default function KanbanBoard({
             const company = active.data.current?.company as PipelineCompany | undefined;
             if (!company) return;
 
-            const newStage = resolveTargetStage(String(over.id), columns);
+            const newStage = resolveTargetStage(String(over.id), columns, pipelineStageSlugs);
             if (newStage && newStage !== company.stage) {
                 onStageChange(company.id, newStage, company.stage);
             }
         },
-        [onStageChange, columns]
+        [onStageChange, columns, pipelineStageSlugs]
     );
 
     const handleDragCancel = useCallback(() => {
@@ -201,7 +204,7 @@ export default function KanbanBoard({
                     alignItems: 'flex-start',
                 }}
             >
-                {PIPELINE_STAGES.map((stage) => (
+                {pipelineStageSlugs.map((stage) => (
                     <StageColumn
                         key={stage}
                         stage={stage}

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { requireTier } from '../middleware/auth.js';
 import { createLogger } from '../lib/logger.js';
+import { getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
 
 const log = createLogger('route:statistics');
 
@@ -44,10 +45,10 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
         const totalDecided = wonCount + lostCount;
         const conversionRate = totalDecided > 0 ? Math.round((wonCount / totalDecided) * 100) : 0;
 
-        // Active deals = everything except cold, won, lost, on_hold
-        const excludedStages = ['cold', 'won', 'lost', 'on_hold'];
+        // Active deals = only pipeline-type stages
+        const tenantPipelineStages = await getPipelineStageSlugs(tenantId);
         const activeDeals = Object.entries(stageCounts)
-            .filter(([stage]) => !excludedStages.includes(stage))
+            .filter(([stage]) => tenantPipelineStages.includes(stage))
             .reduce((sum, [, count]) => sum + count, 0);
 
         res.json({
@@ -78,11 +79,9 @@ router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response):
             return;
         }
 
-        // Pipeline stages in order (exclude terminal)
-        const pipelineStages = [
-            'in_queue', 'first_contact', 'connected', 'qualified',
-            'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
-        ];
+        // Dynamic pipeline stages from tenant config
+        const pipelineStages = await getPipelineStageSlugs(tenantId);
+        const terminalStages = await getTerminalStageSlugs(tenantId);
 
         const stageCounts: Record<string, number> = {};
         for (const row of data || []) {
@@ -94,12 +93,10 @@ router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response):
             count: stageCounts[stage] || 0,
         }));
 
-        // Include terminal for completeness
-        const terminal = [
-            { stage: 'won', count: stageCounts['won'] || 0 },
-            { stage: 'lost', count: stageCounts['lost'] || 0 },
-            { stage: 'on_hold', count: stageCounts['on_hold'] || 0 },
-        ];
+        const terminal = terminalStages.map((stage) => ({
+            stage,
+            count: stageCounts[stage] || 0,
+        }));
 
         res.json({ funnel, terminal });
     } catch (err) {

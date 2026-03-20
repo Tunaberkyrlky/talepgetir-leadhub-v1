@@ -14,8 +14,10 @@ import {
     Table,
     Center,
     Loader,
+    Drawer,
+    Tooltip,
 } from '@mantine/core';
-import { useDebouncedValue } from '@mantine/hooks';
+import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -28,6 +30,7 @@ import {
     IconXboxX,
     IconClock,
     IconUsers,
+    IconSettings,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -35,9 +38,10 @@ import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { TierGate } from '../components/FeatureGate';
 import { hasRolePermission } from '../lib/permissions';
-import { PIPELINE_STAGES, getStageColor } from '../lib/stages';
+import { useStages } from '../contexts/StagesContext';
 import KanbanBoard from '../components/pipeline/KanbanBoard';
 import type { PipelineCompany } from '../components/pipeline/PipelineCard';
+import PipelineSettingsEditor from '../components/PipelineSettingsEditor';
 
 interface PipelineData {
     columns: Record<string, PipelineCompany[]>;
@@ -47,12 +51,14 @@ interface PipelineData {
 export default function PipelinePage() {
     const { t } = useTranslation();
     const { user } = useAuth();
+    const { pipelineStageSlugs, getStageColor } = useStages();
     const queryClient = useQueryClient();
     const navigate = useNavigate();
     const role = user?.role || '';
     const [search, setSearch] = useState('');
     const [debouncedSearch] = useDebouncedValue(search, 300);
     const [viewMode, setViewMode] = useState<string>('board');
+    const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
 
     const canDrag = hasRolePermission(role, 'pipeline_dragdrop');
 
@@ -135,7 +141,7 @@ export default function PipelinePage() {
 
     // Flatten all companies for table view
     const allCompanies = useMemo(
-        () => (data ? PIPELINE_STAGES.flatMap((stage) => data.columns[stage] || []) : []),
+        () => (data ? pipelineStageSlugs.flatMap((stage) => data.columns[stage] || []) : []),
         [data]
     );
 
@@ -205,6 +211,11 @@ export default function PipelinePage() {
                                 { label: <IconTable size={16} />, value: 'table' },
                             ]}
                         />
+                        <Tooltip label={t('settings.pipelineTab')}>
+                            <ActionIcon variant="light" color="gray" size="lg" radius="md" onClick={openSettings}>
+                                <IconSettings size={18} />
+                            </ActionIcon>
+                        </Tooltip>
                     </Group>
                 </Flex>
 
@@ -356,6 +367,17 @@ export default function PipelinePage() {
                     </Paper>
                 )}
             </Container>
+
+            <Drawer
+                opened={settingsOpened}
+                onClose={closeSettings}
+                title={t('settings.pipelineTab')}
+                position="right"
+                size="lg"
+                padding="md"
+            >
+                <PipelineSettingsEditor />
+            </Drawer>
         </TierGate>
     );
 }
