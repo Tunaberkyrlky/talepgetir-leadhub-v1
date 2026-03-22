@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { translateTexts } from '../lib/deepl.js';
+import { validateBody, createContactSchema, updateContactSchema, contactNoteSchema } from '../lib/validation.js';
 
 const log = createLogger('route:contacts');
 
@@ -54,7 +55,6 @@ router.get('/filter-options', async (req: Request, res: Response, next: NextFunc
                 .from('companies')
                 .select('id, name')
                 .eq('tenant_id', tenantId)
-                .eq('is_active', true)
                 .order('name'),
         ]);
 
@@ -201,15 +201,11 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
 router.post(
     '/',
     requireRole('superadmin', 'ops_agent'),
+    validateBody(createContactSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
             const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary, notes } = req.body;
-
-            if (!company_id || !first_name) {
-                res.status(400).json({ error: 'company_id and first_name are required' });
-                return;
-            }
 
             const { data: company } = await supabaseAdmin
                 .from('companies')
@@ -264,6 +260,7 @@ router.post(
 router.put(
     '/:id',
     requireRole('superadmin', 'ops_agent'),
+    validateBody(updateContactSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
@@ -309,16 +306,12 @@ router.put(
 router.post(
     '/:id/notes',
     requireRole('superadmin', 'ops_agent'),
+    validateBody(contactNoteSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
             const { id } = req.params;
             const { text } = req.body;
-
-            if (!text || typeof text !== 'string' || text.trim().length === 0) {
-                res.status(400).json({ error: 'Note text is required' });
-                return;
-            }
 
             // Fetch current notes
             const { data: contact, error: fetchError } = await supabaseAdmin

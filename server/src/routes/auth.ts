@@ -1,20 +1,18 @@
 import { Router, Request, Response } from 'express';
-import { supabaseAdmin, supabaseAuth } from '../lib/supabase.js';
+import { supabaseAuth } from '../lib/supabase.js';
 import { createLogger } from '../lib/logger.js';
+import { setAuthCookies, clearAuthCookies } from '../lib/cookies.js';
+import { validateBody, loginSchema } from '../lib/validation.js';
+import { resolveUserContext } from '../lib/authResolver.js';
 
 const log = createLogger('route:auth');
 
 const router = Router();
 
 // POST /api/auth/login
-router.post('/login', async (req: Request, res: Response): Promise<void> => {
+router.post('/login', validateBody(loginSchema), async (req: Request, res: Response): Promise<void> => {
     try {
         const { email, password } = req.body;
-
-        if (!email || !password) {
-            res.status(400).json({ error: 'Email and password are required' });
-            return;
-        }
 
         const { data, error } = await supabaseAuth.auth.signInWithPassword({
             email,
@@ -27,91 +25,20 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         }
 
         const user = data.user;
+        const ctx = await resolveUserContext(user.id, user.app_metadata);
 
-        // Check superadmin from app_metadata (tenant-independent)
-        log.info({ app_metadata: user.app_metadata, userId: user.id }, 'DEBUG: login app_metadata');
-        const isPlatformSuperadmin = user.app_metadata?.is_superadmin === true;
-
-        // Get memberships for tenant resolution
-        const { data: allMemberships } = await supabaseAdmin
-            .from('memberships')
-            .select('tenant_id, role')
-            .eq('user_id', user.id)
-            .eq('is_active', true);
-
-        // Resolve tenantId — prefer JWT claim, fall back to first active membership
-        const tenantId: string | null = user.app_metadata?.tenant_id
-            || allMemberships?.[0]?.tenant_id
-            || null;
-
-        // Final role for this session
-        const role = isPlatformSuperadmin ? 'superadmin' : (allMemberships?.find(m => m.tenant_id === tenantId)?.role || null);
-        log.info({ isPlatformSuperadmin, role, tenantId, memberships: allMemberships?.length }, 'DEBUG: login resolved');
-
-        let tenantName = null;
-        let tenantTier = 'basic';
-        if (tenantId) {
-            const { data: tenant } = await supabaseAdmin
-                .from('tenants')
-                .select('name, tier')
-                .eq('id', tenantId)
-                .single();
-            tenantName = tenant?.name;
-            tenantTier = tenant?.tier || 'basic';
-        }
-
-        // Build accessible tenants list
-        let accessibleTenants: { id: string; name: string; slug: string; role: string; tier: string }[] = [];
-
-        if (role === 'superadmin') {
-            const { data: allTenants, error: tenantErr } = await supabaseAdmin
-                .from('tenants')
-                .select('id, name, slug, tier')
-                .eq('is_active', true)
-                .order('name');
-            log.debug({ tenantCount: allTenants?.length, error: tenantErr?.message }, 'Superadmin tenant query');
-            accessibleTenants = (allTenants || []).map((t) => ({ ...t, role: 'superadmin' }));
-        } else if (role === 'ops_agent') {
-            const { data: memberships } = await supabaseAdmin
-                .from('memberships')
-                .select('tenant_id, role')
-                .eq('user_id', user.id)
-                .eq('is_active', true);
-            if (memberships && memberships.length > 0) {
-                const tenantIds = memberships.map((m) => m.tenant_id);
-                const { data: tenantData } = await supabaseAdmin
-                    .from('tenants')
-                    .select('id, name, slug, tier')
-                    .in('id', tenantIds)
-                    .eq('is_active', true)
-                    .order('name');
-                accessibleTenants = (tenantData || []).map((t) => {
-                    const m = memberships.find((mb) => mb.tenant_id === t.id);
-                    return { ...t, role: m?.role || 'ops_agent' };
-                });
-            }
-        } else if (tenantId && tenantName) {
-            const { data: tenantInfo } = await supabaseAdmin
-                .from('tenants')
-                .select('id, name, slug, tier')
-                .eq('id', tenantId)
-                .single();
-            if (tenantInfo) {
-                accessibleTenants = [{ ...tenantInfo, role: role || 'client_viewer' }];
-            }
-        }
+        // Set httpOnly cookies for secure token storage
+        setAuthCookies(res, data.session.access_token, data.session.refresh_token);
 
         res.json({
-            token: data.session.access_token,
-            refreshToken: data.session.refresh_token,
             user: {
                 id: user.id,
                 email: user.email,
-                tenantId,
-                tenantName,
-                tenantTier,
-                role,
-                accessibleTenants,
+                tenantId: ctx.tenantId,
+                tenantName: ctx.tenantName,
+                tenantTier: ctx.tenantTier,
+                role: ctx.role,
+                accessibleTenants: ctx.accessibleTenants,
             },
         });
     } catch (err) {
@@ -123,7 +50,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 // POST /api/auth/refresh
 router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     try {
-        const { refreshToken } = req.body;
+        // Read refresh token from cookie first, fall back to body
+        const refreshToken = req.cookies?.refresh_token || req.body.refreshToken;
 
         if (!refreshToken) {
             res.status(400).json({ error: 'Refresh token is required' });
@@ -135,30 +63,32 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
         });
 
         if (error || !data.session) {
+            clearAuthCookies(res);
             res.status(401).json({ error: 'Invalid refresh token' });
             return;
         }
 
-        res.json({
-            token: data.session.access_token,
-            refreshToken: data.session.refresh_token,
-        });
+        setAuthCookies(res, data.session.access_token, data.session.refresh_token);
+
+        res.json({ ok: true });
     } catch (err) {
         log.error({ err }, 'Token refresh error');
         res.status(500).json({ error: 'Token refresh failed' });
     }
 });
 
-// GET /api/auth/me — requires auth middleware to be applied before this route
+// GET /api/auth/me
 router.get('/me', async (req: Request, res: Response): Promise<void> => {
     try {
         const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        const token = req.cookies?.access_token
+            || (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null);
+
+        if (!token) {
             res.status(401).json({ error: 'Not authenticated' });
             return;
         }
 
-        const token = authHeader.split(' ')[1];
         const { data: { user }, error } = await supabaseAuth.auth.getUser(token);
 
         if (error || !user) {
@@ -166,122 +96,30 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        // Check superadmin from app_metadata (tenant-independent)
-        const isPlatformSuperadmin = user.app_metadata?.is_superadmin === true;
-
-        // Get memberships for tenant resolution
-        const { data: allMemberships } = await supabaseAdmin
-            .from('memberships')
-            .select('tenant_id, role')
-            .eq('user_id', user.id)
-            .eq('is_active', true);
-
-        // Resolve tenantId — prefer JWT claim, fall back to first active membership
-        const defaultTenantId: string | null = user.app_metadata?.tenant_id
-            || allMemberships?.[0]?.tenant_id
-            || null;
-
-        // Base role
-        const role = isPlatformSuperadmin ? 'superadmin' : (allMemberships?.find(m => m.tenant_id === defaultTenantId)?.role || null);
-        let tenantName = null;
-        let tenantTier = 'basic';
-
-        if (defaultTenantId) {
-            const { data: tenant } = await supabaseAdmin
-                .from('tenants')
-                .select('name, slug, tier')
-                .eq('id', defaultTenantId)
-                .single();
-            tenantName = tenant?.name;
-            tenantTier = tenant?.tier || 'basic';
-        }
-
-        // Handle X-Tenant-Id for effective tenant resolution
-        const requestedTenantId = req.headers['x-tenant-id'] as string;
-        const effectiveTenantId = requestedTenantId || defaultTenantId;
-        let effectiveTenantName = tenantName;
-        let effectiveTenantTier = tenantTier;
-        let effectiveRole = role;
-
-        if (requestedTenantId && requestedTenantId !== defaultTenantId) {
-            const { data: reqTenant } = await supabaseAdmin
-                .from('tenants')
-                .select('name, tier')
-                .eq('id', requestedTenantId)
-                .eq('is_active', true)
-                .single();
-            effectiveTenantName = reqTenant?.name || null;
-            effectiveTenantTier = reqTenant?.tier || 'basic';
-
-            if (role === 'superadmin') {
-                effectiveRole = 'superadmin';
-            } else if (role === 'ops_agent') {
-                const { data: targetMembership } = await supabaseAdmin
-                    .from('memberships')
-                    .select('role')
-                    .eq('user_id', user.id)
-                    .eq('tenant_id', requestedTenantId)
-                    .eq('is_active', true)
-                    .single();
-                effectiveRole = targetMembership?.role || null;
-            }
-        }
-
-        // Build accessible tenants
-        let accessibleTenants: { id: string; name: string; slug: string; role: string; tier: string }[] = [];
-
-        if (role === 'superadmin') {
-            const { data: allTenants } = await supabaseAdmin
-                .from('tenants')
-                .select('id, name, slug, tier')
-                .eq('is_active', true)
-                .order('name');
-            accessibleTenants = (allTenants || []).map((t) => ({ ...t, role: 'superadmin' }));
-        } else if (role === 'ops_agent') {
-            const { data: memberships } = await supabaseAdmin
-                .from('memberships')
-                .select('tenant_id, role')
-                .eq('user_id', user.id)
-                .eq('is_active', true);
-            if (memberships && memberships.length > 0) {
-                const tenantIds = memberships.map((m) => m.tenant_id);
-                const { data: tenantData } = await supabaseAdmin
-                    .from('tenants')
-                    .select('id, name, slug, tier')
-                    .in('id', tenantIds)
-                    .eq('is_active', true)
-                    .order('name');
-                accessibleTenants = (tenantData || []).map((t) => {
-                    const m = memberships.find((mb) => mb.tenant_id === t.id);
-                    return { ...t, role: m?.role || 'ops_agent' };
-                });
-            }
-        } else if (effectiveTenantId) {
-            const { data: tenantInfo } = await supabaseAdmin
-                .from('tenants')
-                .select('id, name, slug, tier')
-                .eq('id', effectiveTenantId)
-                .single();
-            if (tenantInfo) {
-                accessibleTenants = [{ ...tenantInfo, role: effectiveRole || 'client_viewer' }];
-            }
-        }
+        const requestedTenantId = req.headers['x-tenant-id'] as string | undefined;
+        const ctx = await resolveUserContext(user.id, user.app_metadata, requestedTenantId);
 
         res.json({
             user: {
                 id: user.id,
                 email: user.email,
-                tenantId: effectiveTenantId,
-                tenantName: effectiveTenantName,
-                tenantTier: effectiveTenantTier,
-                role: effectiveRole,
-                accessibleTenants,
+                tenantId: ctx.tenantId,
+                tenantName: ctx.tenantName,
+                tenantTier: ctx.tenantTier,
+                role: ctx.role,
+                accessibleTenants: ctx.accessibleTenants,
             },
         });
     } catch (err) {
         log.error({ err }, 'Get user info error');
         res.status(500).json({ error: 'Failed to get user info' });
     }
+});
+
+// POST /api/auth/logout — clear auth cookies
+router.post('/logout', (_req: Request, res: Response): void => {
+    clearAuthCookies(res);
+    res.json({ ok: true });
 });
 
 export default router;

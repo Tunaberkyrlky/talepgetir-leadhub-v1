@@ -4,6 +4,22 @@ import { createLogger } from '../lib/logger.js';
 
 const log = createLogger('auth');
 
+// ─── Auth cache (per token, 60s TTL) ───
+interface CachedAuth {
+    user: { id: string; email: string; tenantId: string; role: string };
+    ts: number;
+}
+const authCache = new Map<string, CachedAuth>();
+const AUTH_CACHE_TTL = 60_000; // 60 seconds
+
+// Clean stale entries periodically
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, val] of authCache) {
+        if (now - val.ts > AUTH_CACHE_TTL * 2) authCache.delete(key);
+    }
+}, 120_000);
+
 // Extend Express Request type
 declare global {
     namespace Express {
@@ -25,14 +41,28 @@ export async function authMiddleware(
     next: NextFunction
 ): Promise<void> {
     try {
+        // Read token from httpOnly cookie first, fall back to Authorization header
         const authHeader = req.headers.authorization;
+        const token = req.cookies?.access_token
+            || (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null);
 
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            res.status(401).json({ error: 'Missing or invalid authorization header' });
+        if (!token) {
+            res.status(401).json({ error: 'Missing or invalid authorization' });
             return;
         }
 
-        const token = authHeader.split(' ')[1];
+        // Check tenant override header for cache key
+        const requestedTenantId = req.headers['x-tenant-id'] as string | undefined;
+        const cacheKey = requestedTenantId ? `${token}:${requestedTenantId}` : token;
+
+        // Check auth cache
+        const cached = authCache.get(cacheKey);
+        if (cached && Date.now() - cached.ts < AUTH_CACHE_TTL) {
+            req.user = cached.user;
+            req.tenantId = cached.user.tenantId;
+            next();
+            return;
+        }
 
         // Verify user via Supabase Auth
         const { data: { user }, error } = await supabaseAuth.auth.getUser(token);
@@ -80,7 +110,6 @@ export async function authMiddleware(
         const primaryRole = isPlatformSuperadmin ? 'superadmin' : primaryMembership!.role;
 
         // Check if client is requesting a different tenant via X-Tenant-Id header
-        const requestedTenantId = req.headers['x-tenant-id'] as string;
         const effectiveTenantId = requestedTenantId || defaultTenantId!;
         let effectiveRole = primaryRole;
 
@@ -126,13 +155,17 @@ export async function authMiddleware(
         log.info({ email: user.email, role: effectiveRole, tenantId: effectiveTenantId }, 'Auth success');
 
         // Attach user info to request
-        req.user = {
+        const authUser = {
             id: user.id,
             email: user.email || '',
             tenantId: effectiveTenantId,
             role: effectiveRole,
         };
+        req.user = authUser;
         req.tenantId = effectiveTenantId;
+
+        // Cache for subsequent requests
+        authCache.set(cacheKey, { user: authUser, ts: Date.now() });
 
         next();
     } catch (err) {

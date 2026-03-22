@@ -469,6 +469,49 @@ router.put(
     }
 );
 
+// POST /api/companies/geocode — Batch geocode companies missing coordinates
+router.post(
+    '/geocode',
+    requireRole('superadmin', 'ops_agent'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+
+            // Find companies with location but no coordinates
+            const { data: companies, error } = await supabaseAdmin
+                .from('companies')
+                .select('id, location')
+                .eq('tenant_id', tenantId)
+                .not('location', 'is', null)
+                .is('latitude', null);
+
+            if (error) {
+                throw new AppError('Failed to fetch companies', 500);
+            }
+
+            let geocoded = 0;
+            for (const company of companies || []) {
+                if (!company.location) continue;
+                const coords = lookupCoordinates(company.location);
+                if (coords) {
+                    await supabaseAdmin
+                        .from('companies')
+                        .update({ latitude: coords.lat, longitude: coords.lng })
+                        .eq('id', company.id);
+                    geocoded++;
+                }
+            }
+
+            log.info({ tenantId, total: companies?.length || 0, geocoded }, 'Batch geocode complete');
+            res.json({ total: companies?.length || 0, geocoded });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Batch geocode error');
+            res.status(500).json({ error: 'Failed to geocode companies' });
+        }
+    }
+);
+
 // PATCH /api/companies/bulk-stage — Bulk update stage for multiple companies
 router.patch(
     '/bulk-stage',

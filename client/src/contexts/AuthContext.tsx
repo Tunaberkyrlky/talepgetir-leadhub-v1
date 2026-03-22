@@ -21,7 +21,6 @@ interface User {
 
 interface AuthContextType {
     user: User | null;
-    token: string | null;
     isLoading: boolean;
     login: (email: string, password: string) => Promise<void>;
     logout: () => void;
@@ -38,7 +37,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
-    const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
     const [isLoading, setIsLoading] = useState(true);
     const [activeTenantId, setActiveTenantId] = useState<string | null>(
         localStorage.getItem('activeTenantId')
@@ -52,19 +50,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const activeTenantTier = activeTenant?.tier || 'basic';
     const canSwitchTenants = accessibleTenants.length > 1;
 
-    // Check auth on mount
+    // Check auth on mount — cookies are sent automatically
     useEffect(() => {
         const checkAuth = async () => {
-            const savedToken = localStorage.getItem('token');
-            if (!savedToken) {
-                setIsLoading(false);
-                return;
-            }
-
             try {
                 const { data } = await api.get('/auth/me');
                 setUser(data.user);
-                setToken(savedToken);
 
                 // Set active tenant if not already set
                 const savedTenantId = localStorage.getItem('activeTenantId');
@@ -73,12 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     localStorage.setItem('activeTenantId', data.user.tenantId);
                 }
             } catch {
-                // Token invalid
-                localStorage.removeItem('token');
-                localStorage.removeItem('refreshToken');
-                localStorage.removeItem('user');
+                // Token invalid — cookies will be cleared by server on next refresh attempt
                 localStorage.removeItem('activeTenantId');
-                setToken(null);
                 setUser(null);
                 setActiveTenantId(null);
             } finally {
@@ -91,9 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const login = useCallback(async (email: string, password: string) => {
         const { data } = await api.post('/auth/login', { email, password });
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('refreshToken', data.refreshToken);
-        setToken(data.token);
+        // Tokens are now stored in httpOnly cookies by the server
         setUser(data.user);
 
         // Set the default active tenant
@@ -104,12 +89,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }, []);
 
-    const logout = useCallback(() => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('user');
+    const logout = useCallback(async () => {
+        try {
+            await api.post('/auth/logout');
+        } catch {
+            // Best-effort logout
+        }
         localStorage.removeItem('activeTenantId');
-        setToken(null);
         setUser(null);
         setActiveTenantId(null);
         queryClient.clear();
@@ -126,11 +112,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         <AuthContext.Provider
             value={{
                 user,
-                token,
                 isLoading,
                 login,
                 logout,
-                isAuthenticated: !!token && !!user,
+                isAuthenticated: !!user,
                 activeTenantId,
                 activeTenantName,
                 activeTenantTier,

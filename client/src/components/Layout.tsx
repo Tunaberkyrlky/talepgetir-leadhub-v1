@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import classes from './Layout.module.css';
 import {
@@ -17,7 +17,6 @@ import {
     Burger,
 } from '@mantine/core';
 import { useDisclosure, useHotkeys, useMediaQuery } from '@mantine/hooks';
-import KeyboardShortcutsHelp from './KeyboardShortcutsHelp';
 import {
     IconUser,
     IconLogout,
@@ -29,7 +28,6 @@ import {
     IconColumns,
     IconFileImport,
     IconShieldCog,
-    IconKeyboard,
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
 import { useTranslation } from 'react-i18next';
@@ -51,14 +49,19 @@ export default function Layout() {
     const { t } = useTranslation();
     const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
     const [navbarOpened, { toggle: toggleNavbar, close: closeNavbar }] = useDisclosure(false);
-    const [shortcutsOpened, setShortcutsOpened] = useState(false);
+    const [settingsDefaultTab, setSettingsDefaultTab] = useState('general');
+
+    const openSettingsTab = useCallback((tab: string) => {
+        setSettingsDefaultTab(tab);
+        openSettings();
+    }, [openSettings]);
 
     const location = useLocation();
     const navigate = useNavigate();
 
     // Global keyboard shortcuts
     useHotkeys([
-        ['F1', () => setShortcutsOpened(true)],
+        ['F1', () => openSettingsTab('shortcuts')],
         ['mod+1', () => navigate('/dashboard')],
         ['mod+2', () => navigate('/companies')],
         ['mod+3', () => navigate('/people')],
@@ -212,16 +215,9 @@ export default function Layout() {
                                 <Menu.Divider />
                                 <Menu.Item
                                     leftSection={<IconSettings size={16} />}
-                                    onClick={openSettings}
+                                    onClick={() => openSettingsTab('general')}
                                 >
                                     {t('settings.title')}
-                                </Menu.Item>
-                                <Menu.Item
-                                    leftSection={<IconKeyboard size={16} />}
-                                    onClick={() => setShortcutsOpened(true)}
-                                    rightSection={<Text size="xs" c="dimmed">F1</Text>}
-                                >
-                                    {t('shortcuts.title', 'Kısayollar')}
                                 </Menu.Item>
                                 <Menu.Divider />
                                 <Menu.Item
@@ -272,8 +268,7 @@ export default function Layout() {
                 <Outlet />
             </AppShell.Main>
 
-            <SettingsModal opened={settingsOpened} onClose={closeSettings} />
-            <KeyboardShortcutsHelp opened={shortcutsOpened} onClose={() => setShortcutsOpened(false)} />
+            <SettingsModal opened={settingsOpened} onClose={closeSettings} defaultTab={settingsDefaultTab} />
         </AppShell>
     );
 }

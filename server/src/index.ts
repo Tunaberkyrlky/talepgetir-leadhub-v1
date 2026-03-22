@@ -1,5 +1,6 @@
 import express from 'express';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -50,6 +51,7 @@ app.use(cors({
         : ['http://localhost:5173', 'http://localhost:3000'],
     credentials: true,
 }));
+app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 
 // Rate limiters

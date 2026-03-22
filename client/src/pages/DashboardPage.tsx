@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { lazy, Suspense, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -19,7 +19,9 @@ import {
     IconTrophy,
     IconPercentage,
     IconChartBar,
+    IconMapPin,
 } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -67,12 +69,24 @@ export default function DashboardPage() {
     });
 
     // Company locations — for globe map (pro tier only)
+    const queryClient = useQueryClient();
     const { data: companyLocations, isLoading: locationsLoading } = useQuery<{ data: CompanyLocation[] }>({
         queryKey: ['statistics', 'company-locations'],
         queryFn: async () => (await api.get('/statistics/company-locations')).data,
         enabled: isAdvanced,
         staleTime: 5 * 60_000,
         refetchOnWindowFocus: false,
+    });
+
+    const geocodeMutation = useMutation({
+        mutationFn: async () => (await api.post('/companies/geocode')).data,
+        onSuccess: (data: { total: number; geocoded: number }) => {
+            queryClient.invalidateQueries({ queryKey: ['statistics', 'company-locations'] });
+            notifications.show({
+                message: `${data.geocoded}/${data.total} ${t('dashboard.geocoded', 'konum güncellendi')}`,
+                color: data.geocoded > 0 ? 'green' : 'yellow',
+            });
+        },
     });
 
     // Pipeline — Pro tier or internal
@@ -175,12 +189,27 @@ export default function DashboardPage() {
 
             {/* World Map — Pro tier / Internal only */}
             {isAdvanced ? (
-                <Suspense fallback={<Center style={{ height: 320 }}><Loader color="violet" /></Center>}>
-                    <GlobeMap
-                        data={companyLocations?.data || []}
-                        isLoading={locationsLoading}
-                    />
-                </Suspense>
+                <>
+                    <Suspense fallback={<Center style={{ height: 320 }}><Loader color="violet" /></Center>}>
+                        <GlobeMap
+                            data={companyLocations?.data || []}
+                            isLoading={locationsLoading}
+                        />
+                    </Suspense>
+                    {!locationsLoading && (companyLocations?.data?.length || 0) === 0 && (
+                        <Center mb="lg">
+                            <Button
+                                variant="light"
+                                leftSection={<IconMapPin size={16} />}
+                                onClick={() => geocodeMutation.mutate()}
+                                loading={geocodeMutation.isPending}
+                                size="sm"
+                            >
+                                {t('dashboard.geocodeBtn', 'Konumları Güncelle')}
+                            </Button>
+                        </Center>
+                    )}
+                </>
             ) : (
                 <Paper shadow="sm" radius="lg" p="xl" mb="lg" withBorder>
                     <Center>

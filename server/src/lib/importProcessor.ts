@@ -330,11 +330,18 @@ export async function executeImport(
         const mapKey = websiteKey || `__no_website_${i}`;
 
         if (existing) {
+            // Only include fields that have actual values — preserve existing data for empty fields
+            const updatePayload: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(companyPayload)) {
+                if (value !== null && value !== undefined && value !== '') {
+                    updatePayload[key] = value;
+                }
+            }
             if (Object.keys(customFields).length > 0) {
                 const prevCustom = (updateCompanyMap.get(mapKey)?.custom_fields as Record<string, string>) ?? existing.custom_fields;
-                companyPayload.custom_fields = { ...prevCustom, ...customFields };
+                updatePayload.custom_fields = { ...prevCustom, ...customFields };
             }
-            updateCompanyMap.set(mapKey, { ...companyPayload, id: existing.id });
+            updateCompanyMap.set(mapKey, { ...updatePayload, id: existing.id } as Record<string, unknown> & { id: string });
         } else {
             if (Object.keys(customFields).length > 0) {
                 const prevCustom = (newCompanyMap.get(mapKey)?.custom_fields as Record<string, string>) ?? {};
