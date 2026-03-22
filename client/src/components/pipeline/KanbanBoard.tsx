@@ -55,6 +55,7 @@ interface KanbanBoardProps {
     columns: Record<string, PipelineCompany[]>;
     isDragEnabled: boolean;
     onStageChange: (companyId: string, newStage: string, oldStage: string) => void;
+    initialFocusStage?: string | null;
 }
 
 /** Lazy-loaded detail panel for a single company card */
@@ -328,11 +329,12 @@ export default function KanbanBoard({
     columns,
     isDragEnabled,
     onStageChange,
+    initialFocusStage,
 }: KanbanBoardProps) {
     const { pipelineStageSlugs } = useStages();
     const [activeCompany, setActiveCompany] = useState<PipelineCompany | null>(null);
     const [overColumnId, setOverColumnId] = useState<string | null>(null);
-    const [spotlightStage, setSpotlightStage] = useState<string | null>(null);
+    const [spotlightStage, setSpotlightStage] = useState<string | null>(initialFocusStage ?? null);
 
     const toggleSpotlight = useCallback((stage: string) => {
         setSpotlightStage((prev) => (prev === stage ? null : stage));

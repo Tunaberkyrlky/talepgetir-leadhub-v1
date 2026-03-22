@@ -1,6 +1,6 @@
 {
     "app": {
-        "title": "LeadHub",
+        "title": "TG Core",
         "subtitle": "B2B Lead Management"
     },
     "auth": {
@@ -8,7 +8,7 @@
         "logout": "Çıkış Yap",
         "email": "E-posta",
         "password": "Şifre",
-        "loginTitle": "LeadHub'a Giriş",
+        "loginTitle": "TG Core'a Giriş",
         "loginSubtitle": "Hesabınıza giriş yapın",
         "loginButton": "Giriş Yap",
         "loginError": "E-posta veya şifre hatalı",
@@ -32,7 +32,7 @@
         "industry": "Sektör",
         "employeeSize": "Çalışan Sayısı",
         "productServices": "Ürün / Hizmetler",
-        "description": "Açıklama",
+        "productPortfolio": "Ürün Portföyü",
         "linkedin": "LinkedIn",
         "companyPhone": "Şirket Telefonu",
         "companyEmail": "Şirket E-postası",
@@ -41,7 +41,11 @@
         "emailUncertain": "Belirsiz",
         "emailInvalid": "Geçersiz",
         "stage": "Aşama",
-        "dealSummary": "Anlaşma Özeti",
+        "companySummary": "Şirket Özeti",
+        "fitScore": "Uyum Puanı",
+        "partnershipObservation1": "Ortaklık Gözlemi 1",
+        "partnershipObservation2": "Ortaklık Gözlemi 2",
+        "partnershipObservation3": "Ortaklık Gözlemi 3",
         "internalNotes": "İç Notlar",
         "nextStep": "Sonraki Adım",
         "updatedAt": "Güncelleme",

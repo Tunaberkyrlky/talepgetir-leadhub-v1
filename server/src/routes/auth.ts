@@ -28,15 +28,16 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
         const user = data.user;
 
-        // Get ALL memberships to find if user is superadmin ANYWHERE
+        // Check superadmin from app_metadata (tenant-independent)
+        log.info({ app_metadata: user.app_metadata, userId: user.id }, 'DEBUG: login app_metadata');
+        const isPlatformSuperadmin = user.app_metadata?.is_superadmin === true;
+
+        // Get memberships for tenant resolution
         const { data: allMemberships } = await supabaseAdmin
             .from('memberships')
             .select('tenant_id, role')
             .eq('user_id', user.id)
             .eq('is_active', true);
-
-        // Check if any of these memberships is superadmin
-        const isPlatformSuperadmin = allMemberships?.some(m => m.role === 'superadmin');
 
         // Resolve tenantId — prefer JWT claim, fall back to first active membership
         const tenantId: string | null = user.app_metadata?.tenant_id
@@ -45,6 +46,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
         // Final role for this session
         const role = isPlatformSuperadmin ? 'superadmin' : (allMemberships?.find(m => m.tenant_id === tenantId)?.role || null);
+        log.info({ isPlatformSuperadmin, role, tenantId, memberships: allMemberships?.length }, 'DEBUG: login resolved');
 
         let tenantName = null;
         let tenantTier = 'basic';
@@ -164,22 +166,22 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        // Get ALL memberships to find if user is superadmin ANYWHERE
+        // Check superadmin from app_metadata (tenant-independent)
+        const isPlatformSuperadmin = user.app_metadata?.is_superadmin === true;
+
+        // Get memberships for tenant resolution
         const { data: allMemberships } = await supabaseAdmin
             .from('memberships')
             .select('tenant_id, role')
             .eq('user_id', user.id)
             .eq('is_active', true);
 
-        // Check if any of these memberships is superadmin
-        const isPlatformSuperadmin = allMemberships?.some(m => m.role === 'superadmin');
-
         // Resolve tenantId — prefer JWT claim, fall back to first active membership
         const defaultTenantId: string | null = user.app_metadata?.tenant_id
             || allMemberships?.[0]?.tenant_id
             || null;
 
-        // Base role from memberships
+        // Base role
         const role = isPlatformSuperadmin ? 'superadmin' : (allMemberships?.find(m => m.tenant_id === defaultTenantId)?.role || null);
         let tenantName = null;
         let tenantTier = 'basic';

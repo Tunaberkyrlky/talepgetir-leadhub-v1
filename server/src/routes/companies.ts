@@ -9,7 +9,7 @@ import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs } from
 
 const log = createLogger('route:companies');
 
-const COMPANY_TRANSLATE_FIELDS = ['product_services', 'description', 'deal_summary', 'next_step', 'industry'] as const;
+const COMPANY_TRANSLATE_FIELDS = ['product_services', 'product_portfolio', 'company_summary', 'next_step', 'industry'] as const;
 
 const router = Router();
 
@@ -62,10 +62,9 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             .select('*', { count: 'exact', head: true })
             .eq('tenant_id', tenantId);
 
-        // Use view that includes pre-computed contact_count (enables sorting by it)
         let dataQuery = supabaseAdmin
-            .from('companies_with_counts')
-            .select('id, name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, company_email, email_status, stage, deal_summary, next_step, assigned_to, created_at, updated_at, contact_count')
+            .from('companies')
+            .select('id, name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, partnership_observation_1, partnership_observation_2, partnership_observation_3, contact_count, created_at, updated_at')
             .eq('tenant_id', tenantId);
 
         // Apply search (ILIKE on multiple columns)
@@ -151,8 +150,8 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
         const terminalStages = await getTerminalStageSlugs(tenantId);
 
         let query = supabaseAdmin
-            .from('companies_with_counts')
-            .select('id, name, industry, stage, next_step, deal_summary, updated_at, stage_changed_at, contact_count')
+            .from('companies')
+            .select('id, name, industry, stage, next_step, company_summary, updated_at, stage_changed_at, contact_count')
             .eq('tenant_id', tenantId)
             .in('stage', pipelineStages);
 
@@ -160,7 +159,7 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
             const safe = sanitizeSearch(search);
             if (safe.length > 0) {
                 const pattern = `%${safe}%`;
-                query = query.or(`name.ilike.${pattern},next_step.ilike.${pattern},deal_summary.ilike.${pattern}`);
+                query = query.or(`name.ilike.${pattern},next_step.ilike.${pattern},company_summary.ilike.${pattern}`);
             }
         }
 
@@ -247,9 +246,10 @@ router.post(
         try {
             const tenantId = req.tenantId!;
             const {
-                name, website, location, industry, employee_size, product_services, description, linkedin, company_phone,
+                name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone,
                 company_email, email_status,
-                stage, deal_summary, internal_notes, next_step, custom_fields,
+                stage, company_summary, internal_notes, next_step, custom_fields,
+                fit_score, partnership_observation_1, partnership_observation_2, partnership_observation_3,
                 contact_first_name, contact_last_name, contact_title, contact_email, contact_phone_e164
             } = req.body;
 
@@ -296,16 +296,20 @@ router.post(
                 industry: industry ? industry.charAt(0).toUpperCase() + industry.slice(1) : null,
                 employee_size: employee_size || null,
                 product_services: product_services || null,
-                description: description || null,
+                product_portfolio: product_portfolio || null,
                 linkedin: linkedin || null,
                 company_phone: company_phone || null,
                 company_email: company_email || null,
                 email_status: email_status || null,
                 stage: stage || 'cold',
-                deal_summary: deal_summary || null,
+                company_summary: company_summary || null,
                 internal_notes: internal_notes || null,
                 next_step: next_step || null,
                 custom_fields: custom_fields || {},
+                fit_score: fit_score || null,
+                partnership_observation_1: partnership_observation_1 || null,
+                partnership_observation_2: partnership_observation_2 || null,
+                partnership_observation_3: partnership_observation_3 || null,
                 assigned_to: req.user!.id,
             };
 
@@ -388,7 +392,7 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, description, linkedin, company_phone, company_email, email_status, stage, deal_summary, internal_notes, next_step, custom_fields } = req.body;
+            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, partnership_observation_1, partnership_observation_2, partnership_observation_3 } = req.body;
 
             // Validate stage if provided
             if (stage) {
@@ -421,14 +425,18 @@ router.put(
             if (industry !== undefined) updateData.industry = industry ? industry.charAt(0).toUpperCase() + industry.slice(1) : industry;
             if (employee_size !== undefined) updateData.employee_size = employee_size;
             if (product_services !== undefined) updateData.product_services = product_services;
-            if (description !== undefined) updateData.description = description;
+            if (product_portfolio !== undefined) updateData.product_portfolio = product_portfolio;
             if (linkedin !== undefined) updateData.linkedin = linkedin;
             if (company_phone !== undefined) updateData.company_phone = company_phone;
             if (company_email !== undefined) updateData.company_email = company_email;
             if (email_status !== undefined) updateData.email_status = email_status;
             if (stage !== undefined) updateData.stage = stage;
-            if (deal_summary !== undefined) updateData.deal_summary = deal_summary;
+            if (company_summary !== undefined) updateData.company_summary = company_summary;
             if (internal_notes !== undefined) updateData.internal_notes = internal_notes;
+            if (fit_score !== undefined) updateData.fit_score = fit_score;
+            if (partnership_observation_1 !== undefined) updateData.partnership_observation_1 = partnership_observation_1;
+            if (partnership_observation_2 !== undefined) updateData.partnership_observation_2 = partnership_observation_2;
+            if (partnership_observation_3 !== undefined) updateData.partnership_observation_3 = partnership_observation_3;
             if (next_step !== undefined) updateData.next_step = next_step;
             if (custom_fields !== undefined) updateData.custom_fields = custom_fields;
 

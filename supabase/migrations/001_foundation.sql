@@ -1,5 +1,6 @@
 -- ==========================================
--- LeadHub V0 Foundation Migration
+-- LeadHub Foundation Migration
+-- Extensions, tenants, memberships, helper functions
 -- ==========================================
 
 -- Enable UUID extension
@@ -15,17 +16,14 @@ CREATE TABLE tenants (
   slug        TEXT UNIQUE NOT NULL,
   settings    JSONB DEFAULT '{}',
   is_active   BOOLEAN DEFAULT true,
+  tier        TEXT NOT NULL DEFAULT 'basic' CHECK (tier IN ('basic', 'pro')),
   created_at  TIMESTAMPTZ DEFAULT now(),
   updated_at  TIMESTAMPTZ DEFAULT now()
 );
 
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
 
--- Tenants: users can only see their own tenant
-CREATE POLICY "tenants_select" ON tenants
-  FOR SELECT USING (
-    id = (auth.jwt() -> 'app_metadata' ->> 'tenant_id')::UUID
-  );
+CREATE INDEX idx_tenants_tier ON tenants(tier);
 
 -- ==========================================
 -- MEMBERSHIPS
@@ -43,11 +41,8 @@ CREATE TABLE memberships (
 
 ALTER TABLE memberships ENABLE ROW LEVEL SECURITY;
 
--- Memberships: users can see memberships in their own tenant
-CREATE POLICY "memberships_select" ON memberships
-  FOR SELECT USING (
-    tenant_id = (auth.jwt() -> 'app_metadata' ->> 'tenant_id')::UUID
-  );
+CREATE INDEX idx_memberships_user ON memberships(user_id);
+CREATE INDEX idx_memberships_tenant ON memberships(tenant_id);
 
 -- ==========================================
 -- HELPER FUNCTIONS
@@ -69,103 +64,13 @@ RETURNS TEXT AS $$
   LIMIT 1;
 $$ LANGUAGE sql STABLE SECURITY DEFINER;
 
--- ==========================================
--- COMPANIES
--- ==========================================
+-- Check if user is superadmin (stored in app_metadata, tenant-independent)
+CREATE OR REPLACE FUNCTION is_superadmin()
+RETURNS BOOLEAN AS $$
+  SELECT COALESCE((auth.jwt() -> 'app_metadata' ->> 'is_superadmin')::BOOLEAN, false);
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
 
-CREATE TABLE companies (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  name            TEXT NOT NULL,
-  website         TEXT,
-  location        TEXT,
-  industry        TEXT,
-  custom_fields   JSONB DEFAULT '{}',
-  employee_count  TEXT,
-  stage           TEXT NOT NULL DEFAULT 'new'
-                  CHECK (stage IN ('new','researching','contacted','meeting_scheduled',
-                                   'proposal_sent','negotiation','won','lost','on_hold')),
-  deal_summary    TEXT,
-  internal_notes  TEXT,
-  next_step       TEXT,
-  assigned_to     UUID REFERENCES auth.users(id),
-  created_at      TIMESTAMPTZ DEFAULT now(),
-  updated_at      TIMESTAMPTZ DEFAULT now()
-);
-
-ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
-
--- SELECT: tenant sees own data
-CREATE POLICY "companies_select" ON companies
-  FOR SELECT USING (tenant_id = get_user_tenant_id());
-
--- INSERT: ops_agent and superadmin
-CREATE POLICY "companies_insert" ON companies
-  FOR INSERT WITH CHECK (
-    tenant_id = get_user_tenant_id()
-    AND get_user_role() IN ('superadmin', 'ops_agent')
-  );
-
--- UPDATE: ops_agent and superadmin
-CREATE POLICY "companies_update" ON companies
-  FOR UPDATE USING (
-    tenant_id = get_user_tenant_id()
-    AND get_user_role() IN ('superadmin', 'ops_agent')
-  );
-
--- DELETE: superadmin only
-CREATE POLICY "companies_delete" ON companies
-  FOR DELETE USING (
-    tenant_id = get_user_tenant_id()
-    AND get_user_role() = 'superadmin'
-  );
-
--- ==========================================
--- ACTIVITIES (DB only — UI in V4)
--- ==========================================
-
-CREATE TABLE activities (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  company_id  UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-  contact_id  UUID,
-  type        TEXT NOT NULL CHECK (type IN ('call','email','whatsapp','meeting','note','status_change')),
-  outcome     TEXT,
-  summary     TEXT NOT NULL,
-  detail      TEXT,
-  visibility  TEXT DEFAULT 'internal' CHECK (visibility IN ('internal','client')),
-  occurred_at TIMESTAMPTZ DEFAULT now(),
-  created_by  UUID REFERENCES auth.users(id),
-  created_at  TIMESTAMPTZ DEFAULT now()
-);
-
-ALTER TABLE activities ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "activities_select" ON activities
-  FOR SELECT USING (tenant_id = get_user_tenant_id());
-
-CREATE POLICY "activities_insert" ON activities
-  FOR INSERT WITH CHECK (
-    tenant_id = get_user_tenant_id()
-    AND get_user_role() IN ('superadmin', 'ops_agent')
-  );
-
--- ==========================================
--- INDEXES
--- ==========================================
-
-CREATE INDEX idx_companies_tenant ON companies(tenant_id);
-CREATE INDEX idx_companies_tenant_stage ON companies(tenant_id, stage);
-CREATE INDEX idx_companies_tenant_name ON companies(tenant_id, name);
-CREATE INDEX idx_activities_tenant ON activities(tenant_id);
-CREATE INDEX idx_activities_company ON activities(company_id);
-CREATE INDEX idx_memberships_user ON memberships(user_id);
-CREATE INDEX idx_memberships_tenant ON memberships(tenant_id);
-
--- ==========================================
--- UPDATED_AT TRIGGER
--- ==========================================
-
+-- Auto-update updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -174,9 +79,29 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER companies_updated_at
-  BEFORE UPDATE ON companies
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- ==========================================
+-- RLS POLICIES: Tenants
+-- ==========================================
+
+CREATE POLICY "tenants_select" ON tenants
+  FOR SELECT USING (
+    id = (auth.jwt() -> 'app_metadata' ->> 'tenant_id')::UUID
+    OR is_superadmin()
+  );
+
+-- ==========================================
+-- RLS POLICIES: Memberships
+-- ==========================================
+
+CREATE POLICY "memberships_select" ON memberships
+  FOR SELECT USING (
+    tenant_id = (auth.jwt() -> 'app_metadata' ->> 'tenant_id')::UUID
+    OR is_superadmin()
+  );
+
+-- ==========================================
+-- TRIGGERS
+-- ==========================================
 
 CREATE TRIGGER tenants_updated_at
   BEFORE UPDATE ON tenants

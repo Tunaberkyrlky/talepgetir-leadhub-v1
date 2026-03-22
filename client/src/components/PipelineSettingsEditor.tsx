@@ -128,9 +128,10 @@ function SortableStageRow({ slug, groupColor, stage, isEditing, label, editName,
     );
 }
 
-export default function PipelineSettingsEditor({ onDirtyChange, saveRef }: {
+export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveSuccess }: {
     onDirtyChange?: (dirty: boolean) => void;
     saveRef?: React.MutableRefObject<PipelineSettingsEditorHandle | null>;
+    onSaveSuccess?: () => void;
 }) {
     const { t } = useTranslation();
     const queryClient = useQueryClient();
@@ -256,6 +257,7 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef }: {
             invalidateAll();
             setHasGroupChanges(false);
             notifications.show({ title: t('pipelineSettings.saved'), message: t('pipelineSettings.savedDesc'), color: 'green' });
+            onSaveSuccess?.();
         },
         onError: () => {
             notifications.show({ title: t('common.error'), message: t('pipelineSettings.saveError'), color: 'red' });

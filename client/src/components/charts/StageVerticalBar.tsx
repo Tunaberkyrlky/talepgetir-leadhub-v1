@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Box, Text, Tooltip, useMantineTheme } from '@mantine/core';
-import { useTranslation } from 'react-i18next';
 import { useStages } from '../../contexts/StagesContext';
 
 interface StageVerticalBarProps {
     data: Record<string, number>;
+    onStageClick?: (stage: string) => void;
 }
 
 const BAR_MAX_H = 120;
@@ -20,10 +20,9 @@ function scaleHeight(value: number, maxValue: number): number {
     return BAR_MIN_H + scaled * (BAR_MAX_H - BAR_MIN_H);
 }
 
-export default function StageVerticalBar({ data }: StageVerticalBarProps) {
-    const { t } = useTranslation();
+export default function StageVerticalBar({ data, onStageClick }: StageVerticalBarProps) {
     const theme = useMantineTheme();
-    const { pipelineStageSlugs, terminalStageSlugs, getStageColor } = useStages();
+    const { pipelineStageSlugs, terminalStageSlugs, getStageColor, getStageLabel } = useStages();
     const [hovered, setHovered] = useState<string | null>(null);
 
     const { bars, maxCount } = useMemo(() => {
@@ -59,17 +58,19 @@ export default function StageVerticalBar({ data }: StageVerticalBarProps) {
                 const h = scaleHeight(count, maxCount);
                 const active = hovered === stage;
                 const dimmed = hovered !== null && !active;
+                const clickable = !!onStageClick && !isTerminal;
 
                 return (
                     <Tooltip
                         key={stage}
-                        label={`${t(`stages.${stage}`)}: ${count}`}
+                        label={`${getStageLabel(stage)}: ${count}`}
                         withArrow
                         position="top"
                     >
                         <Box
                             onMouseEnter={() => setHovered(stage)}
                             onMouseLeave={() => setHovered(null)}
+                            onClick={clickable ? () => onStageClick(stage) : undefined}
                             style={{
                                 display: 'flex',
                                 flexDirection: 'column',
@@ -77,7 +78,7 @@ export default function StageVerticalBar({ data }: StageVerticalBarProps) {
                                 flex: '1 1 0',
                                 minWidth: 40,
                                 maxWidth: 72,
-                                cursor: 'default',
+                                cursor: clickable ? 'pointer' : 'default',
                                 opacity: dimmed ? 0.35 : 1,
                                 transition: 'opacity 150ms ease',
                             }}
@@ -130,7 +131,7 @@ export default function StageVerticalBar({ data }: StageVerticalBarProps) {
                                 lineClamp={1}
                                 style={{ lineHeight: 1.2 }}
                             >
-                                {t(`stages.${stage}`)}
+                                {getStageLabel(stage)}
                             </Text>
                         </Box>
                     </Tooltip>

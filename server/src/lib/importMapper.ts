@@ -65,13 +65,49 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
         ],
         required: false,
     },
-    'companies.description': {
+    'companies.product_portfolio': {
         table: 'companies',
-        field: 'description',
+        field: 'product_portfolio',
         aliases: [
-            'description', 'about', 'desc', 'overview', 'short description',
-            'hakkında', 'hakkinda', 'açıklama', 'aciklama', 'tanım', 'tanim',
-            'about company', 'company description', 'company overview',
+            'product_portfolio', 'product portfolio', 'portfolio', 'ürün portföyü', 'urun portfoyu',
+            'portföy', 'portfoy', 'ürün kataloğu', 'urun katalogu', 'product catalog',
+            'product catalogue', 'katalog', 'ürün yelpazesi',
+        ],
+        required: false,
+    },
+    'companies.fit_score': {
+        table: 'companies',
+        field: 'fit_score',
+        aliases: [
+            'fit_score', 'fit score', 'uyum puanı', 'uyum puani', 'uyum skoru',
+            'score', 'puan', 'skor', 'match score', 'eşleşme puanı', 'esleme puani',
+        ],
+        required: false,
+    },
+    'companies.partnership_observation_1': {
+        table: 'companies',
+        field: 'partnership_observation_1',
+        aliases: [
+            'partnership_observation_1', 'partnership observation 1', 'ortaklık gözlemi 1',
+            'ortaklik gozlemi 1', 'gözlem 1', 'gozlem 1', 'observation 1',
+        ],
+        required: false,
+    },
+    'companies.partnership_observation_2': {
+        table: 'companies',
+        field: 'partnership_observation_2',
+        aliases: [
+            'partnership_observation_2', 'partnership observation 2', 'ortaklık gözlemi 2',
+            'ortaklik gozlemi 2', 'gözlem 2', 'gozlem 2', 'observation 2',
+        ],
+        required: false,
+    },
+    'companies.partnership_observation_3': {
+        table: 'companies',
+        field: 'partnership_observation_3',
+        aliases: [
+            'partnership_observation_3', 'partnership observation 3', 'ortaklık gözlemi 3',
+            'ortaklik gozlemi 3', 'gözlem 3', 'gozlem 3', 'observation 3',
         ],
         required: false,
     },
@@ -106,13 +142,13 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
         ],
         required: false,
     },
-    'companies.deal_summary': {
+    'companies.company_summary': {
         table: 'companies',
-        field: 'deal_summary',
+        field: 'company_summary',
         aliases: [
-            'deal_summary', 'deal summary', 'summary', 'notes', 'not',
-            'özet', 'ozet', 'anlaşma özeti', 'anlasma ozeti',
-            'deal notes', 'anlaşma notları', 'notlar',
+            'company_summary', 'company summary', 'summary', 'notes', 'not',
+            'özet', 'ozet', 'şirket özeti', 'sirket ozeti',
+            'firma özeti', 'firma notları', 'notlar',
         ],
         required: false,
     },

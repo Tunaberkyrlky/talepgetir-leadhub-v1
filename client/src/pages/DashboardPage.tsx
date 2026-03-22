@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     Container,
     Title,
@@ -46,10 +47,15 @@ interface PipelineData {
 
 export default function DashboardPage() {
     const { t } = useTranslation();
+    const navigate = useNavigate();
     const { user, activeTenantTier } = useAuth();
     const role = user?.role || '';
     const tier = (activeTenantTier || 'basic') as Tier;
     const isAdvanced = hasTierAccess(role, tier, 'advanced_stats');
+
+    const handleStageClick = useCallback((stage: string) => {
+        navigate(`/pipeline?focus=${stage}`);
+    }, [navigate]);
 
     // Overview — always loaded, refetch every visit & periodically
     const { data: overview, isLoading: overviewLoading, error: overviewError } = useQuery<OverviewData>({
@@ -146,7 +152,7 @@ export default function DashboardPage() {
                 {Object.entries(overview?.companiesByStage || {}).some(
                     ([stage, count]) => stage !== 'cold' && count > 0
                 ) ? (
-                    <StageVerticalBar data={overview?.companiesByStage || {}} />
+                    <StageVerticalBar data={overview?.companiesByStage || {}} onStageClick={handleStageClick} />
                 ) : (
                     <Text c="dimmed" size="sm" ta="center" py="md">
                         {t('dashboard.noStageData')}
@@ -167,27 +173,16 @@ export default function DashboardPage() {
                 </SimpleGrid>
             )}
 
-            {/* World Map — company geographic distribution */}
-            <Suspense fallback={<Center style={{ height: 420 }}><Loader color="violet" /></Center>}>
-                <GlobeMap
-                    data={companyLocations?.data || []}
-                    isLoading={locationsLoading}
-                />
-            </Suspense>
-
-            {/* Pro tier / Internal — pipeline funnel */}
-            {isAdvanced && pipeline && (
-                <SimpleGrid cols={{ base: 1, md: 2 }} mb="lg">
-                    <PipelineFunnel
-                        data={pipeline.funnel}
-                        title={t('dashboard.pipelineFunnel')}
+            {/* World Map — Pro tier / Internal only */}
+            {isAdvanced ? (
+                <Suspense fallback={<Center style={{ height: 320 }}><Loader color="violet" /></Center>}>
+                    <GlobeMap
+                        data={companyLocations?.data || []}
+                        isLoading={locationsLoading}
                     />
-                </SimpleGrid>
-            )}
-
-            {/* Upgrade prompt for basic tier clients */}
-            {!isAdvanced && (
-                <Paper shadow="sm" radius="lg" p="xl" withBorder>
+                </Suspense>
+            ) : (
+                <Paper shadow="sm" radius="lg" p="xl" mb="lg" withBorder>
                     <Center>
                         <Stack align="center" gap="sm">
                             <IconChartBar size={48} color="#6c63ff" stroke={1.5} />
@@ -200,6 +195,17 @@ export default function DashboardPage() {
                         </Stack>
                     </Center>
                 </Paper>
+            )}
+
+            {/* Pro tier / Internal — pipeline funnel */}
+            {isAdvanced && pipeline && (
+                <SimpleGrid cols={{ base: 1, md: 2 }} mb="lg">
+                    <PipelineFunnel
+                        data={pipeline.funnel}
+                        title={t('dashboard.pipelineFunnel')}
+                        onStageClick={handleStageClick}
+                    />
+                </SimpleGrid>
             )}
         </Container>
     );
