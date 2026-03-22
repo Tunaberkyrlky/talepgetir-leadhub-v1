@@ -49,7 +49,7 @@ export default function PipelineFunnel({ data, title, onStageClick }: PipelineFu
                     data={chartData}
                     layout="vertical"
                     margin={{ left: 20, right: 20 }}
-                    onClick={(state) => {
+                    onClick={(state: any) => {
                         if (state?.activePayload?.[0]?.payload?.stage && onStageClick) {
                             onStageClick(state.activePayload[0].payload.stage);
                         }

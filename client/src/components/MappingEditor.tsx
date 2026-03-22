@@ -1,5 +1,6 @@
-import { Table, Text, Select, Badge, Divider, Group } from '@mantine/core';
-import { IconArrowRight, IconLink, IconLinkOff, IconBuildingSkyscraper, IconUsers } from '@tabler/icons-react';
+import { useState } from 'react';
+import { Table, Text, Select, Badge, Divider, Group, Popover, ActionIcon, ScrollArea, Stack } from '@mantine/core';
+import { IconArrowRight, IconLink, IconLinkOff, IconBuildingSkyscraper, IconUsers, IconEye } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import type { MappingSuggestion, AvailableField } from '../lib/types';
 
@@ -10,10 +11,12 @@ interface MappingEditorProps {
     onMappingChange: (fileHeader: string, dbField: string | null) => void;
     companyHeaders?: string[];
     peopleHeaders?: string[];
+    previewRows?: Record<string, string>[];
 }
 
-export default function MappingEditor({ suggestions, mapping, availableFields, onMappingChange, companyHeaders, peopleHeaders }: MappingEditorProps) {
+export default function MappingEditor({ suggestions, mapping, availableFields, onMappingChange, companyHeaders, peopleHeaders, previewRows }: MappingEditorProps) {
     const { t } = useTranslation();
+    const [openedPopover, setOpenedPopover] = useState<string | null>(null);
     const hasSourceInfo = !!(companyHeaders && peopleHeaders);
 
     const companyHeaderSet = new Set(companyHeaders || []);
@@ -38,6 +41,12 @@ export default function MappingEditor({ suggestions, mapping, availableFields, o
         if (confidence >= 0.8) return <Badge color="green" size="sm">✓ {t('import.confidenceHigh')}</Badge>;
         if (confidence >= 0.6) return <Badge color="yellow" size="sm">~ {t('import.confidenceMedium')}</Badge>;
         return <Badge color="gray" size="sm">? {t('import.confidenceManual')}</Badge>;
+    };
+
+    const getColumnValues = (header: string): string[] => {
+        if (!previewRows || previewRows.length === 0) return [];
+        const values = previewRows.map((row) => row[header]).filter((v) => v != null && v !== '');
+        return [...new Set(values)];
     };
 
     const companyFields = availableFields.filter((f) => f.table === 'companies');
@@ -79,6 +88,45 @@ export default function MappingEditor({ suggestions, mapping, availableFields, o
                             {s.required && <Text span c="red" ml={4}>*</Text>}
                         </Text>
                         {getSourceBadge(s.fileHeader)}
+                        {previewRows && previewRows.length > 0 && (
+                            <Popover
+                                opened={openedPopover === s.fileHeader}
+                                onChange={(opened) => setOpenedPopover(opened ? s.fileHeader : null)}
+                                position="bottom-start"
+                                withArrow
+                                shadow="md"
+                                width={280}
+                            >
+                                <Popover.Target>
+                                    <ActionIcon
+                                        variant="subtle"
+                                        color="gray"
+                                        size="xs"
+                                        onClick={() => setOpenedPopover(openedPopover === s.fileHeader ? null : s.fileHeader)}
+                                        title={t('import.previewValues')}
+                                    >
+                                        <IconEye size={14} />
+                                    </ActionIcon>
+                                </Popover.Target>
+                                <Popover.Dropdown>
+                                    <Text size="xs" fw={600} mb={4} c="dimmed">
+                                        {t('import.sampleValues')} ({getColumnValues(s.fileHeader).length})
+                                    </Text>
+                                    <ScrollArea.Autosize mah={200}>
+                                        <Stack gap={2}>
+                                            {getColumnValues(s.fileHeader).map((val, i) => (
+                                                <Text key={i} size="xs" style={{ wordBreak: 'break-word' }}>
+                                                    {val}
+                                                </Text>
+                                            ))}
+                                            {getColumnValues(s.fileHeader).length === 0 && (
+                                                <Text size="xs" c="dimmed" fs="italic">{t('import.noValues')}</Text>
+                                            )}
+                                        </Stack>
+                                    </ScrollArea.Autosize>
+                                </Popover.Dropdown>
+                            </Popover>
+                        )}
                     </Group>
                 </Table.Td>
                 <Table.Td>

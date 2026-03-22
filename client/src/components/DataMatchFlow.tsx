@@ -416,6 +416,7 @@ export default function DataMatchFlow() {
                             onMappingChange={handleMappingChange}
                             companyHeaders={previewData.companyHeaders}
                             peopleHeaders={previewData.peopleHeaders}
+                            previewRows={previewData.previewRows}
                         />
                     )}
 
