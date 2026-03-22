@@ -72,6 +72,30 @@ function slugify(text: string): string {
     return text.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 }
 
+// Default pipeline stages seeded for new tenants
+const DEFAULT_STAGES = [
+    { slug: 'cold', display_name: 'Cold', color: 'gray', sort_order: 0, stage_type: 'initial' },
+    { slug: 'in_queue', display_name: 'In Queue', color: 'blue', sort_order: 1, stage_type: 'pipeline' },
+    { slug: 'first_contact', display_name: 'First Contact', color: 'cyan', sort_order: 2, stage_type: 'pipeline' },
+    { slug: 'connected', display_name: 'Connected', color: 'indigo', sort_order: 3, stage_type: 'pipeline' },
+    { slug: 'qualified', display_name: 'Qualified', color: 'teal', sort_order: 4, stage_type: 'pipeline' },
+    { slug: 'in_meeting', display_name: 'In Meeting', color: 'yellow', sort_order: 5, stage_type: 'pipeline' },
+    { slug: 'follow_up', display_name: 'Follow Up', color: 'orange', sort_order: 6, stage_type: 'pipeline' },
+    { slug: 'proposal_sent', display_name: 'Proposal Sent', color: 'violet', sort_order: 7, stage_type: 'pipeline' },
+    { slug: 'negotiation', display_name: 'Negotiation', color: 'grape', sort_order: 8, stage_type: 'pipeline' },
+    { slug: 'won', display_name: 'Won', color: 'green', sort_order: 9, stage_type: 'terminal' },
+    { slug: 'lost', display_name: 'Lost', color: 'red', sort_order: 10, stage_type: 'terminal' },
+    { slug: 'on_hold', display_name: 'On Hold', color: 'gray', sort_order: 11, stage_type: 'terminal' },
+];
+
+export async function ensureDefaultStages(tenantId: string): Promise<void> {
+    const { error } = await supabaseAdmin
+        .from('pipeline_stages')
+        .insert(DEFAULT_STAGES.map((s) => ({ ...s, tenant_id: tenantId })));
+    if (error) log.error({ err: error }, 'Failed to seed default stages');
+    invalidateStageCache(tenantId);
+}
+
 // ─── Stages CRUD ───
 
 // GET /api/settings/stages — All pipeline stages for current tenant
@@ -79,7 +103,7 @@ router.get('/stages', async (req: Request, res: Response, next: NextFunction): P
     try {
         const tenantId = req.tenantId!;
 
-        const { data, error } = await supabaseAdmin
+        let { data, error } = await supabaseAdmin
             .from('pipeline_stages')
             .select('*')
             .eq('tenant_id', tenantId)
@@ -91,7 +115,18 @@ router.get('/stages', async (req: Request, res: Response, next: NextFunction): P
             throw new AppError('Failed to fetch stages', 500);
         }
 
-        res.json({ data: data || [] });
+        if (!data || data.length === 0) {
+            await ensureDefaultStages(tenantId);
+            const result = await supabaseAdmin
+                .from('pipeline_stages')
+                .select('*')
+                .eq('tenant_id', tenantId)
+                .eq('is_active', true)
+                .order('sort_order');
+            data = result.data || [];
+        }
+
+        res.json({ data });
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Get stages error');

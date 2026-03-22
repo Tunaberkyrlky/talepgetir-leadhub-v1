@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -26,7 +26,7 @@ import {
     Checkbox,
     Divider,
 } from '@mantine/core';
-import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
+import { useDebouncedValue, useDisclosure, useHotkeys } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
     IconPlus,
@@ -70,6 +70,7 @@ import { useStages } from '../contexts/StagesContext';
 import CompanyForm from '../components/CompanyForm';
 import TruncatedText from '../components/TruncatedText';
 import EmailStatusIcon from '../components/EmailStatusIcon';
+import { useUndoStack } from '../hooks/useUndoStack';
 
 interface Company {
     id: string;
@@ -163,14 +164,18 @@ const SORTABLE_COLUMNS: Set<string> = new Set([
     'name', 'stage', 'industry', 'location', 'updated_at', 'created_at', 'employee_size', 'contact_count',
 ]);
 
+const VALID_COLUMN_KEYS = new Set<string>(DEFAULT_COLUMNS.map(c => c.key));
+
 function loadColumnConfig(): ColumnDef[] {
     try {
         const stored = localStorage.getItem(COLUMNS_STORAGE_KEY);
         if (stored) {
             const parsed = JSON.parse(stored) as ColumnDef[];
-            const keys = parsed.map(c => c.key);
+            // Filter out unknown keys from old localStorage data
+            const valid = parsed.filter(c => VALID_COLUMN_KEYS.has(c.key));
+            const keys = valid.map(c => c.key);
             const missing = DEFAULT_COLUMNS.filter(c => !keys.includes(c.key));
-            return [...parsed, ...missing];
+            return [...valid, ...missing];
         }
     } catch {}
     return DEFAULT_COLUMNS;
@@ -252,39 +257,142 @@ export default function LeadsPage() {
 
     // Bulk selection state
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const lastClickedRef = useRef<string | null>(null);
+    const searchRef = useRef<HTMLInputElement>(null);
+    const undoStack = useUndoStack();
 
     const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
 
-    const toggleSelect = (id: string) => {
+    // Build query params (moved up so useQuery can be before handleRowSelect)
+    const buildQueryParams = useCallback(() => {
+        const params = new URLSearchParams();
+        params.set('page', String(page));
+        params.set('limit', '25');
+        params.set('sortBy', sortBy);
+        params.set('sortOrder', sortOrder);
+        if (debouncedSearch) params.set('search', debouncedSearch);
+        if (selectedStages.length) params.set('stages', selectedStages.join(','));
+        if (selectedIndustries.length) params.set('industries', selectedIndustries.join(','));
+        if (selectedLocations.length) params.set('locations', selectedLocations.join(','));
+        if (selectedProducts.length) params.set('products', selectedProducts.join(','));
+        return params.toString();
+    }, [page, sortBy, sortOrder, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
+
+    // Fetch companies (moved up so data is available for handleRowSelect and useHotkeys)
+    const { data, isLoading, error } = useQuery<PaginatedResponse>({
+        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts, sortBy, sortOrder],
+        queryFn: async () => {
+            const res = await api.get(`/companies?${buildQueryParams()}`);
+            return res.data;
+        },
+    });
+
+    // Bulk selection computed (after data query)
+    const allOnPage = data?.data.map(c => c.id) || [];
+    const allSelected = allOnPage.length > 0 && allOnPage.every(id => selectedIds.has(id));
+    const someSelected = allOnPage.some(id => selectedIds.has(id));
+
+    const handleRowSelect = useCallback((id: string, shiftKey: boolean) => {
         setSelectedIds(prev => {
             const next = new Set(prev);
+            if (shiftKey && lastClickedRef.current && data?.data) {
+                // Shift+Click range selection
+                const ids = data.data.map(c => c.id);
+                const startIdx = ids.indexOf(lastClickedRef.current);
+                const endIdx = ids.indexOf(id);
+                if (startIdx !== -1 && endIdx !== -1) {
+                    const [from, to] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+                    for (let i = from; i <= to; i++) next.add(ids[i]);
+                    lastClickedRef.current = id;
+                    return next;
+                }
+            }
             if (next.has(id)) next.delete(id);
             else next.add(id);
+            lastClickedRef.current = id;
             return next;
         });
-    };
+    }, [data?.data]);
+
+    const toggleSelect = (id: string) => handleRowSelect(id, false);
+
+    // Page-level keyboard shortcuts
+    useHotkeys([
+        ['mod+K', () => searchRef.current?.focus()],
+        ['mod+F', () => searchRef.current?.focus()],
+        ['N', () => { open(); }],
+        ['Escape', () => {
+            if (selectedIds.size > 0) setSelectedIds(new Set());
+            else if (search) setSearch('');
+        }],
+        ['mod+A', () => {
+            if (allOnPage.length > 0) {
+                if (allSelected) setSelectedIds(new Set());
+                else setSelectedIds(new Set(allOnPage));
+            }
+        }],
+        ['mod+Z', () => {
+            const entry = undoStack.pop();
+            if (entry) {
+                entry.undo();
+                notifications.show({ message: `${t('shortcuts.undone', 'Geri alındı')}: ${entry.description}`, color: 'blue' });
+            }
+        }],
+    ]);
 
     // Clear selection when page/filters change
     useEffect(() => {
         setSelectedIds(new Set());
     }, [page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
 
-    // Bulk stage update mutation
+    // Bulk stage update mutation with undo support
     const bulkStageMutation = useMutation({
-        mutationFn: async (stage: string) => {
-            await api.patch('/companies/bulk-stage', { ids: Array.from(selectedIds), stage });
+        mutationFn: async ({ stage, ids, oldStages }: { stage: string; ids: string[]; oldStages: Record<string, string> }) => {
+            await api.patch('/companies/bulk-stage', { ids, stage });
+            return { stage, ids, oldStages };
         },
-        onSuccess: () => {
+        onSuccess: ({ ids, oldStages }) => {
             queryClient.invalidateQueries({ queryKey: ['companies'] });
             queryClient.invalidateQueries({ queryKey: ['filterOptions'] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
+            queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+            // Push undo entry — revert each company to its old stage
+            undoStack.push({
+                description: t('bulk.stageChanged', 'Toplu aşama değişikliği'),
+                undo: async () => {
+                    const grouped = new Map<string, string[]>();
+                    for (const id of ids) {
+                        const old = oldStages[id];
+                        if (old) {
+                            if (!grouped.has(old)) grouped.set(old, []);
+                            grouped.get(old)!.push(id);
+                        }
+                    }
+                    for (const [stage, stageIds] of grouped) {
+                        await api.patch('/companies/bulk-stage', { ids: stageIds, stage });
+                    }
+                    queryClient.invalidateQueries({ queryKey: ['companies'] });
+                    queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+                    queryClient.invalidateQueries({ queryKey: ['statistics'] });
+                },
+            });
             setSelectedIds(new Set());
-            notifications.show({ title: '✅', message: t('company.updated'), color: 'green' });
+            notifications.show({ message: t('company.updated'), color: 'green' });
         },
         onError: () => {
-            notifications.show({ title: '❌', message: t('common.error'), color: 'red' });
+            notifications.show({ message: t('common.error'), color: 'red' });
         },
     });
+
+    const handleBulkStageChange = useCallback((newStage: string) => {
+        const ids = Array.from(selectedIds);
+        const oldStages: Record<string, string> = {};
+        for (const id of ids) {
+            const company = data?.data.find(c => c.id === id);
+            if (company) oldStages[id] = company.stage;
+        }
+        bulkStageMutation.mutate({ stage: newStage, ids, oldStages });
+    }, [selectedIds, data?.data, bulkStageMutation]);
 
     const columnLabels: Record<ColumnKey, string> = {
         name: t('company.name'),
@@ -352,35 +460,6 @@ export default function LeadsPage() {
             return res.data;
         },
     });
-
-    // Build query params
-    const buildQueryParams = useCallback(() => {
-        const params = new URLSearchParams();
-        params.set('page', String(page));
-        params.set('limit', '25');
-        params.set('sortBy', sortBy);
-        params.set('sortOrder', sortOrder);
-        if (debouncedSearch) params.set('search', debouncedSearch);
-        if (selectedStages.length) params.set('stages', selectedStages.join(','));
-        if (selectedIndustries.length) params.set('industries', selectedIndustries.join(','));
-        if (selectedLocations.length) params.set('locations', selectedLocations.join(','));
-        if (selectedProducts.length) params.set('products', selectedProducts.join(','));
-        return params.toString();
-    }, [page, sortBy, sortOrder, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
-
-    // Fetch companies
-    const { data, isLoading, error } = useQuery<PaginatedResponse>({
-        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts, sortBy, sortOrder],
-        queryFn: async () => {
-            const res = await api.get(`/companies?${buildQueryParams()}`);
-            return res.data;
-        },
-    });
-
-    // Bulk selection computed (after data query)
-    const allOnPage = data?.data.map(c => c.id) || [];
-    const allSelected = allOnPage.length > 0 && allOnPage.every(id => selectedIds.has(id));
-    const someSelected = allOnPage.some(id => selectedIds.has(id));
 
     const toggleSelectAll = () => {
         if (allSelected) {
@@ -503,15 +582,73 @@ export default function LeadsPage() {
                 );
             case 'stage':
                 return (
-                    <Table.Td key="stage">
-                        <Badge
-                            color={getStageColor(company.stage)}
-                            variant="light"
-                            size="sm"
-                            radius="sm"
-                        >
-                            {getStageLabel(company.stage)}
-                        </Badge>
+                    <Table.Td key="stage" onClick={(e) => e.stopPropagation()}>
+                        <Menu withinPortal position="bottom-start" shadow="md">
+                            <Menu.Target>
+                                <Badge
+                                    color={getStageColor(company.stage)}
+                                    variant="light"
+                                    size="sm"
+                                    radius="sm"
+                                    style={{ cursor: 'pointer' }}
+                                >
+                                    {getStageLabel(company.stage)}
+                                </Badge>
+                            </Menu.Target>
+                            <Menu.Dropdown>
+                                {allStages.map((s) => (
+                                    <Menu.Item
+                                        key={s.slug}
+                                        onClick={() => {
+                                            const ids = selectedIds.has(company.id) && selectedIds.size > 1
+                                                ? Array.from(selectedIds)
+                                                : [company.id];
+                                            const oldStages: Record<string, string> = {};
+                                            for (const id of ids) {
+                                                const c = data?.data.find(co => co.id === id);
+                                                if (c) oldStages[id] = c.stage;
+                                            }
+                                            api.patch('/companies/bulk-stage', { ids, stage: s.slug }).then(() => {
+                                                queryClient.invalidateQueries({ queryKey: ['companies'] });
+                                                queryClient.invalidateQueries({ queryKey: ['filterOptions'] });
+                                                queryClient.invalidateQueries({ queryKey: ['statistics'] });
+                                                queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+                                                undoStack.push({
+                                                    description: t('bulk.stageChanged', 'Aşama değişikliği'),
+                                                    undo: async () => {
+                                                        const grouped = new Map<string, string[]>();
+                                                        for (const id of ids) {
+                                                            const old = oldStages[id];
+                                                            if (old) {
+                                                                if (!grouped.has(old)) grouped.set(old, []);
+                                                                grouped.get(old)!.push(id);
+                                                            }
+                                                        }
+                                                        for (const [stage, stageIds] of grouped) {
+                                                            await api.patch('/companies/bulk-stage', { ids: stageIds, stage });
+                                                        }
+                                                        queryClient.invalidateQueries({ queryKey: ['companies'] });
+                                                        queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+                                                        queryClient.invalidateQueries({ queryKey: ['statistics'] });
+                                                    },
+                                                });
+                                                if (selectedIds.size > 0) setSelectedIds(new Set());
+                                                notifications.show({ message: t('company.updated'), color: 'green' });
+                                            });
+                                        }}
+                                        leftSection={
+                                            <Badge color={s.color} variant="light" size="xs" radius="sm">
+                                                {' '}
+                                            </Badge>
+                                        }
+                                    >
+                                        <Text size="sm" fw={company.stage === s.slug ? 700 : 400}>
+                                            {getStageLabel(s.slug)}
+                                        </Text>
+                                    </Menu.Item>
+                                ))}
+                            </Menu.Dropdown>
+                        </Menu>
                     </Table.Td>
                 );
             case 'industry':
@@ -697,6 +834,7 @@ export default function LeadsPage() {
             <Paper shadow="sm" radius="lg" p="md" mb="md" withBorder>
                 <Group grow>
                     <TextInput
+                        ref={searchRef}
                         placeholder={t('leads.search')}
                         leftSection={<IconSearch size={16} />}
                         value={search}
@@ -788,7 +926,7 @@ export default function LeadsPage() {
                                     size="compact-xs"
                                     variant="light"
                                     color={s.color}
-                                    onClick={() => bulkStageMutation.mutate(s.slug)}
+                                    onClick={() => handleBulkStageChange(s.slug)}
                                     loading={bulkStageMutation.isPending}
                                     radius="sm"
                                 >
@@ -846,7 +984,6 @@ export default function LeadsPage() {
                                         {someSelected ? (
                                             <Checkbox
                                                 checked={allSelected}
-                                                indeterminate={someSelected && !allSelected}
                                                 onChange={toggleSelectAll}
                                                 size="sm"
                                                 color="violet"
@@ -935,13 +1072,16 @@ export default function LeadsPage() {
                                             style={{ width: 48, padding: '0 8px' }}
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                toggleSelect(company.id);
+                                                handleRowSelect(company.id, e.shiftKey);
                                             }}
                                         >
                                             <Checkbox
                                                 checked={selectedIds.has(company.id)}
-                                                onChange={() => toggleSelect(company.id)}
-                                                onClick={(e) => e.stopPropagation()}
+                                                onChange={() => {}}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleRowSelect(company.id, e.shiftKey);
+                                                }}
                                                 size="sm"
                                                 color="violet"
                                                 styles={{ input: { cursor: 'pointer' }, root: { padding: 4 } }}

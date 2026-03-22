@@ -6,6 +6,7 @@ import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
 import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs } from './settings.js';
+import { invalidateOverviewCache, invalidatePipelineStatsCache } from './statistics.js';
 
 const log = createLogger('route:companies');
 
@@ -499,6 +500,8 @@ router.patch(
                 throw new AppError('Failed to bulk update stages', 500);
             }
 
+            invalidateOverviewCache(tenantId);
+            invalidatePipelineStatsCache(tenantId);
             res.json({ updated: data?.length || 0 });
         } catch (err) {
             if (err instanceof AppError) return next(err);
@@ -537,6 +540,8 @@ router.patch(
                 return;
             }
 
+            invalidateOverviewCache(tenantId);
+            invalidatePipelineStatsCache(tenantId);
             res.json({ data });
         } catch (err) {
             if (err instanceof AppError) return next(err);

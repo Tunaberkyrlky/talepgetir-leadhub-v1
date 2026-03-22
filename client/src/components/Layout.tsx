@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import classes from './Layout.module.css';
 import {
@@ -15,7 +16,8 @@ import {
     Tooltip,
     Burger,
 } from '@mantine/core';
-import { useDisclosure, useMediaQuery } from '@mantine/hooks';
+import { useDisclosure, useHotkeys, useMediaQuery } from '@mantine/hooks';
+import KeyboardShortcutsHelp from './KeyboardShortcutsHelp';
 import {
     IconUser,
     IconLogout,
@@ -27,6 +29,7 @@ import {
     IconColumns,
     IconFileImport,
     IconShieldCog,
+    IconKeyboard,
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
 import { useTranslation } from 'react-i18next';
@@ -48,8 +51,19 @@ export default function Layout() {
     const { t } = useTranslation();
     const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
     const [navbarOpened, { toggle: toggleNavbar, close: closeNavbar }] = useDisclosure(false);
+    const [shortcutsOpened, setShortcutsOpened] = useState(false);
+
     const location = useLocation();
     const navigate = useNavigate();
+
+    // Global keyboard shortcuts
+    useHotkeys([
+        ['F1', () => setShortcutsOpened(true)],
+        ['mod+1', () => navigate('/dashboard')],
+        ['mod+2', () => navigate('/companies')],
+        ['mod+3', () => navigate('/people')],
+        ['mod+4', () => navigate('/pipeline')],
+    ]);
     const isMobile = useMediaQuery('(max-width: 768px)');
     const isIconOnly = useMediaQuery('(max-width: 992px)') && !isMobile;
 
@@ -202,6 +216,13 @@ export default function Layout() {
                                 >
                                     {t('settings.title')}
                                 </Menu.Item>
+                                <Menu.Item
+                                    leftSection={<IconKeyboard size={16} />}
+                                    onClick={() => setShortcutsOpened(true)}
+                                    rightSection={<Text size="xs" c="dimmed">F1</Text>}
+                                >
+                                    {t('shortcuts.title', 'Kısayollar')}
+                                </Menu.Item>
                                 <Menu.Divider />
                                 <Menu.Item
                                     leftSection={<IconLogout size={16} />}
@@ -252,6 +273,7 @@ export default function Layout() {
             </AppShell.Main>
 
             <SettingsModal opened={settingsOpened} onClose={closeSettings} />
+            <KeyboardShortcutsHelp opened={shortcutsOpened} onClose={() => setShortcutsOpened(false)} />
         </AppShell>
     );
 }

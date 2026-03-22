@@ -41,6 +41,9 @@ import {
     IconUsers,
     IconAdjustments,
     IconGripVertical,
+    IconMail,
+    IconPhone,
+    IconBrandLinkedin,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -392,6 +395,21 @@ export default function PeoplePage() {
                             <Text fw={600} size="sm">
                                 {contact.first_name} {contact.last_name || ''}
                             </Text>
+                            {contact.email && (
+                                <Tooltip label={contact.email} withArrow>
+                                    <IconMail size={15} color="#3b82f6" />
+                                </Tooltip>
+                            )}
+                            {contact.phone_e164 && (
+                                <Tooltip label={contact.phone_e164} withArrow>
+                                    <IconPhone size={15} color="#22c55e" />
+                                </Tooltip>
+                            )}
+                            {contact.linkedin && (
+                                <Tooltip label="LinkedIn" withArrow>
+                                    <IconBrandLinkedin size={15} color="#0a66c2" />
+                                </Tooltip>
+                            )}
                             {contact.is_primary && (
                                 <Badge size="xs" variant="dot" color="violet">
                                     {t('contact.isPrimary')}
