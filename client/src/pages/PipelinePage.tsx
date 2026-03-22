@@ -19,7 +19,7 @@ import {
     Modal,
     Button,
 } from '@mantine/core';
-import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
+import { useDebouncedValue, useDisclosure, useHotkeys } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -44,6 +44,7 @@ import { useStages } from '../contexts/StagesContext';
 import KanbanBoard from '../components/pipeline/KanbanBoard';
 import type { PipelineCompany } from '../components/pipeline/PipelineCard';
 import PipelineSettingsEditor, { type PipelineSettingsEditorHandle } from '../components/PipelineSettingsEditor';
+import { useUndoStack } from '../hooks/useUndoStack';
 
 interface PipelineData {
     columns: Record<string, PipelineCompany[]>;
@@ -66,6 +67,25 @@ export default function PipelinePage() {
     const [confirmCloseOpened, setConfirmCloseOpened] = useState(false);
     const settingsDirtyRef = useRef(false);
     const settingsSaveRef = useRef<PipelineSettingsEditorHandle | null>(null);
+    const searchRef = useRef<HTMLInputElement>(null);
+    const undoStack = useUndoStack();
+
+    // Page-level keyboard shortcuts
+    useHotkeys([
+        ['mod+K', () => searchRef.current?.focus()],
+        ['mod+F', () => searchRef.current?.focus()],
+        ['1', () => setViewMode('board')],
+        ['2', () => setViewMode('table')],
+        ['S', () => openSettings()],
+        ['Escape', () => { if (search) setSearch(''); }],
+        ['mod+Z', () => {
+            const entry = undoStack.pop();
+            if (entry) {
+                entry.undo();
+                notifications.show({ message: `${t('shortcuts.undone', 'Geri alındı')}: ${entry.description}`, color: 'blue' });
+            }
+        }],
+    ]);
 
     const handleSettingsClose = useCallback(() => {
         if (settingsDirtyRef.current) {
@@ -159,8 +179,12 @@ export default function PipelinePage() {
     });
 
     const handleStageChange = useCallback(
-        (companyId: string, newStage: string, _oldStage: string) => {
+        (companyId: string, newStage: string, oldStage: string) => {
             stageMutation.mutate({ companyId, newStage });
+            undoStack.push({
+                description: t('pipeline.stageMoved', 'Aşama taşıma'),
+                undo: () => stageMutation.mutate({ companyId, newStage: oldStage }),
+            });
         },
         [stageMutation]
     );
@@ -213,6 +237,7 @@ export default function PipelinePage() {
 
                     <Group gap="sm">
                         <TextInput
+                            ref={searchRef}
                             placeholder={t('pipeline.search')}
                             leftSection={<IconSearch size={16} />}
                             value={search}

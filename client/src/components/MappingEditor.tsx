@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Table, Text, Select, Badge, Divider, Group, Popover, ActionIcon, ScrollArea, Stack } from '@mantine/core';
-import { IconArrowRight, IconLink, IconLinkOff, IconBuildingSkyscraper, IconUsers, IconEye } from '@tabler/icons-react';
+import { Table, Text, Select, Badge, Divider, Group, Popover, ScrollArea, Stack, UnstyledButton } from '@mantine/core';
+import { IconArrowRight, IconLink, IconLinkOff, IconBuildingSkyscraper, IconUsers } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import type { MappingSuggestion, AvailableField } from '../lib/types';
 
@@ -82,52 +82,48 @@ export default function MappingEditor({ suggestions, mapping, availableFields, o
                     {isMapped && <IconArrowRight size={18} color="var(--mantine-color-violet-6)" />}
                 </Table.Td>
                 <Table.Td>
-                    <Group gap="xs">
-                        <Text fw={500} size="sm">
-                            {s.fileHeader}
-                            {s.required && <Text span c="red" ml={4}>*</Text>}
-                        </Text>
-                        {getSourceBadge(s.fileHeader)}
-                        {previewRows && previewRows.length > 0 && (
-                            <Popover
-                                opened={openedPopover === s.fileHeader}
-                                onChange={(opened) => setOpenedPopover(opened ? s.fileHeader : null)}
-                                position="bottom-start"
-                                withArrow
-                                shadow="md"
-                                width={280}
+                    <Popover
+                        opened={openedPopover === s.fileHeader}
+                        onChange={(opened) => setOpenedPopover(opened ? s.fileHeader : null)}
+                        position="bottom-start"
+                        withArrow
+                        shadow="md"
+                        width={280}
+                        disabled={!previewRows || previewRows.length === 0}
+                    >
+                        <Popover.Target>
+                            <UnstyledButton
+                                onClick={() => setOpenedPopover(openedPopover === s.fileHeader ? null : s.fileHeader)}
+                                style={{ borderRadius: 6, padding: '2px 6px', margin: '-2px -6px' }}
+                                className="column-preview-btn"
                             >
-                                <Popover.Target>
-                                    <ActionIcon
-                                        variant="subtle"
-                                        color="gray"
-                                        size="xs"
-                                        onClick={() => setOpenedPopover(openedPopover === s.fileHeader ? null : s.fileHeader)}
-                                        title={t('import.previewValues')}
-                                    >
-                                        <IconEye size={14} />
-                                    </ActionIcon>
-                                </Popover.Target>
-                                <Popover.Dropdown>
-                                    <Text size="xs" fw={600} mb={4} c="dimmed">
-                                        {t('import.sampleValues')} ({getColumnValues(s.fileHeader).length})
+                                <Group gap="xs">
+                                    <Text fw={500} size="sm" td={previewRows && previewRows.length > 0 ? 'underline' : undefined} style={{ textDecorationStyle: 'dotted', textUnderlineOffset: 3 }}>
+                                        {s.fileHeader}
+                                        {s.required && <Text span c="red" ml={4}>*</Text>}
                                     </Text>
-                                    <ScrollArea.Autosize mah={200}>
-                                        <Stack gap={2}>
-                                            {getColumnValues(s.fileHeader).map((val, i) => (
-                                                <Text key={i} size="xs" style={{ wordBreak: 'break-word' }}>
-                                                    {val}
-                                                </Text>
-                                            ))}
-                                            {getColumnValues(s.fileHeader).length === 0 && (
-                                                <Text size="xs" c="dimmed" fs="italic">{t('import.noValues')}</Text>
-                                            )}
-                                        </Stack>
-                                    </ScrollArea.Autosize>
-                                </Popover.Dropdown>
-                            </Popover>
-                        )}
-                    </Group>
+                                    {getSourceBadge(s.fileHeader)}
+                                </Group>
+                            </UnstyledButton>
+                        </Popover.Target>
+                        <Popover.Dropdown>
+                            <Text size="xs" fw={600} mb={4} c="dimmed">
+                                {t('import.sampleValues')} ({getColumnValues(s.fileHeader).length})
+                            </Text>
+                            <ScrollArea.Autosize mah={200}>
+                                <Stack gap={2}>
+                                    {getColumnValues(s.fileHeader).map((val, i) => (
+                                        <Text key={i} size="xs" style={{ wordBreak: 'break-word' }}>
+                                            {val}
+                                        </Text>
+                                    ))}
+                                    {getColumnValues(s.fileHeader).length === 0 && (
+                                        <Text size="xs" c="dimmed" fs="italic">{t('import.noValues')}</Text>
+                                    )}
+                                </Stack>
+                            </ScrollArea.Autosize>
+                        </Popover.Dropdown>
+                    </Popover>
                 </Table.Td>
                 <Table.Td>
                     <Select

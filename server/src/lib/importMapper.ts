@@ -88,7 +88,8 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
         table: 'companies',
         field: 'partnership_observation_1',
         aliases: [
-            'partnership_observation_1', 'partnership observation 1', 'ortaklık gözlemi 1',
+            'partnership_observation_1', 'partnership observation 1', 'partnership observations ai_1',
+            'partnership observations ai 1', 'ortaklık gözlemi 1',
             'ortaklik gozlemi 1', 'gözlem 1', 'gozlem 1', 'observation 1',
         ],
         required: false,
@@ -97,7 +98,8 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
         table: 'companies',
         field: 'partnership_observation_2',
         aliases: [
-            'partnership_observation_2', 'partnership observation 2', 'ortaklık gözlemi 2',
+            'partnership_observation_2', 'partnership observation 2', 'partnership observations ai_2',
+            'partnership observations ai 2', 'ortaklık gözlemi 2',
             'ortaklik gozlemi 2', 'gözlem 2', 'gozlem 2', 'observation 2',
         ],
         required: false,
@@ -106,7 +108,8 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
         table: 'companies',
         field: 'partnership_observation_3',
         aliases: [
-            'partnership_observation_3', 'partnership observation 3', 'ortaklık gözlemi 3',
+            'partnership_observation_3', 'partnership observation 3', 'partnership observations ai_3',
+            'partnership observations ai 3', 'ortaklık gözlemi 3',
             'ortaklik gozlemi 3', 'gözlem 3', 'gozlem 3', 'observation 3',
         ],
         required: false,

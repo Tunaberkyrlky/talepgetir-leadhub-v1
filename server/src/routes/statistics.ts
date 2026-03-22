@@ -8,13 +8,33 @@ const log = createLogger('route:statistics');
 
 const router = Router();
 
+// ─── In-memory cache for overview (per tenant, 30s TTL) ───
+interface CachedOverview {
+    data: Record<string, unknown>;
+    ts: number;
+}
+const overviewCache = new Map<string, CachedOverview>();
+const OVERVIEW_TTL = 30_000; // 30 seconds
+
+/** Invalidate overview cache for a tenant (call after stage changes, imports, etc.) */
+export function invalidateOverviewCache(tenantId: string) {
+    overviewCache.delete(tenantId);
+}
+
 // GET /api/statistics/overview — Summary stats for dashboard
 router.get('/overview', async (req: Request, res: Response): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
 
-        // Run all counts in parallel
-        const [companiesRes, contactsRes, stagesRes] = await Promise.all([
+        // Check cache first
+        const cached = overviewCache.get(tenantId);
+        if (cached && Date.now() - cached.ts < OVERVIEW_TTL) {
+            res.json(cached.data);
+            return;
+        }
+
+        // Run all counts in parallel (including pipeline stages to avoid extra round-trip)
+        const [companiesRes, contactsRes, stagesRes, tenantPipelineStages] = await Promise.all([
             supabaseAdmin
                 .from('companies')
                 .select('*', { count: 'exact', head: true })
@@ -25,6 +45,7 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
                 .eq('tenant_id', tenantId),
             supabaseAdmin
                 .rpc('get_stage_counts', { p_tenant_id: tenantId }),
+            getPipelineStageSlugs(tenantId),
         ]);
 
         if (stagesRes.error) {
@@ -46,45 +67,62 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
         const conversionRate = totalDecided > 0 ? Math.round((wonCount / totalDecided) * 100) : 0;
 
         // Active deals = only pipeline-type stages
-        const tenantPipelineStages = await getPipelineStageSlugs(tenantId);
         const activeDeals = Object.entries(stageCounts)
             .filter(([stage]) => tenantPipelineStages.includes(stage))
             .reduce((sum, [, count]) => sum + count, 0);
 
-        res.json({
+        const result = {
             totalCompanies,
             totalContacts,
             activeDeals,
             wonDeals: wonCount,
             conversionRate,
             companiesByStage: stageCounts,
-        });
+        };
+
+        // Cache result
+        overviewCache.set(tenantId, { data: result, ts: Date.now() });
+
+        res.json(result);
     } catch (err) {
         log.error({ err }, 'Statistics overview error');
         res.status(500).json({ error: 'Failed to fetch statistics' });
     }
 });
 
+// ─── Pipeline cache (per tenant, 30s TTL) ───
+const pipelineStatsCache = new Map<string, CachedOverview>();
+
+export function invalidatePipelineStatsCache(tenantId: string) {
+    pipelineStatsCache.delete(tenantId);
+}
+
 // GET /api/statistics/pipeline — Funnel data for pipeline stages (pro tier only)
 router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
 
-        const { data, error } = await supabaseAdmin
-            .rpc('get_stage_counts', { p_tenant_id: tenantId });
+        const cached = pipelineStatsCache.get(tenantId);
+        if (cached && Date.now() - cached.ts < OVERVIEW_TTL) {
+            res.json(cached.data);
+            return;
+        }
 
-        if (error) {
-            log.error({ err: error }, 'Pipeline stage counts RPC error');
+        // Fetch stage counts + stage config in parallel
+        const [stagesRes, pipelineStages, terminalStages] = await Promise.all([
+            supabaseAdmin.rpc('get_stage_counts', { p_tenant_id: tenantId }),
+            getPipelineStageSlugs(tenantId),
+            getTerminalStageSlugs(tenantId),
+        ]);
+
+        if (stagesRes.error) {
+            log.error({ err: stagesRes.error }, 'Pipeline stage counts RPC error');
             res.status(500).json({ error: 'Failed to fetch pipeline data' });
             return;
         }
 
-        // Dynamic pipeline stages from tenant config
-        const pipelineStages = await getPipelineStageSlugs(tenantId);
-        const terminalStages = await getTerminalStageSlugs(tenantId);
-
         const stageCounts: Record<string, number> = {};
-        for (const row of data || []) {
+        for (const row of stagesRes.data || []) {
             stageCounts[row.stage] = Number(row.count);
         }
 
@@ -98,7 +136,10 @@ router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response):
             count: stageCounts[stage] || 0,
         }));
 
-        res.json({ funnel, terminal });
+        const result = { funnel, terminal };
+        pipelineStatsCache.set(tenantId, { data: result, ts: Date.now() });
+
+        res.json(result);
     } catch (err) {
         log.error({ err }, 'Statistics pipeline error');
         res.status(500).json({ error: 'Failed to fetch pipeline data' });
