@@ -33,7 +33,11 @@ api.interceptors.response.use(
         const status = error.response?.status;
         const url = error.config?.url;
 
-        if (status === 401 && !error.config._retry) {
+        // Skip token refresh for auth-check endpoints — they are expected to fail when not logged in
+        const skipRefreshUrls = ['/auth/me', '/auth/refresh', '/auth/login'];
+        const shouldSkipRefresh = skipRefreshUrls.some((u) => url?.includes(u));
+
+        if (status === 401 && !error.config._retry && !shouldSkipRefresh) {
             error.config._retry = true;
 
             // If already refreshing, wait for it

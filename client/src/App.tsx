@@ -30,7 +30,7 @@ const AdminPage = lazy(() => import('./pages/AdminPage'));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      retry: false,
       staleTime: 30 * 1000, // 30 seconds
       refetchOnWindowFocus: false,
     },
