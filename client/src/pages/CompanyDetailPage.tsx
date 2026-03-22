@@ -74,14 +74,18 @@ interface Company {
     industry: string | null;
     employee_size: string | null;
     product_services: string | null;
-    description: string | null;
+    product_portfolio: string | null;
     linkedin: string | null;
     company_phone: string | null;
     company_email: string | null;
     email_status: 'valid' | 'uncertain' | 'invalid' | null;
     stage: string;
-    deal_summary: string | null;
+    company_summary: string | null;
     next_step: string | null;
+    fit_score: string | null;
+    partnership_observation_1: string | null;
+    partnership_observation_2: string | null;
+    partnership_observation_3: string | null;
     contacts: Contact[];
     translations: Record<string, string> | null;
     created_at: string;
@@ -347,10 +351,16 @@ export default function CompanyDetailPage() {
                             <TranslatableField original={company.product_services} translated={company.translations?.product_services} showTranslation={showTranslation} maxLength={350} />
                         </Box>
                     )}
-                    {company.deal_summary && (
+                    {company.product_portfolio && (
                         <Box>
-                            <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.dealSummary')}</Text>
-                            <TranslatableField original={company.deal_summary} translated={company.translations?.deal_summary} showTranslation={showTranslation} maxLength={350} />
+                            <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.productPortfolio')}</Text>
+                            <TranslatableField original={company.product_portfolio} translated={company.translations?.product_portfolio} showTranslation={showTranslation} maxLength={350} />
+                        </Box>
+                    )}
+                    {company.company_summary && (
+                        <Box>
+                            <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.companySummary')}</Text>
+                            <TranslatableField original={company.company_summary} translated={company.translations?.company_summary} showTranslation={showTranslation} maxLength={350} />
                         </Box>
                     )}
                     {company.next_step && (
@@ -359,18 +369,31 @@ export default function CompanyDetailPage() {
                             <TranslatableField original={company.next_step} translated={company.translations?.next_step} showTranslation={showTranslation} maxLength={350} />
                         </Box>
                     )}
-                </SimpleGrid>
-
-                {/* Description */}
-                {company.description && (
-                    <>
-                        <Divider my="lg" />
+                    {company.fit_score && (
                         <Box>
-                            <Text size="xs" c="dimmed" fw={600} tt="uppercase" mb={4}>{t('company.description')}</Text>
-                            <TranslatableField original={company.description} translated={company.translations?.description} showTranslation={showTranslation} maxLength={350} />
+                            <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.fitScore')}</Text>
+                            <Text size="sm">{company.fit_score}</Text>
                         </Box>
-                    </>
-                )}
+                    )}
+                    {company.partnership_observation_1 && (
+                        <Box>
+                            <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.partnershipObservation1')}</Text>
+                            <Text size="sm">{company.partnership_observation_1}</Text>
+                        </Box>
+                    )}
+                    {company.partnership_observation_2 && (
+                        <Box>
+                            <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.partnershipObservation2')}</Text>
+                            <Text size="sm">{company.partnership_observation_2}</Text>
+                        </Box>
+                    )}
+                    {company.partnership_observation_3 && (
+                        <Box>
+                            <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.partnershipObservation3')}</Text>
+                            <Text size="sm">{company.partnership_observation_3}</Text>
+                        </Box>
+                    )}
+                </SimpleGrid>
             </Paper>
 
             {/* Contacts Section */}

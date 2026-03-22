@@ -1,27 +1,32 @@
--- ============================================================================
--- 021: Custom Pipeline Stages (per-tenant)
--- ============================================================================
--- Moves pipeline stages from hardcoded constants to a per-tenant table,
--- allowing tenants to add, rename, reorder, and remove stages.
--- ============================================================================
+-- ==========================================
+-- Custom Pipeline Stages (per-tenant)
+-- ==========================================
 
--- 1. Create pipeline_stages table
-CREATE TABLE IF NOT EXISTS pipeline_stages (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    slug        TEXT NOT NULL,
+CREATE TABLE pipeline_stages (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    slug         TEXT NOT NULL,
     display_name TEXT NOT NULL,
-    color       TEXT NOT NULL DEFAULT 'gray',
-    sort_order  INT NOT NULL DEFAULT 0,
-    stage_type  TEXT NOT NULL DEFAULT 'pipeline'
-                CHECK (stage_type IN ('initial', 'pipeline', 'terminal')),
-    is_active   BOOLEAN NOT NULL DEFAULT true,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    color        TEXT NOT NULL DEFAULT 'gray',
+    sort_order   INT NOT NULL DEFAULT 0,
+    stage_type   TEXT NOT NULL DEFAULT 'pipeline'
+                 CHECK (stage_type IN ('initial', 'pipeline', 'terminal')),
+    is_active    BOOLEAN NOT NULL DEFAULT true,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(tenant_id, slug)
 );
 
--- 2. RLS
 ALTER TABLE pipeline_stages ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================
+-- INDEXES
+-- ==========================================
+
+CREATE INDEX idx_pipeline_stages_tenant ON pipeline_stages(tenant_id, sort_order);
+
+-- ==========================================
+-- RLS POLICIES
+-- ==========================================
 
 CREATE POLICY "pipeline_stages_tenant_select"
     ON pipeline_stages FOR SELECT
@@ -39,10 +44,10 @@ CREATE POLICY "pipeline_stages_tenant_delete"
     ON pipeline_stages FOR DELETE
     USING (tenant_id = ((current_setting('request.jwt.claims', true)::json)->'app_metadata'->>'tenant_id')::UUID);
 
--- 3. Index for fast lookups
-CREATE INDEX idx_pipeline_stages_tenant ON pipeline_stages(tenant_id, sort_order);
+-- ==========================================
+-- SEED: Default stages for all existing tenants
+-- ==========================================
 
--- 4. Seed default stages for all existing tenants
 INSERT INTO pipeline_stages (tenant_id, slug, display_name, color, sort_order, stage_type)
 SELECT t.id, s.slug, s.display_name, s.color, s.sort_order, s.stage_type
 FROM tenants t
@@ -61,13 +66,3 @@ CROSS JOIN (VALUES
     ('on_hold',        'On Hold',        'gray',   11, 'terminal')
 ) AS s(slug, display_name, color, sort_order, stage_type)
 ON CONFLICT (tenant_id, slug) DO NOTHING;
-
--- 5. Drop the CHECK constraint on companies.stage
--- (The constraint name may vary; try both possible names)
-DO $$
-BEGIN
-    ALTER TABLE companies DROP CONSTRAINT IF EXISTS companies_stage_check;
-    ALTER TABLE companies DROP CONSTRAINT IF EXISTS companies_stage_check1;
-EXCEPTION WHEN undefined_object THEN
-    NULL;
-END $$;

@@ -15,6 +15,8 @@ const MANTINE_COLORS: Record<string, string> = {
     green: '#51cf66',
     red: '#ff6b6b',
     gray: '#868e96',
+    teal: '#20c997',
+    violet: '#845ef7',
 };
 
 interface FunnelItem {
@@ -25,15 +27,16 @@ interface FunnelItem {
 interface PipelineFunnelProps {
     data: FunnelItem[];
     title: string;
+    onStageClick?: (stage: string) => void;
 }
 
-export default function PipelineFunnel({ data, title }: PipelineFunnelProps) {
+export default function PipelineFunnel({ data, title, onStageClick }: PipelineFunnelProps) {
     const { t } = useTranslation();
-    const { getStageColor } = useStages();
+    const { getStageColor, getStageLabel } = useStages();
 
     const chartData = data.map((item) => ({
         ...item,
-        label: t(`stages.${item.stage}`),
+        label: getStageLabel(item.stage),
     }));
 
     return (
@@ -42,7 +45,17 @@ export default function PipelineFunnel({ data, title }: PipelineFunnelProps) {
                 {title}
             </Text>
             <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={chartData} layout="vertical" margin={{ left: 20, right: 20 }}>
+                <BarChart
+                    data={chartData}
+                    layout="vertical"
+                    margin={{ left: 20, right: 20 }}
+                    onClick={(state) => {
+                        if (state?.activePayload?.[0]?.payload?.stage && onStageClick) {
+                            onStageClick(state.activePayload[0].payload.stage);
+                        }
+                    }}
+                    style={{ cursor: onStageClick ? 'pointer' : undefined }}
+                >
                     <XAxis type="number" allowDecimals={false} />
                     <YAxis type="category" dataKey="label" width={120} tick={{ fontSize: 12 }} />
                     <Tooltip
@@ -54,6 +67,7 @@ export default function PipelineFunnel({ data, title }: PipelineFunnelProps) {
                             <Cell
                                 key={entry.stage}
                                 fill={MANTINE_COLORS[getStageColor(entry.stage)] || '#868e96'}
+                                cursor={onStageClick ? 'pointer' : 'default'}
                             />
                         ))}
                     </Bar>

@@ -11,7 +11,7 @@ export interface PipelineCompany {
     industry: string | null;
     stage: string;
     next_step: string | null;
-    deal_summary: string | null;
+    company_summary: string | null;
     updated_at: string;
     stage_changed_at: string | null;
     contact_count: number;
@@ -98,9 +98,9 @@ export default function PipelineCard({ company, isDragEnabled }: PipelineCardPro
                             {daysInStage}{t('pipeline.days', 'd')}
                         </Badge>
                     )}
-                    {company.deal_summary && (
+                    {company.company_summary && (
                         <Text size="xs" c="dimmed" lineClamp={1} style={{ flex: 1, textAlign: 'right' }}>
-                            {company.deal_summary}
+                            {company.company_summary}
                         </Text>
                     )}
                 </Group>

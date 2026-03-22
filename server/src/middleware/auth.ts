@@ -43,7 +43,10 @@ export async function authMiddleware(
             return;
         }
 
-        // Get ALL memberships to find if user is superadmin ANYWHERE
+        // Check superadmin from app_metadata (tenant-independent)
+        const isPlatformSuperadmin = user.app_metadata?.is_superadmin === true;
+
+        // Get memberships for tenant resolution
         const { data: allMemberships } = await supabaseAdmin
             .from('memberships')
             .select('tenant_id, role')
@@ -55,16 +58,17 @@ export async function authMiddleware(
 
         if (!defaultTenantId) {
             const firstMembership = allMemberships?.[0];
-            if (!firstMembership) {
+            if (!firstMembership && !isPlatformSuperadmin) {
                 log.warn({ userId: user.id }, 'No tenant_id in app_metadata and no active memberships');
                 res.status(403).json({ error: 'User has no tenant assigned' });
                 return;
             }
-            defaultTenantId = firstMembership.tenant_id;
-            log.info({ tenantId: defaultTenantId }, 'No app_metadata.tenant_id — resolved tenant from membership');
+            if (firstMembership) {
+                defaultTenantId = firstMembership.tenant_id;
+                log.info({ tenantId: defaultTenantId }, 'No app_metadata.tenant_id — resolved tenant from membership');
+            }
         }
 
-        const isPlatformSuperadmin = allMemberships?.some(m => m.role === 'superadmin');
         const primaryMembership = allMemberships?.find(m => m.tenant_id === defaultTenantId);
 
         if (!isPlatformSuperadmin && !primaryMembership) {

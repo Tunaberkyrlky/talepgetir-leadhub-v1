@@ -310,14 +310,18 @@ export async function executeImport(
             industry: (() => { const v = getValue(row, 'companies.industry'); return v ? v.charAt(0).toUpperCase() + v.slice(1) : null; })(),
             employee_size: getValue(row, 'companies.employee_size') || null,
             product_services: getValue(row, 'companies.product_services') || null,
-            description: getValue(row, 'companies.description') || null,
+            product_portfolio: getValue(row, 'companies.product_portfolio') || null,
             linkedin: getValue(row, 'companies.linkedin') || null,
             company_phone: getValue(row, 'companies.company_phone') || null,
             company_email: getValue(row, 'companies.company_email') || null,
             ...(() => { const es = normalizeEmailStatus(getValue(row, 'companies.email_status')); return es ? { email_status: es } : {}; })(),
             stage: resolvedStage,
-            deal_summary: getValue(row, 'companies.deal_summary') || null,
+            company_summary: getValue(row, 'companies.company_summary') || null,
             next_step: getValue(row, 'companies.next_step') || null,
+            fit_score: getValue(row, 'companies.fit_score') || null,
+            partnership_observation_1: getValue(row, 'companies.partnership_observation_1') || null,
+            partnership_observation_2: getValue(row, 'companies.partnership_observation_2') || null,
+            partnership_observation_3: getValue(row, 'companies.partnership_observation_3') || null,
         };
 
         // Dedup by website if available; otherwise treat as new company

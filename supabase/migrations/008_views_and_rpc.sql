@@ -1,5 +1,8 @@
--- RPC function to count companies by stage for a given tenant
--- Avoids Supabase default row limit (1000) when counting via select + JS
+-- ==========================================
+-- RPC Functions
+-- ==========================================
+
+-- RPC: Count companies by stage for a given tenant
 CREATE OR REPLACE FUNCTION get_stage_counts(p_tenant_id UUID)
 RETURNS TABLE(stage TEXT, count BIGINT)
 LANGUAGE sql STABLE SECURITY INVOKER

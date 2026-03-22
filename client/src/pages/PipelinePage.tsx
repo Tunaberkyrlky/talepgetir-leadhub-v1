@@ -35,7 +35,7 @@ import {
     IconSettings,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { TierGate } from '../components/FeatureGate';
@@ -56,6 +56,8 @@ export default function PipelinePage() {
     const { pipelineStageSlugs, getStageColor } = useStages();
     const queryClient = useQueryClient();
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const focusStage = searchParams.get('focus');
     const role = user?.role || '';
     const [search, setSearch] = useState('');
     const [debouncedSearch] = useDebouncedValue(search, 300);
@@ -82,9 +84,7 @@ export default function PipelinePage() {
     const handleConfirmSave = useCallback(() => {
         settingsSaveRef.current?.save();
         setConfirmCloseOpened(false);
-        settingsDirtyRef.current = false;
-        closeSettings();
-    }, [closeSettings]);
+    }, []);
 
     const canDrag = hasRolePermission(role, 'pipeline_dragdrop');
 
@@ -286,6 +286,7 @@ export default function PipelinePage() {
                         columns={data.columns}
                         isDragEnabled={canDrag}
                         onStageChange={handleStageChange}
+                        initialFocusStage={focusStage}
                     />
                 )}
 
@@ -402,7 +403,11 @@ export default function PipelinePage() {
                 size="lg"
                 padding="md"
             >
-                <PipelineSettingsEditor onDirtyChange={(dirty) => { settingsDirtyRef.current = dirty; }} saveRef={settingsSaveRef} />
+                <PipelineSettingsEditor
+                    onDirtyChange={(dirty) => { settingsDirtyRef.current = dirty; }}
+                    saveRef={settingsSaveRef}
+                    onSaveSuccess={() => { settingsDirtyRef.current = false; closeSettings(); }}
+                />
             </Drawer>
 
             <Modal

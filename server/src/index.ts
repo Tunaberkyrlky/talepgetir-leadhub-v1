@@ -106,7 +106,7 @@ app.use(errorHandler);
 // Only listen when running standalone (not on Vercel serverless)
 if (!process.env.VERCEL) {
     app.listen(PORT, () => {
-        logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'LeadHub API started');
+        logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'TG Core API started');
     });
 }
 

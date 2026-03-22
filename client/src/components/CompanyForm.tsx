@@ -27,14 +27,18 @@ interface Company {
     industry: string | null;
     employee_size: string | null;
     product_services: string | null;
-    description: string | null;
+    product_portfolio: string | null;
     linkedin: string | null;
     company_phone: string | null;
     company_email: string | null;
     email_status: 'valid' | 'uncertain' | 'invalid' | null;
     stage: string;
-    deal_summary: string | null;
+    company_summary: string | null;
     next_step: string | null;
+    fit_score: string | null;
+    partnership_observation_1: string | null;
+    partnership_observation_2: string | null;
+    partnership_observation_3: string | null;
 }
 
 interface CompanyFormProps {
@@ -57,14 +61,18 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
             industry: '',
             employee_size: '',
             product_services: '',
-            description: '',
+            product_portfolio: '',
             linkedin: '',
             company_phone: '',
             company_email: '',
             email_status: null as string | null,
             stage: 'cold',
-            deal_summary: '',
+            company_summary: '',
             next_step: '',
+            fit_score: '',
+            partnership_observation_1: '',
+            partnership_observation_2: '',
+            partnership_observation_3: '',
             // Contact fields (only used on create)
             contact_name: '',
             contact_title: '',
@@ -86,14 +94,18 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
                 industry: company.industry || '',
                 employee_size: company.employee_size || '',
                 product_services: company.product_services || '',
-                description: company.description || '',
+                product_portfolio: company.product_portfolio || '',
                 linkedin: company.linkedin || '',
                 company_phone: company.company_phone || '',
                 company_email: company.company_email || '',
                 email_status: company.email_status || null,
                 stage: company.stage || 'in_queue',
-                deal_summary: company.deal_summary || '',
+                company_summary: company.company_summary || '',
                 next_step: company.next_step || '',
+                fit_score: company.fit_score || '',
+                partnership_observation_1: company.partnership_observation_1 || '',
+                partnership_observation_2: company.partnership_observation_2 || '',
+                partnership_observation_3: company.partnership_observation_3 || '',
                 contact_name: '',
                 contact_title: '',
                 contact_email: '',
@@ -286,24 +298,22 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
                         {...form.getInputProps('product_services')}
                     />
 
-                    {/* Description */}
-                    <Textarea
-                        label={t('company.description')}
-                        placeholder={t('company.description')}
-                        autosize
-                        minRows={2}
+                    {/* Product Portfolio */}
+                    <TextInput
+                        label={t('company.productPortfolio')}
+                        placeholder={t('company.productPortfolio')}
                         radius="md"
-                        {...form.getInputProps('description')}
+                        {...form.getInputProps('product_portfolio')}
                     />
 
-                    {/* Deal Summary */}
+                    {/* Company Summary */}
                     <Textarea
-                        label={t('company.dealSummary')}
-                        placeholder={t('company.dealSummary')}
+                        label={t('company.companySummary')}
+                        placeholder={t('company.companySummary')}
                         autosize
                         minRows={2}
                         radius="md"
-                        {...form.getInputProps('deal_summary')}
+                        {...form.getInputProps('company_summary')}
                     />
 
                     {/* Next Step */}
@@ -313,6 +323,39 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
                         radius="md"
                         {...form.getInputProps('next_step')}
                     />
+
+                    {/* Fit Score */}
+                    <TextInput
+                        label={t('company.fitScore')}
+                        placeholder={t('company.fitScore')}
+                        radius="md"
+                        {...form.getInputProps('fit_score')}
+                    />
+
+                    {/* Partnership Observations */}
+                    <SimpleGrid cols={3}>
+                        <Textarea
+                            label={t('company.partnershipObservation1')}
+                            autosize
+                            minRows={2}
+                            radius="md"
+                            {...form.getInputProps('partnership_observation_1')}
+                        />
+                        <Textarea
+                            label={t('company.partnershipObservation2')}
+                            autosize
+                            minRows={2}
+                            radius="md"
+                            {...form.getInputProps('partnership_observation_2')}
+                        />
+                        <Textarea
+                            label={t('company.partnershipObservation3')}
+                            autosize
+                            minRows={2}
+                            radius="md"
+                            {...form.getInputProps('partnership_observation_3')}
+                        />
+                    </SimpleGrid>
 
                     {/* Contact Option (Create Only) */}
                     {!isEdit && (

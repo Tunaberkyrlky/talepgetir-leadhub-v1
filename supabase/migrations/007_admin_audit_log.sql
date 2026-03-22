@@ -1,4 +1,7 @@
--- Admin audit log for tracking superadmin actions
+-- ==========================================
+-- Admin Audit Log
+-- ==========================================
+
 CREATE TABLE admin_audit_log (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     actor_id    UUID NOT NULL REFERENCES auth.users(id),

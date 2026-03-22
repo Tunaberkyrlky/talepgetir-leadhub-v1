@@ -56,7 +56,7 @@ export default function GlobeMap({ data, isLoading }: GlobeMapProps) {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const containerRef = useRef<HTMLDivElement>(null);
-    const [dimensions, setDimensions] = useState({ width: 600, height: 420 });
+    const [dimensions, setDimensions] = useState({ width: 600, height: 320 });
     const [hoveredMarker, setHoveredMarker] = useState<CountryMarker | null>(null);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
@@ -89,7 +89,7 @@ export default function GlobeMap({ data, isLoading }: GlobeMapProps) {
             const entry = entries[0];
             if (entry) {
                 const w = Math.floor(entry.contentRect.width);
-                setDimensions({ width: w, height: Math.min(420, Math.max(280, Math.floor(w * 0.55))) });
+                setDimensions({ width: w, height: Math.min(320, Math.max(220, Math.floor(w * 0.4))) });
             }
         });
         observer.observe(containerRef.current);
@@ -222,7 +222,7 @@ export default function GlobeMap({ data, isLoading }: GlobeMapProps) {
                                 projection="geoNaturalEarth1"
                                 projectionConfig={{ scale: 140, center: [20, 15] }}
                                 width={800}
-                                height={440}
+                                height={340}
                                 style={{ width: '100%', height: isFullscreen ? '100vh' : 'auto', display: 'block' }}
                             >
                                 <ZoomableGroup

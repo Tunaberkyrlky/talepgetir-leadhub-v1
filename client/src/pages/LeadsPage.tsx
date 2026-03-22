@@ -79,14 +79,18 @@ interface Company {
     industry: string | null;
     employee_size: string | null;
     product_services: string | null;
-    description: string | null;
+    product_portfolio: string | null;
     linkedin: string | null;
     company_phone: string | null;
     company_email: string | null;
     email_status: 'valid' | 'uncertain' | 'invalid' | null;
     stage: string;
-    deal_summary: string | null;
+    company_summary: string | null;
     next_step: string | null;
+    fit_score: string | null;
+    partnership_observation_1: string | null;
+    partnership_observation_2: string | null;
+    partnership_observation_3: string | null;
     assigned_to: string | null;
     created_at: string;
     updated_at: string;
@@ -118,9 +122,10 @@ type SortKey = 'name' | 'stage' | 'industry' | 'location' | 'updated_at' | 'crea
 // All available column keys
 type ColumnKey =
     | 'name' | 'website' | 'stage' | 'industry' | 'location'
-    | 'employee_size' | 'product_services' | 'description'
-    | 'linkedin' | 'company_phone' | 'company_email' | 'deal_summary'
+    | 'employee_size' | 'product_services' | 'product_portfolio'
+    | 'linkedin' | 'company_phone' | 'company_email' | 'company_summary'
     | 'next_step' | 'assigned_to' | 'contact_count'
+    | 'fit_score' | 'partnership_observation_1' | 'partnership_observation_2' | 'partnership_observation_3'
     | 'created_at' | 'updated_at';
 
 interface ColumnDef {
@@ -140,11 +145,15 @@ const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'website', visible: false },
     { key: 'employee_size', visible: false },
     { key: 'product_services', visible: false },
-    { key: 'description', visible: false },
+    { key: 'product_portfolio', visible: false },
     { key: 'linkedin', visible: false },
     { key: 'company_phone', visible: false },
     { key: 'company_email', visible: false },
-    { key: 'deal_summary', visible: false },
+    { key: 'company_summary', visible: false },
+    { key: 'fit_score', visible: false },
+    { key: 'partnership_observation_1', visible: false },
+    { key: 'partnership_observation_2', visible: false },
+    { key: 'partnership_observation_3', visible: false },
     { key: 'assigned_to', visible: false },
     { key: 'contact_count', visible: false },
     { key: 'created_at', visible: false },
@@ -285,11 +294,15 @@ export default function LeadsPage() {
         location: t('company.location'),
         employee_size: t('company.employeeSize'),
         product_services: t('company.productServices'),
-        description: t('company.description'),
+        product_portfolio: t('company.productPortfolio'),
         linkedin: t('company.linkedin'),
         company_phone: t('company.companyPhone'),
         company_email: t('company.companyEmail'),
-        deal_summary: t('company.dealSummary'),
+        company_summary: t('company.companySummary'),
+        fit_score: t('company.fitScore'),
+        partnership_observation_1: t('company.partnershipObservation1'),
+        partnership_observation_2: t('company.partnershipObservation2'),
+        partnership_observation_3: t('company.partnershipObservation3'),
         next_step: t('company.nextStep'),
         assigned_to: t('company.assignedTo'),
         contact_count: t('company.contactCount'),
@@ -513,10 +526,10 @@ export default function LeadsPage() {
                         <TruncatedText size="sm">{company.product_services}</TruncatedText>
                     </Table.Td>
                 );
-            case 'description':
+            case 'product_portfolio':
                 return (
-                    <Table.Td key="description">
-                        <TruncatedText size="sm">{company.description}</TruncatedText>
+                    <Table.Td key="product_portfolio">
+                        <TruncatedText size="sm">{company.product_portfolio}</TruncatedText>
                     </Table.Td>
                 );
             case 'linkedin':
@@ -540,10 +553,34 @@ export default function LeadsPage() {
                         )}
                     </Table.Td>
                 );
-            case 'deal_summary':
+            case 'company_summary':
                 return (
-                    <Table.Td key="deal_summary">
-                        <TruncatedText size="sm">{company.deal_summary}</TruncatedText>
+                    <Table.Td key="company_summary">
+                        <TruncatedText size="sm">{company.company_summary}</TruncatedText>
+                    </Table.Td>
+                );
+            case 'fit_score':
+                return (
+                    <Table.Td key="fit_score">
+                        <TruncatedText size="sm">{company.fit_score}</TruncatedText>
+                    </Table.Td>
+                );
+            case 'partnership_observation_1':
+                return (
+                    <Table.Td key="partnership_observation_1">
+                        <TruncatedText size="sm">{company.partnership_observation_1}</TruncatedText>
+                    </Table.Td>
+                );
+            case 'partnership_observation_2':
+                return (
+                    <Table.Td key="partnership_observation_2">
+                        <TruncatedText size="sm">{company.partnership_observation_2}</TruncatedText>
+                    </Table.Td>
+                );
+            case 'partnership_observation_3':
+                return (
+                    <Table.Td key="partnership_observation_3">
+                        <TruncatedText size="sm">{company.partnership_observation_3}</TruncatedText>
                     </Table.Td>
                 );
             case 'next_step':

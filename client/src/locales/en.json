@@ -1,6 +1,6 @@
 {
     "app": {
-        "title": "LeadHub",
+        "title": "TG Core",
         "subtitle": "B2B Lead Management"
     },
     "auth": {
@@ -8,7 +8,7 @@
         "logout": "Logout",
         "email": "Email",
         "password": "Password",
-        "loginTitle": "Sign in to LeadHub",
+        "loginTitle": "Sign in to TG Core",
         "loginSubtitle": "Sign in to your account",
         "loginButton": "Sign In",
         "loginError": "Invalid email or password",
@@ -32,7 +32,7 @@
         "industry": "Industry",
         "employeeSize": "Employee Size",
         "productServices": "Products / Services",
-        "description": "Description",
+        "productPortfolio": "Product Portfolio",
         "linkedin": "LinkedIn",
         "companyPhone": "Company Phone",
         "companyEmail": "Company Email",
@@ -41,7 +41,11 @@
         "emailUncertain": "Uncertain",
         "emailInvalid": "Invalid",
         "stage": "Stage",
-        "dealSummary": "Deal Summary",
+        "companySummary": "Company Summary",
+        "fitScore": "Fit Score",
+        "partnershipObservation1": "Partnership Observation 1",
+        "partnershipObservation2": "Partnership Observation 2",
+        "partnershipObservation3": "Partnership Observation 3",
         "internalNotes": "Internal Notes",
         "nextStep": "Next Step",
         "updatedAt": "Updated",
