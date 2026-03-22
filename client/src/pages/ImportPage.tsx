@@ -229,6 +229,7 @@ export default function ImportPage() {
                                 mapping={mapping}
                                 availableFields={previewData.availableFields}
                                 onMappingChange={handleMappingChange}
+                                previewRows={previewData.previewRows}
                             />
                         )}
 

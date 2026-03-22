@@ -56,7 +56,7 @@ export default function PipelinePage() {
     const { pipelineStageSlugs, getStageColor } = useStages();
     const queryClient = useQueryClient();
     const navigate = useNavigate();
-    const [searchParams, setSearchParams] = useSearchParams();
+    const [searchParams] = useSearchParams();
     const focusStage = searchParams.get('focus');
     const role = user?.role || '';
     const [search, setSearch] = useState('');
