@@ -2,6 +2,7 @@ import { createContext, useContext, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
+import { useAuth } from './AuthContext';
 
 export interface StageDefinition {
     id: string;
@@ -31,11 +32,13 @@ const StagesContext = createContext<StagesContextValue | null>(null);
 
 export function StagesProvider({ children }: { children: React.ReactNode }) {
     const { t, i18n } = useTranslation();
+    const { isAuthenticated } = useAuth();
 
     const { data, isLoading, refetch } = useQuery<StageDefinition[]>({
         queryKey: ['settings', 'stages'],
         queryFn: async () => (await api.get('/settings/stages')).data.data,
         staleTime: 5 * 60 * 1000,
+        enabled: isAuthenticated,
     });
 
     const value = useMemo<StagesContextValue>(() => {
