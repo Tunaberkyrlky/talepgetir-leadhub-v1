@@ -156,7 +156,9 @@ router.get('/company-locations', requireTier('pro'), async (req: Request, res: R
             .select('id, name, location, latitude, longitude, stage')
             .eq('tenant_id', tenantId)
             .not('latitude', 'is', null)
-            .not('longitude', 'is', null);
+            .not('longitude', 'is', null)
+            .order('updated_at', { ascending: false })
+            .limit(2000);
 
         if (error) {
             log.error({ err: error }, 'Company locations error');

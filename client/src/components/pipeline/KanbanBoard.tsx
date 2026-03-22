@@ -169,7 +169,7 @@ function StageColumn({
                     overflow: 'hidden',
                     transition: 'flex 300ms ease, min-width 300ms ease, max-width 300ms ease, border-color 150ms ease, background-color 150ms ease',
                     borderColor: isOver ? `var(--mantine-color-${color}-4)` : undefined,
-                    backgroundColor: `var(--mantine-color-${color}-0)`,
+                    backgroundColor: `var(--mantine-color-${color}-light)`,
                     cursor: 'pointer',
                 }}
                 onClick={() => onHeaderClick(stage)}
@@ -221,7 +221,7 @@ function StageColumn({
                     : isSpotlight
                     ? `var(--mantine-color-${color}-5)`
                     : undefined,
-                backgroundColor: isOver ? `var(--mantine-color-${color}-0)` : undefined,
+                backgroundColor: isOver ? `var(--mantine-color-${color}-light)` : undefined,
             }}
         >
             {/* Column Header */}
@@ -236,7 +236,7 @@ function StageColumn({
                     py="xs"
                     style={{
                         borderBottom: '1px solid var(--mantine-color-default-border)',
-                        background: `var(--mantine-color-${color}-0)`,
+                        background: `var(--mantine-color-${color}-light)`,
                         borderRadius: 'var(--mantine-radius-lg) var(--mantine-radius-lg) 0 0',
                         cursor: 'pointer',
                     }}
@@ -284,7 +284,7 @@ function StageColumn({
                                         style={{
                                             flex: 1,
                                             minWidth: 0,
-                                            background: 'var(--mantine-color-gray-0)',
+                                            background: 'var(--mantine-color-default-hover)',
                                         }}
                                     >
                                         <CompanyDetailCell companyId={company.id} />

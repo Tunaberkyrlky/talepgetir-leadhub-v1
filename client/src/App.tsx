@@ -14,6 +14,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { StagesProvider } from './contexts/StagesContext';
 import { ImportProgressProvider } from './contexts/ImportProgressContext';
 import ImportProgressBar from './components/ImportProgressBar';
+import ErrorBoundary from './components/ErrorBoundary';
 import Layout from './components/Layout';
 
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -63,6 +64,7 @@ function App() {
           <ImportProgressProvider>
             <ImportProgressBar />
           <BrowserRouter>
+            <ErrorBoundary>
             <AuthProvider>
               <StagesProvider>
               <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
@@ -85,6 +87,7 @@ function App() {
               </Suspense>
               </StagesProvider>
             </AuthProvider>
+            </ErrorBoundary>
           </BrowserRouter>
           </ImportProgressProvider>
         </ModalsProvider>

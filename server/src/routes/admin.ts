@@ -2,14 +2,16 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
+import {
+    validateBody,
+    createUserSchema, updateUserSchema,
+    createTenantSchema, updateTenantSchema,
+    createMembershipSchema, updateMembershipSchema,
+    VALID_ROLES, VALID_TIERS,
+} from '../lib/validation.js';
 
 const log = createLogger('route:admin');
 const router = Router();
-
-// --- Helpers ---
-
-const VALID_ROLES = ['superadmin', 'ops_agent', 'client_admin', 'client_viewer'] as const;
-const VALID_TIERS = ['basic', 'pro'] as const;
 
 async function logAuditAction(
     actorId: string,
@@ -166,19 +168,9 @@ router.get('/users/:id', async (req: Request, res: Response, next: NextFunction)
 });
 
 // POST /api/admin/users — Create new user
-router.post('/users', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+router.post('/users', validateBody(createUserSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { email, password, tenantId, role } = req.body;
-
-        if (!email || !password) {
-            res.status(400).json({ error: 'Email and password are required' });
-            return;
-        }
-
-        if (password.length < 8) {
-            res.status(400).json({ error: 'Password must be at least 8 characters' });
-            return;
-        }
 
         // Create user in Supabase Auth
         const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -201,11 +193,6 @@ router.post('/users', async (req: Request, res: Response, next: NextFunction): P
 
         // If tenant and role provided, create membership
         if (tenantId && role) {
-            if (!VALID_ROLES.includes(role as any)) {
-                res.status(400).json({ error: `Invalid role. Valid roles: ${VALID_ROLES.join(', ')}` });
-                return;
-            }
-
             const { data: tenantExists } = await supabaseAdmin
                 .from('tenants')
                 .select('id')
@@ -258,25 +245,14 @@ router.post('/users', async (req: Request, res: Response, next: NextFunction): P
 });
 
 // PUT /api/admin/users/:id — Update user
-router.put('/users/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+router.put('/users/:id', validateBody(updateUserSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const id = req.params.id as string;
         const { email, password } = req.body;
 
         const updateData: Record<string, unknown> = {};
         if (email) updateData.email = email;
-        if (password) {
-            if (password.length < 8) {
-                res.status(400).json({ error: 'Password must be at least 8 characters' });
-                return;
-            }
-            updateData.password = password;
-        }
-
-        if (Object.keys(updateData).length === 0) {
-            res.status(400).json({ error: 'No fields to update' });
-            return;
-        }
+        if (password) updateData.password = password;
 
         const { data: authData, error: authError } = await supabaseAdmin.auth.admin.updateUserById(id, updateData);
 
@@ -441,18 +417,19 @@ router.get('/tenants/:id', async (req: Request, res: Response, next: NextFunctio
             .select('id, user_id, role, is_active')
             .eq('tenant_id', id);
 
-        // Enrich with user emails
-        const members = [];
-        for (const m of memberships || []) {
-            const { data: userData } = await supabaseAdmin.auth.admin.getUserById(m.user_id);
-            members.push({
-                membership_id: m.id,
-                user_id: m.user_id,
-                email: userData?.user?.email || '',
-                role: m.role,
-                is_active: m.is_active,
-            });
-        }
+        // Enrich with user emails — batch fetch in parallel
+        const members = await Promise.all(
+            (memberships || []).map(async (m) => {
+                const { data: userData } = await supabaseAdmin.auth.admin.getUserById(m.user_id);
+                return {
+                    membership_id: m.id,
+                    user_id: m.user_id,
+                    email: userData?.user?.email || '',
+                    role: m.role,
+                    is_active: m.is_active,
+                };
+            })
+        );
 
         res.json({
             data: { ...tenant, members },
@@ -464,24 +441,9 @@ router.get('/tenants/:id', async (req: Request, res: Response, next: NextFunctio
 });
 
 // POST /api/admin/tenants — Create tenant
-router.post('/tenants', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+router.post('/tenants', validateBody(createTenantSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { name, slug, tier, is_active } = req.body;
-
-        if (!name || !slug) {
-            res.status(400).json({ error: 'Name and slug are required' });
-            return;
-        }
-
-        if (!/^[a-z0-9-]+$/.test(slug)) {
-            res.status(400).json({ error: 'Slug must be lowercase alphanumeric with hyphens only' });
-            return;
-        }
-
-        if (tier && !VALID_TIERS.includes(tier as any)) {
-            res.status(400).json({ error: `Invalid tier. Valid tiers: ${VALID_TIERS.join(', ')}` });
-            return;
-        }
 
         // Check slug uniqueness
         const { data: existing } = await supabaseAdmin
@@ -527,27 +489,15 @@ router.post('/tenants', async (req: Request, res: Response, next: NextFunction):
 });
 
 // PUT /api/admin/tenants/:id — Update tenant
-router.put('/tenants/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+router.put('/tenants/:id', validateBody(updateTenantSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const id = req.params.id as string;
         const { name, slug, tier, is_active, settings } = req.body;
 
         const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
         if (name !== undefined) updateData.name = name.trim();
-        if (slug !== undefined) {
-            if (!/^[a-z0-9-]+$/.test(slug)) {
-                res.status(400).json({ error: 'Slug must be lowercase alphanumeric with hyphens only' });
-                return;
-            }
-            updateData.slug = slug;
-        }
-        if (tier !== undefined) {
-            if (!VALID_TIERS.includes(tier as any)) {
-                res.status(400).json({ error: `Invalid tier. Valid tiers: ${VALID_TIERS.join(', ')}` });
-                return;
-            }
-            updateData.tier = tier;
-        }
+        if (slug !== undefined) updateData.slug = slug;
+        if (tier !== undefined) updateData.tier = tier;
         if (is_active !== undefined) updateData.is_active = is_active;
         if (settings !== undefined) updateData.settings = settings;
 
@@ -648,22 +598,23 @@ router.get('/memberships', async (req: Request, res: Response, next: NextFunctio
 
         if (error) throw new AppError('Failed to fetch memberships', 500);
 
-        // Enrich with user emails
-        const enriched = [];
-        for (const m of data || []) {
-            const { data: userData } = await supabaseAdmin.auth.admin.getUserById(m.user_id);
-            enriched.push({
-                id: m.id,
-                user_id: m.user_id,
-                user_email: userData?.user?.email || '',
-                tenant_id: m.tenant_id,
-                tenant_name: (m as any).tenants?.name || '',
-                tenant_slug: (m as any).tenants?.slug || '',
-                role: m.role,
-                is_active: m.is_active,
-                created_at: m.created_at,
-            });
-        }
+        // Enrich with user emails — batch fetch in parallel
+        const enriched = await Promise.all(
+            (data || []).map(async (m) => {
+                const { data: userData } = await supabaseAdmin.auth.admin.getUserById(m.user_id);
+                return {
+                    id: m.id,
+                    user_id: m.user_id,
+                    user_email: userData?.user?.email || '',
+                    tenant_id: m.tenant_id,
+                    tenant_name: (m as any).tenants?.name || '',
+                    tenant_slug: (m as any).tenants?.slug || '',
+                    role: m.role,
+                    is_active: m.is_active,
+                    created_at: m.created_at,
+                };
+            })
+        );
 
         const totalPages = Math.ceil((count || 0) / limit);
 
@@ -686,19 +637,9 @@ router.get('/memberships', async (req: Request, res: Response, next: NextFunctio
 });
 
 // POST /api/admin/memberships — Assign user to tenant
-router.post('/memberships', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+router.post('/memberships', validateBody(createMembershipSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { user_id, tenant_id, role } = req.body;
-
-        if (!user_id || !tenant_id || !role) {
-            res.status(400).json({ error: 'user_id, tenant_id, and role are required' });
-            return;
-        }
-
-        if (!VALID_ROLES.includes(role as any)) {
-            res.status(400).json({ error: `Invalid role. Valid roles: ${VALID_ROLES.join(', ')}` });
-            return;
-        }
 
         // Verify user exists
         const { data: userData, error: userError } = await supabaseAdmin.auth.admin.getUserById(user_id);
@@ -757,25 +698,14 @@ router.post('/memberships', async (req: Request, res: Response, next: NextFuncti
 });
 
 // PUT /api/admin/memberships/:id — Update membership
-router.put('/memberships/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+router.put('/memberships/:id', validateBody(updateMembershipSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const id = req.params.id as string;
         const { role, is_active } = req.body;
 
         const updateData: Record<string, unknown> = {};
-        if (role !== undefined) {
-            if (!VALID_ROLES.includes(role as any)) {
-                res.status(400).json({ error: `Invalid role. Valid roles: ${VALID_ROLES.join(', ')}` });
-                return;
-            }
-            updateData.role = role;
-        }
+        if (role !== undefined) updateData.role = role;
         if (is_active !== undefined) updateData.is_active = is_active;
-
-        if (Object.keys(updateData).length === 0) {
-            res.status(400).json({ error: 'No fields to update' });
-            return;
-        }
 
         const { data, error } = await supabaseAdmin
             .from('memberships')

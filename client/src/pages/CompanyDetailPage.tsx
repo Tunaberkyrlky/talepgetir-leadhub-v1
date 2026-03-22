@@ -185,6 +185,7 @@ export default function CompanyDetailPage() {
         },
     });
 
+
     const handleAddContact = () => {
         setEditingContact(null);
         contactForm.reset();

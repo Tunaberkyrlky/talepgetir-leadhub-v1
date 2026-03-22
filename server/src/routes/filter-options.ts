@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { createLogger } from '../lib/logger.js';
+import { getTenantStages } from './settings.js';
 
 const log = createLogger('route:filter-options');
 const router = Router();
@@ -10,44 +11,35 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
 
-        // Get distinct stages (from actual data)
-        const { data: stageRows } = await supabaseAdmin
-            .from('companies')
-            .select('stage')
-            .eq('tenant_id', tenantId)
-            .not('stage', 'is', null);
+        // Get stages from pipeline_stages config (fast, cached)
+        const allStages = await getTenantStages(tenantId);
+        const stages = allStages.map((s) => s.slug);
 
-        const stages = [...new Set((stageRows || []).map((r) => r.stage))].sort();
+        // Get distinct industries, locations, products in parallel
+        const [industryRes, locationRes, productRes] = await Promise.all([
+            supabaseAdmin
+                .from('companies')
+                .select('industry')
+                .eq('tenant_id', tenantId)
+                .not('industry', 'is', null)
+                .neq('industry', ''),
+            supabaseAdmin
+                .from('companies')
+                .select('location')
+                .eq('tenant_id', tenantId)
+                .not('location', 'is', null)
+                .neq('location', ''),
+            supabaseAdmin
+                .from('companies')
+                .select('product_services')
+                .eq('tenant_id', tenantId)
+                .not('product_services', 'is', null)
+                .neq('product_services', ''),
+        ]);
 
-        // Get distinct industries
-        const { data: industryRows } = await supabaseAdmin
-            .from('companies')
-            .select('industry')
-            .eq('tenant_id', tenantId)
-            .not('industry', 'is', null)
-            .neq('industry', '');
-
-        const industries = [...new Set((industryRows || []).map((r) => r.industry))].sort();
-
-        // Get distinct locations
-        const { data: locationRows } = await supabaseAdmin
-            .from('companies')
-            .select('location')
-            .eq('tenant_id', tenantId)
-            .not('location', 'is', null)
-            .neq('location', '');
-
-        const locations = [...new Set((locationRows || []).map((r) => r.location))].sort();
-
-        // Get distinct product_services
-        const { data: productRows } = await supabaseAdmin
-            .from('companies')
-            .select('product_services')
-            .eq('tenant_id', tenantId)
-            .not('product_services', 'is', null)
-            .neq('product_services', '');
-
-        const products = [...new Set((productRows || []).map((r) => r.product_services))].sort();
+        const industries = [...new Set((industryRes.data || []).map((r) => r.industry))].sort();
+        const locations = [...new Set((locationRes.data || []).map((r) => r.location))].sort();
+        const products = [...new Set((productRes.data || []).map((r) => r.product_services))].sort();
 
         res.json({ stages, industries, locations, products });
     } catch (err) {

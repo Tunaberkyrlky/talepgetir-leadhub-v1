@@ -10,20 +10,21 @@ const api = axios.create({
     headers: {
         'Content-Type': 'application/json',
     },
+    withCredentials: true, // Send httpOnly cookies with every request
+    timeout: 60000,        // 60 second timeout
 });
 
-// Request interceptor: attach auth token + active tenant
+// Request interceptor: attach active tenant header
 api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token');
     const activeTenantId = localStorage.getItem('activeTenantId');
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
     if (activeTenantId && activeTenantId !== 'null') {
         config.headers['X-Tenant-Id'] = activeTenantId;
     }
     return config;
 });
+
+// Mutex for token refresh to prevent race conditions
+let refreshPromise: Promise<void> | null = null;
 
 // Response interceptor: handle 401 (expired token)
 api.interceptors.response.use(
@@ -32,26 +33,41 @@ api.interceptors.response.use(
         const status = error.response?.status;
         const url = error.config?.url;
 
-        if (status === 401) {
-            // Try to refresh token
-            const refreshToken = localStorage.getItem('refreshToken');
-            if (refreshToken && !error.config._retry) {
-                error.config._retry = true;
+        if (status === 401 && !error.config._retry) {
+            error.config._retry = true;
+
+            // If already refreshing, wait for it
+            if (refreshPromise) {
                 try {
-                    const { data } = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
-                    localStorage.setItem('token', data.token);
-                    localStorage.setItem('refreshToken', data.refreshToken);
-                    error.config.headers.Authorization = `Bearer ${data.token}`;
+                    await refreshPromise;
                     return api(error.config);
-                } catch (refreshError) {
-                    log.warn('Token refresh failed, redirecting to login', { url });
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('refreshToken');
-                    localStorage.removeItem('user');
-                    window.location.href = '/login';
+                } catch {
+                    return Promise.reject(error);
                 }
             }
-        } else {
+
+            // Start a new refresh (cookies are sent automatically)
+            refreshPromise = axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
+                .then(() => {
+                    // Cookies are set by server automatically
+                })
+                .catch((refreshError) => {
+                    log.warn('Token refresh failed, redirecting to login', { url });
+                    localStorage.removeItem('activeTenantId');
+                    window.location.href = '/login';
+                    throw refreshError;
+                })
+                .finally(() => {
+                    refreshPromise = null;
+                });
+
+            try {
+                await refreshPromise;
+                return api(error.config);
+            } catch {
+                return Promise.reject(error);
+            }
+        } else if (status !== 401) {
             log.error('API error', { status, url, message: error.message });
         }
         return Promise.reject(error);

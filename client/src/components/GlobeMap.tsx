@@ -1,14 +1,20 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Paper, Text, Loader, Center, Box, ActionIcon } from '@mantine/core';
-import { IconMaximize, IconMinimize } from '@tabler/icons-react';
+import {
+    Paper, Text, Loader, Center, Box, ActionIcon, Modal, Table, Badge,
+    ScrollArea, Group, Button,
+} from '@mantine/core';
+import { IconMaximize, IconMinimize, IconExternalLink } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from 'react-simple-maps';
 import * as topojson from 'topojson-client';
 import topoData from 'world-atlas/countries-110m.json';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import centroid from '@turf/centroid';
 import { COUNTRY_NAMES } from '../lib/countryNames';
+import { useStages } from '../contexts/StagesContext';
+import api from '../lib/api';
 
 type GeoFeature = { id?: string | number; [key: string]: unknown };
 
@@ -52,15 +58,116 @@ const STAGE_COLORS = [
     { key: 'karar', color: '#51cf66', labelKey: 'stageGroups.closing' },
 ] as const;
 
-export default function GlobeMap({ data, isLoading }: GlobeMapProps) {
+interface ModalCompany {
+    id: string;
+    name: string;
+    industry: string | null;
+    stage: string;
+    location: string | null;
+    contact_count: number;
+}
+
+/** Popup table showing companies for a selected country */
+function CountryCompaniesModal({
+    countryName,
+    onClose,
+}: {
+    countryName: string;
+    onClose: () => void;
+}) {
     const { t } = useTranslation();
     const navigate = useNavigate();
+    const { getStageColor, getStageLabel } = useStages();
+
+    const { data, isLoading } = useQuery<{ data: ModalCompany[] }>({
+        queryKey: ['companies', 'map', countryName],
+        queryFn: async () => (await api.get(`/companies?search=${encodeURIComponent(countryName)}&limit=100`)).data,
+        enabled: !!countryName,
+    });
+
+    const companies = data?.data || [];
+
+    return (
+        <Modal
+            opened
+            onClose={onClose}
+            title={
+                <Group gap="xs" justify="space-between" style={{ flex: 1, marginRight: 32 }}>
+                    <Group gap="xs">
+                        <Text fw={600}>{countryName}</Text>
+                        <Badge size="sm" variant="light" color="violet">{companies.length}</Badge>
+                    </Group>
+                    <Button
+                        variant="light"
+                        size="compact-xs"
+                        rightSection={<IconExternalLink size={12} />}
+                        onClick={() => navigate(`/companies?search=${encodeURIComponent(countryName)}&fromMap=true`)}
+                    >
+                        {t('dashboard.goToTable', 'Tabloda göster')}
+                    </Button>
+                </Group>
+            }
+            size="lg"
+            radius="lg"
+        >
+            {isLoading ? (
+                <Center py="xl"><Loader size="sm" /></Center>
+            ) : companies.length === 0 ? (
+                <Center py="xl"><Text c="dimmed">{t('pipeline.emptyColumn')}</Text></Center>
+            ) : (
+                <ScrollArea.Autosize mah={450}>
+                    <Table striped highlightOnHover verticalSpacing="xs" horizontalSpacing="sm">
+                        <Table.Thead>
+                            <Table.Tr>
+                                <Table.Th>{t('company.name')}</Table.Th>
+                                <Table.Th>{t('company.stage')}</Table.Th>
+                                <Table.Th>{t('company.industry')}</Table.Th>
+                                <Table.Th style={{ width: 40 }} />
+                            </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                            {companies.map((c) => (
+                                <Table.Tr
+                                    key={c.id}
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={() => navigate(`/companies/${c.id}`)}
+                                >
+                                    <Table.Td>
+                                        <Text size="sm" fw={500} lineClamp={1}>{c.name}</Text>
+                                    </Table.Td>
+                                    <Table.Td>
+                                        <Badge size="xs" variant="light" color={getStageColor(c.stage)} radius="sm">
+                                            {getStageLabel(c.stage)}
+                                        </Badge>
+                                    </Table.Td>
+                                    <Table.Td>
+                                        <Text size="xs" c="dimmed" lineClamp={1}>{c.industry || '—'}</Text>
+                                    </Table.Td>
+                                    <Table.Td>
+                                        <ActionIcon variant="subtle" size="xs" color="gray">
+                                            <IconExternalLink size={14} />
+                                        </ActionIcon>
+                                    </Table.Td>
+                                </Table.Tr>
+                            ))}
+                        </Table.Tbody>
+                    </Table>
+                </ScrollArea.Autosize>
+            )}
+        </Modal>
+    );
+}
+
+export default function GlobeMap({ data, isLoading }: GlobeMapProps) {
+    const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
     const [dimensions, setDimensions] = useState({ width: 600, height: 320 });
     const [hoveredMarker, setHoveredMarker] = useState<CountryMarker | null>(null);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
-    const [zoom, setZoom] = useState(1);
+    const zoomRef = useRef(1);
+    const markerGroupRefs = useRef<Map<number, SVGGElement>>(new Map());
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
     const mapContainerRef = useRef<HTMLDivElement>(null);
 
     // Toggle fullscreen
@@ -153,8 +260,12 @@ export default function GlobeMap({ data, isLoading }: GlobeMapProps) {
         const stats = countryCompanyCounts.get(Number(geo.id));
         const count = stats?.total ?? 0;
         if (count === 0) return 'rgba(22, 58, 105, 0.95)';
-        const intensity = Math.min(1, 0.3 + count * 0.07);
-        return `rgba(80, 140, 220, ${intensity})`;
+        // 1 company = already bright, scales up with more
+        const t = Math.min(1, 0.15 + count * 0.08);
+        const r = Math.round(60 + t * 80);
+        const g = Math.round(120 + t * 100);
+        const b = Math.round(200 + t * 55);
+        return `rgb(${r}, ${g}, ${b})`;
     }, [countryCompanyCounts]);
 
     const handleCountryClick = useCallback((geo: any) => {
@@ -162,8 +273,12 @@ export default function GlobeMap({ data, isLoading }: GlobeMapProps) {
         const stats = countryCompanyCounts.get(id);
         if (!stats || stats.total === 0) return;
         const name = COUNTRY_NAMES[id];
-        if (name) navigate(`/companies?search=${encodeURIComponent(name)}&fromMap=true`);
-    }, [countryCompanyCounts, navigate]);
+        if (name) setSelectedCountry(name);
+    }, [countryCompanyCounts]);
+
+    const handleMarkerClick = useCallback((name: string) => {
+        if (name) setSelectedCountry(name);
+    }, []);
 
     const handleMarkerHover = useCallback((marker: CountryMarker | null, e?: React.MouseEvent) => {
         setHoveredMarker(marker);
@@ -228,7 +343,12 @@ export default function GlobeMap({ data, isLoading }: GlobeMapProps) {
                                 <ZoomableGroup
                                     minZoom={1}
                                     maxZoom={8}
-                                    onMove={({ zoom: z }: { zoom: number }) => setZoom(z)}
+                                    onMove={({ zoom: z }: { zoom: number }) => {
+                                        zoomRef.current = z;
+                                        markerGroupRefs.current.forEach((el) => {
+                                            el.setAttribute('transform', `scale(${1 / z})`);
+                                        });
+                                    }}
                                 >
                                     <Geographies geography={topoData as any}>
                                         {({ geographies }) =>
@@ -259,58 +379,76 @@ export default function GlobeMap({ data, isLoading }: GlobeMapProps) {
                                         }
                                     </Geographies>
 
-                                    {countryMarkers.map((marker) => (
-                                        <Marker
-                                            key={marker.id}
-                                            coordinates={[marker.lng, marker.lat]}
-                                        >
-                                            <g
-                                                style={{ cursor: 'pointer' }}
-                                                transform={`scale(${1 / zoom})`}
-                                                onMouseEnter={(e) => handleMarkerHover(marker, e)}
-                                                onMouseMove={handleMarkerMove}
-                                                onMouseLeave={() => handleMarkerHover(null)}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (marker.name) {
-                                                        navigate(`/companies?search=${encodeURIComponent(marker.name)}&fromMap=true`);
-                                                    }
-                                                }}
+                                    {countryMarkers.map((marker) => {
+                                        const isHovered = hoveredMarker?.id === marker.id;
+                                        return (
+                                            <Marker
+                                                key={marker.id}
+                                                coordinates={[marker.lng, marker.lat]}
                                             >
-                                                <rect
-                                                    x={-22}
-                                                    y={-10}
-                                                    width={44}
-                                                    height={20}
-                                                    rx={10}
-                                                    fill="rgba(10, 20, 40, 0.88)"
-                                                    stroke="rgba(100, 160, 255, 0.5)"
-                                                    strokeWidth={1}
-                                                />
-                                                {/* Building icon */}
-                                                <g transform="translate(-14, -6) scale(0.5)" fill="none" stroke="#7eb8ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                    <path d="M3 21h18" />
-                                                    <path d="M5 21V7l8-4v18" />
-                                                    <path d="M19 21V11l-6-4" />
-                                                    <path d="M9 9v.01" />
-                                                    <path d="M9 12v.01" />
-                                                    <path d="M9 15v.01" />
-                                                    <path d="M9 18v.01" />
-                                                </g>
-                                                <text
-                                                    x={6}
-                                                    y={4}
-                                                    textAnchor="middle"
-                                                    fill="#e8f0ff"
-                                                    fontSize={11}
-                                                    fontWeight={600}
-                                                    fontFamily="sans-serif"
+                                                <g
+                                                    ref={(el) => {
+                                                        if (el) markerGroupRefs.current.set(marker.id, el);
+                                                        else markerGroupRefs.current.delete(marker.id);
+                                                    }}
+                                                    style={{ cursor: 'pointer' }}
+                                                    transform={`scale(${1 / zoomRef.current})`}
+                                                    onMouseEnter={(e) => handleMarkerHover(marker, e)}
+                                                    onMouseMove={handleMarkerMove}
+                                                    onMouseLeave={() => handleMarkerHover(null)}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleMarkerClick(marker.name);
+                                                    }}
                                                 >
-                                                    {marker.stats.total}
-                                                </text>
-                                            </g>
-                                        </Marker>
-                                    ))}
+                                                  <g transform={isHovered ? 'scale(1.12)' : undefined} style={{ transition: 'transform 150ms ease' }}>
+                                                    {/* Glow ring on hover */}
+                                                    {isHovered && (
+                                                        <circle
+                                                            cx={0}
+                                                            cy={0}
+                                                            r={18}
+                                                            fill="none"
+                                                            stroke="rgba(100, 160, 255, 0.35)"
+                                                            strokeWidth={1.5}
+                                                        />
+                                                    )}
+                                                    <rect
+                                                        x={-22}
+                                                        y={-10}
+                                                        width={44}
+                                                        height={20}
+                                                        rx={10}
+                                                        fill={isHovered ? 'rgba(40, 80, 160, 0.95)' : 'rgba(10, 20, 40, 0.88)'}
+                                                        stroke={isHovered ? 'rgba(120, 180, 255, 0.9)' : 'rgba(100, 160, 255, 0.5)'}
+                                                        strokeWidth={isHovered ? 1.5 : 1}
+                                                    />
+                                                    {/* Building icon */}
+                                                    <g transform="translate(-14, -6) scale(0.5)" fill="none" stroke={isHovered ? '#b8d8ff' : '#7eb8ff'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                        <path d="M3 21h18" />
+                                                        <path d="M5 21V7l8-4v18" />
+                                                        <path d="M19 21V11l-6-4" />
+                                                        <path d="M9 9v.01" />
+                                                        <path d="M9 12v.01" />
+                                                        <path d="M9 15v.01" />
+                                                        <path d="M9 18v.01" />
+                                                    </g>
+                                                    <text
+                                                        x={6}
+                                                        y={4}
+                                                        textAnchor="middle"
+                                                        fill={isHovered ? '#fff' : '#e8f0ff'}
+                                                        fontSize={isHovered ? 12 : 11}
+                                                        fontWeight={isHovered ? 700 : 600}
+                                                        fontFamily="sans-serif"
+                                                    >
+                                                        {marker.stats.total}
+                                                    </text>
+                                                  </g>
+                                                </g>
+                                            </Marker>
+                                        );
+                                    })}
                                 </ZoomableGroup>
                             </ComposableMap>
                         </Box>
@@ -365,6 +503,14 @@ export default function GlobeMap({ data, isLoading }: GlobeMapProps) {
                     </>
                 )}
             </Box>
+
+            {/* Country companies popup */}
+            {selectedCountry && (
+                <CountryCompaniesModal
+                    countryName={selectedCountry}
+                    onClose={() => setSelectedCountry(null)}
+                />
+            )}
         </Paper>
     );
 }

@@ -314,8 +314,6 @@ export default function LeadsPage() {
         });
     }, [data?.data]);
 
-    const toggleSelect = (id: string) => handleRowSelect(id, false);
-
     // Page-level keyboard shortcuts
     useHotkeys([
         ['mod+K', () => searchRef.current?.focus()],
@@ -751,7 +749,7 @@ export default function LeadsPage() {
 
     // Stage options for multi-select
     const stageOptions = (filterOptions?.stages || []).map((s) => ({
-        value: s, label: t(`stages.${s}`),
+        value: s, label: getStageLabel(s),
     }));
     const industryOptions = (filterOptions?.industries || []).map((s) => ({
         value: s, label: s,

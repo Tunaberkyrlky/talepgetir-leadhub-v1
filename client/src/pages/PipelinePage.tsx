@@ -14,12 +14,8 @@ import {
     Table,
     Center,
     Loader,
-    Drawer,
-    Tooltip,
-    Modal,
-    Button,
 } from '@mantine/core';
-import { useDebouncedValue, useDisclosure, useHotkeys } from '@mantine/hooks';
+import { useDebouncedValue, useHotkeys } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -32,7 +28,6 @@ import {
     IconXboxX,
     IconClock,
     IconUsers,
-    IconSettings,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -43,7 +38,6 @@ import { hasRolePermission } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
 import KanbanBoard from '../components/pipeline/KanbanBoard';
 import type { PipelineCompany } from '../components/pipeline/PipelineCard';
-import PipelineSettingsEditor, { type PipelineSettingsEditorHandle } from '../components/PipelineSettingsEditor';
 import { useUndoStack } from '../hooks/useUndoStack';
 
 interface PipelineData {
@@ -63,10 +57,6 @@ export default function PipelinePage() {
     const [search, setSearch] = useState('');
     const [debouncedSearch] = useDebouncedValue(search, 300);
     const [viewMode, setViewMode] = useState<string>('board');
-    const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
-    const [confirmCloseOpened, setConfirmCloseOpened] = useState(false);
-    const settingsDirtyRef = useRef(false);
-    const settingsSaveRef = useRef<PipelineSettingsEditorHandle | null>(null);
     const searchRef = useRef<HTMLInputElement>(null);
     const undoStack = useUndoStack();
 
@@ -76,7 +66,6 @@ export default function PipelinePage() {
         ['mod+F', () => searchRef.current?.focus()],
         ['1', () => setViewMode('board')],
         ['2', () => setViewMode('table')],
-        ['S', () => openSettings()],
         ['Escape', () => { if (search) setSearch(''); }],
         ['mod+Z', () => {
             const entry = undoStack.pop();
@@ -86,25 +75,6 @@ export default function PipelinePage() {
             }
         }],
     ]);
-
-    const handleSettingsClose = useCallback(() => {
-        if (settingsDirtyRef.current) {
-            setConfirmCloseOpened(true);
-        } else {
-            closeSettings();
-        }
-    }, [closeSettings]);
-
-    const handleConfirmDiscard = useCallback(() => {
-        setConfirmCloseOpened(false);
-        settingsDirtyRef.current = false;
-        closeSettings();
-    }, [closeSettings]);
-
-    const handleConfirmSave = useCallback(() => {
-        settingsSaveRef.current?.save();
-        setConfirmCloseOpened(false);
-    }, []);
 
     const canDrag = hasRolePermission(role, 'pipeline_dragdrop');
 
@@ -262,11 +232,6 @@ export default function PipelinePage() {
                                 { label: <IconTable size={16} />, value: 'table' },
                             ]}
                         />
-                        <Tooltip label={t('settings.pipelineTab')}>
-                            <ActionIcon variant="light" color="gray" size="lg" radius="md" onClick={openSettings}>
-                                <IconSettings size={18} />
-                            </ActionIcon>
-                        </Tooltip>
                     </Group>
                 </Flex>
 
@@ -419,39 +384,6 @@ export default function PipelinePage() {
                     </Paper>
                 )}
             </Container>
-
-            <Drawer
-                opened={settingsOpened}
-                onClose={handleSettingsClose}
-                title={t('settings.pipelineTab')}
-                position="right"
-                size="lg"
-                padding="md"
-            >
-                <PipelineSettingsEditor
-                    onDirtyChange={(dirty) => { settingsDirtyRef.current = dirty; }}
-                    saveRef={settingsSaveRef}
-                    onSaveSuccess={() => { settingsDirtyRef.current = false; closeSettings(); }}
-                />
-            </Drawer>
-
-            <Modal
-                opened={confirmCloseOpened}
-                onClose={() => setConfirmCloseOpened(false)}
-                title={t('pipelineSettings.unsavedTitle')}
-                size="sm"
-                centered
-            >
-                <Text size="sm" mb="lg">{t('pipelineSettings.unsavedDesc')}</Text>
-                <Group justify="flex-end">
-                    <Button variant="subtle" color="gray" onClick={handleConfirmDiscard}>
-                        {t('pipelineSettings.discard')}
-                    </Button>
-                    <Button onClick={handleConfirmSave}>
-                        {t('common.save')}
-                    </Button>
-                </Group>
-            </Modal>
         </TierGate>
     );
 }

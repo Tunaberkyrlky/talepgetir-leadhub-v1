@@ -82,7 +82,7 @@ function SortableStageRow({ slug, groupColor, stage, isEditing, label, editName,
         <Group ref={setNodeRef} justify="space-between" wrap="nowrap" py={4} px="xs"
             style={{
                 borderRadius: 6,
-                background: `var(--mantine-color-${groupColor}-0)`,
+                background: `var(--mantine-color-${groupColor}-light)`,
                 transform: CSS.Transform.toString(transform),
                 transition,
                 opacity: isDragging ? 0.5 : 1,
