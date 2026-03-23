@@ -27,7 +27,7 @@ import {
     Divider,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure, useHotkeys } from '@mantine/hooks';
-import { showSuccess, showError, showInfo, showErrorFromApi } from '../lib/notifications';
+import { showSuccess, showInfo, showErrorFromApi } from '../lib/notifications';
 import {
     IconPlus,
     IconPencil,
