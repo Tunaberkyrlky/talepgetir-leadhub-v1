@@ -273,7 +273,7 @@ export default function DataMatchFlow() {
 
                     {matchMutation.isError && (
                         <Alert color="red" mt="md" icon={<IconAlertCircle />}>
-                            {(matchMutation.error as any)?.response?.data?.error || t('common.error')}
+                            {(() => { const e = (matchMutation.error as any)?.response?.data?.error; return typeof e === 'object' && e !== null ? (e.message || JSON.stringify(e)) : e || t('common.error'); })()}
                         </Alert>
                     )}
                 </Paper>
@@ -486,7 +486,7 @@ export default function DataMatchFlow() {
 
                     {executeMutation.isError && (
                         <Alert color="red" mt="md" icon={<IconAlertCircle />}>
-                            {(executeMutation.error as any)?.response?.data?.error || t('common.error')}
+                            {(() => { const e = (executeMutation.error as any)?.response?.data?.error; return typeof e === 'object' && e !== null ? (e.message || JSON.stringify(e)) : e || t('common.error'); })()}
                         </Alert>
                     )}
                 </Paper>

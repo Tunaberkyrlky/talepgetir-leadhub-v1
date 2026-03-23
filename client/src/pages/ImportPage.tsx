@@ -210,7 +210,7 @@ export default function ImportPage() {
 
                         {uploadMutation.isError && (
                             <Alert color="red" mt="md" icon={<IconAlertCircle />}>
-                                {(uploadMutation.error as any)?.response?.data?.error || t('common.error')}
+                                {(() => { const e = (uploadMutation.error as any)?.response?.data?.error; return typeof e === 'object' && e !== null ? (e.message || JSON.stringify(e)) : e || t('common.error'); })()}
                             </Alert>
                         )}
                     </Paper>
@@ -309,7 +309,7 @@ export default function ImportPage() {
 
                         {executeMutation.isError && (
                             <Alert color="red" mt="md" icon={<IconAlertCircle />}>
-                                {(executeMutation.error as any)?.response?.data?.error || t('common.error')}
+                                {(() => { const e = (executeMutation.error as any)?.response?.data?.error; return typeof e === 'object' && e !== null ? (e.message || JSON.stringify(e)) : e || t('common.error'); })()}
                             </Alert>
                         )}
                     </Paper>
