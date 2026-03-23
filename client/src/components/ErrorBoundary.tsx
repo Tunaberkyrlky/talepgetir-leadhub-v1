@@ -71,11 +71,11 @@ export default class ErrorBoundary extends Component<Props, State> {
 
                     <Stack align="center" gap={4}>
                         <Title order={2} ta="center">
-                            Bir sorun olustu
+                            Bir sorun oluştu
                         </Title>
                         <Text c="dimmed" ta="center" size="md">
-                            Beklenmeyen bir hata meydana geldi. Sayfayi yeniden yuklemeyi
-                            deneyin veya ana sayfaya donun.
+                            Beklenmeyen bir hata meydana geldi. Sayfayı yeniden yüklemeyi
+                            deneyin veya ana sayfaya dönün.
                         </Text>
                     </Stack>
 
@@ -85,7 +85,7 @@ export default class ErrorBoundary extends Component<Props, State> {
                             onClick={this.handleReload}
                             variant="filled"
                         >
-                            Sayfayi Yenile
+                            Sayfayı Yenile
                         </Button>
                         <Button
                             leftSection={<IconHome size={18} />}
