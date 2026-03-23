@@ -96,6 +96,32 @@ export default function DataMatchFlow() {
         },
     });
 
+    // Poll job status until completed/failed/cancelled
+    const pollJobResult = async (jobId: string): Promise<ImportResult> => {
+        const POLL_INTERVAL = 2000;
+        const MAX_POLLS = 600; // 20 min max
+        for (let i = 0; i < MAX_POLLS; i++) {
+            await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+            const res = await api.get(`/import/jobs/${jobId}`);
+            const job = res.data?.data;
+            if (!job) continue;
+            if (job.status === 'completed' || job.status === 'failed' || job.cancelled) {
+                return {
+                    importJobId: job.id,
+                    totalRows: job.total_rows,
+                    successCount: job.success_count,
+                    errorCount: job.error_count,
+                    errors: job.error_details || [],
+                    createdCompanies: 0,
+                    updatedCompanies: 0,
+                    createdContacts: 0,
+                    cancelled: job.cancelled,
+                } as ImportResult;
+            }
+        }
+        throw new Error('Import timed out');
+    };
+
     // Execute import mutation
     const executeMutation = useMutation({
         mutationFn: async () => {
@@ -111,15 +137,17 @@ export default function DataMatchFlow() {
             // Step 2: Start polling progress bar
             startImport(jobId, previewData!.totalRows, previewData!.fileName);
 
-            // Step 3: Execute import
-            const res = await api.post('/import/execute', {
+            // Step 3: Fire import (server returns immediately, runs in background)
+            await api.post('/import/execute', {
                 fileId: previewData!.fileId,
                 fileName: previewData!.fileName,
                 fileType: previewData!.fileType,
                 mapping,
                 jobId,
-            }, { timeout: 10 * 60_000 }); // 10 min timeout for large imports
-            return res.data as ImportResult;
+            });
+
+            // Step 4: Poll until job is done
+            return await pollJobResult(jobId);
         },
         onSuccess: (data) => {
             finishImport(data);

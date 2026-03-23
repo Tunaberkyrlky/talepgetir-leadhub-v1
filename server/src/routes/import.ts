@@ -322,6 +322,7 @@ router.post(
 );
 
 // POST /api/import/execute — Execute import with confirmed mapping
+// Returns immediately with { started: true } — client polls job status via GET /jobs/:id
 router.post(
     '/execute',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
@@ -350,8 +351,13 @@ router.post(
 
             const { rows } = cached;
 
-            // Execute import
-            const result = await executeImport(
+            // Return immediately — import runs in background.
+            // This prevents Vercel 504 Gateway Timeout on serverless.
+            // Client already polls progress via GET /import/jobs/:id.
+            res.json({ started: true, jobId });
+
+            // Fire-and-forget: run import in background
+            executeImport(
                 req.tenantId!,
                 req.user!.id,
                 fileName,
@@ -360,24 +366,23 @@ router.post(
                 mapping,
                 jobId,
                 defaultCompanyName || undefined,
-            );
-
-            // Clean up cached file data from DB after successful import
-            await deleteFileCache(fileId);
-
-            log.info({ jobId, successCount: result.successCount, errorCount: result.errorCount }, 'Import execute completed');
-            res.json(result);
+            )
+                .then(async (result) => {
+                    await deleteFileCache(fileId);
+                    log.info({ jobId, successCount: result.successCount, errorCount: result.errorCount }, 'Import execute completed');
+                })
+                .catch(async (err) => {
+                    log.error({ err, jobId }, 'Import execute failed');
+                    // executeImport's own try/catch already marks job as failed,
+                    // but double-ensure here in case something slips through
+                    try {
+                        await supabaseAdmin.from('import_jobs').update({
+                            status: 'failed',
+                            completed_at: new Date().toISOString(),
+                        }).eq('id', jobId).eq('status', 'processing');
+                    } catch { /* logged inside executeImport */ }
+                });
         } catch (err: any) {
-            // On error, mark job as failed so progress bar doesn't spin forever
-            try {
-                await supabaseAdmin.from('import_jobs').update({
-                    status: 'failed',
-                    completed_at: new Date().toISOString(),
-                }).eq('id', jobId).eq('status', 'processing');
-            } catch (updateErr) {
-                log.error({ err: updateErr }, 'Failed to mark job as failed');
-            }
-
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Import execute error');
             res.status(500).json({ error: 'Import failed' });
