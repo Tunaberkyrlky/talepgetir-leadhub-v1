@@ -5,10 +5,10 @@ import {
     ActionIcon, Pagination, Flex, Stack, Center, Loader, Paper, Box, Menu,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
 import { IconSearch, IconPlus, IconPencil, IconTrash, IconX, IconDotsVertical } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
+import { showSuccess, showErrorFromApi } from '../../lib/notifications';
 import TenantFormModal from './TenantFormModal';
 
 interface Tenant {
@@ -51,10 +51,10 @@ export default function AdminTenantsTab() {
         mutationFn: async (id: string) => api.delete(`/admin/tenants/${id}?confirm=true`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['admin', 'tenants'] });
-            notifications.show({ message: t('admin.tenantDeleted'), color: 'green' });
+            showSuccess(t('admin.tenantDeleted'));
         },
-        onError: (err: any) => {
-            notifications.show({ message: err.response?.data?.error || t('common.error'), color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 
@@ -63,10 +63,10 @@ export default function AdminTenantsTab() {
             api.put(`/admin/tenants/${id}`, { is_active }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['admin', 'tenants'] });
-            notifications.show({ message: t('admin.tenantUpdated'), color: 'green' });
+            showSuccess(t('admin.tenantUpdated'));
         },
-        onError: (err: any) => {
-            notifications.show({ message: err.response?.data?.error || t('common.error'), color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 

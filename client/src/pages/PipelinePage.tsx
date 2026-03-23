@@ -16,7 +16,7 @@ import {
     Loader,
 } from '@mantine/core';
 import { useDebouncedValue, useHotkeys } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
+import { showSuccess, showError, showInfo } from '../lib/notifications';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     IconSearch,
@@ -71,7 +71,7 @@ export default function PipelinePage() {
             const entry = undoStack.pop();
             if (entry) {
                 entry.undo();
-                notifications.show({ message: `${t('shortcuts.undone', 'Geri alındı')}: ${entry.description}`, color: 'blue' });
+                showInfo(`${t('shortcuts.undone', 'Geri alındı')}: ${entry.description}`);
             }
         }],
     ]);
@@ -129,17 +129,10 @@ export default function PipelinePage() {
             if (context?.previous) {
                 queryClient.setQueryData(['pipeline', debouncedSearch], context.previous);
             }
-            notifications.show({
-                title: t('common.error'),
-                message: t('pipeline.moveError'),
-                color: 'red',
-            });
+            showError(t('pipeline.moveError'));
         },
         onSuccess: () => {
-            notifications.show({
-                message: t('pipeline.stageMoved'),
-                color: 'green',
-            });
+            showSuccess(t('pipeline.stageMoved'));
         },
         onSettled: () => {
             queryClient.invalidateQueries({ queryKey: ['pipeline'] });

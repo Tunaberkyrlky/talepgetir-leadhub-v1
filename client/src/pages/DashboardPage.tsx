@@ -22,6 +22,7 @@ import {
     IconMapPin,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
+import { showSuccess } from '../lib/notifications';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -82,10 +83,12 @@ export default function DashboardPage() {
         mutationFn: async () => (await api.post('/companies/geocode')).data,
         onSuccess: (data: { total: number; geocoded: number }) => {
             queryClient.invalidateQueries({ queryKey: ['statistics', 'company-locations'] });
-            notifications.show({
-                message: `${data.geocoded}/${data.total} ${t('dashboard.geocoded', 'konum güncellendi')}`,
-                color: data.geocoded > 0 ? 'green' : 'yellow',
-            });
+            const msg = `${data.geocoded}/${data.total} ${t('dashboard.geocoded', 'konum güncellendi')}`;
+            if (data.geocoded > 0) {
+                showSuccess(msg);
+            } else {
+                notifications.show({ message: msg, color: 'yellow' });
+            }
         },
     });
 
@@ -196,7 +199,7 @@ export default function DashboardPage() {
                             isLoading={locationsLoading}
                         />
                     </Suspense>
-                    {!locationsLoading && (companyLocations?.data?.length || 0) === 0 && (
+                    {!locationsLoading && (companyLocations?.data?.length || 0) === 0 && ['superadmin', 'ops_agent'].includes(role) && (
                         <Center mb="lg">
                             <Button
                                 variant="light"

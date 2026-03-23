@@ -27,7 +27,7 @@ import {
     Divider,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure, useHotkeys } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
+import { showSuccess, showError, showInfo, showErrorFromApi } from '../lib/notifications';
 import {
     IconPlus,
     IconPencil,
@@ -333,7 +333,7 @@ export default function LeadsPage() {
             const entry = undoStack.pop();
             if (entry) {
                 entry.undo();
-                notifications.show({ message: `${t('shortcuts.undone', 'Geri alındı')}: ${entry.description}`, color: 'blue' });
+                showInfo(`${t('shortcuts.undone', 'Geri alındı')}: ${entry.description}`);
             }
         }],
     ]);
@@ -375,10 +375,10 @@ export default function LeadsPage() {
                 },
             });
             setSelectedIds(new Set());
-            notifications.show({ message: t('company.updated'), color: 'green' });
+            showSuccess(t('company.updated'));
         },
-        onError: () => {
-            notifications.show({ message: t('common.error'), color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 
@@ -475,10 +475,10 @@ export default function LeadsPage() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['companies'] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
-            notifications.show({ title: '✅', message: t('company.deleted'), color: 'green' });
+            showSuccess(t('company.deleted'));
         },
-        onError: () => {
-            notifications.show({ title: '❌', message: t('common.error'), color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 
@@ -631,7 +631,7 @@ export default function LeadsPage() {
                                                     },
                                                 });
                                                 if (selectedIds.size > 0) setSelectedIds(new Set());
-                                                notifications.show({ message: t('company.updated'), color: 'green' });
+                                                showSuccess(t('company.updated'));
                                             });
                                         }}
                                         leftSection={

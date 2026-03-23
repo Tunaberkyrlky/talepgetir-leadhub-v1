@@ -13,9 +13,9 @@ import {
     Title,
     Divider,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
+import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { useStages } from '../contexts/StagesContext';
 import EmailStatusIcon from './EmailStatusIcon';
 
@@ -125,20 +125,12 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['companies'] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
-            notifications.show({
-                title: '✅',
-                message: t('company.created'),
-                color: 'green',
-            });
+            showSuccess(t('company.created'));
             onClose();
             form.reset();
         },
-        onError: () => {
-            notifications.show({
-                title: '❌',
-                message: t('common.error'),
-                color: 'red',
-            });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 
@@ -152,20 +144,12 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['companies'] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
-            notifications.show({
-                title: '✅',
-                message: t('company.updated'),
-                color: 'green',
-            });
+            showSuccess(t('company.updated'));
             onClose();
             onSuccess?.();
         },
-        onError: () => {
-            notifications.show({
-                title: '❌',
-                message: t('common.error'),
-                color: 'red',
-            });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 

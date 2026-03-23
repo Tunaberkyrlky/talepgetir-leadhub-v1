@@ -3,13 +3,14 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { MantineProvider, createTheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { ModalsProvider } from '@mantine/modals';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 import { Center, Loader } from '@mantine/core';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/dropzone/styles.css';
 import './i18n';
 
+import { showErrorFromApi } from './lib/notifications';
 import { AuthProvider } from './contexts/AuthContext';
 import { StagesProvider } from './contexts/StagesContext';
 import { ImportProgressProvider } from './contexts/ImportProgressContext';
@@ -35,6 +36,14 @@ const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
     },
   },
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      // Only show global notification if the mutation doesn't have its own onError
+      if (!mutation.options.onError) {
+        showErrorFromApi(error);
+      }
+    },
+  }),
 });
 
 const theme = createTheme({

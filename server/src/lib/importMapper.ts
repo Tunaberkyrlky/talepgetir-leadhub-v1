@@ -169,9 +169,9 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
         table: 'companies',
         field: 'company_email',
         aliases: [
-            'company_email', 'company email', 'company mail', 'email', 'e-posta',
+            'company_email', 'company email', 'company mail',
             'şirket e-posta', 'sirket email', 'şirket mail', 'sirket mail',
-            'email adresi', 'kurumsal mail', 'kurumsal e-posta', 'info mail',
+            'kurumsal mail', 'kurumsal e-posta', 'info mail',
             'info email', 'genel mail', 'iletisim mail',
         ],
         required: false,

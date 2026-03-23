@@ -118,7 +118,7 @@ export default function DataMatchFlow() {
                 fileType: previewData!.fileType,
                 mapping,
                 jobId,
-            });
+            }, { timeout: 10 * 60_000 }); // 10 min timeout for large imports
             return res.data as ImportResult;
         },
         onSuccess: (data) => {

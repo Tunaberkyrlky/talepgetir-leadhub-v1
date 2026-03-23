@@ -410,5 +410,15 @@
         "membershipUpdated": "Atama güncellendi",
         "membershipRemoved": "Atama kaldırıldı",
         "membershipRemoveConfirm": "Bu kullanıcıyı müşteriden kaldırmak istiyor musunuz?"
+    },
+    "errors": {
+        "network": "İnternet bağlantınızı kontrol edin",
+        "timeout": "İstek zaman aşımına uğradı, tekrar deneyin",
+        "unauthorized": "Oturum süresi doldu, lütfen tekrar giriş yapın",
+        "forbidden": "Bu işlem için yetkiniz yok",
+        "notFound": "Kayıt bulunamadı",
+        "conflict": "Bu kayıt zaten mevcut",
+        "validationFailed": "Lütfen formu kontrol edin",
+        "generic": "Bir sorun oluştu, lütfen tekrar deneyin"
     }
 }

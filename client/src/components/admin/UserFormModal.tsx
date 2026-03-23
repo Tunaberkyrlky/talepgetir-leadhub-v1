@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Modal, TextInput, PasswordInput, Select, Stack, Button, Group } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
+import { showSuccess, showErrorFromApi } from '../../lib/notifications';
 
 interface UserFormModalProps {
     opened: boolean;
@@ -70,17 +70,11 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-            notifications.show({
-                message: isEdit ? t('admin.userUpdated') : t('admin.userCreated'),
-                color: 'green',
-            });
+            showSuccess(isEdit ? t('admin.userUpdated') : t('admin.userCreated'));
             onClose();
         },
-        onError: (err: any) => {
-            notifications.show({
-                message: err.response?.data?.error || t('common.error'),
-                color: 'red',
-            });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 

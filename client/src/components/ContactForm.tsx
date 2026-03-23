@@ -11,9 +11,9 @@ import {
     Group,
     SimpleGrid,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
+import { showSuccess, showErrorFromApi } from '../lib/notifications';
 
 interface Contact {
     id: string;
@@ -120,21 +120,13 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
             return api.post('/contacts', payload);
         },
         onSuccess: () => {
-            notifications.show({
-                title: isEdit ? t('contact.updated') : t('contact.created'),
-                message: '',
-                color: 'green',
-            });
+            showSuccess(isEdit ? t('contact.updated') : t('contact.created'));
             queryClient.invalidateQueries({ queryKey: ['contacts'] });
             queryClient.invalidateQueries({ queryKey: ['people'] });
             onClose();
         },
-        onError: () => {
-            notifications.show({
-                title: t('common.error'),
-                message: '',
-                color: 'red',
-            });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 

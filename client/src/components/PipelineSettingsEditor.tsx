@@ -44,8 +44,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { notifications } from '@mantine/notifications';
 import api from '../lib/api';
+import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import {
     type PipelineStageGroup,
     DEFAULT_PIPELINE_GROUPS,
@@ -197,10 +197,10 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveS
                 setHasGroupChanges(true);
             }
             setNewName(''); setNewColor('blue'); setAddingInGroup(null);
-            notifications.show({ message: t('pipelineSettings.stageCreated'), color: 'green' });
+            showSuccess(t('pipelineSettings.stageCreated'));
         },
-        onError: () => {
-            notifications.show({ title: t('common.error'), message: t('pipelineSettings.saveError'), color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err, t('pipelineSettings.saveError'));
         },
     });
 
@@ -209,10 +209,10 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveS
             (await api.put(`/settings/stages/${slug}`, payload)).data,
         onSuccess: () => {
             invalidateAll(); setEditingSlug(null);
-            notifications.show({ message: t('pipelineSettings.saved'), color: 'green' });
+            showSuccess(t('pipelineSettings.saved'));
         },
-        onError: () => {
-            notifications.show({ title: t('common.error'), message: t('pipelineSettings.saveError'), color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err, t('pipelineSettings.saveError'));
         },
     });
 
@@ -225,12 +225,12 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveS
             setGroups((prev) => prev.map((g) => ({ ...g, stages: g.stages.filter((s) => s !== vars.slug) })));
             setHasGroupChanges(true);
             setDeleteSlug(null); setReassignTo(null); setDeleteCompanyCount(0);
-            notifications.show({ message: t('pipelineSettings.stageDeleted'), color: 'green' });
+            showSuccess(t('pipelineSettings.stageDeleted'));
         },
         onError: (err: any) => {
             const data = err?.response?.data;
             if (data?.company_count) { setDeleteCompanyCount(data.company_count); }
-            else { notifications.show({ title: t('common.error'), message: data?.error || t('pipelineSettings.saveError'), color: 'red' }); }
+            else { showErrorFromApi(err, t('pipelineSettings.saveError')); }
         },
     });
 
@@ -256,11 +256,11 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveS
         onSuccess: () => {
             invalidateAll();
             setHasGroupChanges(false);
-            notifications.show({ title: t('pipelineSettings.saved'), message: t('pipelineSettings.savedDesc'), color: 'green' });
+            showSuccess(t('pipelineSettings.saved'));
             onSaveSuccess?.();
         },
-        onError: () => {
-            notifications.show({ title: t('common.error'), message: t('pipelineSettings.saveError'), color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err, t('pipelineSettings.saveError'));
         },
     });
 
