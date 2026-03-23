@@ -5,24 +5,21 @@ import { createLogger } from '../lib/logger.js';
 const log = createLogger('route:import');
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { autoMapHeaders, getAvailableDbFields } from '../lib/importMapper.js';
 import { parseCSV, parseXLSX, executeImport, createImportJob } from '../lib/importProcessor.js';
 import { detectMatchStrategy, matchFiles } from '../lib/dataMatcher.js';
 import { supabaseAdmin } from '../lib/supabase.js';
-import crypto from 'crypto';
 
 const router = Router();
 
-const UPLOAD_DIR = '/tmp/leadhub-uploads/';
+// Use OS temp dir (works on all platforms including serverless)
+const UPLOAD_DIR = path.join(os.tmpdir(), 'leadhub-uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-// In-memory store mapping opaque file IDs to server-side file paths.
-// Prevents exposing internal file paths to the client.
-const fileStore = new Map<string, string>();
-
-// Configure multer for file uploads
+// Configure multer for file uploads (temp only — parsed data goes to DB)
 const upload = multer({
     dest: UPLOAD_DIR,
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
@@ -42,6 +39,89 @@ function runMulter(middleware: any) {
     return (req: Request, res: Response): Promise<void> =>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         new Promise((resolve, reject) => middleware(req, res, (err: any) => (err ? reject(err) : resolve())));
+}
+
+/**
+ * Store parsed file data in DB and return the cache ID.
+ * Replaces the old in-memory fileStore Map — survives deploys/restarts.
+ */
+async function storeFileCache(
+    tenantId: string,
+    fileName: string,
+    fileType: string,
+    headers: string[],
+    rows: Record<string, string>[],
+): Promise<string> {
+    const { data, error } = await supabaseAdmin
+        .from('import_file_cache')
+        .insert({
+            tenant_id: tenantId,
+            file_name: fileName,
+            file_type: fileType,
+            headers,
+            row_data: rows,
+        })
+        .select('id')
+        .single();
+
+    if (error || !data) {
+        throw new AppError('Failed to cache file data: ' + (error?.message || 'unknown'), 500);
+    }
+    return data.id;
+}
+
+/**
+ * Retrieve cached file data from DB. Returns null if not found (expired/invalid).
+ */
+async function getFileCache(fileId: string, tenantId: string): Promise<{
+    headers: string[];
+    rows: Record<string, string>[];
+} | null> {
+    const { data, error } = await supabaseAdmin
+        .from('import_file_cache')
+        .select('headers, row_data')
+        .eq('id', fileId)
+        .eq('tenant_id', tenantId)
+        .single();
+
+    if (error || !data) return null;
+    return { headers: data.headers, rows: data.row_data };
+}
+
+/**
+ * Delete cached file data from DB after use.
+ */
+async function deleteFileCache(fileId: string): Promise<void> {
+    await supabaseAdmin.from('import_file_cache').delete().eq('id', fileId);
+}
+
+/**
+ * Purge expired cache entries (older than 2 hours).
+ * Called opportunistically — no dependency on pg_cron.
+ */
+async function purgeExpiredCache(): Promise<void> {
+    try {
+        const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+        const { count } = await supabaseAdmin
+            .from('import_file_cache')
+            .delete({ count: 'exact' })
+            .lt('created_at', cutoff);
+        if (count && count > 0) {
+            log.info({ purged: count }, 'Purged expired file cache entries');
+        }
+    } catch (err) {
+        log.warn({ err }, 'Cache purge failed (non-critical)');
+    }
+}
+
+// Purge on server startup
+purgeExpiredCache();
+
+/**
+ * Clean up temp file from disk (best-effort).
+ */
+function cleanupTempFile(filePath: string) {
+    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
 }
 
 // POST /api/import/begin — Pre-create import job and return jobId for progress polling
@@ -81,6 +161,9 @@ router.post(
     requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
+            // Opportunistic cleanup of expired cache entries
+            purgeExpiredCache();
+
             await runMulter(upload.single('file'))(req, res);
             if (!req.file) {
                 res.status(400).json({ error: 'No file uploaded' });
@@ -103,6 +186,9 @@ router.post(
                 rows = result.rows;
             }
 
+            // Clean up temp file immediately — data goes to DB
+            cleanupTempFile(filePath);
+
             // Get auto-mapping suggestions
             const suggestions = autoMapHeaders(headers);
             const availableFields = getAvailableDbFields();
@@ -110,9 +196,14 @@ router.post(
             // Return preview (first 5 rows)
             const previewRows = rows.slice(0, 5);
 
-            // Store file path server-side and return opaque ID to client
-            const fileId = crypto.randomUUID();
-            fileStore.set(fileId, filePath);
+            // Store parsed data in DB (survives deploys/restarts)
+            const fileId = await storeFileCache(
+                req.tenantId!,
+                req.file.originalname,
+                ext.replace('.', ''),
+                headers,
+                rows,
+            );
 
             res.json({
                 fileName: req.file.originalname,
@@ -163,6 +254,10 @@ router.post(
                 parseFile(peopleFile),
             ]);
 
+            // Clean up temp files immediately
+            cleanupTempFile(companyFile.path);
+            cleanupTempFile(peopleFile.path);
+
             // Detect strategy and match
             const strategy = detectMatchStrategy(companyData.headers, peopleData.headers);
             const matchResult = matchFiles(
@@ -172,11 +267,6 @@ router.post(
                 peopleData.rows,
                 strategy,
             );
-
-            // Save merged rows as temp JSON for the execute step
-            const tempId = crypto.randomUUID();
-            const mergedFilePath = path.join('/tmp/leadhub-uploads/', `${tempId}-matched.json`);
-            fs.writeFileSync(mergedFilePath, JSON.stringify(matchResult.mergedRows));
 
             // Auto-map merged headers
             const suggestions = autoMapHeaders(matchResult.mergedHeaders);
@@ -193,13 +283,14 @@ router.post(
                 ? matchedPreview
                 : matchResult.mergedRows.slice(0, 5);
 
-            // Clean up original uploaded files
-            try { fs.unlinkSync(companyFile.path); } catch { /* ignore */ }
-            try { fs.unlinkSync(peopleFile.path); } catch { /* ignore */ }
-
-            // Store merged file path server-side and return opaque ID
-            const fileId = crypto.randomUUID();
-            fileStore.set(fileId, mergedFilePath);
+            // Store merged data in DB (survives deploys/restarts)
+            const fileId = await storeFileCache(
+                req.tenantId!,
+                `${companyFile.originalname} + ${peopleFile.originalname}`,
+                'matched',
+                matchResult.mergedHeaders,
+                matchResult.mergedRows,
+            );
 
             res.json({
                 // Match info
@@ -235,58 +326,29 @@ router.post(
     '/execute',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        const { fileId, fileName, fileType, mapping, jobId, defaultCompanyName } = req.body;
+
+        if (!fileId || !fileName || !fileType || !mapping) {
+            res.status(400).json({ error: 'Missing required fields: fileId, fileName, fileType, mapping' });
+            return;
+        }
+
+        if (!jobId) {
+            res.status(400).json({ error: 'Missing required field: jobId. Call /api/import/begin first.' });
+            return;
+        }
+
         try {
-            const { fileId, fileName, fileType, mapping, jobId, defaultCompanyName } = req.body;
-
-            if (!fileId || !fileName || !fileType || !mapping) {
-                res.status(400).json({ error: 'Missing required fields: fileId, fileName, fileType, mapping' });
-                return;
-            }
-
-            if (!jobId) {
-                res.status(400).json({ error: 'Missing required field: jobId. Call /api/import/begin first.' });
-                return;
-            }
-
             log.info({ fileName, fileType, jobId }, 'Import execute started');
 
-            // Resolve file path from opaque ID (never trust client-supplied paths)
-            const filePath = fileStore.get(fileId);
-            if (!filePath) {
+            // Retrieve cached file data from DB
+            const cached = await getFileCache(fileId, req.tenantId!);
+            if (!cached) {
                 res.status(400).json({ error: 'Upload expired or invalid. Please re-upload the file.' });
                 return;
             }
 
-            // Remove from store so the ID cannot be reused
-            fileStore.delete(fileId);
-
-            // Verify file is within the upload directory (defense-in-depth)
-            const resolvedPath = path.resolve(filePath);
-            const resolvedUploadDir = path.resolve(UPLOAD_DIR);
-            if (!resolvedPath.startsWith(resolvedUploadDir + path.sep)) {
-                res.status(400).json({ error: 'Invalid file reference.' });
-                return;
-            }
-
-            // Verify file exists
-            if (!fs.existsSync(resolvedPath)) {
-                res.status(400).json({ error: 'Upload expired. Please re-upload the file.' });
-                return;
-            }
-
-            // Parse file again
-            let rows: Record<string, string>[];
-            if (fileType === 'matched') {
-                // Matched JSON from match-preview step
-                const raw = fs.readFileSync(resolvedPath, 'utf-8');
-                rows = JSON.parse(raw);
-            } else if (fileType === 'csv') {
-                const result = await parseCSV(resolvedPath);
-                rows = result.rows;
-            } else {
-                const result = await parseXLSX(resolvedPath);
-                rows = result.rows;
-            }
+            const { rows } = cached;
 
             // Execute import
             const result = await executeImport(
@@ -300,12 +362,22 @@ router.post(
                 defaultCompanyName || undefined,
             );
 
-            // Clean up temp file
-            try { fs.unlinkSync(resolvedPath); } catch { /* ignore */ }
+            // Clean up cached file data from DB after successful import
+            await deleteFileCache(fileId);
 
             log.info({ jobId, successCount: result.successCount, errorCount: result.errorCount }, 'Import execute completed');
             res.json(result);
         } catch (err: any) {
+            // On error, mark job as failed so progress bar doesn't spin forever
+            try {
+                await supabaseAdmin.from('import_jobs').update({
+                    status: 'failed',
+                    completed_at: new Date().toISOString(),
+                }).eq('id', jobId).eq('status', 'processing');
+            } catch (updateErr) {
+                log.error({ err: updateErr }, 'Failed to mark job as failed');
+            }
+
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Import execute error');
             res.status(500).json({ error: 'Import failed' });

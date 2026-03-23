@@ -27,7 +27,7 @@ import {
     Divider,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
+import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import {
     IconPlus,
     IconPencil,
@@ -315,11 +315,11 @@ export default function PeoplePage() {
     const deleteMutation = useMutation({
         mutationFn: (id: string) => api.delete(`/contacts/${id}`),
         onSuccess: () => {
-            notifications.show({ title: t('contact.deleted'), message: '', color: 'green' });
+            showSuccess(t('contact.deleted'));
             queryClient.invalidateQueries({ queryKey: ['people'] });
         },
-        onError: () => {
-            notifications.show({ title: t('common.error'), message: '', color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 

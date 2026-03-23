@@ -5,10 +5,10 @@ import {
     ActionIcon, Pagination, Flex, Stack, Center, Loader, Paper, Box, Menu,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
 import { IconPlus, IconPencil, IconTrash, IconDotsVertical } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
+import { showSuccess, showErrorFromApi } from '../../lib/notifications';
 import MembershipFormModal from './MembershipFormModal';
 
 interface Membership {
@@ -80,10 +80,10 @@ export default function AdminMembershipsTab() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['admin', 'memberships'] });
             queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-            notifications.show({ message: t('admin.membershipRemoved'), color: 'green' });
+            showSuccess(t('admin.membershipRemoved'));
         },
-        onError: (err: any) => {
-            notifications.show({ message: err.response?.data?.error || t('common.error'), color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 

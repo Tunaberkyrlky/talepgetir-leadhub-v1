@@ -5,10 +5,10 @@ import {
     ActionIcon, Pagination, Flex, Stack, Center, Loader, Paper, Box, Menu, Tooltip,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
 import { IconSearch, IconPlus, IconPencil, IconTrash, IconX, IconDotsVertical, IconUserOff } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
+import { showSuccess, showErrorFromApi } from '../../lib/notifications';
 import UserFormModal from './UserFormModal';
 
 interface UserMembership {
@@ -68,10 +68,10 @@ export default function AdminUsersTab() {
         mutationFn: async (id: string) => api.delete(`/admin/users/${id}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-            notifications.show({ message: t('admin.userDeactivated'), color: 'green' });
+            showSuccess(t('admin.userDeactivated'));
         },
-        onError: (err: any) => {
-            notifications.show({ message: err.response?.data?.error || t('common.error'), color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 
@@ -79,10 +79,10 @@ export default function AdminUsersTab() {
         mutationFn: async (id: string) => api.delete(`/admin/users/${id}?hard=true`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-            notifications.show({ message: t('admin.userDeleted'), color: 'green' });
+            showSuccess(t('admin.userDeleted'));
         },
-        onError: (err: any) => {
-            notifications.show({ message: err.response?.data?.error || t('common.error'), color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 

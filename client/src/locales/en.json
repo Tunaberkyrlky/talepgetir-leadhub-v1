@@ -410,5 +410,15 @@
         "membershipUpdated": "Membership updated",
         "membershipRemoved": "Membership removed",
         "membershipRemoveConfirm": "Remove this user from the tenant?"
+    },
+    "errors": {
+        "network": "Check your internet connection",
+        "timeout": "Request timed out, please try again",
+        "unauthorized": "Session expired, please sign in again",
+        "forbidden": "You don't have permission for this action",
+        "notFound": "Record not found",
+        "conflict": "This record already exists",
+        "validationFailed": "Please check the form",
+        "generic": "Something went wrong, please try again"
     }
 }

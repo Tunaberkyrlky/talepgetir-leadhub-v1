@@ -105,7 +105,7 @@ export default function ImportPage() {
                 mapping,
                 jobId,
                 defaultCompanyName: defaultCompanyName.trim() || undefined,
-            });
+            }, { timeout: 10 * 60_000 }); // 10 min timeout for large imports
             return res.data as ImportResult;
         },
         onSuccess: (data) => {

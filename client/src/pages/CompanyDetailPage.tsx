@@ -27,7 +27,7 @@ import {
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
+import { showSuccess, showError, showErrorFromApi } from '../lib/notifications';
 import {
     IconArrowLeft,
     IconPencil,
@@ -110,10 +110,10 @@ export default function CompanyDetailPage() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['company', id] });
             setShowTranslation(true);
-            notifications.show({ title: t('translate.button'), message: '', color: 'green' });
+            showSuccess(t('translate.button'));
         },
         onError: () => {
-            notifications.show({ title: t('translate.error'), message: '', color: 'red' });
+            showError(t('translate.error'));
         },
     });
 
@@ -149,12 +149,12 @@ export default function CompanyDetailPage() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['company', id] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
-            notifications.show({ title: t('contact.created'), message: '', color: 'green' });
+            showSuccess(t('contact.created'));
             close();
             contactForm.reset();
         },
-        onError: () => {
-            notifications.show({ title: t('common.error'), message: '', color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 
@@ -165,12 +165,12 @@ export default function CompanyDetailPage() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['company', id] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
-            notifications.show({ title: t('contact.updated'), message: '', color: 'green' });
+            showSuccess(t('contact.updated'));
             close();
             setEditingContact(null);
         },
-        onError: () => {
-            notifications.show({ title: t('common.error'), message: '', color: 'red' });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 
@@ -181,7 +181,7 @@ export default function CompanyDetailPage() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['company', id] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
-            notifications.show({ title: '✅', message: t('contact.deleted'), color: 'green' });
+            showSuccess(t('contact.deleted'));
         },
     });
 

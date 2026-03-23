@@ -19,7 +19,7 @@ const BATCH_SIZE = 500;
 const VALID_STAGES = [
     'cold', 'in_queue', 'first_contact', 'connected', 'qualified',
     'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
-    'won', 'lost', 'on_hold',
+    'won', 'lost', 'on_hold', 'cancelled',
 ];
 
 // Turkish → English stage mapping for CSV import
@@ -233,6 +233,34 @@ export async function executeImport(
     defaultCompanyName?: string,
 ): Promise<ImportResult> {
     const t0 = Date.now();
+
+    try {
+    return await _executeImportInner(tenantId, userId, rows, mapping, jobId, defaultCompanyName);
+    } catch (err) {
+        // Ensure job is marked as failed if an unexpected error crashes the import
+        log.error({ err, jobId }, 'Import crashed — marking job as failed');
+        try {
+            await supabaseAdmin.from('import_jobs').update({
+                status: 'failed',
+                completed_at: new Date().toISOString(),
+                error_details: [{ row: -1, field: 'system', error: String((err as Error)?.message || err) }],
+            }).eq('id', jobId).eq('status', 'processing');
+        } catch (updateErr) {
+            log.error({ err: updateErr }, 'Failed to mark crashed job as failed');
+        }
+        throw err;
+    }
+}
+
+async function _executeImportInner(
+    tenantId: string,
+    userId: string,
+    rows: Record<string, string>[],
+    mapping: ColumnMapping,
+    jobId: string,
+    defaultCompanyName?: string,
+): Promise<ImportResult> {
+    const t0 = Date.now();
     const errors: ImportError[] = [];
 
     // Build reverse mapping: dbField -> fileHeader
@@ -248,23 +276,43 @@ export async function executeImport(
         return sanitizeCell(row[fileHeader] || '');
     };
 
-    // ── Phase 1: Pre-fetch existing data (2 parallel queries) ──
+    // ── Phase 1: Pre-fetch existing data with pagination (Supabase default limit is 1000) ──
     log.info({ rows: rows.length, jobId }, 'Import started — pre-fetching');
-    const [companiesRes, contactsRes] = await Promise.all([
-        supabaseAdmin.from('companies').select('id, name, website, custom_fields').eq('tenant_id', tenantId),
-        supabaseAdmin.from('contacts').select('email, company_id').eq('tenant_id', tenantId).not('email', 'is', null),
+
+    async function fetchAll<T>(query: any): Promise<T[]> {
+        const PAGE = 1000;
+        const all: T[] = [];
+        let offset = 0;
+        while (true) {
+            const { data, error } = await query.range(offset, offset + PAGE - 1);
+            if (error) { log.error({ error: error.message }, 'Paginated fetch error'); break; }
+            if (!data || data.length === 0) break;
+            all.push(...data);
+            if (data.length < PAGE) break;
+            offset += PAGE;
+        }
+        return all;
+    }
+
+    const [companiesData, contactsData] = await Promise.all([
+        fetchAll<{ id: string; name: string; website: string | null; custom_fields: Record<string, unknown> }>(
+            supabaseAdmin.from('companies').select('id, name, website, custom_fields').eq('tenant_id', tenantId)
+        ),
+        fetchAll<{ email: string; company_id: string }>(
+            supabaseAdmin.from('contacts').select('email, company_id').eq('tenant_id', tenantId).not('email', 'is', null)
+        ),
     ]);
 
     // Primary lookup: cleaned website → company (used for dedup)
     const companyByWebsite = new Map<string, { id: string; custom_fields: Record<string, unknown> }>();
-    for (const c of companiesRes.data || []) {
+    for (const c of companiesData) {
         const cleanedSite = cleanWebsite(c.website || '');
         if (cleanedSite) {
             companyByWebsite.set(cleanedSite, { id: c.id, custom_fields: c.custom_fields || {} });
         }
     }
     const contactKeySet = new Set<string>();
-    for (const c of contactsRes.data || []) {
+    for (const c of contactsData) {
         if (c.email && c.company_id) contactKeySet.add(`${c.email.toLowerCase()}::${c.company_id}`);
     }
     log.info({ existingCompanies: companyByWebsite.size, existingContacts: contactKeySet.size, elapsed: Date.now() - t0 }, 'Pre-fetch done');

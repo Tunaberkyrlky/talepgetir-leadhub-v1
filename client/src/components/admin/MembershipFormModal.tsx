@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Modal, Select, Switch, Stack, Button, Group } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
+import { showSuccess, showErrorFromApi } from '../../lib/notifications';
 
 interface Membership {
     id: string;
@@ -88,17 +88,11 @@ export default function MembershipFormModal({ opened, onClose, membership }: Mem
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['admin', 'memberships'] });
             queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-            notifications.show({
-                message: isEdit ? t('admin.membershipUpdated') : t('admin.membershipCreated'),
-                color: 'green',
-            });
+            showSuccess(isEdit ? t('admin.membershipUpdated') : t('admin.membershipCreated'));
             onClose();
         },
-        onError: (err: any) => {
-            notifications.show({
-                message: err.response?.data?.error || t('common.error'),
-                color: 'red',
-            });
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 
