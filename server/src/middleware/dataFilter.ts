@@ -13,56 +13,18 @@ function isViewerUser(req: Request): boolean {
 }
 
 /**
- * Strip internal_notes from company objects for client roles.
- * Removes the field entirely so it never reaches the client.
+ * Single composed data filter middleware.
+ * Applies all role-based transformations in one res.json override:
+ * - Strips internal_notes for client roles
+ * - Masks sensitive contact fields for client_viewer
+ * - Filters internal-visibility activities for client roles
  */
-export function stripInternalNotes(req: Request, _res: Response, next: NextFunction): void {
-    if (isInternalUser(req)) {
-        next();
-        return;
-    }
+export function dataFilter(req: Request, _res: Response, next: NextFunction): void {
+    const internal = isInternalUser(req);
+    const viewer = isViewerUser(req);
 
-    // Override res.json to filter internal_notes from response
-    const originalJson = _res.json.bind(_res);
-    _res.json = function (body: any) {
-        if (body?.data) {
-            if (Array.isArray(body.data)) {
-                body.data = body.data.map(stripInternalFields);
-            } else {
-                body.data = stripInternalFields(body.data);
-            }
-        }
-        return originalJson(body);
-    };
-    next();
-}
-
-/**
- * Filter activities with visibility='internal' for client roles.
- */
-export function filterInternalActivities(req: Request, _res: Response, next: NextFunction): void {
-    if (isInternalUser(req)) {
-        next();
-        return;
-    }
-
-    const originalJson = _res.json.bind(_res);
-    _res.json = function (body: any) {
-        if (body?.data && Array.isArray(body.data)) {
-            body.data = body.data.filter(
-                (item: any) => item.visibility !== 'internal'
-            );
-        }
-        return originalJson(body);
-    };
-    next();
-}
-
-/**
- * Mask sensitive contact info (email, phone) for client_viewer role.
- */
-export function maskSensitiveData(req: Request, _res: Response, next: NextFunction): void {
-    if (!isViewerUser(req)) {
+    // Internal users see everything unfiltered
+    if (internal) {
         next();
         return;
     }
@@ -71,9 +33,11 @@ export function maskSensitiveData(req: Request, _res: Response, next: NextFuncti
     _res.json = function (body: any) {
         if (body?.data) {
             if (Array.isArray(body.data)) {
-                body.data = body.data.map(maskContactFields);
+                body.data = body.data
+                    .filter((item: any) => item.visibility !== 'internal')
+                    .map((item: any) => transformItem(item, viewer));
             } else {
-                body.data = maskContactFields(body.data);
+                body.data = transformItem(body.data, viewer);
             }
         }
         return originalJson(body);
@@ -81,41 +45,35 @@ export function maskSensitiveData(req: Request, _res: Response, next: NextFuncti
     next();
 }
 
-// --- Helper functions ---
-
-function stripInternalFields(obj: any): any {
+/** Apply all transformations to a single data item */
+function transformItem(obj: any, maskSensitive: boolean): any {
     if (!obj || typeof obj !== 'object') return obj;
+
+    // Strip internal_notes
     const { internal_notes, ...rest } = obj;
-    // Also strip internal_notes from nested contacts
+
+    // Mask sensitive fields for client_viewer
+    if (maskSensitive) {
+        if (rest.email && typeof rest.email === 'string') {
+            rest.email = maskEmail(rest.email);
+        }
+        if (rest.phone_e164 && typeof rest.phone_e164 === 'string') {
+            rest.phone_e164 = maskPhone(rest.phone_e164);
+        }
+        if (rest.company_phone && typeof rest.company_phone === 'string') {
+            rest.company_phone = maskPhone(rest.company_phone);
+        }
+        if (rest.company_email && typeof rest.company_email === 'string') {
+            rest.company_email = maskEmail(rest.company_email);
+        }
+    }
+
+    // Transform nested contacts
     if (rest.contacts && Array.isArray(rest.contacts)) {
-        rest.contacts = rest.contacts.map(stripInternalFields);
+        rest.contacts = rest.contacts.map((c: any) => transformItem(c, maskSensitive));
     }
+
     return rest;
-}
-
-function maskContactFields(obj: any): any {
-    if (!obj || typeof obj !== 'object') return obj;
-    const result = { ...obj };
-
-    if (result.email && typeof result.email === 'string') {
-        result.email = maskEmail(result.email);
-    }
-    if (result.phone_e164 && typeof result.phone_e164 === 'string') {
-        result.phone_e164 = maskPhone(result.phone_e164);
-    }
-    if (result.company_phone && typeof result.company_phone === 'string') {
-        result.company_phone = maskPhone(result.company_phone);
-    }
-    if (result.company_email && typeof result.company_email === 'string') {
-        result.company_email = maskEmail(result.company_email);
-    }
-
-    // Also mask nested contacts
-    if (result.contacts && Array.isArray(result.contacts)) {
-        result.contacts = result.contacts.map(maskContactFields);
-    }
-
-    return result;
 }
 
 /** Mask email: "john.doe@example.com" → "john@ex..." */

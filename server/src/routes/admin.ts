@@ -45,22 +45,26 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
         const search = (req.query.search as string || '').trim().toLowerCase();
         const roleFilter = req.query.role as string || '';
 
-        // Fetch users from Supabase Auth
-        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({
-            page,
-            perPage: limit,
-        });
-
-        if (authError) {
-            log.error({ err: authError }, 'Failed to list users');
-            throw new AppError('Failed to fetch users', 500);
+        // Fetch ALL users from Supabase Auth (paginate through auth API)
+        const allUsers: any[] = [];
+        let authPage = 1;
+        while (true) {
+            const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({
+                page: authPage,
+                perPage: 1000,
+            });
+            if (authError) {
+                log.error({ err: authError }, 'Failed to list users');
+                throw new AppError('Failed to fetch users', 500);
+            }
+            const users = authData.users || [];
+            allUsers.push(...users);
+            if (users.length < 1000) break;
+            authPage++;
         }
 
-        const users = authData.users || [];
-        const total = (authData as any).total || users.length;
-
-        // Fetch all memberships
-        const userIds = users.map(u => u.id);
+        // Fetch all memberships for fetched users
+        const userIds = allUsers.map(u => u.id);
         const { data: memberships } = await supabaseAdmin
             .from('memberships')
             .select('id, user_id, tenant_id, role, is_active, tenants(id, name, slug, tier)')
@@ -83,7 +87,7 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
         }
 
         // Enrich users
-        let enrichedUsers = users.map(u => ({
+        let enrichedUsers = allUsers.map(u => ({
             id: u.id,
             email: u.email || '',
             created_at: u.created_at,
@@ -91,7 +95,7 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
             memberships: membershipMap.get(u.id) || [],
         }));
 
-        // Apply search filter (client-side since Supabase auth API doesn't support email search natively)
+        // Apply search filter
         if (search) {
             enrichedUsers = enrichedUsers.filter(u =>
                 u.email.toLowerCase().includes(search)
@@ -105,10 +109,13 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
             );
         }
 
+        // Paginate filtered results
+        const total = enrichedUsers.length;
         const totalPages = Math.ceil(total / limit);
+        const paged = enrichedUsers.slice((page - 1) * limit, page * limit);
 
         res.json({
-            data: enrichedUsers,
+            data: paged,
             pagination: {
                 page,
                 limit,
