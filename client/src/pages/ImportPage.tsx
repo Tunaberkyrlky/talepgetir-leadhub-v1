@@ -58,6 +58,7 @@ export default function ImportPage() {
     const [mapping, setMapping] = useState<Record<string, string | null>>({});
     const [importResult, setImportResult] = useState<ImportResult | null>(null);
     const [defaultCompanyName, setDefaultCompanyName] = useState('');
+    const [dropRejectError, setDropRejectError] = useState<string | null>(null);
     const { startImport, finishImport, cancelImport } = useImportProgress();
 
     // Upload mutation
@@ -122,9 +123,23 @@ export default function ImportPage() {
 
     const handleDrop = useCallback((files: File[]) => {
         if (files.length > 0) {
+            setDropRejectError(null);
             uploadMutation.mutate(files[0]);
         }
     }, []);
+
+    const handleReject = useCallback((fileRejections: import('@mantine/dropzone').FileRejection[]) => {
+        const rejection = fileRejections[0];
+        if (!rejection) return;
+        const code = rejection.errors[0]?.code;
+        if (code === 'file-too-large') {
+            setDropRejectError(t('import.fileTooLarge', 'Dosya boyutu 10 MB sınırını aşıyor. Lütfen daha küçük bir dosya seçin.'));
+        } else if (code === 'file-invalid-type') {
+            setDropRejectError(t('import.fileInvalidType', 'Geçersiz dosya türü. Yalnızca .csv ve .xlsx dosyaları desteklenmektedir.'));
+        } else {
+            setDropRejectError(t('import.fileRejected', 'Dosya kabul edilmedi. Boyutunu ve formatını kontrol edin.'));
+        }
+    }, [t]);
 
     const handleMappingChange = (fileHeader: string, dbField: string | null) => {
         setMapping((prev) => ({ ...prev, [fileHeader]: dbField }));
@@ -171,6 +186,7 @@ export default function ImportPage() {
                     <Paper shadow="sm" radius="lg" p="xl" withBorder>
                         <Dropzone
                             onDrop={handleDrop}
+                            onReject={handleReject}
                             maxSize={10 * 1024 * 1024}
                             accept={[MIME_TYPES.csv, MIME_TYPES.xlsx, 'text/csv', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']}
                             loading={uploadMutation.isPending}
@@ -208,6 +224,11 @@ export default function ImportPage() {
                             </Stack>
                         </Dropzone>
 
+                        {dropRejectError && (
+                            <Alert color="red" mt="md" icon={<IconAlertCircle />} withCloseButton onClose={() => setDropRejectError(null)}>
+                                {dropRejectError}
+                            </Alert>
+                        )}
                         {uploadMutation.isError && (
                             <Alert color="red" mt="md" icon={<IconAlertCircle />}>
                                 {(() => { const e = (uploadMutation.error as any)?.response?.data?.error; return typeof e === 'object' && e !== null ? (e.message || JSON.stringify(e)) : e || t('common.error'); })()}

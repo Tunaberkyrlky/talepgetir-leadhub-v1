@@ -1,9 +1,9 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
     Paper, Text, Loader, Center, Box, ActionIcon, Modal, Table, Badge,
-    ScrollArea, Group, Button,
+    ScrollArea, Group, Button, Menu,
 } from '@mantine/core';
-import { IconMaximize, IconMinimize, IconExternalLink } from '@tabler/icons-react';
+import { IconMaximize, IconMinimize, IconExternalLink, IconDotsVertical, IconMapPin } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -38,6 +38,12 @@ export interface CompanyLocation {
 interface GlobeMapProps {
     data: CompanyLocation[];
     isLoading?: boolean;
+    /** Called when the user clicks "Update Locations" from the map menu */
+    onGeocode?: () => void;
+    /** Whether a geocode batch job is currently running */
+    geocodeLoading?: boolean;
+    /** Whether the current user is allowed to trigger geocoding */
+    canGeocode?: boolean;
 }
 
 // Stage group definitions
@@ -158,7 +164,7 @@ function CountryCompaniesModal({
     );
 }
 
-export default function GlobeMap({ data, isLoading }: GlobeMapProps) {
+export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, canGeocode }: GlobeMapProps) {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
     const [dimensions, setDimensions] = useState({ width: 600, height: 320 });
@@ -295,9 +301,42 @@ export default function GlobeMap({ data, isLoading }: GlobeMapProps) {
 
     return (
         <Paper shadow="sm" radius="lg" p="lg" mb="lg" withBorder>
-            <Text size="sm" fw={700} mb="xs" tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
-                {t('dashboard.companyLocations')}
-            </Text>
+            <Group justify="space-between" mb="xs" align="center">
+                <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                    {t('dashboard.companyLocations')}
+                </Text>
+                <Group gap="xs" align="center">
+                    {geocodeLoading && (
+                        <Group gap={6} align="center">
+                            <Loader size={12} color="blue" />
+                            <Text size="xs" c="dimmed">
+                                {t('dashboard.geocoding', 'Konumlar güncelleniyor...')}
+                            </Text>
+                        </Group>
+                    )}
+                    {canGeocode && onGeocode && (
+                        <Menu shadow="md" width={220} position="bottom-end">
+                            <Menu.Target>
+                                <ActionIcon variant="subtle" color="gray" size="sm" title={t('common.settings', 'Ayarlar')}>
+                                    <IconDotsVertical size={16} />
+                                </ActionIcon>
+                            </Menu.Target>
+                            <Menu.Dropdown>
+                                <Menu.Label>{t('dashboard.mapActions', 'Harita İşlemleri')}</Menu.Label>
+                                <Menu.Item
+                                    leftSection={geocodeLoading ? <Loader size={14} /> : <IconMapPin size={14} />}
+                                    onClick={onGeocode}
+                                    disabled={geocodeLoading}
+                                >
+                                    {geocodeLoading
+                                        ? t('dashboard.geocoding', 'Konumlar güncelleniyor...')
+                                        : t('dashboard.geocodeBtn', 'Konumları Güncelle')}
+                                </Menu.Item>
+                            </Menu.Dropdown>
+                        </Menu>
+                    )}
+                </Group>
+            </Group>
 
             <Box ref={containerRef} style={{ width: '100%' }}>
                 {isLoading ? (
