@@ -15,7 +15,7 @@ if (!process.env.VERCEL) {
 import logger from './lib/logger.js';
 import { authMiddleware, requireRole } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { stripInternalNotes, maskSensitiveData } from './middleware/dataFilter.js';
+import { dataFilter } from './middleware/dataFilter.js';
 import authRoutes from './routes/auth.js';
 import companiesRoutes from './routes/companies.js';
 import contactsRoutes from './routes/contacts.js';
@@ -93,8 +93,8 @@ app.use('/api/auth/refresh', authLimiter);
 app.use('/api/auth', authRoutes);
 
 // Protected routes — auth middleware applied
-app.use('/api/companies', authMiddleware, stripInternalNotes, maskSensitiveData, companiesRoutes);
-app.use('/api/contacts', authMiddleware, maskSensitiveData, contactsRoutes);
+app.use('/api/companies', authMiddleware, dataFilter, companiesRoutes);
+app.use('/api/contacts', authMiddleware, dataFilter, contactsRoutes);
 app.use('/api/import', authMiddleware, importLimiter, importRoutes);
 app.use('/api/filter-options', authMiddleware, filterOptionsRoutes);
 app.use('/api/tenants', authMiddleware, tenantsRoutes);

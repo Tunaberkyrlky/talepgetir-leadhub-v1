@@ -10,8 +10,6 @@ import { supabaseAdmin } from './supabase.js';
 import { sanitizeCell } from './importMapper.js';
 import { cleanWebsite } from './dataMatcher.js';
 import { createLogger } from './logger.js';
-import { lookupCoordinates } from './geocoder.js';
-
 const log = createLogger('importProcessor');
 const BATCH_SIZE = 500;
 
@@ -279,12 +277,12 @@ async function _executeImportInner(
     // ── Phase 1: Pre-fetch existing data with pagination (Supabase default limit is 1000) ──
     log.info({ rows: rows.length, jobId }, 'Import started — pre-fetching');
 
-    async function fetchAll<T>(query: any): Promise<T[]> {
+    async function fetchAll<T>(buildQuery: () => any): Promise<T[]> {
         const PAGE = 1000;
         const all: T[] = [];
         let offset = 0;
         while (true) {
-            const { data, error } = await query.range(offset, offset + PAGE - 1);
+            const { data, error } = await buildQuery().range(offset, offset + PAGE - 1);
             if (error) { log.error({ error: error.message }, 'Paginated fetch error'); break; }
             if (!data || data.length === 0) break;
             all.push(...data);
@@ -296,10 +294,10 @@ async function _executeImportInner(
 
     const [companiesData, contactsData] = await Promise.all([
         fetchAll<{ id: string; name: string; website: string | null; custom_fields: Record<string, unknown> }>(
-            supabaseAdmin.from('companies').select('id, name, website, custom_fields').eq('tenant_id', tenantId)
+            () => supabaseAdmin.from('companies').select('id, name, website, custom_fields').eq('tenant_id', tenantId)
         ),
         fetchAll<{ email: string; company_id: string }>(
-            supabaseAdmin.from('contacts').select('email, company_id').eq('tenant_id', tenantId).not('email', 'is', null)
+            () => supabaseAdmin.from('contacts').select('email, company_id').eq('tenant_id', tenantId).not('email', 'is', null)
         ),
     ]);
 
@@ -424,8 +422,8 @@ async function _executeImportInner(
     if (newCompanyMap.size > 0) {
         const newEntries = Array.from(newCompanyMap.entries()); // [mapKey, payload]
         const toInsert = newEntries.map(([, p]) => {
-            const coords = p.location ? lookupCoordinates(p.location as string) : null;
-            return { ...p, tenant_id: tenantId, assigned_to: userId, latitude: coords?.lat ?? null, longitude: coords?.lng ?? null };
+            // Geocoding skipped — user can trigger manually via dashboard "Konumları Güncelle" button
+            return { ...p, tenant_id: tenantId, assigned_to: userId };
         });
         log.info({ count: toInsert.length }, 'Batch inserting new companies');
         const t1 = Date.now();
@@ -437,6 +435,9 @@ async function _executeImportInner(
             if (error || !inserted) {
                 for (const k of chunkKeys) failedCompanyKeys.add(k);
                 log.error({ error: error?.message, batch: Math.floor(i / BATCH_SIZE) + 1 }, 'Company insert batch failed');
+            } else if (inserted.length !== chunkKeys.length) {
+                log.warn({ expected: chunkKeys.length, got: inserted.length, batch: Math.floor(i / BATCH_SIZE) + 1 }, 'Insert count mismatch — treating batch as failed');
+                for (const k of chunkKeys) failedCompanyKeys.add(k);
             } else {
                 for (let j = 0; j < inserted.length; j++) {
                     companyByWebsite.set(chunkKeys[j], { id: inserted[j].id, custom_fields: {} });
@@ -454,8 +455,7 @@ async function _executeImportInner(
     if (updateCompanyMap.size > 0) {
         const updateEntries = Array.from(updateCompanyMap.entries());
         const toUpdate = updateEntries.map(([, p]) => {
-            const coords = p.location ? lookupCoordinates(p.location as string) : null;
-            return { ...p, tenant_id: tenantId, latitude: coords?.lat ?? null, longitude: coords?.lng ?? null };
+            return { ...p, tenant_id: tenantId };
         });
         log.info({ count: toUpdate.length }, 'Batch upserting existing companies');
         const t2 = Date.now();

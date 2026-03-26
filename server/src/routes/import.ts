@@ -321,25 +321,26 @@ router.post(
     }
 );
 
-// POST /api/import/execute — Execute import with confirmed mapping
-// Returns immediately with { started: true } — client polls job status via GET /jobs/:id
+// POST /api/import/execute — Execute import synchronously
+// Without geocoding, 242 rows takes ~5s. Max 10 000 rows for synchronous execution.
+const MAX_SYNC_ROWS = 10_000;
 router.post(
     '/execute',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-        const { fileId, fileName, fileType, mapping, jobId, defaultCompanyName } = req.body;
-
-        if (!fileId || !fileName || !fileType || !mapping) {
-            res.status(400).json({ error: 'Missing required fields: fileId, fileName, fileType, mapping' });
-            return;
-        }
-
-        if (!jobId) {
-            res.status(400).json({ error: 'Missing required field: jobId. Call /api/import/begin first.' });
-            return;
-        }
-
+        let fileId_cleanup: string | null = null;
         try {
+            const { fileId, fileName, fileType, mapping, jobId, defaultCompanyName } = req.body;
+
+            if (!fileId || !fileName || !fileType || !mapping) {
+                res.status(400).json({ error: 'Missing required fields: fileId, fileName, fileType, mapping' });
+                return;
+            }
+
+            if (!jobId) {
+                res.status(400).json({ error: 'Missing required field: jobId. Call /api/import/begin first.' });
+                return;
+            }
             log.info({ fileName, fileType, jobId }, 'Import execute started');
 
             // Retrieve cached file data from DB
@@ -348,16 +349,17 @@ router.post(
                 res.status(400).json({ error: 'Upload expired or invalid. Please re-upload the file.' });
                 return;
             }
+            fileId_cleanup = fileId;
 
             const { rows } = cached;
 
-            // Return immediately — import runs in background.
-            // This prevents Vercel 504 Gateway Timeout on serverless.
-            // Client already polls progress via GET /import/jobs/:id.
-            res.json({ started: true, jobId });
+            if (rows.length > MAX_SYNC_ROWS) {
+                res.status(400).json({ error: `Dosya çok büyük: ${rows.length} satır. Maksimum ${MAX_SYNC_ROWS} satır desteklenmektedir.` });
+                return;
+            }
 
-            // Fire-and-forget: run import in background
-            executeImport(
+            // Execute import synchronously
+            const result = await executeImport(
                 req.tenantId!,
                 req.user!.id,
                 fileName,
@@ -366,26 +368,20 @@ router.post(
                 mapping,
                 jobId,
                 defaultCompanyName || undefined,
-            )
-                .then(async (result) => {
-                    await deleteFileCache(fileId);
-                    log.info({ jobId, successCount: result.successCount, errorCount: result.errorCount }, 'Import execute completed');
-                })
-                .catch(async (err) => {
-                    log.error({ err, jobId }, 'Import execute failed');
-                    // executeImport's own try/catch already marks job as failed,
-                    // but double-ensure here in case something slips through
-                    try {
-                        await supabaseAdmin.from('import_jobs').update({
-                            status: 'failed',
-                            completed_at: new Date().toISOString(),
-                        }).eq('id', jobId).eq('status', 'processing');
-                    } catch { /* logged inside executeImport */ }
-                });
+            );
+
+            log.info({ jobId, successCount: result.successCount, errorCount: result.errorCount }, 'Import execute completed');
+            res.json(result);
         } catch (err: any) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Import execute error');
             res.status(500).json({ error: 'Import failed' });
+        } finally {
+            if (fileId_cleanup) {
+                deleteFileCache(fileId_cleanup).catch((e) =>
+                    log.error({ err: e, fileId: fileId_cleanup }, 'Failed to delete file cache')
+                );
+            }
         }
     }
 );

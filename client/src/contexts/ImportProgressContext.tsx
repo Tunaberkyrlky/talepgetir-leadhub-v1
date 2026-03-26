@@ -146,7 +146,8 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
             // Even if cancel request fails, cleanup client state
             cancelImport();
         }
-        // Bar will hide when the execute API returns and finishImport is called with cancelled=true
+        // Import runs synchronously — cancel flag is checked at DB checkpoints.
+        // Bar will hide when the execute API returns and finishImport is called with cancelled=true.
     }, [cancelImport]);
 
     const dismiss = useCallback(() => {
