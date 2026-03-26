@@ -14,6 +14,7 @@ import {
     Table,
     Center,
     Loader,
+    Button,
 } from '@mantine/core';
 import { useDebouncedValue, useHotkeys } from '@mantine/hooks';
 import { showSuccess, showError, showInfo } from '../lib/notifications';
@@ -28,6 +29,8 @@ import {
     IconXboxX,
     IconClock,
     IconUsers,
+    IconRefresh,
+    IconWifi,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -259,7 +262,17 @@ export default function PipelinePage() {
                 {/* Error */}
                 {error && (
                     <Center py={80}>
-                        <Text c="red">{t('common.error')}</Text>
+                        <Stack align="center" gap="sm">
+                            <IconWifi size={48} color="#ccc" stroke={1.5} />
+                            <Text c="dimmed" fw={500}>{t('pipeline.loadError', 'Pipeline yüklenemedi')}</Text>
+                            <Button
+                                variant="light"
+                                leftSection={<IconRefresh size={16} />}
+                                onClick={() => queryClient.invalidateQueries({ queryKey: ['pipeline'] })}
+                            >
+                                {t('common.retry', 'Yeniden Dene')}
+                            </Button>
+                        </Stack>
                     </Center>
                 )}
 
@@ -280,7 +293,23 @@ export default function PipelinePage() {
                             <Center py={80}>
                                 <Stack align="center" gap="sm">
                                     <IconColumns size={48} color="#ccc" />
-                                    <Text fw={500} c="dimmed">{t('pipeline.noData')}</Text>
+                                    {debouncedSearch ? (
+                                        <>
+                                            <Text fw={500} c="dimmed">
+                                                “{debouncedSearch}” {t('pipeline.noSearchResults', 'için sonuç bulunamadı')}
+                                            </Text>
+                                            <Button
+                                                size="xs"
+                                                variant="subtle"
+                                                leftSection={<IconX size={14} />}
+                                                onClick={() => setSearch('')}
+                                            >
+                                                {t('filter.clearSearch', 'Aramayı Temizle')}
+                                            </Button>
+                                        </>
+                                    ) : (
+                                        <Text fw={500} c="dimmed">{t('pipeline.noData')}</Text>
+                                    )}
                                 </Stack>
                             </Center>
                         ) : (

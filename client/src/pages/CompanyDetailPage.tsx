@@ -24,6 +24,7 @@ import {
     Box,
     Anchor,
     Menu,
+    Alert,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
@@ -43,6 +44,7 @@ import {
     IconDotsVertical,
     IconNotes,
     IconLanguage,
+    IconAlertCircle,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -102,6 +104,7 @@ export default function CompanyDetailPage() {
     const [opened, { open, close }] = useDisclosure(false);
     const [editCompanyOpened, { open: openEditCompany, close: closeEditCompany }] = useDisclosure(false);
     const [editingContact, setEditingContact] = useState<Contact | null>(null);
+    const [deleteContactTarget, setDeleteContactTarget] = useState<Contact | null>(null);
     const [showTranslation, setShowTranslation] = useState(false);
     const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
 
@@ -182,6 +185,10 @@ export default function CompanyDetailPage() {
             queryClient.invalidateQueries({ queryKey: ['company', id] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
             showSuccess(t('contact.deleted'));
+            setDeleteContactTarget(null);
+        },
+        onError: (err) => {
+            showErrorFromApi(err);
         },
     });
 
@@ -223,12 +230,27 @@ export default function CompanyDetailPage() {
     if (!company) {
         return (
             <Container size="lg" py="xl">
-                <Text c="red">{t('common.error')}</Text>
+                <Center py={100}>
+                    <Stack align="center" gap="md">
+                        <Alert icon={<IconAlertCircle size={24} />} color="red" radius="lg" title={t('company.notFound', 'Şirket bulunamadı')}>
+                            {t('company.notFoundDesc', 'Bu şirket silinmiş olabilir veya erişim izniniz olmayabilir.')}
+                        </Alert>
+                        <Button
+                            leftSection={<IconArrowLeft size={16} />}
+                            variant="light"
+                            color="gray"
+                            onClick={() => navigate(-1)}
+                        >
+                            {t('common.goBack', 'Geri Dön')}
+                        </Button>
+                    </Stack>
+                </Center>
             </Container>
         );
     }
 
     return (
+        <>
         <Container size="lg" py="lg">
             {/* Back button + Edit */}
             <Group mb="lg" justify="space-between">
@@ -491,11 +513,7 @@ export default function CompanyDetailPage() {
                                                         <Menu.Item
                                                             color="red"
                                                             leftSection={<IconTrash size={14} />}
-                                                            onClick={() => {
-                                                                if (window.confirm(t('contact.deleteConfirm'))) {
-                                                                    deleteContactMutation.mutate(contact.id);
-                                                                }
-                                                            }}
+                                                            onClick={() => setDeleteContactTarget(contact)}
                                                         >
                                                             {t('company.delete')}
                                                         </Menu.Item>
@@ -599,5 +617,41 @@ export default function CompanyDetailPage() {
                 </form>
             </Modal>
         </Container>
+
+        {deleteContactTarget && (
+            <Modal
+                opened={!!deleteContactTarget}
+                onClose={() => setDeleteContactTarget(null)}
+                title={t('contact.deleteTitle', 'Kişiyi Sil')}
+                radius="lg"
+                centered
+                size="sm"
+            >
+                <Stack gap="md">
+                    <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
+                        <Text size="sm" fw={600}>
+                            {[deleteContactTarget!.first_name, deleteContactTarget!.last_name].filter(Boolean).join(' ')}
+                        </Text>
+                        <Text size="sm" c="dimmed" mt={4}>
+                            {t('contact.deleteConfirmDesc', 'Bu kişi kalıcı olarak silinecek. Bu işlem geri alınamaz.')}
+                        </Text>
+                    </Alert>
+                    <Group justify="flex-end">
+                        <Button variant="default" onClick={() => setDeleteContactTarget(null)}>
+                            {t('common.cancel')}
+                        </Button>
+                        <Button
+                            color="red"
+                            leftSection={<IconTrash size={14} />}
+                            loading={deleteContactMutation.isPending}
+                            onClick={() => deleteContactMutation.mutate(deleteContactTarget!.id)}
+                        >
+                            {t('common.delete', 'Kalıcı Olarak Sil')}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
+        )}
+        </>
     );
 }
