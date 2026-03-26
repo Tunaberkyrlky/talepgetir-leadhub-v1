@@ -11,8 +11,18 @@ import {
     Divider,
     Code,
     Collapse,
+    Alert,
 } from '@mantine/core';
-import { IconAlertTriangle, IconRefresh, IconHome, IconChevronDown, IconChevronUp } from '@tabler/icons-react';
+import {
+    IconAlertTriangle,
+    IconRefresh,
+    IconHome,
+    IconChevronDown,
+    IconChevronUp,
+    IconWifi,
+    IconLock,
+    IconInfoCircle,
+} from '@tabler/icons-react';
 
 interface Props {
     children: ReactNode;
@@ -22,6 +32,90 @@ interface State {
     hasError: boolean;
     error: Error | null;
     showDetails: boolean;
+}
+
+interface ErrorHint {
+    icon: ReactNode;
+    color: string;
+    title: string;
+    description: string;
+}
+
+/** Hata mesajını analiz ederek kullanıcıya anlamlı ipucu döndürür */
+function getErrorHint(error: Error | null): ErrorHint | null {
+    if (!error) return null;
+
+    const msg = error.message || '';
+
+    // Oturum / Provider bağlamı hataları (HMR, yenileme, auth context sorunları)
+    if (
+        msg.includes('AuthProvider') ||
+        msg.includes('useAuth') ||
+        msg.includes('Provider') ||
+        msg.includes('Context')
+    ) {
+        return {
+            icon: <IconWifi size={18} />,
+            color: 'blue',
+            title: 'Oturum bağlantısı koptu',
+            description:
+                'Sayfa uzun süre açık kaldı ya da arka plan bağlantısı kesildi. ' +
+                'Sayfayı yenilemeniz yeterli; oturumunuz kaybolmaz.',
+        };
+    }
+
+    // Yetki / erişim hataları
+    if (
+        msg.includes('Unauthorized') ||
+        msg.includes('Forbidden') ||
+        msg.includes('403') ||
+        msg.includes('401')
+    ) {
+        return {
+            icon: <IconLock size={18} />,
+            color: 'orange',
+            title: 'Erişim izniniz yok',
+            description:
+                'Bu sayfaya erişim yetkiniz bulunmuyor ya da oturumunuz sona erdi. ' +
+                'Lütfen tekrar giriş yapın.',
+        };
+    }
+
+    // Ağ / sunucu bağlantı hataları
+    if (
+        msg.includes('Network') ||
+        msg.includes('fetch') ||
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('timeout') ||
+        msg.includes('Failed to fetch')
+    ) {
+        return {
+            icon: <IconWifi size={18} />,
+            color: 'yellow',
+            title: 'Sunucuya ulaşılamıyor',
+            description:
+                'İnternet bağlantınızı kontrol edin. Sorun devam ediyorsa ' +
+                'birkaç dakika bekleyip sayfayı yenilemeyi deneyin.',
+        };
+    }
+
+    // Bilinmeyen modül / chunk yükleme hatası (ör. yeni deploy sonrası)
+    if (
+        msg.includes('Loading chunk') ||
+        msg.includes('dynamically imported module') ||
+        msg.includes('Failed to load')
+    ) {
+        return {
+            icon: <IconRefresh size={18} />,
+            color: 'blue',
+            title: 'Uygulama güncellendi',
+            description:
+                'Uygulamanın yeni bir sürümü yayınlandı. ' +
+                'Sayfayı yenilemeniz yeterli, her şey normale dönecek.',
+        };
+    }
+
+    return null;
 }
 
 export default class ErrorBoundary extends Component<Props, State> {
@@ -56,6 +150,7 @@ export default class ErrorBoundary extends Component<Props, State> {
         }
 
         const { error, showDetails } = this.state;
+        const hint = getErrorHint(error);
 
         return (
             <Container size={480} py={80}>
@@ -74,10 +169,34 @@ export default class ErrorBoundary extends Component<Props, State> {
                             Bir sorun oluştu
                         </Title>
                         <Text c="dimmed" ta="center" size="md">
-                            Beklenmeyen bir hata meydana geldi. Sayfayı yeniden yüklemeyi
-                            deneyin veya ana sayfaya dönün.
+                            Beklenmeyen bir hata meydana geldi. Aşağıdaki bilgilendirmeyi
+                            okuyun ya da sayfayı yenileyin.
                         </Text>
                     </Stack>
+
+                    {/* Hataya özgü kullanıcı dostu açıklama */}
+                    {hint ? (
+                        <Alert
+                            icon={hint.icon}
+                            color={hint.color}
+                            title={hint.title}
+                            radius="md"
+                            w="100%"
+                        >
+                            {hint.description}
+                        </Alert>
+                    ) : (
+                        <Alert
+                            icon={<IconInfoCircle size={18} />}
+                            color="gray"
+                            title="Ne yapabilirsiniz?"
+                            radius="md"
+                            w="100%"
+                        >
+                            Sayfayı yenilemeyi deneyin. Sorun tekrarlanırsa teknik
+                            detayları sistem yöneticinizle paylaşın.
+                        </Alert>
+                    )}
 
                     <Group>
                         <Button

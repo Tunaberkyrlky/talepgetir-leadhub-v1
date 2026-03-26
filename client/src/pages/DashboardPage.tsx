@@ -19,7 +19,6 @@ import {
     IconTrophy,
     IconPercentage,
     IconChartBar,
-    IconMapPin,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { showSuccess } from '../lib/notifications';
@@ -81,13 +80,15 @@ export default function DashboardPage() {
 
     const geocodeMutation = useMutation({
         mutationFn: async () => (await api.post('/companies/geocode')).data,
-        onSuccess: (data: { total: number; geocoded: number }) => {
+        onSuccess: (data: { total: number; geocoded: number; skipped?: number }) => {
             queryClient.invalidateQueries({ queryKey: ['statistics', 'company-locations'] });
-            const msg = `${data.geocoded}/${data.total} ${t('dashboard.geocoded', 'konum güncellendi')}`;
             if (data.geocoded > 0) {
-                showSuccess(msg);
+                const skippedNote = data.skipped ? ` (${data.skipped} konum tanınamadı)` : '';
+                showSuccess(`${data.geocoded}/${data.total} şirket haritaya eklendi${skippedNote}`);
+            } else if (data.total === 0) {
+                notifications.show({ message: 'Pipeline\'da koordinatsız şirket bulunamadı', color: 'blue' });
             } else {
-                notifications.show({ message: msg, color: 'yellow' });
+                notifications.show({ message: `${data.total} şirket işlendi, konum tanınamadı`, color: 'yellow' });
             }
         },
     });
@@ -197,21 +198,11 @@ export default function DashboardPage() {
                         <GlobeMap
                             data={companyLocations?.data || []}
                             isLoading={locationsLoading}
+                            onGeocode={() => geocodeMutation.mutate()}
+                            geocodeLoading={geocodeMutation.isPending}
+                            canGeocode={['superadmin', 'ops_agent'].includes(role)}
                         />
                     </Suspense>
-                    {!locationsLoading && (companyLocations?.data?.length || 0) === 0 && ['superadmin', 'ops_agent'].includes(role) && (
-                        <Center mb="lg">
-                            <Button
-                                variant="light"
-                                leftSection={<IconMapPin size={16} />}
-                                onClick={() => geocodeMutation.mutate()}
-                                loading={geocodeMutation.isPending}
-                                size="sm"
-                            >
-                                {t('dashboard.geocodeBtn', 'Konumları Güncelle')}
-                            </Button>
-                        </Center>
-                    )}
                 </>
             ) : (
                 <Paper shadow="sm" radius="lg" p="xl" mb="lg" withBorder>

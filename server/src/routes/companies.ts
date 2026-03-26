@@ -469,7 +469,7 @@ router.put(
     }
 );
 
-// POST /api/companies/geocode — Batch geocode companies missing coordinates
+// POST /api/companies/geocode — Batch geocode pipeline companies missing coordinates
 router.post(
     '/geocode',
     requireRole('superadmin', 'ops_agent'),
@@ -477,11 +477,31 @@ router.post(
         try {
             const tenantId = req.tenantId!;
 
-            // Find companies with location but no coordinates
+            // Only geocode companies that are visible on the map:
+            // pipeline-type stages (initial + pipeline) — terminal/cold stages are excluded
+            const [pipelineStages, initialStageSlugs] = await Promise.all([
+                getPipelineStageSlugs(tenantId),
+                supabaseAdmin
+                    .from('tenant_stage_settings')
+                    .select('slug')
+                    .eq('tenant_id', tenantId)
+                    .eq('stage_type', 'initial'),
+            ]);
+
+            const initialSlugs = (initialStageSlugs.data || []).map((s: { slug: string }) => s.slug);
+            const targetStages = [...initialSlugs, ...pipelineStages];
+
+            if (targetStages.length === 0) {
+                res.json({ total: 0, geocoded: 0 });
+                return;
+            }
+
+            // Fetch pipeline companies that have a location but no coordinates
             const { data: companies, error } = await supabaseAdmin
                 .from('companies')
                 .select('id, location')
                 .eq('tenant_id', tenantId)
+                .in('stage', targetStages)
                 .not('location', 'is', null)
                 .is('latitude', null);
 
@@ -489,21 +509,37 @@ router.post(
                 throw new AppError('Failed to fetch companies', 500);
             }
 
-            let geocoded = 0;
+            // Resolve coordinates for each company and batch by coordinate value
+            const updates = new Map<string, string[]>(); // "lat,lng" → [company_id, ...]
+            let skipped = 0;
             for (const company of companies || []) {
                 if (!company.location) continue;
                 const coords = lookupCoordinates(company.location);
                 if (coords) {
-                    await supabaseAdmin
-                        .from('companies')
-                        .update({ latitude: coords.lat, longitude: coords.lng })
-                        .eq('id', company.id);
-                    geocoded++;
+                    const key = `${coords.lat},${coords.lng}`;
+                    const group = updates.get(key) || [];
+                    group.push(company.id);
+                    updates.set(key, group);
+                } else {
+                    skipped++;
                 }
             }
 
-            log.info({ tenantId, total: companies?.length || 0, geocoded }, 'Batch geocode complete');
-            res.json({ total: companies?.length || 0, geocoded });
+            // Write coordinates — one UPDATE per unique coordinate pair (bulk by id list)
+            let geocoded = 0;
+            for (const [coordKey, ids] of updates) {
+                const [lat, lng] = coordKey.split(',').map(Number);
+                const { error: updateError } = await supabaseAdmin
+                    .from('companies')
+                    .update({ latitude: lat, longitude: lng })
+                    .in('id', ids)
+                    .eq('tenant_id', tenantId);
+                if (!updateError) geocoded += ids.length;
+            }
+
+            const total = companies?.length || 0;
+            log.info({ tenantId, targetStages, total, geocoded, skipped }, 'Batch geocode complete');
+            res.json({ total, geocoded, skipped });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Batch geocode error');
