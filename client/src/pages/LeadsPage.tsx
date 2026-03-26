@@ -25,9 +25,12 @@ import {
     Popover,
     Checkbox,
     Divider,
+    Modal,
+    Alert,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure, useHotkeys } from '@mantine/hooks';
 import { showSuccess, showInfo, showErrorFromApi } from '../lib/notifications';
+import { notifications } from '@mantine/notifications';
 import {
     IconPlus,
     IconPencil,
@@ -45,6 +48,7 @@ import {
     IconGripVertical,
     IconArrowLeft,
     IconMap,
+    IconAlertCircle,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -260,6 +264,7 @@ export default function LeadsPage() {
     const lastClickedRef = useRef<string | null>(null);
     const searchRef = useRef<HTMLInputElement>(null);
     const undoStack = useUndoStack();
+    const [deleteModalCompany, setDeleteModalCompany] = useState<Company | null>(null);
 
     const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
 
@@ -424,7 +429,14 @@ export default function LeadsPage() {
     const toggleColumn = (key: ColumnKey) => {
         const visibleCount = columns.filter(c => c.visible).length;
         const col = columns.find(c => c.key === key);
-        if (col?.visible && visibleCount <= 1) return;
+        if (col?.visible && visibleCount <= 1) {
+            notifications.show({
+                message: t('leads.minOneColumn', 'En az 1 kolon görünür olmalı'),
+                color: 'yellow',
+                autoClose: 2500,
+            });
+            return;
+        }
         saveColumns(columns.map(c => c.key === key ? { ...c, visible: !c.visible } : c));
     };
 
@@ -476,6 +488,7 @@ export default function LeadsPage() {
             queryClient.invalidateQueries({ queryKey: ['companies'] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
             showSuccess(t('company.deleted'));
+            setDeleteModalCompany(null);
         },
         onError: (err) => {
             showErrorFromApi(err);
@@ -486,7 +499,7 @@ export default function LeadsPage() {
     const handleCreate = () => { setEditingCompany(null); open(); };
     const handleFormClose = () => { setEditingCompany(null); close(); };
     const handleDelete = (company: Company) => {
-        if (window.confirm(t('company.deleteConfirm'))) deleteMutation.mutate(company.id);
+        setDeleteModalCompany(company);
     };
 
     const handleSort = (key: SortKey) => {
@@ -500,8 +513,14 @@ export default function LeadsPage() {
     };
 
     const formatDate = (dateStr: string) => {
-        return new Date(dateStr).toLocaleDateString(undefined, {
-            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+        const date = new Date(dateStr);
+        const isCurrentYear = date.getFullYear() === new Date().getFullYear();
+        return date.toLocaleDateString(undefined, {
+            year: isCurrentYear ? undefined : 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
         });
     };
 
@@ -594,6 +613,14 @@ export default function LeadsPage() {
                                 </Badge>
                             </Menu.Target>
                             <Menu.Dropdown>
+                                {(() => {
+                                    const isSelected = selectedIds.has(company.id);
+                                    const affectedCount = isSelected && selectedIds.size > 1 ? selectedIds.size : 1;
+                                    const affectedLabel = affectedCount > 1
+                                        ? `${affectedCount} ${t('bulk.selected', 'seçili şirketin aşaması değişecek')}`
+                                        : `${t('bulk.onlyThis', 'Yalnızca')} ${company.name}`;
+                                    return <Menu.Label>{affectedLabel}</Menu.Label>;
+                                })()}
                                 {allStages.map((s) => (
                                     <Menu.Item
                                         key={s.slug}
@@ -1159,6 +1186,38 @@ export default function LeadsPage() {
                 onClose={handleFormClose}
                 company={editingCompany}
             />
+
+            {/* Delete Confirm Modal */}
+            <Modal
+                opened={!!deleteModalCompany}
+                onClose={() => setDeleteModalCompany(null)}
+                title={t('company.deleteTitle', 'Şiirketi Sil')}
+                radius="lg"
+                centered
+                size="sm"
+            >
+                <Stack gap="md">
+                    <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
+                        <Text size="sm" fw={600}>{deleteModalCompany?.name}</Text>
+                        <Text size="sm" c="dimmed" mt={4}>
+                            {t('company.deleteConfirmDesc', 'Bu şirket kalıcı olarak silinecek. Bu işlem geri alınamaz.')}
+                        </Text>
+                    </Alert>
+                    <Group justify="flex-end">
+                        <Button variant="default" onClick={() => setDeleteModalCompany(null)}>
+                            {t('common.cancel')}
+                        </Button>
+                        <Button
+                            color="red"
+                            leftSection={<IconTrash size={14} />}
+                            loading={deleteMutation.isPending}
+                            onClick={() => deleteModalCompany && deleteMutation.mutate(deleteModalCompany.id)}
+                        >
+                            {t('common.delete', 'Kalıcı Olarak Sil')}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
         </Container>
     );
 }

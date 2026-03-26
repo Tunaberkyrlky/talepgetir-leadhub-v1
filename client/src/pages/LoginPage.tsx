@@ -37,8 +37,17 @@ export default function LoginPage() {
         try {
             await login(email, password);
             navigate('/', { replace: true });
-        } catch {
-            setError(t('auth.loginError'));
+        } catch (err: any) {
+            const status = err?.response?.status;
+            if (status === 401) {
+                setError(t('auth.loginErrorInvalid', 'E-posta veya şifre hatalı. Lütfen tekrar deneyin.'));
+            } else if (status === 429) {
+                setError(t('auth.loginErrorRateLimit', 'Çok fazla deneme yapıldı. Lütfen bir süre bekleyin.'));
+            } else if (!navigator.onLine || err?.code === 'ERR_NETWORK') {
+                setError(t('auth.loginErrorNetwork', 'İnternet bağlantınızı kontrol edin.'));
+            } else {
+                setError(t('auth.loginError'));
+            }
         } finally {
             setLoading(false);
         }
