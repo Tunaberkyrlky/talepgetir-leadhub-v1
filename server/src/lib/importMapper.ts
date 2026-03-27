@@ -84,33 +84,27 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
         ],
         required: false,
     },
-    'companies.partnership_observation_1': {
+    'companies.custom_field_1': {
         table: 'companies',
-        field: 'partnership_observation_1',
+        field: 'custom_field_1',
         aliases: [
-            'partnership_observation_1', 'partnership observation 1', 'partnership observations ai_1',
-            'partnership observations ai 1', 'ortaklık gözlemi 1',
-            'ortaklik gozlemi 1', 'gözlem 1', 'gozlem 1', 'observation 1',
+            'custom_field_1', 'custom field 1', 'özel alan 1', 'ozel alan 1',
         ],
         required: false,
     },
-    'companies.partnership_observation_2': {
+    'companies.custom_field_2': {
         table: 'companies',
-        field: 'partnership_observation_2',
+        field: 'custom_field_2',
         aliases: [
-            'partnership_observation_2', 'partnership observation 2', 'partnership observations ai_2',
-            'partnership observations ai 2', 'ortaklık gözlemi 2',
-            'ortaklik gozlemi 2', 'gözlem 2', 'gozlem 2', 'observation 2',
+            'custom_field_2', 'custom field 2', 'özel alan 2', 'ozel alan 2',
         ],
         required: false,
     },
-    'companies.partnership_observation_3': {
+    'companies.custom_field_3': {
         table: 'companies',
-        field: 'partnership_observation_3',
+        field: 'custom_field_3',
         aliases: [
-            'partnership_observation_3', 'partnership observation 3', 'partnership observations ai_3',
-            'partnership observations ai 3', 'ortaklık gözlemi 3',
-            'ortaklik gozlemi 3', 'gözlem 3', 'gozlem 3', 'observation 3',
+            'custom_field_3', 'custom field 3', 'özel alan 3', 'ozel alan 3',
         ],
         required: false,
     },

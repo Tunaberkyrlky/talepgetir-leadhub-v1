@@ -18,6 +18,7 @@ interface User {
     tenantName?: string;
     role: string;
     accessibleTenants?: Tenant[];
+    tenantSettings?: Record<string, any>;
 }
 
 interface AuthContextType {

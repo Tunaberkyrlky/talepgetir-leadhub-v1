@@ -3,6 +3,9 @@
  * Components should use useStages() hook from StagesContext for dynamic, tenant-specific stages.
  */
 
+/** Terminal stages — require a closing report to enter */
+export const TERMINAL_STAGES = ['won', 'lost', 'on_hold', 'cancelled'] as const;
+
 /** Default stage color mapping (fallback when StagesContext is unavailable) */
 export const DEFAULT_STAGE_COLORS: Record<string, string> = {
     cold: 'gray',
@@ -17,6 +20,7 @@ export const DEFAULT_STAGE_COLORS: Record<string, string> = {
     won: 'green',
     lost: 'red',
     on_hold: 'gray',
+    cancelled: 'dark',
 };
 
 /** Get stage color safely (returns 'gray' for unknown stages) — fallback only */

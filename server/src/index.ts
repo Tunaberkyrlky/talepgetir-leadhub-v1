@@ -25,6 +25,7 @@ import tenantsRoutes from './routes/tenants.js';
 import statisticsRoutes from './routes/statistics.js';
 import adminRoutes from './routes/admin.js';
 import settingsRoutes from './routes/settings.js';
+import activitiesRoutes from './routes/activities.js';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -108,6 +109,7 @@ app.use('/api/tenants', authMiddleware, tenantsRoutes);
 app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/statistics', authMiddleware, statisticsRoutes);
 app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
+app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);

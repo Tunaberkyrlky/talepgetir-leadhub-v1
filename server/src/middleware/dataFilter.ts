@@ -1,10 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
-
-const INTERNAL_ROLES = ['superadmin', 'ops_agent'];
+import { isInternalRole } from '../lib/roles.js';
 
 /** Check if the current user is internal (superadmin or ops_agent) */
 function isInternalUser(req: Request): boolean {
-    return INTERNAL_ROLES.includes((req as any).user?.role);
+    return isInternalRole((req as any).user?.role ?? '');
 }
 
 /** Check if the current user is a client_viewer */
@@ -76,11 +75,11 @@ function transformItem(obj: any, maskSensitive: boolean): any {
     return rest;
 }
 
-/** Mask email: "john.doe@example.com" → "john@ex..." */
+/** Mask email: "john.doe@example.com" → "jo***@ex..." */
 export function maskEmail(email: string): string {
     const [local, domain] = email.split('@');
     if (!domain) return '***';
-    const localPart = local.length > 4 ? local.slice(0, 4) : local;
+    const localPart = local.slice(0, Math.min(2, local.length)) + '***';
     const domainPart = domain.length > 2 ? domain.slice(0, 2) : domain;
     return `${localPart}@${domainPart}...`;
 }

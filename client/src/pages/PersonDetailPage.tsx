@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigateBack } from '../hooks/useNavigateBack';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
     Container,
@@ -36,10 +37,13 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
+import { showErrorFromApi } from '../lib/notifications';
 import { useAuth } from '../contexts/AuthContext';
 import { isInternal } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
+import { safeUrl } from '../lib/url';
 import ContactForm from '../components/ContactForm';
+import ActivityTimeline from '../components/ActivityTimeline';
 import type { ContactNote } from '../types/contact';
 
 interface ContactDetail {
@@ -67,9 +71,9 @@ interface ContactDetail {
     } | null;
 }
 
-function formatNoteDate(isoString: string): string {
+function formatNoteDate(isoString: string, locale: string): string {
     const date = new Date(isoString);
-    return date.toLocaleDateString('tr-TR', {
+    return date.toLocaleDateString(locale, {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
@@ -81,7 +85,8 @@ function formatNoteDate(isoString: string): string {
 export default function PersonDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
-    const { t } = useTranslation();
+    const goBack = useNavigateBack();
+    const { t, i18n } = useTranslation();
     const { user } = useAuth();
     const { getStageColor, getStageLabel } = useStages();
 
@@ -123,8 +128,8 @@ export default function PersonDetailPage() {
             await queryClient.invalidateQueries({ queryKey: ['person', id] });
             setNoteValue('');
             setNoteInputOpen(false);
-        } catch {
-            // error handled by interceptor
+        } catch (err) {
+            showErrorFromApi(err);
         } finally {
             setNoteSaving(false);
         }
@@ -136,8 +141,8 @@ export default function PersonDetailPage() {
         try {
             await api.delete(`/contacts/${contact.id}/notes/${noteId}`);
             await queryClient.invalidateQueries({ queryKey: ['person', id] });
-        } catch {
-            // error handled by interceptor
+        } catch (err) {
+            showErrorFromApi(err);
         } finally {
             setDeletingNoteId(null);
         }
@@ -157,7 +162,7 @@ export default function PersonDetailPage() {
                 <Stack align="center" gap="xs">
                     <IconUser size={48} stroke={1.5} color="var(--mantine-color-gray-4)" />
                     <Text c="dimmed">{t('common.error')}</Text>
-                    <Button variant="subtle" onClick={() => navigate(-1)}>
+                    <Button variant="subtle" onClick={() => goBack('/people')}>
                         {t('people.back')}
                     </Button>
                 </Stack>
@@ -166,11 +171,12 @@ export default function PersonDetailPage() {
     }
 
     return (
+        <>
         <Container size="md">
             {/* Header */}
             <Group mb="md">
                 <Tooltip label={t('people.back')}>
-                    <ActionIcon variant="subtle" onClick={() => navigate(-1)}>
+                    <ActionIcon variant="subtle" onClick={() => goBack('/people')}>
                         <IconArrowLeft size={20} />
                     </ActionIcon>
                 </Tooltip>
@@ -276,13 +282,18 @@ export default function PersonDetailPage() {
                         </Group>
                         <Group gap="sm">
                             <IconBrandLinkedin size={16} color="var(--mantine-color-gray-5)" />
-                            {contact.linkedin ? (
-                                <Anchor href={contact.linkedin} target="_blank" rel="noopener noreferrer" size="sm">
-                                    LinkedIn
-                                </Anchor>
-                            ) : (
-                                <Text size="sm" c="dimmed">{t('people.noLinkedIn')}</Text>
-                            )}
+                            {(() => {
+                                const href = safeUrl(contact.linkedin);
+                                return href ? (
+                                    <Anchor href={href} target="_blank" rel="noopener noreferrer" size="sm">
+                                        LinkedIn
+                                    </Anchor>
+                                ) : contact.linkedin ? (
+                                    <Text size="sm" c="dimmed">{contact.linkedin}</Text>
+                                ) : (
+                                    <Text size="sm" c="dimmed">{t('people.noLinkedIn')}</Text>
+                                );
+                            })()}
                         </Group>
                     </Stack>
                 </Paper>
@@ -420,7 +431,7 @@ export default function PersonDetailPage() {
                                             )}
                                             <Group gap="xs">
                                                 <Text size="xs" c="dimmed">
-                                                    {formatNoteDate(note.created_at)}
+                                                    {formatNoteDate(note.created_at, i18n.language)}
                                                 </Text>
                                                 {note.created_by && note.created_by !== 'system' && (
                                                     <Text size="xs" c="dimmed">
@@ -456,8 +467,32 @@ export default function PersonDetailPage() {
             <ContactForm
                 opened={formOpened}
                 onClose={closeForm}
-                contact={contact as any}
+                contact={{
+                    id: contact.id,
+                    company_id: contact.company_id,
+                    first_name: contact.first_name,
+                    last_name: contact.last_name,
+                    title: contact.title,
+                    seniority: contact.seniority,
+                    country: contact.country,
+                    email: contact.email,
+                    phone_e164: contact.phone_e164,
+                    linkedin: contact.linkedin,
+                    is_primary: contact.is_primary,
+                    notes: contact.notes,
+                }}
             />
         </Container>
+
+        {/* Activity Timeline — show only when contact has a company */}
+        {contact.companies?.id && (
+            <Container size="xl" pb="xl" px={{ base: 'md', sm: 'xl' }}>
+                <ActivityTimeline
+                    companyId={contact.companies.id}
+                    contactId={contact.id}
+                />
+            </Container>
+        )}
+        </>
     );
 }

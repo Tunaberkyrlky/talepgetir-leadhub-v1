@@ -44,6 +44,8 @@ interface GlobeMapProps {
     geocodeLoading?: boolean;
     /** Whether the current user is allowed to trigger geocoding */
     canGeocode?: boolean;
+    /** Number of pipeline companies lacking coordinates */
+    missingCount?: number;
 }
 
 // Stage group definitions
@@ -164,7 +166,7 @@ function CountryCompaniesModal({
     );
 }
 
-export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, canGeocode }: GlobeMapProps) {
+export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, canGeocode, missingCount = 0 }: GlobeMapProps) {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
     const [dimensions, setDimensions] = useState({ width: 600, height: 320 });
@@ -326,11 +328,18 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                 <Menu.Item
                                     leftSection={geocodeLoading ? <Loader size={14} /> : <IconMapPin size={14} />}
                                     onClick={onGeocode}
-                                    disabled={geocodeLoading}
+                                    disabled={geocodeLoading || missingCount === 0}
                                 >
-                                    {geocodeLoading
-                                        ? t('dashboard.geocoding', 'Konumlar güncelleniyor...')
-                                        : t('dashboard.geocodeBtn', 'Konumları Güncelle')}
+                                    <Group justify="space-between" style={{ flex: 1 }} gap="md">
+                                        <Text size="sm">
+                                            {geocodeLoading
+                                                ? t('dashboard.geocoding', 'Konumlar güncelleniyor...')
+                                                : t('dashboard.geocodeBtn', 'Konumları Güncelle')}
+                                        </Text>
+                                        {!geocodeLoading && missingCount > 0 && (
+                                            <Badge size="xs" color="yellow" variant="light">{missingCount}</Badge>
+                                        )}
+                                    </Group>
                                 </Menu.Item>
                             </Menu.Dropdown>
                         </Menu>

@@ -6,15 +6,15 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { translateTexts } from '../lib/deepl.js';
 import { validateBody, createContactSchema, updateContactSchema, contactNoteSchema } from '../lib/validation.js';
+import { isInternalRole } from '../lib/roles.js';
 
 const log = createLogger('route:contacts');
 
 // For read endpoints: internal roles may be operating cross-tenant (X-Tenant-Id header),
 // so they require supabaseAdmin. Client roles access only their own tenant — use the
 // user client so RLS acts as a second isolation layer.
-const INTERNAL_ROLES = ['superadmin', 'ops_agent'];
 function dbClient(req: Request) {
-    if (INTERNAL_ROLES.includes(req.user!.role)) return supabaseAdmin;
+    if (isInternalRole(req.user!.role)) return supabaseAdmin;
     return createUserClient(req.accessToken!);
 }
 
@@ -134,7 +134,12 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         let query = db
             .from('contacts')
-            .select(`*, companies(id, name, stage)`, { count: 'exact' })
+            .select(
+                `id, first_name, last_name, email, phone_e164, title, country, seniority,
+                 is_primary, linkedin, created_at, updated_at,
+                 companies(id, name, stage)`,
+                { count: 'exact' }
+            )
             .eq('tenant_id', tenantId);
 
         if (search) {

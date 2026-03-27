@@ -17,6 +17,9 @@ import {
     Box,
     Tabs,
     TextInput,
+    Progress,
+    LoadingOverlay,
+    Loader,
 } from '@mantine/core';
 import { Dropzone, MIME_TYPES } from '@mantine/dropzone';
 import {
@@ -59,6 +62,7 @@ export default function ImportPage() {
     const [importResult, setImportResult] = useState<ImportResult | null>(null);
     const [defaultCompanyName, setDefaultCompanyName] = useState('');
     const [dropRejectError, setDropRejectError] = useState<string | null>(null);
+    const [uploadProgress, setUploadProgress] = useState(0);
     const { startImport, finishImport, cancelImport } = useImportProgress();
 
     // Upload mutation
@@ -68,8 +72,17 @@ export default function ImportPage() {
             formData.append('file', file);
             const res = await api.post('/import/preview', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
+                onUploadProgress: (progressEvent) => {
+                    if (progressEvent.total) {
+                        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                        setUploadProgress(percent);
+                    }
+                },
             });
             return res.data as PreviewData;
+        },
+        onMutate: () => {
+            setUploadProgress(0);
         },
         onSuccess: (data) => {
             setPreviewData(data);
@@ -183,13 +196,33 @@ export default function ImportPage() {
             >
                 {/* Step 1: Upload */}
                 <Stepper.Step label={t('import.step1')} icon={<IconUpload size={18} />}>
-                    <Paper shadow="sm" radius="lg" p="xl" withBorder>
+                    <Paper shadow="sm" radius="lg" p="xl" withBorder pos="relative">
+                        <LoadingOverlay 
+                            visible={uploadMutation.isPending} 
+                            zIndex={1000} 
+                            overlayProps={{ radius: 'lg', blur: 2 }} 
+                            loaderProps={{ 
+                                children: (
+                                    <Stack align="center" gap="sm">
+                                        <Loader size="md" color="violet" />
+                                        <Text size="sm" fw={500}>
+                                            {uploadProgress < 100 
+                                                ? t('import.uploading', `Yükleniyor: %${uploadProgress}`)
+                                                : t('import.analyzing', 'Dosya analiz ediliyor...')}
+                                        </Text>
+                                        {uploadProgress < 100 && (
+                                            <Progress value={uploadProgress} w={200} color="violet" size="sm" radius="xl" striped animated />
+                                        )}
+                                    </Stack>
+                                ) 
+                            }} 
+                        />
                         <Dropzone
                             onDrop={handleDrop}
                             onReject={handleReject}
                             maxSize={10 * 1024 * 1024}
                             accept={[MIME_TYPES.csv, MIME_TYPES.xlsx, 'text/csv', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']}
-                            loading={uploadMutation.isPending}
+                            loading={false}
                             radius="lg"
                             styles={{
                                 root: {

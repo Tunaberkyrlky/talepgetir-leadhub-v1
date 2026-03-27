@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from '@mantine/form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -12,12 +12,16 @@ import {
     SimpleGrid,
     Title,
     Divider,
+    Alert,
 } from '@mantine/core';
+import { IconAlertTriangle } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { useStages } from '../contexts/StagesContext';
 import EmailStatusIcon from './EmailStatusIcon';
+import { useAuth } from '../contexts/AuthContext';
+import { TERMINAL_STAGES } from '../lib/stages';
 
 interface Company {
     id: string;
@@ -36,9 +40,9 @@ interface Company {
     company_summary: string | null;
     next_step: string | null;
     fit_score: string | null;
-    partnership_observation_1: string | null;
-    partnership_observation_2: string | null;
-    partnership_observation_3: string | null;
+    custom_field_1: string | null;
+    custom_field_2: string | null;
+    custom_field_3: string | null;
 }
 
 interface CompanyFormProps {
@@ -46,12 +50,15 @@ interface CompanyFormProps {
     onClose: () => void;
     company: Company | null; // null = create mode
     onSuccess?: () => void;
+    onTerminalStageSelected?: (companyId: string, companyName: string, targetStage: string) => void;
 }
 
-export default function CompanyForm({ opened, onClose, company, onSuccess }: CompanyFormProps) {
+export default function CompanyForm({ opened, onClose, company, onSuccess, onTerminalStageSelected }: CompanyFormProps) {
     const { t } = useTranslation();
+    const { user } = useAuth();
     const queryClient = useQueryClient();
     const isEdit = !!company;
+    const [pendingTerminalStage, setPendingTerminalStage] = useState<string | null>(null);
 
     const form = useForm({
         initialValues: {
@@ -70,11 +77,11 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
             company_summary: '',
             next_step: '',
             fit_score: '',
-            partnership_observation_1: '',
-            partnership_observation_2: '',
-            partnership_observation_3: '',
+            custom_field_1: '',
+            custom_field_2: '',
+            custom_field_3: '',
             // Contact fields (only used on create)
-            contact_name: '',
+            contact_first_name: '',
             contact_title: '',
             contact_email: '',
             contact_phone_e164: '',
@@ -103,10 +110,10 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
                 company_summary: company.company_summary || '',
                 next_step: company.next_step || '',
                 fit_score: company.fit_score || '',
-                partnership_observation_1: company.partnership_observation_1 || '',
-                partnership_observation_2: company.partnership_observation_2 || '',
-                partnership_observation_3: company.partnership_observation_3 || '',
-                contact_name: '',
+                custom_field_1: company.custom_field_1 || '',
+                custom_field_2: company.custom_field_2 || '',
+                custom_field_3: company.custom_field_3 || '',
+                contact_first_name: '',
                 contact_title: '',
                 contact_email: '',
                 contact_phone_e164: '',
@@ -137,7 +144,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
     const updateMutation = useMutation({
         mutationFn: async (values: typeof form.values) => {
             // Strip contact fields on update, as we manage contacts separately
-            const { contact_name: _cn, contact_title: _ct, contact_email: _ce, contact_phone_e164: _cp, ...updateValues } = values;
+            const { contact_first_name: _cn, contact_title: _ct, contact_email: _ce, contact_phone_e164: _cp, ...updateValues } = values;
             const res = await api.put(`/companies/${company!.id}`, updateValues);
             return res.data;
         },
@@ -154,6 +161,11 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
     });
 
     const handleSubmit = form.onSubmit((values: typeof form.values) => {
+        // If editing and a terminal stage is selected, delegate to parent instead of submitting
+        if (isEdit && onTerminalStageSelected && TERMINAL_STAGES.includes(values.stage as any) && values.stage !== company?.stage) {
+            onTerminalStageSelected(company!.id, company!.name, values.stage);
+            return;
+        }
         if (isEdit) {
             updateMutation.mutate(values);
         } else {
@@ -260,12 +272,34 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
 
                     {/* Row 5: Stage + Location */}
                     <SimpleGrid cols={2}>
-                        <Select
-                            label={t('company.stage')}
-                            data={stageOptions}
-                            radius="md"
-                            {...form.getInputProps('stage')}
-                        />
+                        <Stack gap={4}>
+                            <Select
+                                label={t('company.stage')}
+                                data={stageOptions}
+                                radius="md"
+                                {...form.getInputProps('stage')}
+                                onChange={(val) => {
+                                    form.setFieldValue('stage', val || 'cold');
+                                    if (isEdit && val && TERMINAL_STAGES.includes(val as any) && val !== company?.stage) {
+                                        setPendingTerminalStage(val);
+                                    } else {
+                                        setPendingTerminalStage(null);
+                                    }
+                                }}
+                            />
+                            {pendingTerminalStage && isEdit && onTerminalStageSelected && (
+                                <Alert
+                                    icon={<IconAlertTriangle size={14} />}
+                                    color="orange"
+                                    variant="light"
+                                    radius="sm"
+                                    py={4}
+                                    px={8}
+                                >
+                                    <span style={{ fontSize: '0.78rem' }}>{t('activity.closingReport.required')}</span>
+                                </Alert>
+                            )}
+                        </Stack>
                         <TextInput
                             label={t('company.location')}
                             placeholder="Istanbul"
@@ -316,28 +350,28 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
                         {...form.getInputProps('fit_score')}
                     />
 
-                    {/* Partnership Observations */}
+                    {/* Custom Fields */}
                     <SimpleGrid cols={3}>
                         <Textarea
-                            label={t('company.partnershipObservation1')}
+                            label={user?.tenantSettings?.custom_field_1_label || t('company.customField1', 'Özel Alan 1')}
                             autosize
                             minRows={2}
                             radius="md"
-                            {...form.getInputProps('partnership_observation_1')}
+                            {...form.getInputProps('custom_field_1')}
                         />
                         <Textarea
-                            label={t('company.partnershipObservation2')}
+                            label={user?.tenantSettings?.custom_field_2_label || t('company.customField2', 'Özel Alan 2')}
                             autosize
                             minRows={2}
                             radius="md"
-                            {...form.getInputProps('partnership_observation_2')}
+                            {...form.getInputProps('custom_field_2')}
                         />
                         <Textarea
-                            label={t('company.partnershipObservation3')}
+                            label={user?.tenantSettings?.custom_field_3_label || t('company.customField3', 'Özel Alan 3')}
                             autosize
                             minRows={2}
                             radius="md"
-                            {...form.getInputProps('partnership_observation_3')}
+                            {...form.getInputProps('custom_field_3')}
                         />
                     </SimpleGrid>
 
@@ -351,10 +385,10 @@ export default function CompanyForm({ opened, onClose, company, onSuccess }: Com
 
                             <SimpleGrid cols={2}>
                                 <TextInput
-                                    label={t('contact.contactFullName')}
-                                    placeholder="John Doe"
+                                    label={t('contact.firstName')}
+                                    placeholder="John"
                                     radius="md"
-                                    {...form.getInputProps('contact_name')}
+                                    {...form.getInputProps('contact_first_name')}
                                 />
                                 <TextInput
                                     label={t('contact.jobTitle')}

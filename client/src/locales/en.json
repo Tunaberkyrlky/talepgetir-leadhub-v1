@@ -65,7 +65,9 @@
         "contacts": "Contacts",
         "noContacts": "No contacts yet",
         "detail": "Company Detail",
-        "back": "Back"
+        "back": "Back",
+        "notFound": "Company not found",
+        "notFoundDesc": "This company may have been deleted or you may not have access."
     },
     "contact": {
         "firstName": "First Name",
@@ -84,6 +86,8 @@
         "updated": "Contact updated",
         "deleted": "Contact deleted",
         "deleteConfirm": "Are you sure you want to delete this contact?",
+        "deleteTitle": "Delete Contact",
+        "deleteConfirmDesc": "This contact will be permanently deleted. This action cannot be undone.",
         "contactFullName": "Contact Full Name",
         "addPrimaryContact": "Add Primary Contact (Optional)",
         "jobTitle": "Job Title",
@@ -178,7 +182,8 @@
         "negotiation": "Negotiation",
         "won": "Won",
         "lost": "Lost",
-        "on_hold": "On Hold"
+        "on_hold": "On Hold",
+        "cancelled": "Cancelled"
     },
     "pagination": {
         "showing": "Showing",
@@ -196,6 +201,8 @@
         "confirm": "Confirm",
         "actions": "Actions",
         "back": "Back",
+        "goBack": "Go Back",
+        "delete": "Delete Permanently",
         "showMore": "Show more",
         "showLess": "Show less",
         "fullscreen": "Fullscreen",
@@ -410,6 +417,43 @@
         "membershipUpdated": "Membership updated",
         "membershipRemoved": "Membership removed",
         "membershipRemoveConfirm": "Remove this user from the tenant?"
+    },
+    "activity": {
+        "timeline": "Activity Timeline",
+        "addActivity": "Add Activity",
+        "type": "Type",
+        "summary": "Summary",
+        "detail": "Details",
+        "outcome": "Outcome",
+        "visibility": "Visibility",
+        "noActivities": "No activities yet",
+        "created": "Activity created",
+        "updated": "Activity updated",
+        "deleted": "Activity deleted",
+        "loadMore": "Load more",
+        "types": {
+            "not": "Note",
+            "meeting": "Meeting",
+            "follow_up": "Follow Up",
+            "sonlandirma_raporu": "Closing Report",
+            "status_change": "Stage Change"
+        },
+        "visibility_options": {
+            "internal": "Internal",
+            "client": "Client"
+        },
+        "closingReport": {
+            "title": "Closing Report",
+            "outcomeLabel": "Outcome",
+            "reasonLabel": "Reason",
+            "summaryLabel": "Summary",
+            "required": "Closing report is required for this stage",
+            "won": "Won",
+            "lost": "Lost",
+            "on_hold": "On Hold",
+            "cancelled": "Cancelled"
+        },
+        "tierRequired": "Activity timeline is available on the Pro plan"
     },
     "errors": {
         "network": "Check your internet connection",

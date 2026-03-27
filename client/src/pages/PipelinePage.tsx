@@ -42,6 +42,9 @@ import { useStages } from '../contexts/StagesContext';
 import KanbanBoard from '../components/pipeline/KanbanBoard';
 import type { PipelineCompany } from '../components/pipeline/PipelineCard';
 import { useUndoStack } from '../hooks/useUndoStack';
+import ClosingReportModal from '../components/ClosingReportModal';
+import { TERMINAL_STAGES } from '../lib/stages';
+import type { ClosingOutcome } from '../types/activity';
 
 interface PipelineData {
     columns: Record<string, PipelineCompany[]>;
@@ -62,6 +65,13 @@ export default function PipelinePage() {
     const [viewMode, setViewMode] = useState<string>('board');
     const searchRef = useRef<HTMLInputElement>(null);
     const undoStack = useUndoStack();
+
+    // Closing report modal state (triggered when dragging to terminal stage)
+    const [closingReportState, setClosingReportState] = useState<{
+        companyId: string;
+        companyName: string;
+        targetStage: ClosingOutcome;
+    } | null>(null);
 
     // Page-level keyboard shortcuts
     useHotkeys([
@@ -150,15 +160,25 @@ export default function PipelinePage() {
 
     const handleStageChange = useCallback(
         (companyId: string, newStage: string, oldStage: string) => {
-            stageMutation.mutate({ companyId, newStage });
-            undoStack.push({
-                description: t('pipeline.stageMoved', 'Aşama taşıma'),
-                undo: () => stageMutation.mutate({ companyId, newStage: oldStage }),
-            });
+            if (TERMINAL_STAGES.includes(newStage as any)) {
+                // Terminal stage → open ClosingReportModal, do NOT call stageMutation
+                const company = Object.values(data?.columns || {}).flat().find((c) => c.id === companyId);
+                setClosingReportState({
+                    companyId,
+                    companyName: company?.name || companyId,
+                    targetStage: newStage as ClosingOutcome,
+                });
+            } else {
+                // Normal stage → existing mutation
+                stageMutation.mutate({ companyId, newStage });
+                undoStack.push({
+                    description: t('pipeline.stageMoved', 'Aşama taşma'),
+                    undo: () => stageMutation.mutate({ companyId, newStage: oldStage }),
+                });
+            }
         },
-        // stageMutation.mutate is stable across renders (TanStack Query guarantee);
-        // using stageMutation (the whole object) would defeat memoization since it's recreated each render.
-        [stageMutation.mutate, undoStack, t]
+        // stageMutation.mutate is stable across renders (TanStack Query guarantee)
+        [stageMutation.mutate, undoStack, t, data]
     );
 
     // Flatten all companies for table view
@@ -412,6 +432,19 @@ export default function PipelinePage() {
                     </Paper>
                 )}
             </Container>
+
+            {closingReportState && (
+                <ClosingReportModal
+                    opened={true}
+                    onClose={() => setClosingReportState(null)}
+                    companyId={closingReportState.companyId}
+                    companyName={closingReportState.companyName}
+                    targetStage={closingReportState.targetStage}
+                    onSuccess={() => {
+                        setClosingReportState(null);
+                    }}
+                />
+            )}
         </TierGate>
     );
 }
