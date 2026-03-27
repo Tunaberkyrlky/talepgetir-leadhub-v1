@@ -48,7 +48,14 @@ app.use(pinoHttp({
 app.use(cors({
     origin: process.env.NODE_ENV === 'production' || process.env.VERCEL
         ? [process.env.CLIENT_URL || 'https://leadhub.app']
-        : ['http://localhost:5173', 'http://localhost:3000'],
+        : (origin, callback) => {
+            // Allow any localhost port in development (Vite may pick 5173, 5174, etc.)
+            if (!origin || /^http:\/\/localhost:\d+$/.test(origin)) {
+                callback(null, true);
+            } else {
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
     credentials: true,
 }));
 app.use(cookieParser());

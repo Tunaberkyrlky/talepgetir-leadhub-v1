@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
+import { clearAuthCacheForUser } from '../middleware/auth.js';
 import {
     validateBody,
     createUserSchema, updateUserSchema,
@@ -300,6 +301,7 @@ router.delete('/users/:id', async (req: Request, res: Response, next: NextFuncti
                 log.error({ err: error }, 'Delete user error');
                 throw new AppError('Failed to delete user', 500);
             }
+            clearAuthCacheForUser(id);
             await logAuditAction(req.user!.id, 'user.hard_delete', 'user', id);
         } else {
             // Soft delete: deactivate all memberships
@@ -312,6 +314,7 @@ router.delete('/users/:id', async (req: Request, res: Response, next: NextFuncti
                 log.error({ err: error }, 'Deactivate memberships error');
                 throw new AppError('Failed to deactivate user', 500);
             }
+            clearAuthCacheForUser(id);
             await logAuditAction(req.user!.id, 'user.deactivate', 'user', id);
         }
 

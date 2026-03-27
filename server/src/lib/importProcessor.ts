@@ -10,15 +10,9 @@ import { supabaseAdmin } from './supabase.js';
 import { sanitizeCell } from './importMapper.js';
 import { cleanWebsite } from './dataMatcher.js';
 import { createLogger } from './logger.js';
+import { getTenantStages } from '../routes/settings.js';
 const log = createLogger('importProcessor');
 const BATCH_SIZE = 500;
-
-// Valid stages (ordered enum)
-const VALID_STAGES = [
-    'cold', 'in_queue', 'first_contact', 'connected', 'qualified',
-    'in_meeting', 'follow_up', 'proposal_sent', 'negotiation',
-    'won', 'lost', 'on_hold', 'cancelled',
-];
 
 // Turkish → English stage mapping for CSV import
 const STAGE_ALIASES: Record<string, string> = {
@@ -59,23 +53,29 @@ const STAGE_ALIASES: Record<string, string> = {
 };
 
 /**
- * Normalize a stage value: try exact match, then Turkish alias, then return null
+ * Normalize a stage value against the tenant's actual stage slugs.
+ * Falls back to the tenant's initial stage slug (e.g. 'cold') for unrecognised values.
  */
-function normalizeStage(raw: string): { stage: string; overflow: string | null } {
+function normalizeStage(
+    raw: string,
+    validStages: string[],
+    initialStageSlug: string,
+): { stage: string; overflow: string | null } {
     const lower = raw.toLowerCase().trim();
 
-    // Exact English match
-    if (VALID_STAGES.includes(lower)) {
+    // Exact match against tenant's valid stages
+    if (validStages.includes(lower)) {
         return { stage: lower, overflow: null };
     }
 
-    // Turkish alias match
-    if (STAGE_ALIASES[lower]) {
-        return { stage: STAGE_ALIASES[lower], overflow: null };
+    // Turkish alias → resolved slug must also be valid for this tenant
+    const aliased = STAGE_ALIASES[lower];
+    if (aliased && validStages.includes(aliased)) {
+        return { stage: aliased, overflow: null };
     }
 
-    // Unrecognized → default to 'cold', save original as overflow note
-    return { stage: 'cold', overflow: raw };
+    // Unrecognised → fall back to tenant's initial stage, preserve original
+    return { stage: initialStageSlug, overflow: raw };
 }
 
 /**
@@ -274,8 +274,14 @@ async function _executeImportInner(
         return sanitizeCell(row[fileHeader] || '');
     };
 
-    // ── Phase 1: Pre-fetch existing data with pagination (Supabase default limit is 1000) ──
+    // ── Phase 1: Pre-fetch existing data + tenant stage config ──
     log.info({ rows: rows.length, jobId }, 'Import started — pre-fetching');
+
+    // Load tenant's valid stages once for the entire import run
+    const tenantStages = await getTenantStages(tenantId);
+    const validStages = tenantStages.map((s) => s.slug);
+    const initialStageSlug = tenantStages.find((s) => s.stage_type === 'initial')?.slug ?? 'cold';
+    log.info({ validStages, initialStageSlug }, 'Tenant stages loaded');
 
     async function fetchAll<T>(buildQuery: () => any): Promise<T[]> {
         const PAGE = 1000;
@@ -334,10 +340,10 @@ async function _executeImportInner(
         }
 
         const rawStage = getValue(row, 'companies.stage');
-        let resolvedStage = 'cold';
+        let resolvedStage = initialStageSlug;
         let stageOverflow: string | null = null;
         if (rawStage) {
-            const { stage, overflow } = normalizeStage(rawStage);
+            const { stage, overflow } = normalizeStage(rawStage, validStages, initialStageSlug);
             resolvedStage = stage;
             stageOverflow = overflow;
         }
