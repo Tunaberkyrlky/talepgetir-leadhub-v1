@@ -31,6 +31,8 @@ declare global {
                 role: string;
             };
             tenantId?: string;
+            /** Raw JWT access token — use with createUserClient() to enforce RLS */
+            accessToken?: string;
         }
     }
 }
@@ -50,6 +52,9 @@ export async function authMiddleware(
             res.status(401).json({ error: 'Missing or invalid authorization' });
             return;
         }
+
+        // Attach raw token so route handlers can create RLS-enforcing user clients
+        req.accessToken = token;
 
         // Check tenant override header for cache key
         const requestedTenantId = req.headers['x-tenant-id'] as string | undefined;
@@ -171,6 +176,17 @@ export async function authMiddleware(
     } catch (err) {
         log.error({ err }, 'Auth middleware error');
         res.status(500).json({ error: 'Internal authentication error' });
+    }
+}
+
+/**
+ * Evict all cache entries for a given user ID.
+ * Call this after deactivating or deleting a user so their next request
+ * is forced through a fresh auth check instead of hitting a cached result.
+ */
+export function clearAuthCacheForUser(userId: string): void {
+    for (const [key, val] of authCache) {
+        if (val.user.id === userId) authCache.delete(key);
     }
 }
 

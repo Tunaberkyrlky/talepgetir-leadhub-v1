@@ -1,11 +1,11 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { supabaseAdmin } from '../lib/supabase.js';
+import { supabaseAdmin, createUserClient } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
-import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs } from './settings.js';
+import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
 import { invalidateOverviewCache, invalidatePipelineStatsCache } from './statistics.js';
 
 const log = createLogger('route:companies');
@@ -15,8 +15,22 @@ const COMPANY_TRANSLATE_FIELDS = ['product_services', 'product_portfolio', 'comp
 const router = Router();
 
 // Sanitize search input for safe use in PostgREST .or() filter strings.
+// Strip PostgREST syntax chars, then escape ILIKE wildcards so user input
+// cannot act as a wildcard pattern (e.g. searching "50%" won't match everything).
 function sanitizeSearch(value: string): string {
-    return value.replace(/[,().\\]/g, '');
+    return value
+        .replace(/[,().\\]/g, '')   // strip PostgREST syntax chars (backslash first)
+        .replace(/%/g, '\\%')       // escape ILIKE wildcard %
+        .replace(/_/g, '\\_');      // escape ILIKE wildcard _
+}
+
+// For read endpoints: internal roles may be operating cross-tenant (X-Tenant-Id header),
+// so they require supabaseAdmin. Client roles access only their own tenant — use the
+// user client so RLS acts as a second isolation layer.
+const INTERNAL_ROLES = ['superadmin', 'ops_agent'];
+function dbClient(req: Request) {
+    if (INTERNAL_ROLES.includes(req.user!.role)) return supabaseAdmin;
+    return createUserClient(req.accessToken!);
 }
 
 const VALID_EMAIL_STATUSES = ['valid', 'uncertain', 'invalid'] as const;
@@ -57,13 +71,15 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const sortBy = SORT_COLUMNS[req.query.sortBy as string] || 'updated_at';
         const sortOrder = (req.query.sortOrder as string) === 'asc';
 
+        const db = dbClient(req);
+
         // Build count query with filters
-        let countQuery = supabaseAdmin
+        let countQuery = db
             .from('companies')
             .select('*', { count: 'exact', head: true })
             .eq('tenant_id', tenantId);
 
-        let dataQuery = supabaseAdmin
+        let dataQuery = db
             .from('companies')
             .select('id, name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, partnership_observation_1, partnership_observation_2, partnership_observation_3, contact_count, created_at, updated_at')
             .eq('tenant_id', tenantId);
@@ -150,7 +166,9 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
         const pipelineStages = await getPipelineStageSlugs(tenantId);
         const terminalStages = await getTerminalStageSlugs(tenantId);
 
-        let query = supabaseAdmin
+        const db = dbClient(req);
+
+        let query = db
             .from('companies')
             .select('id, name, industry, stage, next_step, company_summary, updated_at, stage_changed_at, contact_count')
             .eq('tenant_id', tenantId)
@@ -184,7 +202,7 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
         // Terminal stage counts
         const terminalResults = await Promise.all(
             terminalStages.map((stage) =>
-                supabaseAdmin
+                db
                     .from('companies')
                     .select('*', { count: 'exact', head: true })
                     .eq('tenant_id', tenantId)
@@ -210,7 +228,9 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
         const tenantId = req.tenantId!;
         const { id } = req.params;
 
-        const { data, error } = await supabaseAdmin
+        const db = dbClient(req);
+
+        const { data, error } = await db
             .from('companies')
             .select('*')
             .eq('id', id)
@@ -224,7 +244,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
         }
 
         // Fetch contacts for this company
-        const { data: contacts } = await supabaseAdmin
+        const { data: contacts } = await db
             .from('contacts')
             .select('*')
             .eq('company_id', id)
@@ -478,18 +498,11 @@ router.post(
             const tenantId = req.tenantId!;
 
             // Only geocode companies that are visible on the map:
-            // pipeline-type stages (initial + pipeline) — terminal/cold stages are excluded
-            const [pipelineStages, initialStageSlugs] = await Promise.all([
-                getPipelineStageSlugs(tenantId),
-                supabaseAdmin
-                    .from('tenant_stage_settings')
-                    .select('slug')
-                    .eq('tenant_id', tenantId)
-                    .eq('stage_type', 'initial'),
-            ]);
-
-            const initialSlugs = (initialStageSlugs.data || []).map((s: { slug: string }) => s.slug);
-            const targetStages = [...initialSlugs, ...pipelineStages];
+            // initial + pipeline-type stages — terminal stages are excluded
+            const allStages = await getTenantStages(tenantId);
+            const targetStages = allStages
+                .filter((s) => s.stage_type === 'initial' || s.stage_type === 'pipeline')
+                .map((s) => s.slug);
 
             if (targetStages.length === 0) {
                 res.json({ total: 0, geocoded: 0 });
@@ -559,6 +572,17 @@ router.patch(
 
             if (!Array.isArray(ids) || ids.length === 0) {
                 res.status(400).json({ error: 'ids must be a non-empty array' });
+                return;
+            }
+
+            if (ids.length > 500) {
+                res.status(400).json({ error: 'Cannot update more than 500 companies at once' });
+                return;
+            }
+
+            const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (!ids.every((id: unknown) => typeof id === 'string' && UUID_RE.test(id))) {
+                res.status(400).json({ error: 'ids must be an array of valid UUIDs' });
                 return;
             }
 

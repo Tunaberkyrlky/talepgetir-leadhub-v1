@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'crypto';
-import { supabaseAdmin } from '../lib/supabase.js';
+import { supabaseAdmin, createUserClient } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
@@ -8,6 +8,15 @@ import { translateTexts } from '../lib/deepl.js';
 import { validateBody, createContactSchema, updateContactSchema, contactNoteSchema } from '../lib/validation.js';
 
 const log = createLogger('route:contacts');
+
+// For read endpoints: internal roles may be operating cross-tenant (X-Tenant-Id header),
+// so they require supabaseAdmin. Client roles access only their own tenant — use the
+// user client so RLS acts as a second isolation layer.
+const INTERNAL_ROLES = ['superadmin', 'ops_agent'];
+function dbClient(req: Request) {
+    if (INTERNAL_ROLES.includes(req.user!.role)) return supabaseAdmin;
+    return createUserClient(req.accessToken!);
+}
 
 interface ContactNote {
     id: string;
@@ -29,8 +38,13 @@ function parseNotes(raw: unknown): ContactNote[] {
 }
 
 // Sanitize search input for safe use in PostgREST .or() filter strings.
+// Strip PostgREST syntax chars, then escape ILIKE wildcards so user input
+// cannot act as a wildcard pattern (e.g. searching "50%" won't match everything).
 function sanitizeSearch(value: string): string {
-    return value.replace(/[,().\\]/g, '');
+    return value
+        .replace(/[,().\\]/g, '')   // strip PostgREST syntax chars (backslash first)
+        .replace(/%/g, '\\%')       // escape ILIKE wildcard %
+        .replace(/_/g, '\\_');      // escape ILIKE wildcard _
 }
 
 const router = Router();
@@ -40,18 +54,20 @@ router.get('/filter-options', async (req: Request, res: Response, next: NextFunc
     try {
         const tenantId = req.tenantId!;
 
+        const db = dbClient(req);
+
         const [seniorityRes, countryRes, companyRes] = await Promise.all([
-            supabaseAdmin
+            db
                 .from('contacts')
                 .select('seniority')
                 .eq('tenant_id', tenantId)
                 .not('seniority', 'is', null),
-            supabaseAdmin
+            db
                 .from('contacts')
                 .select('country')
                 .eq('tenant_id', tenantId)
                 .not('country', 'is', null),
-            supabaseAdmin
+            db
                 .from('companies')
                 .select('id, name')
                 .eq('tenant_id', tenantId)
@@ -80,9 +96,11 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const tenantId = req.tenantId!;
         const companyId = req.query.company_id as string | undefined;
 
+        const db = dbClient(req);
+
         // When fetching for a company detail page (company_id provided), simple ordered list
         if (companyId) {
-            const { data, error } = await supabaseAdmin
+            const { data, error } = await db
                 .from('contacts')
                 .select('*')
                 .eq('tenant_id', tenantId)
@@ -119,7 +137,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const allowedSortFields = ['first_name', 'last_name', 'email', 'country', 'seniority', 'created_at', 'updated_at'];
         const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'updated_at';
 
-        let query = supabaseAdmin
+        let query = db
             .from('contacts')
             .select(`*, companies(id, name, stage)`, { count: 'exact' })
             .eq('tenant_id', tenantId);
@@ -177,7 +195,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
         const tenantId = req.tenantId!;
         const { id } = req.params;
 
-        const { data, error } = await supabaseAdmin
+        const { data, error } = await dbClient(req)
             .from('contacts')
             .select(`*, companies(id, name, website, stage, location, industry)`)
             .eq('id', id)
@@ -302,7 +320,7 @@ router.put(
     }
 );
 
-// POST /api/contacts/:id/notes — Add a note to a contact
+// POST /api/contacts/:id/notes — Add a note to a contact (atomic via RPC)
 router.post(
     '/:id/notes',
     requireRole('superadmin', 'ops_agent'),
@@ -313,21 +331,6 @@ router.post(
             const { id } = req.params;
             const { text } = req.body;
 
-            // Fetch current notes
-            const { data: contact, error: fetchError } = await supabaseAdmin
-                .from('contacts')
-                .select('notes')
-                .eq('id', id)
-                .eq('tenant_id', tenantId)
-                .single();
-
-            if (fetchError || !contact) {
-                res.status(404).json({ error: 'Contact not found' });
-                return;
-            }
-
-            const existingNotes: ContactNote[] = parseNotes(contact.notes);
-
             const newNote: ContactNote = {
                 id: randomUUID(),
                 text: text.trim(),
@@ -335,22 +338,26 @@ router.post(
                 created_by: req.user?.email || 'unknown',
             };
 
-            const updatedNotes = [newNote, ...existingNotes];
+            // Atomic prepend — no read-modify-write race condition
+            const { data: updatedNotes, error } = await supabaseAdmin
+                .rpc('append_contact_note', {
+                    p_contact_id: id,
+                    p_tenant_id: tenantId,
+                    p_note: newNote,
+                });
 
-            const { data, error } = await supabaseAdmin
-                .from('contacts')
-                .update({ notes: updatedNotes })
-                .eq('id', id)
-                .eq('tenant_id', tenantId)
-                .select()
-                .single();
-
-            if (error || !data) {
+            if (error) {
+                log.error({ err: error }, 'RPC append_contact_note error');
                 res.status(500).json({ error: 'Failed to add note' });
                 return;
             }
 
-            res.status(201).json({ data });
+            if (updatedNotes === null) {
+                res.status(404).json({ error: 'Contact not found' });
+                return;
+            }
+
+            res.status(201).json({ data: { notes: updatedNotes } });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Add note error');
@@ -359,7 +366,7 @@ router.post(
     }
 );
 
-// DELETE /api/contacts/:id/notes/:noteId — Remove a note from a contact
+// DELETE /api/contacts/:id/notes/:noteId — Remove a note from a contact (atomic via RPC)
 router.delete(
     '/:id/notes/:noteId',
     requireRole('superadmin', 'ops_agent'),
@@ -368,40 +375,27 @@ router.delete(
             const tenantId = req.tenantId!;
             const { id, noteId } = req.params;
 
-            const { data: contact, error: fetchError } = await supabaseAdmin
-                .from('contacts')
-                .select('notes')
-                .eq('id', id)
-                .eq('tenant_id', tenantId)
-                .single();
+            // Atomic remove — no read-modify-write race condition
+            const { data: updatedNotes, error } = await supabaseAdmin
+                .rpc('remove_contact_note', {
+                    p_contact_id: id,
+                    p_tenant_id: tenantId,
+                    p_note_id: noteId,
+                });
 
-            if (fetchError || !contact) {
-                res.status(404).json({ error: 'Contact not found' });
-                return;
-            }
-
-            const existingNotes: ContactNote[] = parseNotes(contact.notes);
-            const updatedNotes = existingNotes.filter((n) => n.id !== noteId);
-
-            if (updatedNotes.length === existingNotes.length) {
-                res.status(404).json({ error: 'Note not found' });
-                return;
-            }
-
-            const { data, error } = await supabaseAdmin
-                .from('contacts')
-                .update({ notes: updatedNotes })
-                .eq('id', id)
-                .eq('tenant_id', tenantId)
-                .select()
-                .single();
-
-            if (error || !data) {
+            if (error) {
+                log.error({ err: error }, 'RPC remove_contact_note error');
                 res.status(500).json({ error: 'Failed to delete note' });
                 return;
             }
 
-            res.json({ data });
+            if (updatedNotes === null) {
+                // RPC returns NULL when the WHERE clause matched nothing (contact not found)
+                res.status(404).json({ error: 'Contact not found' });
+                return;
+            }
+
+            res.json({ data: { notes: updatedNotes } });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Delete note error');
