@@ -264,7 +264,16 @@
         "deleteStageTitle": "Aşamayı Sil",
         "deleteStageDesc": "Bu aşamada {{count}} firma var. Firmaları hangi aşamaya taşımak istiyorsunuz?",
         "reassignTo": "Taşınacak aşama",
-        "deleteAndMove": "Sil ve Taşı"
+        "deleteAndMove": "Sil ve Taşı",
+        "deactivate": "Devre Dışı Bırak",
+        "deactivateTitle": "{{name}} aşamasını devre dışı bırak",
+        "noCompaniesInStage": "Bu aşamada şirket yok. Doğrudan devre dışı bırakılacak.",
+        "companiesInStage": "{{count}} şirket bu aşamada",
+        "moveAllToInitial": "Tümünü {{stage}}'e Taşı",
+        "selectStage": "Aşama seç",
+        "stageDeactivated": "Aşama devre dışı bırakıldı",
+        "deactivateDisabledTooltip": "{{count}} şirket hâlâ bu aşamada",
+        "deactivateConfirm": "Devre Dışı Bırak"
     },
     "nav": {
         "dashboard": "Dashboard",

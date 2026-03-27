@@ -264,7 +264,16 @@
         "deleteStageTitle": "Delete Stage",
         "deleteStageDesc": "{{count}} companies are in this stage. Which stage should they be moved to?",
         "reassignTo": "Move to stage",
-        "deleteAndMove": "Delete & Move"
+        "deleteAndMove": "Delete & Move",
+        "deactivate": "Deactivate",
+        "deactivateTitle": "Deactivate stage: {{name}}",
+        "noCompaniesInStage": "No companies in this stage. It will be deactivated immediately.",
+        "companiesInStage": "{{count}} companies in this stage",
+        "moveAllToInitial": "Move all to {{stage}}",
+        "selectStage": "Select stage",
+        "stageDeactivated": "Stage deactivated",
+        "deactivateDisabledTooltip": "{{count}} companies still in this stage",
+        "deactivateConfirm": "Deactivate"
     },
     "nav": {
         "dashboard": "Dashboard",
