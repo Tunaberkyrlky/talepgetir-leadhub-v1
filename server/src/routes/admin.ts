@@ -14,7 +14,7 @@ import {
 const log = createLogger('route:admin');
 const router = Router();
 
-async function logAuditAction(
+export async function logAuditAction(
     actorId: string,
     action: string,
     targetType: string,
