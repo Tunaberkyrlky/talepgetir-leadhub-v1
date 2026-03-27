@@ -449,6 +449,25 @@ router.post('/stages/:slug/deactivate', async (req: Request, res: Response, next
             }
         }
 
+        // Validate all companyIds belong to this tenant
+        if (migrations.length > 0) {
+            const companyIds = migrations.map((m) => m.companyId);
+            const { data: ownedCompanies, error: ownershipError } = await supabaseAdmin
+                .from('companies')
+                .select('id')
+                .eq('tenant_id', tenantId)
+                .in('id', companyIds);
+
+            if (ownershipError) throw new AppError('Failed to validate company ownership', 500);
+
+            const ownedIds = new Set((ownedCompanies || []).map((c) => c.id));
+            const foreignId = companyIds.find((id) => !ownedIds.has(id));
+            if (foreignId) {
+                res.status(400).json({ error: `Company "${foreignId}" does not belong to this tenant` });
+                return;
+            }
+        }
+
         // Apply explicit migrations
         let companiesMoved = 0;
         for (const m of migrations) {
