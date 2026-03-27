@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../lib/api';
 
@@ -42,6 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.getItem('activeTenantId')
     );
     const queryClient = useQueryClient();
+    const navigate = useNavigate();
 
     // Derive accessible tenants + active tenant name/tier from user
     const accessibleTenants = user?.accessibleTenants || [];
@@ -75,6 +77,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         checkAuth();
     }, []);
+
+    // Listen for token refresh failures dispatched from the api interceptor.
+    // Using a custom event avoids window.location.href which would do a full-page reload
+    // and destroy unsaved React state (forms, import progress, etc.).
+    useEffect(() => {
+        const handleSessionExpired = () => {
+            setUser(null);
+            setActiveTenantId(null);
+            queryClient.clear();
+            navigate('/login', { replace: true });
+        };
+        window.addEventListener('auth:sessionExpired', handleSessionExpired);
+        return () => window.removeEventListener('auth:sessionExpired', handleSessionExpired);
+    }, [navigate, queryClient]);
 
     const login = useCallback(async (email: string, password: string) => {
         const { data } = await api.post('/auth/login', { email, password });

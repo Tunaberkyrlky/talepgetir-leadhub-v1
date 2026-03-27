@@ -24,6 +24,9 @@ npm-debug.log*
 # Supabase
 supabase/.temp/
 
+# MCP (contains secrets)
+.mcp.json
+
 # Project docs
 CRM_EXPANSION_PLAN.md
 plans/

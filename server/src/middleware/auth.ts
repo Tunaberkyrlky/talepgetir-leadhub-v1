@@ -12,13 +12,20 @@ interface CachedAuth {
 const authCache = new Map<string, CachedAuth>();
 const AUTH_CACHE_TTL = 60_000; // 60 seconds
 
-// Clean stale entries periodically
-setInterval(() => {
-    const now = Date.now();
-    for (const [key, val] of authCache) {
-        if (now - val.ts > AUTH_CACHE_TTL * 2) authCache.delete(key);
-    }
-}, 120_000);
+// Clean stale entries lazily — started on first auth request.
+// Storing the reference prevents duplicate intervals when the module is re-evaluated
+// (e.g. on Vercel serverless cold starts in the same process lifetime).
+let _cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
+
+function ensureCacheCleanupRunning(): void {
+    if (_cacheCleanupInterval) return;
+    _cacheCleanupInterval = setInterval(() => {
+        const now = Date.now();
+        for (const [key, val] of authCache) {
+            if (now - val.ts > AUTH_CACHE_TTL * 2) authCache.delete(key);
+        }
+    }, 120_000);
+}
 
 // Extend Express Request type
 declare global {
@@ -42,6 +49,7 @@ export async function authMiddleware(
     res: Response,
     next: NextFunction
 ): Promise<void> {
+    ensureCacheCleanupRunning();
     try {
         // Read token from httpOnly cookie first, fall back to Authorization header
         const authHeader = req.headers.authorization;

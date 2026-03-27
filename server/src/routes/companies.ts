@@ -480,6 +480,12 @@ router.put(
                 throw new AppError('Failed to update company', 500);
             }
 
+            // Stage changed via edit form — keep statistics cache consistent
+            if (updateData.stage !== undefined) {
+                invalidateOverviewCache(tenantId);
+                invalidatePipelineStatsCache(tenantId);
+            }
+
             res.json({ data });
         } catch (err) {
             if (err instanceof AppError) return next(err);
