@@ -151,22 +151,33 @@ router.get('/company-locations', requireTier('pro'), async (req: Request, res: R
     try {
         const tenantId = req.tenantId!;
 
-        const { data, error } = await supabaseAdmin
-            .from('companies')
-            .select('id, name, location, latitude, longitude, stage')
-            .eq('tenant_id', tenantId)
-            .not('latitude', 'is', null)
-            .not('longitude', 'is', null)
-            .order('updated_at', { ascending: false })
-            .limit(2000);
+        const [locationsRes, missingRes] = await Promise.all([
+            supabaseAdmin
+                .from('companies')
+                .select('id, name, location, latitude, longitude, stage')
+                .eq('tenant_id', tenantId)
+                .not('latitude', 'is', null)
+                .not('longitude', 'is', null)
+                .order('updated_at', { ascending: false })
+                .limit(2000),
+            supabaseAdmin
+                .from('companies')
+                .select('*', { count: 'exact', head: true })
+                .eq('tenant_id', tenantId)
+                .in('stage', ['pipeline_negotiation', 'pipeline_meeting', 'pipeline_proposal'])
+                .is('latitude', null)
+        ]);
 
-        if (error) {
-            log.error({ err: error }, 'Company locations error');
+        if (locationsRes.error) {
+            log.error({ err: locationsRes.error }, 'Company locations error');
             res.status(500).json({ error: 'Failed to fetch company locations' });
             return;
         }
 
-        res.json({ data: data || [] });
+        res.json({ 
+            data: locationsRes.data || [], 
+            missingCount: missingRes.count || 0 
+        });
     } catch (err) {
         log.error({ err }, 'Company locations error');
         res.status(500).json({ error: 'Failed to fetch company locations' });

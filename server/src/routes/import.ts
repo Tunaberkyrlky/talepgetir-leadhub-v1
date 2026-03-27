@@ -358,6 +358,28 @@ router.post(
                 return;
             }
 
+            // Check if any custom fields were mapped, and save their labels
+            const newSettings: Record<string, string> = {};
+            for (const [header, dbField] of Object.entries(mapping)) {
+                if (dbField === 'companies.custom_field_1') newSettings.custom_field_1_label = header;
+                if (dbField === 'companies.custom_field_2') newSettings.custom_field_2_label = header;
+                if (dbField === 'companies.custom_field_3') newSettings.custom_field_3_label = header;
+            }
+
+            if (Object.keys(newSettings).length > 0) {
+                const { data: tenant } = await supabaseAdmin
+                    .from('tenants')
+                    .select('settings')
+                    .eq('id', req.tenantId!)
+                    .single();
+                
+                const currentSettings = (tenant?.settings as Record<string, unknown>) || {};
+                await supabaseAdmin
+                    .from('tenants')
+                    .update({ settings: { ...currentSettings, ...newSettings } })
+                    .eq('id', req.tenantId!);
+            }
+
             // Execute import synchronously
             const result = await executeImport(
                 req.tenantId!,

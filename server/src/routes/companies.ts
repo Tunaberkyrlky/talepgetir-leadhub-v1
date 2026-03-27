@@ -5,6 +5,8 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
+import { validateBody, createCompanySchema, updateCompanySchema } from '../lib/validation.js';
+import { isInternalRole } from '../lib/roles.js';
 import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
 import { invalidateOverviewCache, invalidatePipelineStatsCache } from './statistics.js';
 
@@ -27,9 +29,8 @@ function sanitizeSearch(value: string): string {
 // For read endpoints: internal roles may be operating cross-tenant (X-Tenant-Id header),
 // so they require supabaseAdmin. Client roles access only their own tenant — use the
 // user client so RLS acts as a second isolation layer.
-const INTERNAL_ROLES = ['superadmin', 'ops_agent'];
 function dbClient(req: Request) {
-    if (INTERNAL_ROLES.includes(req.user!.role)) return supabaseAdmin;
+    if (isInternalRole(req.user!.role)) return supabaseAdmin;
     return createUserClient(req.accessToken!);
 }
 
@@ -81,7 +82,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         let dataQuery = db
             .from('companies')
-            .select('id, name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, partnership_observation_1, partnership_observation_2, partnership_observation_3, contact_count, created_at, updated_at')
+            .select('id, name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at')
             .eq('tenant_id', tenantId);
 
         // Apply search (ILIKE on multiple columns)
@@ -122,7 +123,8 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const { count, error: countError } = await countQuery;
 
         if (countError) {
-            throw new AppError('Failed to count companies', 500);
+            log.error({ err: countError }, 'Count query failed');
+            throw new AppError(`Kayıt sayısı alınamadı (DB Hatası): ${countError.message}`, 500);
         }
 
         // Apply sort and pagination
@@ -133,7 +135,8 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             .range(offset, offset + limit - 1);
 
         if (error) {
-            throw new AppError('Failed to fetch companies', 500);
+            log.error({ err: error, sortBy, sortOrder }, 'Data query failed');
+            throw new AppError(`Şirketler listelenirken DB hatası: ${error.message || 'Bilinmeyen hata'}`, 500);
         }
 
         const totalPages = Math.ceil((count || 0) / limit);
@@ -263,6 +266,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
 router.post(
     '/',
     requireRole('superadmin', 'ops_agent'),
+    validateBody(createCompanySchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
@@ -270,7 +274,7 @@ router.post(
                 name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone,
                 company_email, email_status,
                 stage, company_summary, internal_notes, next_step, custom_fields,
-                fit_score, partnership_observation_1, partnership_observation_2, partnership_observation_3,
+                fit_score, custom_field_1, custom_field_2, custom_field_3,
                 contact_first_name, contact_last_name, contact_title, contact_email, contact_phone_e164
             } = req.body;
 
@@ -328,9 +332,9 @@ router.post(
                 next_step: next_step || null,
                 custom_fields: custom_fields || {},
                 fit_score: fit_score || null,
-                partnership_observation_1: partnership_observation_1 || null,
-                partnership_observation_2: partnership_observation_2 || null,
-                partnership_observation_3: partnership_observation_3 || null,
+                custom_field_1: custom_field_1 || null,
+                custom_field_2: custom_field_2 || null,
+                custom_field_3: custom_field_3 || null,
                 assigned_to: req.user!.id,
             };
 
@@ -395,6 +399,7 @@ router.post(
 router.put(
     '/:id',
     requireRole('superadmin', 'ops_agent'),
+    validateBody(updateCompanySchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
@@ -413,7 +418,7 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, partnership_observation_1, partnership_observation_2, partnership_observation_3 } = req.body;
+            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3 } = req.body;
 
             // Validate stage if provided
             if (stage) {
@@ -455,9 +460,9 @@ router.put(
             if (company_summary !== undefined) updateData.company_summary = company_summary;
             if (internal_notes !== undefined) updateData.internal_notes = internal_notes;
             if (fit_score !== undefined) updateData.fit_score = fit_score;
-            if (partnership_observation_1 !== undefined) updateData.partnership_observation_1 = partnership_observation_1;
-            if (partnership_observation_2 !== undefined) updateData.partnership_observation_2 = partnership_observation_2;
-            if (partnership_observation_3 !== undefined) updateData.partnership_observation_3 = partnership_observation_3;
+            if (custom_field_1 !== undefined) updateData.custom_field_1 = custom_field_1;
+            if (custom_field_2 !== undefined) updateData.custom_field_2 = custom_field_2;
+            if (custom_field_3 !== undefined) updateData.custom_field_3 = custom_field_3;
             if (next_step !== undefined) updateData.next_step = next_step;
             if (custom_fields !== undefined) updateData.custom_fields = custom_fields;
 
@@ -595,6 +600,13 @@ router.patch(
             const validSlugs = await getValidStageSlugs(tenantId);
             if (!stage || !validSlugs.includes(stage)) {
                 res.status(400).json({ error: `Invalid stage. Valid stages: ${validSlugs.join(', ')}` });
+                return;
+            }
+
+            // Terminal stages cannot be set via bulk update — each company requires a closing report
+            const TERMINAL_STAGES_BULK = ['won', 'lost', 'on_hold', 'cancelled'];
+            if (TERMINAL_STAGES_BULK.includes(stage)) {
+                res.status(400).json({ error: 'Terminal stages (won, lost, on_hold, cancelled) cannot be set via bulk update. Each company requires an individual closing report.' });
                 return;
             }
 

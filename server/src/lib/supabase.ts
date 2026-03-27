@@ -32,13 +32,6 @@ export const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
     },
 });
 
-// Debug: confirm which key role is in use (dev aid, can be removed once stable)
-import { createLogger } from './logger.js';
-const log = createLogger('supabase');
-const keyRole = supabaseServiceKey.split('.')[1]
-    ? JSON.parse(Buffer.from(supabaseServiceKey.split('.')[1], 'base64').toString()).role
-    : 'unknown';
-log.debug({ keyRole }, 'Supabase service key loaded');
 
 // Create a per-request client using the user's JWT token
 // This client respects RLS policies

@@ -17,7 +17,12 @@ const api = axios.create({
 // Request interceptor: attach active tenant header
 api.interceptors.request.use((config) => {
     const activeTenantId = localStorage.getItem('activeTenantId');
-    if (activeTenantId && activeTenantId !== 'null') {
+    
+    // Do not attach X-Tenant-Id to auth endpoints (like /auth/login, /auth/me)
+    // to prevent a stale tenant from interfering with authentication or scoping.
+    const isAuthEndpoint = config.url?.startsWith('/auth/');
+    
+    if (activeTenantId && activeTenantId !== 'null' && !isAuthEndpoint) {
         config.headers['X-Tenant-Id'] = activeTenantId;
     }
     return config;

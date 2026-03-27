@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Table, Text, Select, Badge, Divider, Group, Popover, ScrollArea, Stack, UnstyledButton } from '@mantine/core';
 import { IconArrowRight, IconLink, IconLinkOff, IconBuildingSkyscraper, IconUsers } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import { useAuth } from '../contexts/AuthContext';
 import type { MappingSuggestion, AvailableField } from '../lib/types';
 
 interface MappingEditorProps {
@@ -16,6 +17,7 @@ interface MappingEditorProps {
 
 export default function MappingEditor({ suggestions, mapping, availableFields, onMappingChange, companyHeaders, peopleHeaders, previewRows }: MappingEditorProps) {
     const { t } = useTranslation();
+    const { user } = useAuth();
     const [openedPopover, setOpenedPopover] = useState<string | null>(null);
     const hasSourceInfo = !!(companyHeaders && peopleHeaders);
 
@@ -52,11 +54,25 @@ export default function MappingEditor({ suggestions, mapping, availableFields, o
     const companyFields = availableFields.filter((f) => f.table === 'companies');
     const contactFields = availableFields.filter((f) => f.table === 'contacts');
     const groups: { group: string; items: { value: string; label: string }[] }[] = [];
+
+    const getLabel = (f: AvailableField) => {
+        if (f.field === 'custom_field_1' && user?.tenantSettings?.custom_field_1_label) {
+            return `companies.${user.tenantSettings.custom_field_1_label} (Custom)`;
+        }
+        if (f.field === 'custom_field_2' && user?.tenantSettings?.custom_field_2_label) {
+            return `companies.${user.tenantSettings.custom_field_2_label} (Custom)`;
+        }
+        if (f.field === 'custom_field_3' && user?.tenantSettings?.custom_field_3_label) {
+            return `companies.${user.tenantSettings.custom_field_3_label} (Custom)`;
+        }
+        return f.label;
+    };
+
     if (companyFields.length > 0) {
-        groups.push({ group: t('import.fieldGroupCompany'), items: companyFields.map((f) => ({ value: f.value, label: f.label })) });
+        groups.push({ group: t('import.fieldGroupCompany'), items: companyFields.map((f) => ({ value: f.value, label: getLabel(f) })) });
     }
     if (contactFields.length > 0) {
-        groups.push({ group: t('import.fieldGroupPeople'), items: contactFields.map((f) => ({ value: f.value, label: f.label })) });
+        groups.push({ group: t('import.fieldGroupPeople'), items: contactFields.map((f) => ({ value: f.value, label: getLabel(f) })) });
     }
 
     const mappedSuggestions = suggestions.filter((s) => !!mapping[s.fileHeader]);

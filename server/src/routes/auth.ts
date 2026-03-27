@@ -37,6 +37,7 @@ router.post('/login', validateBody(loginSchema), async (req: Request, res: Respo
                 tenantId: ctx.tenantId,
                 tenantName: ctx.tenantName,
                 tenantTier: ctx.tenantTier,
+                tenantSettings: ctx.tenantSettings,
                 role: ctx.role,
                 accessibleTenants: ctx.accessibleTenants,
             },
@@ -50,11 +51,13 @@ router.post('/login', validateBody(loginSchema), async (req: Request, res: Respo
 // POST /api/auth/refresh
 router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     try {
-        // Read refresh token from cookie first, fall back to body
-        const refreshToken = req.cookies?.refresh_token || req.body.refreshToken;
+        // Refresh token must come from the httpOnly cookie only.
+        // Never fall back to req.body — that would allow any script with a
+        // stolen token string to refresh sessions, defeating the cookie model.
+        const refreshToken = req.cookies?.refresh_token;
 
         if (!refreshToken) {
-            res.status(400).json({ error: 'Refresh token is required' });
+            res.status(401).json({ error: 'No refresh token' });
             return;
         }
 
@@ -106,6 +109,7 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
                 tenantId: ctx.tenantId,
                 tenantName: ctx.tenantName,
                 tenantTier: ctx.tenantTier,
+                tenantSettings: ctx.tenantSettings,
                 role: ctx.role,
                 accessibleTenants: ctx.accessibleTenants,
             },

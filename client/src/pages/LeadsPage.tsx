@@ -93,9 +93,9 @@ interface Company {
     company_summary: string | null;
     next_step: string | null;
     fit_score: string | null;
-    partnership_observation_1: string | null;
-    partnership_observation_2: string | null;
-    partnership_observation_3: string | null;
+    custom_field_1: string | null;
+    custom_field_2: string | null;
+    custom_field_3: string | null;
     assigned_to: string | null;
     created_at: string;
     updated_at: string;
@@ -130,7 +130,7 @@ type ColumnKey =
     | 'employee_size' | 'product_services' | 'product_portfolio'
     | 'linkedin' | 'company_phone' | 'company_email' | 'company_summary'
     | 'next_step' | 'assigned_to' | 'contact_count'
-    | 'fit_score' | 'partnership_observation_1' | 'partnership_observation_2' | 'partnership_observation_3'
+    | 'fit_score' | 'custom_field_1' | 'custom_field_2' | 'custom_field_3'
     | 'created_at' | 'updated_at';
 
 interface ColumnDef {
@@ -156,9 +156,9 @@ const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'company_email', visible: false },
     { key: 'company_summary', visible: false },
     { key: 'fit_score', visible: false },
-    { key: 'partnership_observation_1', visible: false },
-    { key: 'partnership_observation_2', visible: false },
-    { key: 'partnership_observation_3', visible: false },
+    { key: 'custom_field_1', visible: false },
+    { key: 'custom_field_2', visible: false },
+    { key: 'custom_field_3', visible: false },
     { key: 'assigned_to', visible: false },
     { key: 'contact_count', visible: false },
     { key: 'created_at', visible: false },
@@ -411,9 +411,9 @@ export default function LeadsPage() {
         company_email: t('company.companyEmail'),
         company_summary: t('company.companySummary'),
         fit_score: t('company.fitScore'),
-        partnership_observation_1: t('company.partnershipObservation1'),
-        partnership_observation_2: t('company.partnershipObservation2'),
-        partnership_observation_3: t('company.partnershipObservation3'),
+        custom_field_1: user?.tenantSettings?.custom_field_1_label || t('company.customField1', 'Özel Alan 1'),
+        custom_field_2: user?.tenantSettings?.custom_field_2_label || t('company.customField2', 'Özel Alan 2'),
+        custom_field_3: user?.tenantSettings?.custom_field_3_label || t('company.customField3', 'Özel Alan 3'),
         next_step: t('company.nextStep'),
         assigned_to: t('company.assignedTo'),
         contact_count: t('company.contactCount'),
@@ -727,22 +727,22 @@ export default function LeadsPage() {
                         <TruncatedText size="sm">{company.fit_score}</TruncatedText>
                     </Table.Td>
                 );
-            case 'partnership_observation_1':
+            case 'custom_field_1':
                 return (
-                    <Table.Td key="partnership_observation_1">
-                        <TruncatedText size="sm">{company.partnership_observation_1}</TruncatedText>
+                    <Table.Td key="custom_field_1">
+                        <TruncatedText size="sm">{company.custom_field_1}</TruncatedText>
                     </Table.Td>
                 );
-            case 'partnership_observation_2':
+            case 'custom_field_2':
                 return (
-                    <Table.Td key="partnership_observation_2">
-                        <TruncatedText size="sm">{company.partnership_observation_2}</TruncatedText>
+                    <Table.Td key="custom_field_2">
+                        <TruncatedText size="sm">{company.custom_field_2}</TruncatedText>
                     </Table.Td>
                 );
-            case 'partnership_observation_3':
+            case 'custom_field_3':
                 return (
-                    <Table.Td key="partnership_observation_3">
-                        <TruncatedText size="sm">{company.partnership_observation_3}</TruncatedText>
+                    <Table.Td key="custom_field_3">
+                        <TruncatedText size="sm">{company.custom_field_3}</TruncatedText>
                     </Table.Td>
                 );
             case 'next_step':

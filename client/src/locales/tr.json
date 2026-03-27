@@ -65,7 +65,9 @@
         "contacts": "Kişiler",
         "noContacts": "Henüz kişi eklenmemiş",
         "detail": "Şirket Detayı",
-        "back": "Geri Dön"
+        "back": "Geri Dön",
+        "notFound": "Şirket bulunamadı",
+        "notFoundDesc": "Bu şirket silinmiş olabilir veya erişim izniniz olmayabilir."
     },
     "contact": {
         "firstName": "Ad",
@@ -84,6 +86,8 @@
         "updated": "Kişi güncellendi",
         "deleted": "Kişi silindi",
         "deleteConfirm": "Bu kişiyi silmek istediğinizden emin misiniz?",
+        "deleteTitle": "Kişiyi Sil",
+        "deleteConfirmDesc": "Bu kişi kalıcı olarak silinecek. Bu işlem geri alınamaz.",
         "contactFullName": "Kişi Adı Soyadı",
         "addPrimaryContact": "Birincil Kişi Ekle (Opsiyonel)",
         "jobTitle": "İş Unvanı",
@@ -178,7 +182,8 @@
         "negotiation": "Müzakere",
         "won": "Kazanıldı",
         "lost": "Kaybedildi",
-        "on_hold": "Askıda"
+        "on_hold": "Askıda",
+        "cancelled": "İptal Edildi"
     },
     "pagination": {
         "showing": "Gösterilen",
@@ -196,6 +201,8 @@
         "confirm": "Onayla",
         "actions": "İşlemler",
         "back": "Geri Dön",
+        "goBack": "Geri Dön",
+        "delete": "Kalıcı Olarak Sil",
         "showMore": "Daha fazla",
         "showLess": "Daha az",
         "fullscreen": "Tam ekran",
@@ -410,6 +417,43 @@
         "membershipUpdated": "Atama güncellendi",
         "membershipRemoved": "Atama kaldırıldı",
         "membershipRemoveConfirm": "Bu kullanıcıyı müşteriden kaldırmak istiyor musunuz?"
+    },
+    "activity": {
+        "timeline": "Aktivite Zaman Çizelgesi",
+        "addActivity": "Aktivite Ekle",
+        "type": "Tür",
+        "summary": "Özet",
+        "detail": "Detaylar",
+        "outcome": "Sonuç",
+        "visibility": "Görünürlük",
+        "noActivities": "Henüz aktivite yok",
+        "created": "Aktivite oluşturuldu",
+        "updated": "Aktivite güncellendi",
+        "deleted": "Aktivite silindi",
+        "loadMore": "Daha fazla yükle",
+        "types": {
+            "not": "Not",
+            "meeting": "Toplantı",
+            "follow_up": "Takip",
+            "sonlandirma_raporu": "Sonlandırma Raporu",
+            "status_change": "Aşama Değişikliği"
+        },
+        "visibility_options": {
+            "internal": "İç",
+            "client": "Müşteri"
+        },
+        "closingReport": {
+            "title": "Sonlandırma Raporu",
+            "outcomeLabel": "Sonuç",
+            "reasonLabel": "Sebep",
+            "summaryLabel": "Özet",
+            "required": "Bu aşama için sonlandırma raporu zorunludur",
+            "won": "Kazanıldı",
+            "lost": "Kaybedildi",
+            "on_hold": "Beklemede",
+            "cancelled": "İptal Edildi"
+        },
+        "tierRequired": "Aktivite zaman çizelgesi Pro planda kullanılabilir"
     },
     "errors": {
         "network": "İnternet bağlantınızı kontrol edin",

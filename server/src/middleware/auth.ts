@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin, supabaseAuth } from '../lib/supabase.js';
 import { createLogger } from '../lib/logger.js';
+import { isInternalRole } from '../lib/roles.js';
 
 const log = createLogger('auth');
 
@@ -214,7 +215,6 @@ export function requireRole(...roles: string[]) {
 }
 
 // Tier check middleware factory. Internal roles (superadmin, ops_agent) are always allowed.
-const INTERNAL_ROLES = ['superadmin', 'ops_agent'];
 
 export function requireTier(...tiers: string[]) {
     return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -224,7 +224,7 @@ export function requireTier(...tiers: string[]) {
         }
 
         // Internal roles bypass tier checks
-        if (INTERNAL_ROLES.includes(req.user.role)) {
+        if (isInternalRole(req.user.role)) {
             next();
             return;
         }

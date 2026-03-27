@@ -371,9 +371,9 @@ async function _executeImportInner(
             company_summary: getValue(row, 'companies.company_summary') || null,
             next_step: getValue(row, 'companies.next_step') || null,
             fit_score: getValue(row, 'companies.fit_score') || null,
-            partnership_observation_1: getValue(row, 'companies.partnership_observation_1') || null,
-            partnership_observation_2: getValue(row, 'companies.partnership_observation_2') || null,
-            partnership_observation_3: getValue(row, 'companies.partnership_observation_3') || null,
+            custom_field_1: getValue(row, 'companies.custom_field_1') || null,
+            custom_field_2: getValue(row, 'companies.custom_field_2') || null,
+            custom_field_3: getValue(row, 'companies.custom_field_3') || null,
         };
 
         // Dedup by website if available; otherwise treat as new company

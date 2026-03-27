@@ -19,6 +19,7 @@ export interface ResolvedUserContext {
     tenantTier: string;
     role: string | null;
     accessibleTenants: AccessibleTenant[];
+    tenantSettings: Record<string, any> | null;
 }
 
 /**
@@ -76,15 +77,17 @@ export async function resolveUserContext(
     // Resolve tenant details
     let tenantName: string | null = null;
     let tenantTier = 'basic';
+    let tenantSettings: Record<string, any> | null = null;
     if (effectiveTenantId) {
         const { data: tenant } = await supabaseAdmin
             .from('tenants')
-            .select('name, tier')
+            .select('name, tier, settings')
             .eq('id', effectiveTenantId)
             .eq('is_active', true)
             .single();
         tenantName = tenant?.name || null;
         tenantTier = tenant?.tier || 'basic';
+        tenantSettings = tenant?.settings || null;
     }
 
     // Build accessible tenants list
@@ -96,6 +99,7 @@ export async function resolveUserContext(
         tenantTier,
         role: effectiveRole,
         accessibleTenants,
+        tenantSettings,
     };
 }
 
