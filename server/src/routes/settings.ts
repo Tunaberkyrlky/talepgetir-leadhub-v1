@@ -323,7 +323,7 @@ router.delete('/stages/:slug', async (req: Request, res: Response, next: NextFun
         if (deleteError) {
             // FK violation: stage still referenced by companies
             if ((deleteError as any).code === '23503') {
-                res.status(409).json({ error: 'Stage has companies — use POST /api/settings/stages/' + slug + '/deactivate' });
+                res.status(409).json({ error: 'Stage has companies — deactivate it first using the deactivate endpoint' });
                 return;
             }
             log.error({ err: deleteError }, 'Delete stage error');

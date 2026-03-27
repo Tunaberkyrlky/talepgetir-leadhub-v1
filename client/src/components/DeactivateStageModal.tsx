@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import {
     Modal, Stack, Text, Button, Group, Select,
-    ScrollArea, Table, Tooltip, Loader, Center,
+    ScrollArea, Table, Tooltip, Loader, Center, Box,
 } from '@mantine/core';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -148,14 +148,16 @@ export default function DeactivateStageModal({ stageSlug, stageName, onClose, on
                         label={t('pipelineSettings.deactivateDisabledTooltip', { count: pendingCount })}
                         disabled={allAssigned || companies.length === 0}
                     >
-                        <Button
-                            color="orange"
-                            onClick={() => deactivateMutation.mutate()}
-                            loading={deactivateMutation.isPending}
-                            disabled={companies.length > 0 && !allAssigned}
-                        >
-                            {t('pipelineSettings.deactivateConfirm', 'Devre Dışı Bırak')}
-                        </Button>
+                        <Box style={{ display: 'inline-block' }}>
+                            <Button
+                                color="orange"
+                                onClick={() => deactivateMutation.mutate()}
+                                loading={deactivateMutation.isPending}
+                                disabled={companies.length > 0 && !allAssigned}
+                            >
+                                {t('pipelineSettings.deactivateConfirm', 'Devre Dışı Bırak')}
+                            </Button>
+                        </Box>
                     </Tooltip>
                 </Group>
             </Stack>
