@@ -56,9 +56,11 @@ api.interceptors.response.use(
                     // Cookies are set by server automatically
                 })
                 .catch((refreshError) => {
-                    log.warn('Token refresh failed, redirecting to login', { url });
+                    log.warn('Token refresh failed, dispatching session expiry event', { url });
                     localStorage.removeItem('activeTenantId');
-                    window.location.href = '/login';
+                    // Dispatch a custom event so AuthContext can handle navigation via React Router
+                    // (avoids full-page reload that would destroy React state and unsaved data)
+                    window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
                     throw refreshError;
                 })
                 .finally(() => {

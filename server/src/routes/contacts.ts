@@ -54,32 +54,27 @@ router.get('/filter-options', async (req: Request, res: Response, next: NextFunc
     try {
         const tenantId = req.tenantId!;
 
-        const db = dbClient(req);
-
-        const [seniorityRes, countryRes, companyRes] = await Promise.all([
-            db
-                .from('contacts')
-                .select('seniority')
-                .eq('tenant_id', tenantId)
-                .not('seniority', 'is', null),
-            db
-                .from('contacts')
-                .select('country')
-                .eq('tenant_id', tenantId)
-                .not('country', 'is', null),
-            db
+        // Use RPC for seniorities + countries: single query with SQL DISTINCT,
+        // far more efficient than fetching all rows and deduplicating in JS.
+        // Companies are fetched separately since we need id+name pairs, not just distinct values.
+        const [filterRes, companyRes] = await Promise.all([
+            supabaseAdmin.rpc('get_contact_filter_options', { p_tenant_id: tenantId }),
+            dbClient(req)
                 .from('companies')
                 .select('id, name')
                 .eq('tenant_id', tenantId)
                 .order('name'),
         ]);
 
-        const unique = <T>(arr: T[]): T[] => [...new Set(arr)];
+        if (filterRes.error) {
+            log.error({ err: filterRes.error }, 'get_contact_filter_options RPC error');
+            throw new AppError('Failed to fetch filter options', 500);
+        }
 
         res.json({
             data: {
-                seniorities: unique((seniorityRes.data || []).map((r: any) => r.seniority)).sort(),
-                countries: unique((countryRes.data || []).map((r: any) => r.country)).sort(),
+                seniorities: filterRes.data?.seniorities || [],
+                countries: filterRes.data?.countries || [],
                 companies: (companyRes.data || []).map((c: any) => ({ id: c.id, name: c.name })),
             },
         });
@@ -237,6 +232,15 @@ router.post(
                 return;
             }
 
+            // Ensure at most one primary per company — unset others before inserting
+            if (is_primary) {
+                await supabaseAdmin
+                    .from('contacts')
+                    .update({ is_primary: false })
+                    .eq('company_id', company_id)
+                    .eq('tenant_id', tenantId);
+            }
+
             // Build payload
             const contactPayload: Record<string, unknown> = {
                 tenant_id: tenantId,
@@ -297,6 +301,25 @@ router.put(
             if (seniority !== undefined) updateData.seniority = seniority;
             if (department !== undefined) updateData.department = department;
             if (is_primary !== undefined) updateData.is_primary = is_primary;
+
+            // Ensure at most one primary per company — unset others before this update
+            if (is_primary === true) {
+                const { data: existing } = await supabaseAdmin
+                    .from('contacts')
+                    .select('company_id')
+                    .eq('id', id)
+                    .eq('tenant_id', tenantId)
+                    .single();
+
+                if (existing?.company_id) {
+                    await supabaseAdmin
+                        .from('contacts')
+                        .update({ is_primary: false })
+                        .eq('company_id', existing.company_id)
+                        .eq('tenant_id', tenantId)
+                        .neq('id', id);
+                }
+            }
 
             const { data, error } = await supabaseAdmin
                 .from('contacts')

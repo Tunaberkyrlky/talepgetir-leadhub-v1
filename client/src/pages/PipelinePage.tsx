@@ -99,8 +99,12 @@ export default function PipelinePage() {
             return res.data;
         },
         onMutate: async ({ companyId, newStage }) => {
+            // Capture search at mutation time — user may change it before onError fires,
+            // which would cause the rollback to write to the wrong cache key.
+            const searchSnapshot = debouncedSearch;
+
             await queryClient.cancelQueries({ queryKey: ['pipeline'] });
-            const previous = queryClient.getQueryData<PipelineData>(['pipeline', debouncedSearch]);
+            const previous = queryClient.getQueryData<PipelineData>(['pipeline', searchSnapshot]);
 
             // Optimistic update
             if (previous) {
@@ -122,15 +126,15 @@ export default function PipelinePage() {
                     updated.columns[newStage] = [movedCompany, ...updated.columns[newStage]];
                 }
 
-                queryClient.setQueryData(['pipeline', debouncedSearch], updated);
+                queryClient.setQueryData(['pipeline', searchSnapshot], updated);
             }
 
-            return { previous };
+            return { previous, searchSnapshot };
         },
         onError: (_err, _vars, context) => {
-            // Rollback on error
+            // Rollback using the search snapshot captured at mutation start
             if (context?.previous) {
-                queryClient.setQueryData(['pipeline', debouncedSearch], context.previous);
+                queryClient.setQueryData(['pipeline', context.searchSnapshot], context.previous);
             }
             showError(t('pipeline.moveError'));
         },
@@ -152,13 +156,15 @@ export default function PipelinePage() {
                 undo: () => stageMutation.mutate({ companyId, newStage: oldStage }),
             });
         },
-        [stageMutation]
+        // stageMutation.mutate is stable across renders (TanStack Query guarantee);
+        // using stageMutation (the whole object) would defeat memoization since it's recreated each render.
+        [stageMutation.mutate, undoStack, t]
     );
 
     // Flatten all companies for table view
     const allCompanies = useMemo(
         () => (data ? pipelineStageSlugs.flatMap((stage) => data.columns[stage] || []) : []),
-        [data]
+        [data, pipelineStageSlugs]
     );
 
     const totalActive = allCompanies.length;

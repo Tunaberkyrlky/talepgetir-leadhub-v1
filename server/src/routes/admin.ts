@@ -543,6 +543,28 @@ router.delete('/tenants/:id', async (req: Request, res: Response, next: NextFunc
             return;
         }
 
+        // Before deleting the tenant, find all users whose app_metadata.tenant_id
+        // points to this tenant — they would get 403 on every request after deletion.
+        // Clear their tenant pointer and evict them from the auth cache.
+        const { data: memberships } = await supabaseAdmin
+            .from('memberships')
+            .select('user_id')
+            .eq('tenant_id', id);
+
+        if (memberships && memberships.length > 0) {
+            await Promise.all(
+                memberships.map(async ({ user_id }) => {
+                    const { data: userData } = await supabaseAdmin.auth.admin.getUserById(user_id);
+                    if (userData?.user?.app_metadata?.tenant_id === id) {
+                        await supabaseAdmin.auth.admin.updateUserById(user_id, {
+                            app_metadata: { tenant_id: null },
+                        });
+                    }
+                    clearAuthCacheForUser(user_id);
+                })
+            );
+        }
+
         const { error } = await supabaseAdmin
             .from('tenants')
             .delete()
