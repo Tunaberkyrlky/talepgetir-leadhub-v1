@@ -60,7 +60,7 @@ export interface PipelineSettingsEditorHandle {
 }
 
 /** Sortable stage row — defined outside to prevent remounting on parent re-render */
-function SortableStageRow({ slug, groupColor, stage, isEditing, label, editName, editColor, onEditNameChange, onEditColorChange, onSave, isSaving, onCancel, onStartEdit, onRemoveFromGroup, onDelete }: {
+function SortableStageRow({ slug, groupColor, stage, isEditing, label, editName, editColor, onEditNameChange, onEditColorChange, onSave, isSaving, onCancel, onStartEdit, onRemoveFromGroup, onDelete, onDeactivate }: {
     slug: string;
     groupColor: string;
     stage: StageDefinition;
@@ -275,9 +275,7 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveS
     });
 
     // Expose save to parent
-    useEffect(() => {
-        if (saveRef) saveRef.current = { save: () => saveGroupsMutation.mutate(groups) };
-    });
+    if (saveRef) saveRef.current = { save: () => saveGroupsMutation.mutate(groups) };
 
     // ─── Stage actions ───
     const startEdit = (stage: StageDefinition) => {
