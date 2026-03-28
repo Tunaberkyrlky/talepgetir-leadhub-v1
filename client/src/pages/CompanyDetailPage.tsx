@@ -100,6 +100,34 @@ interface Company {
     updated_at: string;
 }
 
+const DETAIL_FIELDS = [
+    { key: 'company_summary',   labelKey: 'company.companySummary' as const },
+    { key: 'product_services',  labelKey: 'company.productServices' as const },
+    { key: 'product_portfolio', labelKey: 'company.productPortfolio' as const },
+    { key: 'next_step',         labelKey: 'company.nextStep' as const },
+    { key: 'fit_score',         labelKey: 'company.fitScore' as const },
+    { key: 'custom_field_1',    labelKey: null },
+    { key: 'custom_field_2',    labelKey: null },
+    { key: 'custom_field_3',    labelKey: null },
+] as const;
+
+type DetailFieldKey = typeof DETAIL_FIELDS[number]['key'];
+
+const FIELD_VISIBILITY_KEY = 'company_detail_field_visibility';
+
+function loadFieldVisibility(): Set<string> {
+    try {
+        const stored = localStorage.getItem(FIELD_VISIBILITY_KEY);
+        return stored ? new Set(JSON.parse(stored) as string[]) : new Set();
+    } catch {
+        return new Set();
+    }
+}
+
+function saveFieldVisibility(hidden: Set<string>): void {
+    localStorage.setItem(FIELD_VISIBILITY_KEY, JSON.stringify([...hidden]));
+}
+
 interface ContactCardProps {
     contact: Contact;
     isOpsOrAdmin: boolean;
