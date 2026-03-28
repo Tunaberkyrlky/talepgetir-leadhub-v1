@@ -53,7 +53,7 @@ interface PipelineData {
 export default function PipelinePage() {
     const { t } = useTranslation();
     const { user } = useAuth();
-    const { pipelineStageSlugs, terminalStageSlugs, getStageColor, getStageLabel } = useStages();
+    const { pipelineStageSlugs, terminalStageSlugs, getStageColor } = useStages();
     const queryClient = useQueryClient();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();

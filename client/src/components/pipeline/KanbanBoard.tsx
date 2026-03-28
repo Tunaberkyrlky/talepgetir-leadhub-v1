@@ -126,7 +126,7 @@ function CompanyDetailCell({ companyId }: { companyId: string }) {
     const ref = useRef<HTMLDivElement>(null);
     const [isVisible, setIsVisible] = useState(false);
     const [formOpened, setFormOpened] = useState(false);
-    const [typeFilter, setTypeFilter] = useState('');
+    const [typeFilter] = useState('');
 
     useEffect(() => {
         const el = ref.current;
