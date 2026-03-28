@@ -39,7 +39,7 @@ import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { showErrorFromApi } from '../lib/notifications';
 import { useAuth } from '../contexts/AuthContext';
-import { isInternal } from '../lib/permissions';
+import { canWrite } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
 import { safeUrl } from '../lib/url';
 import ContactForm from '../components/ContactForm';
@@ -98,7 +98,7 @@ export default function PersonDetailPage() {
     const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
     const [showTranslation, setShowTranslation] = useState(false);
 
-    const userIsInternal = isInternal(user?.role || '');
+    const userIsInternal = canWrite(user?.role || '');
 
     const translateMutation = useMutation({
         mutationFn: () => api.post(`/contacts/${id}/translate`),

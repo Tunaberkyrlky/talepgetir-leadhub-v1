@@ -70,6 +70,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import { canWrite } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
 import CompanyForm from '../components/CompanyForm';
 import TruncatedText from '../components/TruncatedText';
@@ -266,7 +267,7 @@ export default function LeadsPage() {
     const undoStack = useUndoStack();
     const [deleteModalCompany, setDeleteModalCompany] = useState<Company | null>(null);
 
-    const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
+    const isOpsOrAdmin = canWrite(user?.role || '');
 
     // Build query params (moved up so useQuery can be before handleRowSelect)
     const buildQueryParams = useCallback(() => {

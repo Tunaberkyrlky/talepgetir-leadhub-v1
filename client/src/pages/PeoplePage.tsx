@@ -65,7 +65,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { canDelete, isInternal } from '../lib/permissions';
+import { canDelete, canWrite } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
 import ContactForm from '../components/ContactForm';
 import TruncatedText from '../components/TruncatedText';
@@ -229,7 +229,7 @@ export default function PeoplePage() {
     const [colPopoverOpen, setColPopoverOpen] = useState(false);
 
     const userRole = user?.role || '';
-    const userIsInternal = isInternal(userRole);
+    const userIsInternal = canWrite(userRole);
     const userCanDelete = canDelete(userRole);
 
     const columnLabels: Record<ColumnKey, string> = {

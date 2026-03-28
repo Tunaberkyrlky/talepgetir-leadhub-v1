@@ -54,7 +54,7 @@ import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useStages } from '../contexts/StagesContext';
-import { isInternal } from '../lib/permissions';
+import { canWrite } from '../lib/permissions';
 import { safeUrl } from '../lib/url';
 import TranslatableField from '../components/TranslatableField';
 import EmailStatusIcon from '../components/EmailStatusIcon';
@@ -237,7 +237,7 @@ export default function CompanyDetailPage() {
         companyName: string;
         targetStage: ClosingOutcome;
     } | null>(null);
-    const isOpsOrAdmin = isInternal(user?.role || '');
+    const isOpsOrAdmin = canWrite(user?.role || '');
 
     const toggleField = (key: DetailFieldKey) => {
         const next = new Set(hiddenFields);
