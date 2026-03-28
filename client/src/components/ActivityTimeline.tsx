@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Stack,
@@ -13,6 +13,7 @@ import {
     Center,
     Divider,
     Title,
+    SegmentedControl,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -25,6 +26,7 @@ import {
     IconDotsVertical,
     IconPencil,
     IconTrash,
+    IconUser,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
@@ -37,6 +39,7 @@ import type { Activity, ActivityType } from '../types/activity';
 interface ActivityTimelineProps {
     companyId: string;
     contactId?: string;
+    compact?: boolean;
 }
 
 interface ActivitiesResponse {
@@ -85,7 +88,7 @@ function formatActivityDate(isoString: string): string {
     });
 }
 
-export default function ActivityTimeline({ companyId, contactId }: ActivityTimelineProps) {
+export default function ActivityTimeline({ companyId, contactId, compact }: ActivityTimelineProps) {
     const { t } = useTranslation();
     const { user } = useAuth();
     const queryClient = useQueryClient();
@@ -93,16 +96,25 @@ export default function ActivityTimeline({ companyId, contactId }: ActivityTimel
     const [allActivities, setAllActivities] = useState<Activity[]>([]);
     const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
     const [formOpened, { open: openForm, close: closeForm }] = useDisclosure(false);
+    const [typeFilter, setTypeFilter] = useState('');
 
     const isInternal = hasRolePermission(user?.role || '', 'activity_write' as any);
     const isSuperadmin = user?.role === 'superadmin';
 
+    // Reset accumulated pages when typeFilter changes
+    useEffect(() => {
+        setPage(1);
+        setAllActivities([]);
+    }, [typeFilter]);
+
     const { data, isLoading, isFetching } = useQuery<ActivitiesResponse>({
-        queryKey: ['activities', companyId, contactId, page],
+        queryKey: ['activities', companyId, contactId, page, typeFilter],
         queryFn: async () => {
-            const params = new URLSearchParams({ company_id: companyId, page: String(page), limit: '20' });
-            if (contactId) params.set('contact_id', contactId);
-            const res = await api.get(`/activities?${params.toString()}`);
+            const params: any = { company_id: companyId, page: String(page), limit: '20' };
+            if (contactId) params.contact_id = contactId;
+            if (typeFilter) params.type = typeFilter;
+            const searchParams = new URLSearchParams(params);
+            const res = await api.get(`/activities?${searchParams.toString()}`);
             return res.data as ActivitiesResponse;
         },
     });
@@ -150,7 +162,7 @@ export default function ActivityTimeline({ companyId, contactId }: ActivityTimel
     const totalCount = data?.pagination?.total ?? (allActivities.length > 0 ? allActivities.length : undefined);
 
     return (
-        <Paper shadow="sm" radius="lg" p="xl" withBorder>
+        <Paper shadow={compact ? undefined : 'sm'} radius="lg" p={compact ? 'xs' : 'xl'} withBorder>
             <Group justify="space-between" mb="lg">
                 <Group gap="xs">
                     <IconNotes size={20} color="var(--mantine-color-violet-6)" />
@@ -175,6 +187,21 @@ export default function ActivityTimeline({ companyId, contactId }: ActivityTimel
                 )}
             </Group>
 
+            {compact && (
+                <SegmentedControl
+                    size="xs"
+                    value={typeFilter}
+                    onChange={setTypeFilter}
+                    mb="sm"
+                    data={[
+                        { label: t('activities.all'), value: '' },
+                        { label: t('activities.types.not'), value: 'not' },
+                        { label: t('activities.types.meeting'), value: 'meeting' },
+                        { label: t('activities.types.follow_up'), value: 'follow_up' },
+                    ]}
+                />
+            )}
+
             {isLoading && page === 1 ? (
                 <Center py="xl">
                     <Loader size="sm" color="violet" />
@@ -184,7 +211,7 @@ export default function ActivityTimeline({ companyId, contactId }: ActivityTimel
                     <Text size="sm" c="dimmed" fs="italic">{t('activity.noActivities')}</Text>
                 </Center>
             ) : (
-                <Stack gap="sm">
+                <Stack gap={compact ? 4 : 'sm'}>
                     {shownList.map((activity, idx) => {
                         const isClosingReport = activity.type === 'sonlandirma_raporu';
                         const isStatusChange = activity.type === 'status_change';
@@ -193,9 +220,10 @@ export default function ActivityTimeline({ companyId, contactId }: ActivityTimel
                         return (
                             <div key={activity.id}>
                                 <Paper
-                                    p="sm"
+                                    p={compact ? 'xs' : 'sm'}
                                     radius="md"
                                     withBorder
+                                    shadow={compact ? undefined : 'xs'}
                                     style={{
                                         borderColor: isClosingReport
                                             ? `var(--mantine-color-${outcomeColor}-4)`
@@ -210,7 +238,7 @@ export default function ActivityTimeline({ companyId, contactId }: ActivityTimel
                                     <Group justify="space-between" wrap="nowrap">
                                         <Group gap="xs" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
                                             <Badge
-                                                size="sm"
+                                                size="xs"
                                                 variant="light"
                                                 color={ACTIVITY_COLORS[activity.type]}
                                                 leftSection={ACTIVITY_ICONS[activity.type]}
@@ -219,7 +247,7 @@ export default function ActivityTimeline({ companyId, contactId }: ActivityTimel
                                             </Badge>
                                             {activity.outcome && (
                                                 <Badge
-                                                    size="sm"
+                                                    size="xs"
                                                     variant="filled"
                                                     color={OUTCOME_COLORS[activity.outcome] || 'gray'}
                                                 >
@@ -229,6 +257,11 @@ export default function ActivityTimeline({ companyId, contactId }: ActivityTimel
                                             {activity.visibility === 'internal' && (
                                                 <Badge size="xs" variant="outline" color="gray">
                                                     {t('activity.visibility_options.internal')}
+                                                </Badge>
+                                            )}
+                                            {activity.contact_name && (
+                                                <Badge size="xs" variant="light" color="gray" leftSection={<IconUser size={10} />}>
+                                                    {activity.contact_name}
                                                 </Badge>
                                             )}
                                         </Group>
@@ -268,11 +301,11 @@ export default function ActivityTimeline({ companyId, contactId }: ActivityTimel
                                         </Group>
                                     </Group>
 
-                                    <Text size="sm" fw={500} mt="xs">
+                                    <Text size={compact ? 'xs' : 'sm'} fw={500} mt="xs">
                                         {activity.summary}
                                     </Text>
                                     {activity.detail && (
-                                        <Text size="sm" c="dimmed" mt={4} style={{ whiteSpace: 'pre-wrap' }}>
+                                        <Text size={compact ? 'xs' : 'sm'} c="dimmed" mt={4} style={{ whiteSpace: 'pre-wrap' }}>
                                             {activity.detail}
                                         </Text>
                                     )}

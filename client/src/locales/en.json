@@ -469,7 +469,13 @@
     },
     "activities": {
         "contact": "Contact",
-        "selectContact": "Select contact (optional)"
+        "selectContact": "Select contact (optional)",
+        "all": "All",
+        "types": {
+            "not": "Note",
+            "meeting": "Meeting",
+            "follow_up": "Follow-up"
+        }
     },
     "errors": {
         "network": "Check your internet connection",
