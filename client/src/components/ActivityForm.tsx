@@ -21,10 +21,11 @@ interface ActivityFormProps {
     onClose: () => void;
     companyId: string;
     contactId?: string;
+    contacts?: { id: string; first_name: string; last_name?: string | null }[];
     activity?: Activity | null; // null/undefined = create mode
 }
 
-export default function ActivityForm({ opened, onClose, companyId, contactId, activity }: ActivityFormProps) {
+export default function ActivityForm({ opened, onClose, companyId, contactId, contacts, activity }: ActivityFormProps) {
     const { t } = useTranslation();
     const queryClient = useQueryClient();
     const isEdit = !!activity;
@@ -37,6 +38,7 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, ac
             outcome: '',
             visibility: 'client' as string,
             occurred_at: new Date(),
+            contact_id: '' as string,
         },
         validate: {
             summary: (v: string) => (v.trim() ? null : t('activity.summary') + ' is required'),
@@ -59,10 +61,12 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, ac
                     outcome: activity.outcome || '',
                     visibility: activity.visibility,
                     occurred_at: new Date(activity.occurred_at),
+                    contact_id: activity?.contact_id || contactId || '',
                 });
             } else {
                 form.reset();
                 form.setFieldValue('occurred_at', new Date());
+                form.setFieldValue('contact_id', contactId || '');
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -72,7 +76,7 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, ac
         mutationFn: async (values: typeof form.values) => {
             const res = await api.post('/activities', {
                 company_id: companyId,
-                contact_id: contactId || null,
+                contact_id: form.values.contact_id || contactId || undefined,
                 type: values.type,
                 summary: values.summary,
                 detail: values.detail || null,
@@ -96,6 +100,7 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, ac
     const updateMutation = useMutation({
         mutationFn: async (values: typeof form.values) => {
             const res = await api.put(`/activities/${activity!.id}`, {
+                contact_id: values.contact_id || contactId || undefined,
                 summary: values.summary,
                 detail: values.detail || null,
                 outcome: values.outcome || null,
@@ -155,6 +160,21 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, ac
                             required
                             radius="md"
                             {...form.getInputProps('type')}
+                        />
+                    )}
+
+                    {contacts && contacts.length > 0 && (
+                        <Select
+                            label={t('activities.contact')}
+                            placeholder={t('activities.selectContact')}
+                            data={contacts.map(c => ({
+                                value: c.id,
+                                label: [c.first_name, c.last_name].filter(Boolean).join(' '),
+                            }))}
+                            value={form.values.contact_id || null}
+                            onChange={(v) => form.setFieldValue('contact_id', v || '')}
+                            clearable
+                            searchable
                         />
                     )}
 

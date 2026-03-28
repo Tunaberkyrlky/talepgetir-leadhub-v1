@@ -467,6 +467,10 @@
         },
         "tierRequired": "Activity timeline is available on the Pro plan"
     },
+    "activities": {
+        "contact": "Contact",
+        "selectContact": "Select contact (optional)"
+    },
     "errors": {
         "network": "Check your internet connection",
         "timeout": "Request timed out, please try again",
