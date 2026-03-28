@@ -60,7 +60,6 @@ export const createContactSchema = z.object({
     seniority: z.string().max(100).optional().nullable(),
     department: z.string().max(255).optional().nullable(),
     is_primary: z.boolean().optional().default(false),
-    notes: z.string().max(5000).optional().nullable(),
 });
 
 export const updateContactSchema = z.object({
@@ -74,10 +73,6 @@ export const updateContactSchema = z.object({
     seniority: z.string().max(100).optional().nullable(),
     department: z.string().max(255).optional().nullable(),
     is_primary: z.boolean().optional(),
-});
-
-export const contactNoteSchema = z.object({
-    text: z.string().min(1, 'Note text is required').max(5000),
 });
 
 // ── Company schemas ──

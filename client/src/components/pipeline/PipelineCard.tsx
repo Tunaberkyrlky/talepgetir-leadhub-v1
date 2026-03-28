@@ -5,6 +5,13 @@ import { useTranslation } from 'react-i18next';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 
+export interface ClosingReport {
+    summary: string;
+    detail: string | null;
+    outcome: string;
+    occurred_at: string;
+}
+
 export interface PipelineCompany {
     id: string;
     name: string;
@@ -15,6 +22,7 @@ export interface PipelineCompany {
     updated_at: string;
     stage_changed_at: string | null;
     contact_count: number;
+    closing_report?: ClosingReport | null;
 }
 
 interface PipelineCardProps {
@@ -97,11 +105,6 @@ export default function PipelineCard({ company, isDragEnabled }: PipelineCardPro
                         >
                             {daysInStage}{t('pipeline.days', 'd')}
                         </Badge>
-                    )}
-                    {company.company_summary && (
-                        <Text size="xs" c="dimmed" lineClamp={1} style={{ flex: 1, textAlign: 'right' }}>
-                            {company.company_summary}
-                        </Text>
                     )}
                 </Group>
             </Stack>

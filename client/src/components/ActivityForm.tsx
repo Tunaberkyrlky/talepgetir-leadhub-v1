@@ -14,6 +14,8 @@ import { DateTimePicker } from '@mantine/dates';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
+import { useAuth } from '../contexts/AuthContext';
+import { isInternal } from '../lib/permissions';
 import type { Activity } from '../types/activity';
 
 interface ActivityFormProps {
@@ -27,6 +29,7 @@ interface ActivityFormProps {
 
 export default function ActivityForm({ opened, onClose, companyId, contactId, contacts, activity }: ActivityFormProps) {
     const { t } = useTranslation();
+    const { user } = useAuth();
     const queryClient = useQueryClient();
     const isEdit = !!activity;
 
@@ -76,7 +79,7 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, co
         mutationFn: async (values: typeof form.values) => {
             const res = await api.post('/activities', {
                 company_id: companyId,
-                contact_id: form.values.contact_id || contactId || undefined,
+                contact_id: contacts ? (form.values.contact_id || null) : (contactId || null),
                 type: values.type,
                 summary: values.summary,
                 detail: values.detail || null,
@@ -100,7 +103,7 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, co
     const updateMutation = useMutation({
         mutationFn: async (values: typeof form.values) => {
             const res = await api.put(`/activities/${activity!.id}`, {
-                contact_id: values.contact_id || contactId || undefined,
+                contact_id: contacts ? (values.contact_id || null) : (contactId || null),
                 summary: values.summary,
                 detail: values.detail || null,
                 outcome: values.outcome || null,
@@ -137,7 +140,7 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, co
 
     const visibilityOptions = [
         { value: 'client', label: t('activity.visibility_options.client') },
-        { value: 'internal', label: t('activity.visibility_options.internal') },
+        ...(isInternal(user?.role || '') ? [{ value: 'internal', label: t('activity.visibility_options.internal') }] : []),
     ];
 
     return (

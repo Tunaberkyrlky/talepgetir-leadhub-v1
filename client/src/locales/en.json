@@ -282,6 +282,7 @@
         "companies": "Companies",
         "people": "People",
         "pipeline": "Pipeline",
+        "activities": "Activities",
         "import": "Import",
         "admin": "Admin Panel"
     },
@@ -461,10 +462,13 @@
         "tierRequired": "Activity timeline is available on the Pro plan"
     },
     "activities": {
+        "pageTitle": "Activities",
+        "dateRange": "Select date range",
         "contact": "Contact",
         "selectContact": "Select contact (optional)",
         "all": "All",
         "addActivity": "Add Activity",
+        "showActivities": "Show Activities",
         "types": {
             "not": "Note",
             "meeting": "Meeting",

@@ -282,6 +282,7 @@
         "companies": "Şirketler",
         "people": "Kişiler",
         "pipeline": "Pipeline",
+        "activities": "Aktiviteler",
         "import": "İçe Aktar",
         "admin": "Yönetim Paneli"
     },
@@ -461,10 +462,13 @@
         "tierRequired": "Aktivite zaman çizelgesi Pro planda kullanılabilir"
     },
     "activities": {
+        "pageTitle": "Aktiviteler",
+        "dateRange": "Tarih aralığı seçin",
         "contact": "Kişi",
         "selectContact": "Kişi seçin (opsiyonel)",
         "all": "Tümü",
         "addActivity": "Aktivite Ekle",
+        "showActivities": "Aktiviteleri Göster",
         "types": {
             "not": "Not",
             "meeting": "Toplantı",

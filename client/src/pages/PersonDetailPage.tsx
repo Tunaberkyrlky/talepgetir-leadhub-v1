@@ -74,7 +74,7 @@ export default function PersonDetailPage() {
     const [formOpened, { open: openForm, close: closeForm }] = useDisclosure(false);
     const [showTranslation, setShowTranslation] = useState(false);
 
-    const userIsInternal = canWrite(user?.role || '');
+    const userCanEdit = canWrite(user?.role || '');
 
     const translateMutation = useMutation({
         mutationFn: () => api.post(`/contacts/${id}/translate`),
@@ -131,7 +131,7 @@ export default function PersonDetailPage() {
                     {contact.first_name} {contact.last_name || ''}
                 </Title>
                 <Group gap="xs">
-                    {userIsInternal && (
+                    {userCanEdit && (
                         <Button
                             variant="light"
                             color="blue"
@@ -152,7 +152,7 @@ export default function PersonDetailPage() {
                             {showTranslation ? t('translate.hideTranslation') : t('translate.showTranslation')}
                         </Button>
                     )}
-                    {userIsInternal && (
+                    {userCanEdit && (
                         <Button leftSection={<IconPencil size={16} />} variant="light" onClick={openForm}>
                             {t('contact.editContact')}
                         </Button>

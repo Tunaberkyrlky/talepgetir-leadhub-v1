@@ -11,6 +11,7 @@ export interface Activity {
     company_id: string;
     contact_id: string | null;
     contact_name: string | null;
+    company_name?: string | null;
     type: ActivityType;
     outcome: string | null;          // sonlandırma raporu: won/lost/on_hold/cancelled
     summary: string;
