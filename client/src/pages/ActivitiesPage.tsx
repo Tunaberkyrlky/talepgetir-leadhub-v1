@@ -144,7 +144,7 @@ export default function ActivitiesPage() {
                     type="range"
                     placeholder={t('activities.dateRange')}
                     value={dateRange}
-                    onChange={(v) => setDateRange(v)}
+                    onChange={(v) => setDateRange(v as [Date | null, Date | null])}
                     clearable
                     size="sm"
                 />
