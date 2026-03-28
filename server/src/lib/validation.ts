@@ -1,6 +1,10 @@
 import { z } from 'zod/v4';
 import { Request, Response, NextFunction } from 'express';
 
+/** Lenient UUID validator — accepts any 8-4-4-4-12 hex format (matches Postgres UUID type) */
+const uuidField = (message = 'Invalid UUID') =>
+    z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, message);
+
 /** Express middleware that validates req.body against a Zod schema */
 export function validateBody(schema: z.ZodType) {
     return (req: Request, res: Response, next: NextFunction): void => {
@@ -49,7 +53,7 @@ export const loginSchema = z.object({
 // ── Contact schemas ──
 
 export const createContactSchema = z.object({
-    company_id: z.string().uuid('Invalid company_id'),
+    company_id: uuidField('Invalid company_id'),
     first_name: z.string().min(1, 'First name is required').max(255),
     last_name: z.string().max(255).optional().nullable(),
     title: z.string().max(500).optional().nullable(),
@@ -119,7 +123,7 @@ export const VALID_TIERS = ['basic', 'pro'] as const;
 export const createUserSchema = z.object({
     email: z.string().email('Invalid email format').max(255),
     password: z.string().min(8, 'Password must be at least 8 characters').max(128),
-    tenantId: z.string().uuid().optional(),
+    tenantId: uuidField().optional(),
     role: z.enum(VALID_ROLES).optional(),
 }).refine(
     (data) => (!data.tenantId && !data.role) || (data.tenantId && data.role),
@@ -149,8 +153,8 @@ export const updateTenantSchema = z.object({
 });
 
 export const createMembershipSchema = z.object({
-    user_id: z.string().uuid('Invalid user_id'),
-    tenant_id: z.string().uuid('Invalid tenant_id'),
+    user_id: uuidField('Invalid user_id'),
+    tenant_id: uuidField('Invalid tenant_id'),
     role: z.enum(VALID_ROLES),
 });
 
@@ -176,8 +180,8 @@ export const TERMINAL_STAGES = ['won', 'lost', 'on_hold', 'cancelled'] as const;
 export type TerminalStage = typeof TERMINAL_STAGES[number];
 
 export const createActivitySchema = z.object({
-    company_id: z.string().uuid('Invalid company_id'),
-    contact_id: z.string().uuid('Invalid contact_id').optional().nullable(),
+    company_id: uuidField('Invalid company_id'),
+    contact_id: uuidField('Invalid contact_id').optional().nullable(),
     type: z.enum(ALLOWED_ACTIVITY_TYPES),
     summary: z.string().min(1, 'Summary is required').max(1000).trim(),
     detail: z.string().max(5000).optional().nullable(),
@@ -195,7 +199,7 @@ export const updateActivitySchema = z.object({
 }).refine((d) => Object.keys(d).length > 0, { message: 'At least one field must be provided' });
 
 export const closingReportSchema = z.object({
-    company_id: z.string().uuid('Invalid company_id'),
+    company_id: uuidField('Invalid company_id'),
     outcome: z.enum(TERMINAL_STAGES, { message: `Must be one of: ${TERMINAL_STAGES.join(', ')}` }),
     summary: z.string().min(1, 'Summary is required').max(1000).trim(),
     detail: z.string().max(5000).optional().nullable(),
