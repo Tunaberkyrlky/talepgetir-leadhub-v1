@@ -328,7 +328,7 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                 <Menu.Item
                                     leftSection={geocodeLoading ? <Loader size={14} /> : <IconMapPin size={14} />}
                                     onClick={onGeocode}
-                                    disabled={geocodeLoading || missingCount === 0}
+                                    disabled={geocodeLoading}
                                 >
                                     <Group justify="space-between" style={{ flex: 1 }} gap="md">
                                         <Text size="sm">

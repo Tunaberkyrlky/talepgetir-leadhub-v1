@@ -151,6 +151,12 @@ router.get('/company-locations', requireTier('pro'), async (req: Request, res: R
     try {
         const tenantId = req.tenantId!;
 
+        // Get actual stage slugs for this tenant (initial + pipeline types)
+        const allStages = await getTenantStages(tenantId);
+        const geocodableStages = allStages
+            .filter((s) => s.stage_type === 'initial' || s.stage_type === 'pipeline')
+            .map((s) => s.slug);
+
         const [locationsRes, missingRes] = await Promise.all([
             supabaseAdmin
                 .from('companies')
@@ -160,12 +166,15 @@ router.get('/company-locations', requireTier('pro'), async (req: Request, res: R
                 .not('longitude', 'is', null)
                 .order('updated_at', { ascending: false })
                 .limit(2000),
-            supabaseAdmin
-                .from('companies')
-                .select('*', { count: 'exact', head: true })
-                .eq('tenant_id', tenantId)
-                .in('stage', ['pipeline_negotiation', 'pipeline_meeting', 'pipeline_proposal'])
-                .is('latitude', null)
+            geocodableStages.length > 0
+                ? supabaseAdmin
+                    .from('companies')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId)
+                    .in('stage', geocodableStages)
+                    .not('location', 'is', null)
+                    .is('latitude', null)
+                : Promise.resolve({ count: 0, error: null })
         ]);
 
         if (locationsRes.error) {

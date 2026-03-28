@@ -12,9 +12,8 @@ import {
     Skeleton,
     Button,
     ThemeIcon,
-    SegmentedControl,
 } from '@mantine/core';
-import { IconPlus, IconTrophy, IconXboxX, IconClock, IconBan, IconFileText } from '@tabler/icons-react';
+import { IconPlus, IconTrophy, IconXboxX, IconClock, IconBan } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import ActivityTimeline from '../ActivityTimeline';
 import ActivityForm from '../ActivityForm';
@@ -184,6 +183,12 @@ function OutcomeDetailCell({ companyId, closingReport }: { companyId: string; cl
     const ref = useRef<HTMLDivElement>(null);
     const [isVisible, setIsVisible] = useState(false);
 
+    const OUTCOME_COLORS: Record<string, string> = { won: 'green', lost: 'red', on_hold: 'gray', cancelled: 'dark' };
+    const OUTCOME_ICONS: Record<string, React.ReactNode> = {
+        won: <IconTrophy size={12} />, lost: <IconXboxX size={12} />,
+        on_hold: <IconClock size={12} />, cancelled: <IconBan size={12} />,
+    };
+
     useEffect(() => {
         const el = ref.current;
         if (!el) return;
@@ -205,7 +210,28 @@ function OutcomeDetailCell({ companyId, closingReport }: { companyId: string; cl
                     <Skeleton height={10} width="80%" radius="sm" />
                 </Stack>
             ) : (
-                <ActivityTimeline companyId={companyId} compact hideEmpty />
+                <Stack gap="xs">
+                    {closingReport && (
+                        <Stack gap={4}>
+                            <Group gap="xs">
+                                <Badge
+                                    size="sm"
+                                    variant="filled"
+                                    color={OUTCOME_COLORS[closingReport.outcome] || 'gray'}
+                                    leftSection={OUTCOME_ICONS[closingReport.outcome]}
+                                >
+                                    {t(`activity.closingReport.${closingReport.outcome}`, closingReport.outcome)}
+                                </Badge>
+                                <Text size="xs" c="dimmed">{formatDate(closingReport.occurred_at)}</Text>
+                            </Group>
+                            <Text size="xs" fw={500} lineClamp={2}>{closingReport.summary}</Text>
+                            {closingReport.detail && (
+                                <Text size="xs" c="dimmed" lineClamp={1}>{closingReport.detail}</Text>
+                            )}
+                        </Stack>
+                    )}
+                    <ActivityTimeline companyId={companyId} compact hideEmpty />
+                </Stack>
             )}
         </Box>
     );

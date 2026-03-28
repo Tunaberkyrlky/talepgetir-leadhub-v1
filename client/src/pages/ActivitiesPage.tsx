@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -73,6 +73,7 @@ export default function ActivitiesPage() {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const [page, setPage] = useState(1);
+    const [allActivities, setAllActivities] = useState<Activity[]>([]);
     const [typeFilter, setTypeFilter] = useState('');
     const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null]);
 
@@ -94,7 +95,27 @@ export default function ActivitiesPage() {
         },
     });
 
-    const activities = data?.data || [];
+    // Reset accumulated pages when filters change
+    useEffect(() => {
+        setPage(1);
+        setAllActivities([]);
+    }, [typeFilter, dateFrom, dateTo]);
+
+    // Accumulate pages as they load
+    useEffect(() => {
+        if (!data?.data) return;
+        if (page === 1) {
+            setAllActivities(data.data);
+        } else {
+            setAllActivities((prev) => {
+                const existingIds = new Set(prev.map((a) => a.id));
+                const newItems = data.data.filter((a: Activity) => !existingIds.has(a.id));
+                return [...prev, ...newItems];
+            });
+        }
+    }, [data, page]);
+
+    const activities = allActivities;
     const hasMore = data?.pagination?.hasNext ?? false;
     const total = data?.pagination?.total ?? 0;
 
@@ -111,7 +132,7 @@ export default function ActivitiesPage() {
                 <SegmentedControl
                     size="sm"
                     value={typeFilter}
-                    onChange={(v) => { setTypeFilter(v); setPage(1); }}
+                    onChange={(v) => setTypeFilter(v)}
                     data={[
                         { label: t('activities.all'), value: '' },
                         { label: t('activities.types.not'), value: 'not' },
@@ -123,7 +144,7 @@ export default function ActivitiesPage() {
                     type="range"
                     placeholder={t('activities.dateRange')}
                     value={dateRange}
-                    onChange={(v) => { setDateRange(v); setPage(1); }}
+                    onChange={(v) => setDateRange(v)}
                     clearable
                     size="sm"
                 />

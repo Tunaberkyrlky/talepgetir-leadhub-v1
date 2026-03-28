@@ -544,7 +544,7 @@ router.put(
 // POST /api/companies/geocode — Batch geocode pipeline companies missing coordinates
 router.post(
     '/geocode',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;

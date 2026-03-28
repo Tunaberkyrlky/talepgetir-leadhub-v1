@@ -201,7 +201,7 @@ export default function DashboardPage() {
                             isLoading={locationsLoading}
                             onGeocode={() => geocodeMutation.mutate()}
                             geocodeLoading={geocodeMutation.isPending}
-                            canGeocode={['superadmin', 'ops_agent'].includes(role)}
+                            canGeocode={['superadmin', 'ops_agent', 'client_admin'].includes(role)}
                         />
                     </Suspense>
                 </>
