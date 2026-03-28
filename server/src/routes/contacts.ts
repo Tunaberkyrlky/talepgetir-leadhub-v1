@@ -218,7 +218,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
 // POST /api/contacts — Create contact
 router.post(
     '/',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     validateBody(createContactSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
@@ -286,7 +286,7 @@ router.post(
 // PUT /api/contacts/:id — Update contact
 router.put(
     '/:id',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     validateBody(updateContactSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {

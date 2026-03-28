@@ -1,0 +1,97 @@
+<h2>Alan görünürlüğü nasıl tetiklenmeli?</h2>
+<p class="subtitle">Detay grid'indeki alanları göster/gizle için hangi UX daha uygun?</p>
+
+<div class="cards">
+
+  <!-- Option A -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #f8f9fa;">
+      <div style="border: 1px solid #dee2e6; border-radius: 12px; padding: 16px; background: white;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <span style="font-weight: 600; font-size: 13px; color: #495057;">Şirket Bilgileri</span>
+          <div style="display: flex; align-items: center; gap: 6px; background: #f1f3f5; border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 11px; color: #868e96;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+            Alanları düzenle
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div><div style="font-size: 9px; color: #adb5bd; font-weight: 600; text-transform: uppercase; margin-bottom: 3px;">ŞİRKET ÖZETİ</div><div style="font-size: 11px; color: #495057; line-height: 1.4;">Online hardware and industrial tools retailer…</div></div>
+          <div><div style="font-size: 9px; color: #adb5bd; font-weight: 600; text-transform: uppercase; margin-bottom: 3px;">UYUM PUANI</div><div style="font-size: 11px; color: #495057;">50</div></div>
+          <div><div style="font-size: 9px; color: #adb5bd; font-weight: 600; text-transform: uppercase; margin-bottom: 3px;">ÖZEL ALAN 1</div><div style="font-size: 11px; color: #495057; line-height: 1.4;">Given Makina's focus…</div></div>
+          <div><div style="font-size: 9px; color: #adb5bd; font-weight: 600; text-transform: uppercase; margin-bottom: 3px;">ÖZEL ALAN 2</div><div style="font-size: 11px; color: #495057; line-height: 1.4;">Your extensive range…</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — "Alanları düzenle" butonu</h3>
+      <p>Kart başlığının yanında küçük bir buton. Tıklayınca checkbox listesi açılır. Leads tablosundaki "Sütunları düzenle" ile tutarlı.</p>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #f8f9fa;">
+      <div style="border: 1px solid #dee2e6; border-radius: 12px; padding: 16px; background: white; position: relative;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <span style="font-weight: 600; font-size: 13px; color: #495057;">Şirket Bilgileri</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; position: relative;">
+          <div><div style="font-size: 9px; color: #adb5bd; font-weight: 600; text-transform: uppercase; margin-bottom: 3px;">ŞİRKET ÖZETİ</div><div style="font-size: 11px; color: #495057; line-height: 1.4;">Online hardware and industrial tools retailer…</div></div>
+          <!-- hidden field placeholder -->
+          <div style="border: 1.5px dashed #dee2e6; border-radius: 6px; display: flex; align-items: center; justify-content: center; min-height: 44px;">
+            <span style="font-size: 10px; color: #ced4da;">Uyum Puanı gizli</span>
+          </div>
+          <div><div style="font-size: 9px; color: #adb5bd; font-weight: 600; text-transform: uppercase; margin-bottom: 3px;">ÖZEL ALAN 1</div><div style="font-size: 11px; color: #495057; line-height: 1.4;">Given Makina's focus…</div></div>
+          <div><div style="font-size: 9px; color: #adb5bd; font-weight: 600; text-transform: uppercase; margin-bottom: 3px;">ÖZEL ALAN 2</div><div style="font-size: 11px; color: #495057; line-height: 1.4;">Your extensive range…</div></div>
+        </div>
+        <!-- floating gear -->
+        <div style="position: absolute; top: 12px; right: 12px; width: 26px; height: 26px; border-radius: 50%; background: #f1f3f5; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#868e96" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Sağ üst köşede ⚙ ikon</h3>
+      <p>Kart içinde küçük bir ayarlar ikonu. Gizlenen alanlar noktalı çerçeveyle işaretlenir. Daha kompakt görünüm.</p>
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #f8f9fa;">
+      <div style="border: 1px solid #dee2e6; border-radius: 12px; padding: 16px; background: white;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <span style="font-weight: 600; font-size: 13px; color: #495057;">Şirket Bilgileri</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div style="position: relative; padding-right: 18px;">
+            <div style="font-size: 9px; color: #adb5bd; font-weight: 600; text-transform: uppercase; margin-bottom: 3px;">ŞİRKET ÖZETİ</div>
+            <div style="font-size: 11px; color: #495057; line-height: 1.4;">Online hardware…</div>
+            <div style="position: absolute; top: 0; right: 0; cursor: pointer; color: #adb5bd; font-size: 10px;" title="Gizle">✕</div>
+          </div>
+          <div style="position: relative; padding-right: 18px;">
+            <div style="font-size: 9px; color: #adb5bd; font-weight: 600; text-transform: uppercase; margin-bottom: 3px;">UYUM PUANI</div>
+            <div style="font-size: 11px; color: #495057;">50</div>
+            <div style="position: absolute; top: 0; right: 0; cursor: pointer; color: #adb5bd; font-size: 10px;" title="Gizle">✕</div>
+          </div>
+          <div style="position: relative; padding-right: 18px;">
+            <div style="font-size: 9px; color: #adb5bd; font-weight: 600; text-transform: uppercase; margin-bottom: 3px;">ÖZEL ALAN 1</div>
+            <div style="font-size: 11px; color: #495057; line-height: 1.4;">Given Makina's focus…</div>
+            <div style="position: absolute; top: 0; right: 0; cursor: pointer; color: #adb5bd; font-size: 10px;" title="Gizle">✕</div>
+          </div>
+          <div style="position: relative; padding-right: 18px;">
+            <div style="font-size: 9px; color: #adb5bd; font-weight: 600; text-transform: uppercase; margin-bottom: 3px;">ÖZEL ALAN 2</div>
+            <div style="font-size: 11px; color: #495057; line-height: 1.4;">Your extensive…</div>
+            <div style="position: absolute; top: 0; right: 0; cursor: pointer; color: #adb5bd; font-size: 10px;" title="Gizle">✕</div>
+          </div>
+        </div>
+        <div style="margin-top: 10px; font-size: 10px; color: #7950f2; cursor: pointer;">+ Gizlenen alanları göster (2)</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Her alanda "✕ Gizle" butonu</h3>
+      <p>Her alan üzerinde hover'da gizle ikonu çıkar. Gizlenen alanları topluca geri açan link altta görünür.</p>
+    </div>
+  </div>
+
+</div>

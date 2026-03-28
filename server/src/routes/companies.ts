@@ -265,7 +265,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
 // POST /api/companies — Create new company
 router.post(
     '/',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     validateBody(createCompanySchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
@@ -398,7 +398,7 @@ router.post(
 // PUT /api/companies/:id — Update company
 router.put(
     '/:id',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     validateBody(updateCompanySchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
@@ -575,7 +575,7 @@ router.post(
 // PATCH /api/companies/bulk-stage — Bulk update stage for multiple companies
 router.patch(
     '/bulk-stage',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
@@ -635,7 +635,7 @@ router.patch(
 // PATCH /api/companies/:id/stage — Lightweight stage update (drag-drop)
 router.patch(
     '/:id/stage',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
