@@ -5,7 +5,7 @@ import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { translateTexts } from '../lib/deepl.js';
-import { validateBody, createContactSchema, updateContactSchema, contactNoteSchema } from '../lib/validation.js';
+import { validateBody, createContactSchema, updateContactSchema } from '../lib/validation.js';
 import { isInternalRole } from '../lib/roles.js';
 
 const log = createLogger('route:contacts');
@@ -344,90 +344,6 @@ router.put(
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Update contact error');
             res.status(500).json({ error: 'Failed to update contact' });
-        }
-    }
-);
-
-// POST /api/contacts/:id/notes — Add a note to a contact (atomic via RPC)
-router.post(
-    '/:id/notes',
-    requireRole('superadmin', 'ops_agent'),
-    validateBody(contactNoteSchema),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-        try {
-            const tenantId = req.tenantId!;
-            const { id } = req.params;
-            const { text } = req.body;
-
-            const newNote: ContactNote = {
-                id: randomUUID(),
-                text: text.trim(),
-                created_at: new Date().toISOString(),
-                created_by: req.user?.email || 'unknown',
-            };
-
-            // Atomic prepend — no read-modify-write race condition
-            const { data: updatedNotes, error } = await supabaseAdmin
-                .rpc('append_contact_note', {
-                    p_contact_id: id,
-                    p_tenant_id: tenantId,
-                    p_note: newNote,
-                });
-
-            if (error) {
-                log.error({ err: error }, 'RPC append_contact_note error');
-                res.status(500).json({ error: 'Failed to add note' });
-                return;
-            }
-
-            if (updatedNotes === null) {
-                res.status(404).json({ error: 'Contact not found' });
-                return;
-            }
-
-            res.status(201).json({ data: { notes: updatedNotes } });
-        } catch (err) {
-            if (err instanceof AppError) return next(err);
-            log.error({ err }, 'Add note error');
-            res.status(500).json({ error: 'Failed to add note' });
-        }
-    }
-);
-
-// DELETE /api/contacts/:id/notes/:noteId — Remove a note from a contact (atomic via RPC)
-router.delete(
-    '/:id/notes/:noteId',
-    requireRole('superadmin', 'ops_agent'),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-        try {
-            const tenantId = req.tenantId!;
-            const { id, noteId } = req.params;
-
-            // Atomic remove — no read-modify-write race condition
-            const { data: updatedNotes, error } = await supabaseAdmin
-                .rpc('remove_contact_note', {
-                    p_contact_id: id,
-                    p_tenant_id: tenantId,
-                    p_note_id: noteId,
-                });
-
-            if (error) {
-                log.error({ err: error }, 'RPC remove_contact_note error');
-                res.status(500).json({ error: 'Failed to delete note' });
-                return;
-            }
-
-            if (updatedNotes === null) {
-                // RPC returns NULL when the WHERE clause matched nothing (contact not found)
-                res.status(404).json({ error: 'Contact not found' });
-                return;
-            }
-
-            res.json({ data: { notes: updatedNotes } });
-        } catch (err) {
-            if (err instanceof AppError) return next(err);
-            log.error({ err }, 'Delete note error');
-            res.status(500).json({ error: 'Failed to delete note' });
         }
     }
 );
