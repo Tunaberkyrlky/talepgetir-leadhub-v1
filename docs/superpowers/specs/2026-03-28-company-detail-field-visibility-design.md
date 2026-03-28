@@ -30,18 +30,20 @@ A small icon button positioned at the top-right of the detail grid section (abov
 - **Icon:** `IconEyeOff` from `@tabler/icons-react`
 - **No label text**
 - **When all fields visible:** subtle gray style (`variant="subtle"`, `color="gray"`) — icon only, no count
-- **When 1+ fields hidden:** violet background (`background: #f3f0ff`, `border: 1px solid #cc5de8`) + hidden count number in violet next to the icon
-- **Tooltip:** "Alanları düzenle"
+- **When 1+ fields hidden:** render a `Group` (inline-flex) containing the `ActionIcon` (violet inline style: `background: #f3f0ff`, `border: 1px solid #cc5de8`) and a `Text` element (`size="xs"`, `fw={600}`, `c="violet"`) showing the hidden count — same DOM structure used for the badge in `LeadsPage.tsx` lines 1030–1044.
+- **Tooltip:** `t('company.editFields')` (translated, see Files Changed)
 
 ### Popover
 
 Mantine `Popover` (`position="bottom-end"`, `shadow="md"`, `withArrow`) — same pattern as the column visibility popover in `LeadsPage.tsx`.
 
 Contents:
-- Title: `"GÖRÜNEN ALANLAR"` (small uppercase, dimmed)
-- One `Checkbox` per field (violet `accent-color`)
-- Custom field labels read from `user?.tenantSettings?.custom_field_X_label` (fallback: "Özel Alan 1/2/3")
-- Divider + `"Varsayılana sıfırla"` text button at the bottom
+- Title: rendered via `t('company.fieldVisibility')` as `<Text size="xs" fw={700} tt="uppercase" c="dimmed">` — **must not be hardcoded**
+- One `Checkbox` per field (violet `accent-color`); **all 8 checkboxes are always shown regardless of whether the field has data** — the popover reflects the user's visibility preference, not data presence
+- Custom field labels read from `user?.tenantSettings?.custom_field_X_label` (fallback: `t('company.customField1')` etc.)
+- Divider + `t('company.resetFields')` text button at the bottom
+
+**Edge case — hidden but empty fields:** A field can be marked hidden in localStorage even if its value is `null` (no data). This is intentional: the hidden count includes such fields. This is acceptable because the popover shows all 8 fields unconditionally, and the user explicitly toggled it.
 
 ## Data Model
 
@@ -120,8 +122,8 @@ The button and popover are rendered above the `SimpleGrid` (inside the same `Pap
 | File | Change |
 |---|---|
 | `client/src/pages/CompanyDetailPage.tsx` | Add state, handlers, button, popover, conditional rendering |
-| `client/src/locales/tr.json` | Add `company.fieldVisibility: "Görünen Alanlar"`, `company.resetFields: "Varsayılana sıfırla"` |
-| `client/src/locales/en.json` | Add `company.fieldVisibility: "Visible Fields"`, `company.resetFields: "Reset to default"` |
+| `client/src/locales/tr.json` | Add `company.fieldVisibility: "Görünen Alanlar"`, `company.resetFields: "Varsayılana sıfırla"`, `company.editFields: "Alanları düzenle"` |
+| `client/src/locales/en.json` | Add `company.fieldVisibility: "Visible Fields"`, `company.resetFields: "Reset to default"`, `company.editFields: "Edit fields"` |
 
 ## Consistency Notes
 
