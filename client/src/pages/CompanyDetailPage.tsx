@@ -45,7 +45,6 @@ import {
     IconWorld,
     IconUsers,
     IconDotsVertical,
-    IconNotes,
     IconLanguage,
     IconAlertCircle,
     IconEyeOff,
@@ -74,7 +73,6 @@ interface Contact {
     country: string | null;
     seniority: string | null;
     is_primary: boolean;
-    notes: import('../types/contact').ContactNote[] | null;
 }
 
 interface Company {
@@ -206,13 +204,6 @@ function ContactCard({ contact, isOpsOrAdmin, isSuperadmin, onNavigate, onEdit, 
                     )}
                 </Group>
             </Group>
-            {Array.isArray(contact.notes) && contact.notes.length > 0 && (
-                <Group gap={4} mt="xs" wrap="nowrap">
-                    <Text size="xs" c="dimmed" lineClamp={1}>{contact.notes[0].text}</Text>
-                    <IconNotes size={14} color="var(--mantine-color-violet-5)" style={{ flexShrink: 0 }} />
-                    <Text size="xs" c="violet" fw={500} style={{ flexShrink: 0 }}>{contact.notes.length}</Text>
-                </Group>
-            )}
         </Card>
     );
 }
@@ -668,8 +659,6 @@ export default function CompanyDetailPage() {
                         </Stack>
                     </Center>
                 ) : (() => {
-                    const contacted = company.contacts.filter((c) => Array.isArray(c.notes) && c.notes.length > 0);
-                    const notContacted = company.contacts.filter((c) => !Array.isArray(c.notes) || c.notes.length === 0);
                     const cardProps = {
                         isOpsOrAdmin,
                         isSuperadmin: user?.role === 'superadmin',
@@ -679,30 +668,10 @@ export default function CompanyDetailPage() {
                         t,
                     };
                     return (
-                        <Stack gap="md">
-                            {contacted.length > 0 && (
-                                <Stack gap="sm">
-                                    <Group gap="xs">
-                                        <IconNotes size={16} color="var(--mantine-color-violet-5)" />
-                                        <Text size="sm" fw={600} c="violet">{t('people.contacted')}</Text>
-                                        <Badge size="xs" variant="light" color="violet" circle>{contacted.length}</Badge>
-                                    </Group>
-                                    {contacted.map((c) => <ContactCard key={c.id} contact={c} {...cardProps} />)}
-                                </Stack>
-                            )}
-                            {contacted.length > 0 && notContacted.length > 0 && <Divider />}
-                            {notContacted.length > 0 && (
-                                <Stack gap="sm">
-                                    {contacted.length > 0 && (
-                                        <Group gap="xs">
-                                            <IconUser size={16} color="var(--mantine-color-gray-5)" />
-                                            <Text size="sm" fw={600} c="dimmed">{t('people.notContacted')}</Text>
-                                            <Badge size="xs" variant="light" color="gray" circle>{notContacted.length}</Badge>
-                                        </Group>
-                                    )}
-                                    {notContacted.map((c) => <ContactCard key={c.id} contact={c} {...cardProps} />)}
-                                </Stack>
-                            )}
+                        <Stack gap="sm">
+                            {company.contacts.map((c) => (
+                                <ContactCard key={c.id} contact={c} {...cardProps} />
+                            ))}
                         </Stack>
                     );
                 })()}

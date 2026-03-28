@@ -27,7 +27,6 @@ interface Contact {
     phone_e164: string | null;
     linkedin: string | null;
     is_primary: boolean;
-    notes: import('../types/contact').ContactNote[] | null;
 }
 
 interface ContactFormProps {

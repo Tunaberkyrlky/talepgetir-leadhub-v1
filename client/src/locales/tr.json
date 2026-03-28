@@ -82,7 +82,6 @@
         "phone": "Telefon",
         "linkedin": "LinkedIn",
         "isPrimary": "Birincil Kişi",
-        "notes": "Notlar",
         "addContact": "Kişi Ekle",
         "editContact": "Kişiyi Düzenle",
         "created": "Kişi oluşturuldu",
@@ -307,13 +306,6 @@
         "noEmail": "E-posta yok",
         "noPhone": "Telefon yok",
         "noLinkedIn": "LinkedIn yok",
-        "notes": "Notlar",
-        "addNote": "Not Ekle",
-        "deleteNote": "Notu Sil",
-        "notePlaceholder": "Bir not yazın...",
-        "noNotes": "Henüz not eklenmemiş",
-        "contacted": "Kontak Geçildi",
-        "notContacted": "Kontak Geçilmedi",
         "back": "Geri Dön"
     },
     "dashboard": {

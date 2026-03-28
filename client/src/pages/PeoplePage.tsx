@@ -81,7 +81,6 @@ interface Contact {
     phone_e164: string | null;
     linkedin: string | null;
     is_primary: boolean;
-    notes: import('../types/contact').ContactNote[] | null;
     company_id: string;
     created_at: string;
     updated_at: string;
@@ -113,7 +112,7 @@ type SortKey = 'first_name' | 'last_name' | 'email' | 'updated_at' | 'created_at
 type ColumnKey =
     | 'full_name' | 'company' | 'title_dept' | 'email' | 'phone'
     | 'seniority' | 'country' | 'linkedin' | 'is_primary'
-    | 'notes' | 'updated_at' | 'created_at';
+    | 'updated_at' | 'created_at';
 
 interface ColumnDef {
     key: ColumnKey;
@@ -133,7 +132,6 @@ const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'phone', visible: false },
     { key: 'linkedin', visible: false },
     { key: 'is_primary', visible: false },
-    { key: 'notes', visible: false },
     { key: 'created_at', visible: false },
 ];
 
@@ -242,7 +240,6 @@ export default function PeoplePage() {
         country: t('people.country'),
         linkedin: t('contact.linkedin'),
         is_primary: t('contact.isPrimary'),
-        notes: t('contact.notes'),
         created_at: t('company.createdAt'),
         updated_at: t('people.updatedAt'),
     };
@@ -479,12 +476,6 @@ export default function PeoplePage() {
                         {contact.is_primary ? (
                             <Badge size="sm" variant="light" color="green">{t('contact.isPrimary')}</Badge>
                         ) : <Text size="sm">—</Text>}
-                    </Table.Td>
-                );
-            case 'notes':
-                return (
-                    <Table.Td key="notes">
-                        <TruncatedText size="sm">{Array.isArray(contact.notes) ? contact.notes.map((n) => n.text).join(' | ') : ''}</TruncatedText>
                     </Table.Td>
                 );
             case 'created_at':
