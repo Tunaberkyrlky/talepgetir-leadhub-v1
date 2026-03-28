@@ -654,7 +654,7 @@ export default function CompanyDetailPage() {
                     </Tabs.List>
 
                     <Tabs.Panel value="activities">
-                        {id && <ActivityTimeline companyId={id} />}
+                        {id && <ActivityTimeline companyId={id} embedded />}
                     </Tabs.Panel>
 
                     <Tabs.Panel value="contacts">

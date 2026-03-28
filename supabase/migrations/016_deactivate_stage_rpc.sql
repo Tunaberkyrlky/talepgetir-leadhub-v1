@@ -12,7 +12,6 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
     v_batch jsonb;
-    v_company_id uuid;
     v_moved int := 0;
     v_remaining int;
 BEGIN
@@ -26,7 +25,8 @@ BEGIN
           AND id IN (SELECT (jsonb_array_elements_text(v_batch->'company_ids'))::uuid)
           AND stage = p_slug;
 
-        GET DIAGNOSTICS v_moved = v_moved + ROW_COUNT;
+        GET DIAGNOSTICS v_remaining = ROW_COUNT;
+        v_moved := v_moved + v_remaining;
     END LOOP;
 
     -- Move any remaining companies in this stage to the fallback (initial) stage
