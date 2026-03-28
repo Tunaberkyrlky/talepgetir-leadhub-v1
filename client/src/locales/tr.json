@@ -341,7 +341,8 @@
     "bulk": {
         "selected": "seçili",
         "clearSelection": "Seçimi Temizle",
-        "moveTo": "Aşama:"
+        "moveTo": "Aşama:",
+        "terminalNotBulk": "Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir."
     },
     "pipeline": {
         "search": "Pipeline'da ara...",
@@ -471,6 +472,7 @@
         "contact": "Kişi",
         "selectContact": "Kişi seçin (opsiyonel)",
         "all": "Tümü",
+        "addActivity": "Aktivite Ekle",
         "types": {
             "not": "Not",
             "meeting": "Toplantı",

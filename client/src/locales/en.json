@@ -341,7 +341,8 @@
     "bulk": {
         "selected": "selected",
         "clearSelection": "Clear Selection",
-        "moveTo": "Stage:"
+        "moveTo": "Stage:",
+        "terminalNotBulk": "Outcome stages cannot be changed in bulk. Each company requires an individual closing report."
     },
     "pipeline": {
         "search": "Search pipeline...",
@@ -471,6 +472,7 @@
         "contact": "Contact",
         "selectContact": "Select contact (optional)",
         "all": "All",
+        "addActivity": "Add Activity",
         "types": {
             "not": "Note",
             "meeting": "Meeting",
