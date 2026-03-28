@@ -467,6 +467,10 @@
         },
         "tierRequired": "Aktivite zaman çizelgesi Pro planda kullanılabilir"
     },
+    "activities": {
+        "contact": "Kişi",
+        "selectContact": "Kişi seçin (opsiyonel)"
+    },
     "errors": {
         "network": "İnternet bağlantınızı kontrol edin",
         "timeout": "İstek zaman aşımına uğradı, tekrar deneyin",
