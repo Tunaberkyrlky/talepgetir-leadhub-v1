@@ -16,8 +16,6 @@ import {
     Anchor,
     ActionIcon,
     Tooltip,
-    Textarea,
-    Divider,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -28,11 +26,6 @@ import {
     IconBrandLinkedin,
     IconBuilding,
     IconUser,
-    IconNotes,
-    IconPlus,
-    IconSend,
-    IconTrash,
-    IconX,
     IconLanguage,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
@@ -44,7 +37,6 @@ import { useStages } from '../contexts/StagesContext';
 import { safeUrl } from '../lib/url';
 import ContactForm from '../components/ContactForm';
 import ActivityTimeline from '../components/ActivityTimeline';
-import type { ContactNote } from '../types/contact';
 
 interface ContactDetail {
     id: string;
@@ -58,8 +50,7 @@ interface ContactDetail {
     phone_e164: string | null;
     linkedin: string | null;
     is_primary: boolean;
-    notes: ContactNote[];
-    translations: { title?: string; notes?: Record<string, string>; translated_at?: string } | null;
+    translations: { title?: string; translated_at?: string } | null;
     updated_at: string;
     companies: {
         id: string;
@@ -71,31 +62,16 @@ interface ContactDetail {
     } | null;
 }
 
-function formatNoteDate(isoString: string, locale: string): string {
-    const date = new Date(isoString);
-    return date.toLocaleDateString(locale, {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
-}
-
 export default function PersonDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const goBack = useNavigateBack();
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const { user } = useAuth();
     const { getStageColor, getStageLabel } = useStages();
 
     const queryClient = useQueryClient();
     const [formOpened, { open: openForm, close: closeForm }] = useDisclosure(false);
-    const [noteInputOpen, setNoteInputOpen] = useState(false);
-    const [noteValue, setNoteValue] = useState('');
-    const [noteSaving, setNoteSaving] = useState(false);
-    const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
     const [showTranslation, setShowTranslation] = useState(false);
 
     const userIsInternal = canWrite(user?.role || '');
@@ -118,35 +94,6 @@ export default function PersonDetailPage() {
     });
 
     const contact = data?.data;
-    const notes: ContactNote[] = Array.isArray(contact?.notes) ? contact.notes : [];
-
-    const handleAddNote = async () => {
-        if (!contact || !noteValue.trim()) return;
-        setNoteSaving(true);
-        try {
-            await api.post(`/contacts/${contact.id}/notes`, { text: noteValue.trim() });
-            await queryClient.invalidateQueries({ queryKey: ['person', id] });
-            setNoteValue('');
-            setNoteInputOpen(false);
-        } catch (err) {
-            showErrorFromApi(err);
-        } finally {
-            setNoteSaving(false);
-        }
-    };
-
-    const handleDeleteNote = async (noteId: string) => {
-        if (!contact) return;
-        setDeletingNoteId(noteId);
-        try {
-            await api.delete(`/contacts/${contact.id}/notes/${noteId}`);
-            await queryClient.invalidateQueries({ queryKey: ['person', id] });
-        } catch (err) {
-            showErrorFromApi(err);
-        } finally {
-            setDeletingNoteId(null);
-        }
-    };
 
     if (isLoading) {
         return (
@@ -330,138 +277,6 @@ export default function PersonDetailPage() {
                     </Paper>
                 )}
 
-                {/* Notes */}
-                <Paper withBorder p="lg" radius="md">
-                    <Group justify="space-between" mb="sm">
-                        <Group gap="xs">
-                            <IconNotes size={18} color="var(--mantine-color-violet-6)" />
-                            <Text fw={600}>{t('people.notes')}</Text>
-                            {notes.length > 0 && (
-                                <Badge size="sm" variant="light" color="gray" circle>
-                                    {notes.length}
-                                </Badge>
-                            )}
-                        </Group>
-                        {userIsInternal && !noteInputOpen && (
-                            <Button
-                                variant="light"
-                                size="xs"
-                                leftSection={<IconPlus size={14} />}
-                                onClick={() => setNoteInputOpen(true)}
-                            >
-                                {t('people.addNote')}
-                            </Button>
-                        )}
-                    </Group>
-
-                    {/* Add note input */}
-                    {noteInputOpen && (
-                        <>
-                            <Group align="flex-end" gap="xs" mb={notes.length > 0 ? 'md' : 0}>
-                                <Textarea
-                                    value={noteValue}
-                                    onChange={(e) => setNoteValue(e.currentTarget.value)}
-                                    placeholder={t('people.notePlaceholder')}
-                                    minRows={2}
-                                    maxRows={6}
-                                    autosize
-                                    autoFocus
-                                    style={{ flex: 1 }}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                            e.preventDefault();
-                                            handleAddNote();
-                                        }
-                                        if (e.key === 'Escape') {
-                                            setNoteInputOpen(false);
-                                            setNoteValue('');
-                                        }
-                                    }}
-                                />
-                                <Stack gap={4}>
-                                    <Tooltip label={t('common.save') + ' (Ctrl+Enter)'}>
-                                        <ActionIcon
-                                            variant="filled"
-                                            color="violet"
-                                            size="lg"
-                                            onClick={handleAddNote}
-                                            loading={noteSaving}
-                                            disabled={!noteValue.trim()}
-                                        >
-                                            <IconSend size={16} />
-                                        </ActionIcon>
-                                    </Tooltip>
-                                    <Tooltip label={t('common.cancel')}>
-                                        <ActionIcon
-                                            variant="subtle"
-                                            color="gray"
-                                            size="lg"
-                                            onClick={() => {
-                                                setNoteInputOpen(false);
-                                                setNoteValue('');
-                                            }}
-                                            disabled={noteSaving}
-                                        >
-                                            <IconX size={16} />
-                                        </ActionIcon>
-                                    </Tooltip>
-                                </Stack>
-                            </Group>
-                            {notes.length > 0 && <Divider />}
-                        </>
-                    )}
-
-                    {/* Notes list */}
-                    {notes.length > 0 ? (
-                        <Stack gap="sm">
-                            {notes.map((note, idx) => (
-                                <div key={note.id}>
-                                    <Group justify="space-between" align="flex-start" wrap="nowrap">
-                                        <Stack gap={2} style={{ flex: 1 }}>
-                                            <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-                                                {note.text}
-                                            </Text>
-                                            {showTranslation && contact.translations?.notes?.[note.id] && (
-                                                <Group gap={4} mt={2}>
-                                                    <Badge size="xs" variant="light" color="violet" style={{ flexShrink: 0 }}>TR</Badge>
-                                                    <Text size="sm" c="violet" fs="italic" style={{ whiteSpace: 'pre-wrap' }}>
-                                                        {contact.translations.notes[note.id]}
-                                                    </Text>
-                                                </Group>
-                                            )}
-                                            <Group gap="xs">
-                                                <Text size="xs" c="dimmed">
-                                                    {formatNoteDate(note.created_at, i18n.language)}
-                                                </Text>
-                                                {note.created_by && note.created_by !== 'system' && (
-                                                    <Text size="xs" c="dimmed">
-                                                        &middot; {note.created_by}
-                                                    </Text>
-                                                )}
-                                            </Group>
-                                        </Stack>
-                                        {userIsInternal && (
-                                            <Tooltip label={t('people.deleteNote')}>
-                                                <ActionIcon
-                                                    variant="subtle"
-                                                    color="gray"
-                                                    size="sm"
-                                                    onClick={() => handleDeleteNote(note.id)}
-                                                    loading={deletingNoteId === note.id}
-                                                >
-                                                    <IconTrash size={14} />
-                                                </ActionIcon>
-                                            </Tooltip>
-                                        )}
-                                    </Group>
-                                    {idx < notes.length - 1 && <Divider mt="sm" />}
-                                </div>
-                            ))}
-                        </Stack>
-                    ) : !noteInputOpen ? (
-                        <Text size="sm" c="dimmed" fs="italic">{t('people.noNotes')}</Text>
-                    ) : null}
-                </Paper>
             </Stack>
 
             <ContactForm
@@ -479,7 +294,6 @@ export default function PersonDetailPage() {
                     phone_e164: contact.phone_e164,
                     linkedin: contact.linkedin,
                     is_primary: contact.is_primary,
-                    notes: contact.notes,
                 }}
             />
         </Container>

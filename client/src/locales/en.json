@@ -82,7 +82,6 @@
         "phone": "Phone",
         "linkedin": "LinkedIn",
         "isPrimary": "Primary Contact",
-        "notes": "Notes",
         "addContact": "Add Contact",
         "editContact": "Edit Contact",
         "created": "Contact created",
@@ -307,13 +306,6 @@
         "noEmail": "No email",
         "noPhone": "No phone",
         "noLinkedIn": "No LinkedIn",
-        "notes": "Notes",
-        "addNote": "Add Note",
-        "deleteNote": "Delete Note",
-        "notePlaceholder": "Write a note...",
-        "noNotes": "No notes yet",
-        "contacted": "Contacted",
-        "notContacted": "Not Contacted",
         "back": "Back"
     },
     "dashboard": {
