@@ -227,12 +227,26 @@ export default function CompanyDetailPage() {
     const [editingContact, setEditingContact] = useState<Contact | null>(null);
     const [deleteContactTarget, setDeleteContactTarget] = useState<Contact | null>(null);
     const [showTranslation, setShowTranslation] = useState(false);
+    const [hiddenFields, setHiddenFields] = useState<Set<string>>(() => loadFieldVisibility());
+    const [fieldPopoverOpen, setFieldPopoverOpen] = useState(false);
     const [closingReportTarget, setClosingReportTarget] = useState<{
         companyId: string;
         companyName: string;
         targetStage: ClosingOutcome;
     } | null>(null);
     const isOpsOrAdmin = isInternal(user?.role || '');
+
+    const toggleField = (key: DetailFieldKey) => {
+        const next = new Set(hiddenFields);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        setHiddenFields(next);
+        saveFieldVisibility(next);
+    };
+
+    const resetFields = () => {
+        setHiddenFields(new Set());
+        saveFieldVisibility(new Set());
+    };
 
     const translateMutation = useMutation({
         mutationFn: () => api.post(`/companies/${id}/translate`),
