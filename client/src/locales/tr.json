@@ -469,7 +469,13 @@
     },
     "activities": {
         "contact": "Kişi",
-        "selectContact": "Kişi seçin (opsiyonel)"
+        "selectContact": "Kişi seçin (opsiyonel)",
+        "all": "Tümü",
+        "types": {
+            "not": "Not",
+            "meeting": "Toplantı",
+            "follow_up": "Takip"
+        }
     },
     "errors": {
         "network": "İnternet bağlantınızı kontrol edin",
