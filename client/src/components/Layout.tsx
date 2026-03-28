@@ -150,7 +150,7 @@ export default function Layout() {
                             <Select
                                 data={tenantSelectData}
                                 value={activeTenantId}
-                                onChange={(value) => value && switchTenant(value)}
+                                onChange={(value) => { if (value) { switchTenant(value); navigate('/dashboard'); } }}
                                 leftSection={<IconSwitchHorizontal size={16} color="#6c63ff" />}
                                 size="sm"
                                 w={220}

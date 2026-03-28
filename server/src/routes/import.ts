@@ -193,8 +193,8 @@ router.post(
             const suggestions = autoMapHeaders(headers);
             const availableFields = getAvailableDbFields();
 
-            // Return preview (first 5 rows)
-            const previewRows = rows.slice(0, 5);
+            // Return preview (first 10 rows)
+            const previewRows = rows.slice(0, 10);
 
             // Store parsed data in DB (survives deploys/restarts)
             const fileId = await storeFileCache(
@@ -278,10 +278,10 @@ router.post(
             );
             const hasPersonData = (row: Record<string, string>) =>
                 peopleOnlyCols.some((col) => row[col]);
-            const matchedPreview = matchResult.mergedRows.filter(hasPersonData).slice(0, 5);
+            const matchedPreview = matchResult.mergedRows.filter(hasPersonData).slice(0, 10);
             const previewRows = matchedPreview.length > 0
                 ? matchedPreview
-                : matchResult.mergedRows.slice(0, 5);
+                : matchResult.mergedRows.slice(0, 10);
 
             // Store merged data in DB (survives deploys/restarts)
             const fileId = await storeFileCache(

@@ -98,7 +98,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
 // POST /api/activities — Create activity (not, meeting, follow_up)
 router.post(
     '/',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     validateBody(createActivitySchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
@@ -184,7 +184,7 @@ router.post(
 // PUT /api/activities/:id — Update activity
 router.put(
     '/:id',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     validateBody(updateActivitySchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
