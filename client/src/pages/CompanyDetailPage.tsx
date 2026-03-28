@@ -585,37 +585,37 @@ export default function CompanyDetailPage() {
 
                 {/* Details Grid */}
                 <SimpleGrid cols={2}>
-                    {company.product_services && (
+                    {!hiddenFields.has('product_services') && company.product_services && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.productServices')}</Text>
                             <TranslatableField original={company.product_services} translated={company.translations?.product_services} showTranslation={showTranslation} maxLength={350} />
                         </Box>
                     )}
-                    {company.product_portfolio && (
+                    {!hiddenFields.has('product_portfolio') && company.product_portfolio && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.productPortfolio')}</Text>
                             <TranslatableField original={company.product_portfolio} translated={company.translations?.product_portfolio} showTranslation={showTranslation} maxLength={350} />
                         </Box>
                     )}
-                    {company.company_summary && (
+                    {!hiddenFields.has('company_summary') && company.company_summary && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.companySummary')}</Text>
                             <TranslatableField original={company.company_summary} translated={company.translations?.company_summary} showTranslation={showTranslation} maxLength={350} />
                         </Box>
                     )}
-                    {company.next_step && (
+                    {!hiddenFields.has('next_step') && company.next_step && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.nextStep')}</Text>
                             <TranslatableField original={company.next_step} translated={company.translations?.next_step} showTranslation={showTranslation} maxLength={350} />
                         </Box>
                     )}
-                    {company.fit_score && (
+                    {!hiddenFields.has('fit_score') && company.fit_score && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.fitScore')}</Text>
                             <Text size="sm">{company.fit_score}</Text>
                         </Box>
                     )}
-                    {company.custom_field_1 && (
+                    {!hiddenFields.has('custom_field_1') && company.custom_field_1 && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">
                                 {user?.tenantSettings?.custom_field_1_label || t('company.customField1', 'Özel Alan 1')}
@@ -623,7 +623,7 @@ export default function CompanyDetailPage() {
                             <Text size="sm">{company.custom_field_1}</Text>
                         </Box>
                     )}
-                    {company.custom_field_2 && (
+                    {!hiddenFields.has('custom_field_2') && company.custom_field_2 && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">
                                 {user?.tenantSettings?.custom_field_2_label || t('company.customField2', 'Özel Alan 2')}
@@ -631,7 +631,7 @@ export default function CompanyDetailPage() {
                             <Text size="sm">{company.custom_field_2}</Text>
                         </Box>
                     )}
-                    {company.custom_field_3 && (
+                    {!hiddenFields.has('custom_field_3') && company.custom_field_3 && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">
                                 {user?.tenantSettings?.custom_field_3_label || t('company.customField3', 'Özel Alan 3')}
