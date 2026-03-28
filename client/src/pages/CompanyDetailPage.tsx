@@ -26,6 +26,8 @@ import {
     Anchor,
     Menu,
     Alert,
+    Popover,
+    Checkbox,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
@@ -46,6 +48,7 @@ import {
     IconNotes,
     IconLanguage,
     IconAlertCircle,
+    IconEyeOff,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -506,8 +509,82 @@ export default function CompanyDetailPage() {
                     </Stack>
                 </Group>
 
+                {/* Field visibility control */}
+                <Group justify="flex-end" mt="lg" mb="xs">
+                    <Popover
+                        opened={fieldPopoverOpen}
+                        onChange={setFieldPopoverOpen}
+                        position="bottom-end"
+                        shadow="md"
+                        withArrow
+                    >
+                        <Popover.Target>
+                            <Tooltip label={t('company.editFields')} withArrow position="left">
+                                {hiddenFields.size > 0 ? (
+                                    <Group
+                                        gap={4}
+                                        style={{
+                                            padding: '4px 9px',
+                                            borderRadius: 6,
+                                            background: '#f3f0ff',
+                                            border: '1px solid #cc5de8',
+                                            cursor: 'pointer',
+                                        }}
+                                        onClick={() => setFieldPopoverOpen((o) => !o)}
+                                    >
+                                        <IconEyeOff size={13} color="var(--mantine-color-violet-6)" />
+                                        <Text size="xs" fw={600} c="violet">{hiddenFields.size}</Text>
+                                    </Group>
+                                ) : (
+                                    <ActionIcon
+                                        variant="subtle"
+                                        color="gray"
+                                        size="sm"
+                                        onClick={() => setFieldPopoverOpen((o) => !o)}
+                                    >
+                                        <IconEyeOff size={14} />
+                                    </ActionIcon>
+                                )}
+                            </Tooltip>
+                        </Popover.Target>
+                        <Popover.Dropdown p="sm" style={{ minWidth: 220 }}>
+                            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs" style={{ letterSpacing: '0.5px' }}>
+                                {t('company.fieldVisibility')}
+                            </Text>
+                            <Stack gap={8}>
+                                {DETAIL_FIELDS.map((field) => {
+                                    const label = field.labelKey
+                                        ? t(field.labelKey)
+                                        : (user?.tenantSettings?.[`${field.key}_label` as keyof typeof user.tenantSettings] as string | undefined)
+                                          ?? t(`company.customField${field.key.slice(-1)}`, `Özel Alan ${field.key.slice(-1)}`);
+                                    return (
+                                        <Checkbox
+                                            key={field.key}
+                                            label={label}
+                                            checked={!hiddenFields.has(field.key)}
+                                            onChange={() => toggleField(field.key as DetailFieldKey)}
+                                            color="violet"
+                                            size="sm"
+                                        />
+                                    );
+                                })}
+                            </Stack>
+                            <Divider my="xs" />
+                            <Button
+                                variant="subtle"
+                                color="violet"
+                                size="xs"
+                                fullWidth
+                                onClick={resetFields}
+                            >
+                                {t('company.resetFields')}
+                            </Button>
+                        </Popover.Dropdown>
+                    </Popover>
+                </Group>
+
                 {/* Details Grid */}
-                <SimpleGrid cols={2} mt="lg">
+                <SimpleGrid cols={2}>
                     {company.product_services && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.productServices')}</Text>
