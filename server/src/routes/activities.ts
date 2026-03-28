@@ -35,7 +35,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const db = dbClient(req);
         let query = db
             .from('activities')
-            .select('*', { count: 'exact' })
+            .select('*, contacts(first_name, last_name)', { count: 'exact' })
             .eq('tenant_id', tenantId)
             .eq('company_id', company_id as string)
             .order('occurred_at', { ascending: false })
@@ -51,8 +51,15 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             throw new AppError('Failed to fetch activities', 500);
         }
 
+        const mapped = (data || []).map((a: any) => {
+            const c = a.contacts;
+            const contact_name = c ? [c.first_name, c.last_name].filter(Boolean).join(' ') : null;
+            const { contacts: _, ...rest } = a;
+            return { ...rest, contact_name };
+        });
+
         res.json({
-            data: data || [],
+            data: mapped,
             pagination: {
                 page,
                 limit,
@@ -139,7 +146,7 @@ router.post(
 // POST /api/activities/closing-report — Sonlandırma raporu + otomatik stage güncelleme (atomik)
 router.post(
     '/closing-report',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     validateBody(closingReportSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
