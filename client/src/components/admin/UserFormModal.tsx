@@ -80,7 +80,7 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
 
     const canSubmit = isEdit
         ? (email !== user?.email || password.length > 0)
-        : (email.length > 0 && password.length >= 8);
+        : (email.length > 0 && password.length >= 8 && (!tenantId || !!role));
 
     return (
         <Modal
