@@ -11,8 +11,9 @@ import {
     Tooltip,
     Skeleton,
     Button,
+    ThemeIcon,
 } from '@mantine/core';
-import { IconPlus } from '@tabler/icons-react';
+import { IconPlus, IconTrophy, IconXboxX, IconClock, IconBan } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import ActivityTimeline from '../ActivityTimeline';
 import ActivityForm from '../ActivityForm';
@@ -40,6 +41,77 @@ interface KanbanBoardProps {
     isDragEnabled: boolean;
     onStageChange: (companyId: string, newStage: string, oldStage: string) => void;
     initialFocusStage?: string | null;
+    terminalCounts?: Record<string, number>;
+}
+
+const TERMINAL_ICONS: Record<string, typeof IconTrophy> = {
+    won: IconTrophy,
+    lost: IconXboxX,
+    on_hold: IconClock,
+    cancelled: IconBan,
+};
+
+/** Droppable zone for a terminal stage */
+function TerminalDropZone({
+    stage,
+    count,
+    isOver,
+    isDragging,
+}: {
+    stage: string;
+    count: number;
+    isOver: boolean;
+    isDragging: boolean;
+}) {
+    const { getStageColor, getStageLabel } = useStages();
+    const { setNodeRef } = useDroppable({ id: stage });
+    const color = getStageColor(stage);
+    const Icon = TERMINAL_ICONS[stage] || IconBan;
+
+    return (
+        <Paper
+            ref={setNodeRef}
+            radius="md"
+            px="md"
+            py="xs"
+            withBorder
+            style={{
+                flex: '1 1 0',
+                minWidth: 0,
+                transition: 'all 200ms ease',
+                borderColor: isOver
+                    ? `var(--mantine-color-${color}-5)`
+                    : isDragging
+                    ? `var(--mantine-color-${color}-3)`
+                    : 'var(--mantine-color-default-border)',
+                backgroundColor: isOver
+                    ? `var(--mantine-color-${color}-light)`
+                    : undefined,
+                transform: isOver ? 'scale(1.03)' : undefined,
+                boxShadow: isOver ? `0 0 12px var(--mantine-color-${color}-3)` : undefined,
+                opacity: isDragging ? 1 : 0.85,
+            }}
+        >
+            <Group gap="xs" wrap="nowrap" justify="center">
+                <ThemeIcon
+                    variant="light"
+                    color={color}
+                    size="sm"
+                    radius="xl"
+                >
+                    <Icon size={14} />
+                </ThemeIcon>
+                <Text size="xs" fw={600} tt="uppercase" style={{ letterSpacing: '0.3px' }}>
+                    {getStageLabel(stage)}
+                </Text>
+                {count > 0 && (
+                    <Badge size="sm" variant="filled" color={color} radius="xl">
+                        {count}
+                    </Badge>
+                )}
+            </Group>
+        </Paper>
+    );
 }
 
 /** Lazy-loaded detail panel for a single company card */
@@ -283,13 +355,15 @@ const collisionDetection: CollisionDetection = (args) => {
     return rectIntersection(args);
 };
 
-/** Resolve over.id to a stage name — handles dropping on a card (UUID) or on a column (stage) */
+/** Resolve over.id to a stage name — handles dropping on a card (UUID), column (stage), or terminal zone */
 function resolveTargetStage(
     overId: string,
     columns: Record<string, PipelineCompany[]>,
     pipelineSlugs: string[],
+    terminalSlugs: string[],
 ): string | null {
     if (pipelineSlugs.includes(overId)) return overId;
+    if (terminalSlugs.includes(overId)) return overId;
     for (const stage of pipelineSlugs) {
         if (columns[stage]?.some((c) => c.id === overId)) return stage;
     }
@@ -301,8 +375,9 @@ export default function KanbanBoard({
     isDragEnabled,
     onStageChange,
     initialFocusStage,
+    terminalCounts = {},
 }: KanbanBoardProps) {
-    const { pipelineStageSlugs } = useStages();
+    const { pipelineStageSlugs, terminalStageSlugs } = useStages();
     const [activeCompany, setActiveCompany] = useState<PipelineCompany | null>(null);
     const [overColumnId, setOverColumnId] = useState<string | null>(null);
     const [spotlightStage, setSpotlightStage] = useState<string | null>(initialFocusStage ?? null);
@@ -336,9 +411,9 @@ export default function KanbanBoard({
             return;
         }
         const id = String(event.over.id);
-        const stage = resolveTargetStage(id, columns, pipelineStageSlugs);
+        const stage = resolveTargetStage(id, columns, pipelineStageSlugs, terminalStageSlugs);
         setOverColumnId(stage);
-    }, [columns, pipelineStageSlugs]);
+    }, [columns, pipelineStageSlugs, terminalStageSlugs]);
 
     const handleDragEnd = useCallback(
         (event: DragEndEvent) => {
@@ -351,18 +426,20 @@ export default function KanbanBoard({
             const company = active.data.current?.company as PipelineCompany | undefined;
             if (!company) return;
 
-            const newStage = resolveTargetStage(String(over.id), columns, pipelineStageSlugs);
+            const newStage = resolveTargetStage(String(over.id), columns, pipelineStageSlugs, terminalStageSlugs);
             if (newStage && newStage !== company.stage) {
                 onStageChange(company.id, newStage, company.stage);
             }
         },
-        [onStageChange, columns, pipelineStageSlugs]
+        [onStageChange, columns, pipelineStageSlugs, terminalStageSlugs]
     );
 
     const handleDragCancel = useCallback(() => {
         setActiveCompany(null);
         setOverColumnId(null);
     }, []);
+
+    const isDragging = activeCompany !== null;
 
     return (
         <DndContext
@@ -373,6 +450,27 @@ export default function KanbanBoard({
             onDragEnd={handleDragEnd}
             onDragCancel={handleDragCancel}
         >
+            {/* Terminal stage drop zones */}
+            {terminalStageSlugs.length > 0 && (
+                <Box
+                    style={{
+                        display: 'flex',
+                        gap: 8,
+                        marginBottom: 12,
+                    }}
+                >
+                    {terminalStageSlugs.map((slug) => (
+                        <TerminalDropZone
+                            key={slug}
+                            stage={slug}
+                            count={terminalCounts[slug] || 0}
+                            isOver={overColumnId === slug}
+                            isDragging={isDragging}
+                        />
+                    ))}
+                </Box>
+            )}
+
             <Box
                 style={{
                     display: 'flex',

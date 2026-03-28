@@ -30,7 +30,7 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
-import { showErrorFromApi } from '../lib/notifications';
+
 import { useAuth } from '../contexts/AuthContext';
 import { canWrite } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
