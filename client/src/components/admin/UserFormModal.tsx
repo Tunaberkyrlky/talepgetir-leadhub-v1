@@ -112,7 +112,7 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
                             placeholder={t('admin.tenantSelectPlaceholder')}
                             data={tenantOptions}
                             value={tenantId}
-                            onChange={setTenantId}
+                            onChange={(v) => { setTenantId(v); if (!v) setRole(null); }}
                             clearable
                             searchable
                         />
