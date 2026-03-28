@@ -10,10 +10,12 @@ import {
     Center,
     Tooltip,
     Skeleton,
-    ThemeIcon,
+    Button,
 } from '@mantine/core';
-import { IconUser, IconNote } from '@tabler/icons-react';
+import { IconPlus } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import ActivityTimeline from '../ActivityTimeline';
+import ActivityForm from '../ActivityForm';
 import { useQuery } from '@tanstack/react-query';
 import {
     DndContext,
@@ -33,24 +35,6 @@ import { useStages } from '../../contexts/StagesContext';
 import api from '../../lib/api';
 import PipelineCard, { type PipelineCompany } from './PipelineCard';
 
-interface ContactNote {
-    id: string;
-    text: string;
-    created_at: string;
-    created_by: string;
-}
-
-interface Contact {
-    id: string;
-    first_name: string;
-    last_name: string | null;
-    title: string | null;
-    email: string | null;
-    phone_e164: string | null;
-    is_primary: boolean;
-    notes: ContactNote[] | null;
-}
-
 interface KanbanBoardProps {
     columns: Record<string, PipelineCompany[]>;
     isDragEnabled: boolean;
@@ -60,8 +44,10 @@ interface KanbanBoardProps {
 
 /** Lazy-loaded detail panel for a single company card */
 function CompanyDetailCell({ companyId }: { companyId: string }) {
+    const { t } = useTranslation();
     const ref = useRef<HTMLDivElement>(null);
     const [isVisible, setIsVisible] = useState(false);
+    const [formOpened, setFormOpened] = useState(false);
 
     useEffect(() => {
         const el = ref.current;
@@ -74,53 +60,38 @@ function CompanyDetailCell({ companyId }: { companyId: string }) {
         return () => observer.disconnect();
     }, []);
 
-    const { data, isLoading } = useQuery<{ contacts: Contact[] }>({
+    // Fetch contacts for ActivityForm selector
+    const { data } = useQuery<{ contacts: { id: string; first_name: string; last_name?: string | null }[] }>({
         queryKey: ['company', companyId],
         queryFn: async () => (await api.get(`/companies/${companyId}`)).data.data,
         enabled: isVisible,
         staleTime: 60_000,
     });
 
-    const contacts = data?.contacts?.filter(c =>
-        c.notes && c.notes.length > 0
-    ) ?? [];
-
     return (
         <Box ref={ref} style={{ flex: 1, minWidth: 0 }}>
-            {!isVisible || isLoading ? (
+            {!isVisible ? (
                 <Stack gap={6}>
                     <Skeleton height={12} width="60%" radius="sm" />
                     <Skeleton height={10} width="80%" radius="sm" />
-                    <Skeleton height={10} width="40%" radius="sm" />
                 </Stack>
-            ) : contacts.length === 0 ? (
-                <Text size="xs" c="dimmed" fs="italic">—</Text>
             ) : (
-                <Stack gap={8}>
-                    {contacts.map((contact) => (
-                        <Box key={contact.id}>
-                            <Group gap={6} wrap="nowrap">
-                                <ThemeIcon size={16} variant="light" color="violet" radius="xl">
-                                    <IconUser size={10} />
-                                </ThemeIcon>
-                                <Text size="xs" fw={500} lineClamp={1}>
-                                    {contact.first_name}{contact.last_name ? ` ${contact.last_name}` : ''}
-                                </Text>
-                            </Group>
-                            {contact.notes && contact.notes.length > 0 && (
-                                <Stack gap={2} mt={2} ml={22}>
-                                    {contact.notes.slice(0, 2).map((note) => (
-                                        <Group key={note.id} gap={4} align="flex-start" wrap="nowrap">
-                                            <IconNote size={10} color="var(--mantine-color-dimmed)" style={{ marginTop: 2, flexShrink: 0 }} />
-                                            <Text size="xs" c="dimmed" lineClamp={2}>
-                                                {note.text}
-                                            </Text>
-                                        </Group>
-                                    ))}
-                                </Stack>
-                            )}
-                        </Box>
-                    ))}
+                <Stack gap="xs">
+                    <Button
+                        size="compact-xs"
+                        variant="light"
+                        leftSection={<IconPlus size={14} />}
+                        onClick={() => setFormOpened(true)}
+                    >
+                        {t('activities.addActivity')}
+                    </Button>
+                    <ActivityTimeline companyId={companyId} compact />
+                    <ActivityForm
+                        opened={formOpened}
+                        onClose={() => setFormOpened(false)}
+                        companyId={companyId}
+                        contacts={data?.contacts}
+                    />
                 </Stack>
             )}
         </Box>
