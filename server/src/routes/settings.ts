@@ -438,6 +438,7 @@ router.post('/stages/:slug/deactivate', async (req: Request, res: Response, next
 
         // Validate all targetStage values
         const activeSlugs = new Set(tenantStages.map((s) => s.slug));
+        const terminalSlugs = new Set(tenantStages.filter((s) => s.stage_type === 'terminal').map((s) => s.slug));
         for (const m of migrations) {
             if (!activeSlugs.has(m.targetStage)) {
                 res.status(422).json({ error: `Target stage "${m.targetStage}" is not active or does not exist` });
@@ -445,6 +446,10 @@ router.post('/stages/:slug/deactivate', async (req: Request, res: Response, next
             }
             if (m.targetStage === slug) {
                 res.status(400).json({ error: `Cannot migrate companies to the stage being deactivated` });
+                return;
+            }
+            if (terminalSlugs.has(m.targetStage)) {
+                res.status(400).json({ error: `Cannot migrate companies to terminal stage "${m.targetStage}" — each company requires an individual closing report` });
                 return;
             }
         }
@@ -468,56 +473,34 @@ router.post('/stages/:slug/deactivate', async (req: Request, res: Response, next
             }
         }
 
-        // Apply explicit migrations
-        let companiesMoved = 0;
+        // Group explicit migrations by target stage for batch updates
+        const byTarget = new Map<string, string[]>();
         for (const m of migrations) {
-            const { error: migrateError } = await supabaseAdmin
-                .from('companies')
-                .update({ stage: m.targetStage, updated_at: new Date().toISOString() })
-                .eq('id', m.companyId)
-                .eq('tenant_id', tenantId);
-
-            if (migrateError) {
-                log.error({ err: migrateError, companyId: m.companyId }, 'Failed to migrate company');
-                throw new AppError('Failed to migrate company', 500);
-            }
-            companiesMoved++;
+            const list = byTarget.get(m.targetStage) || [];
+            list.push(m.companyId);
+            byTarget.set(m.targetStage, list);
         }
 
-        // Move remaining companies in this stage to the initial stage
-        const { count: remainingCount, error: remainCountError } = await supabaseAdmin
-            .from('companies')
-            .select('*', { count: 'exact', head: true })
-            .eq('tenant_id', tenantId)
-            .eq('stage', slug);
+        // Build migrations array for the atomic RPC: [{company_ids: [...], target_stage: "..."}]
+        const migrationBatches = Array.from(byTarget.entries()).map(([target, ids]) => ({
+            company_ids: ids,
+            target_stage: target,
+        }));
 
-        if (remainCountError) throw new AppError('Failed to count remaining companies', 500);
+        // Execute atomically via Postgres function (single transaction)
+        const { data: result, error: txError } = await supabaseAdmin.rpc('deactivate_pipeline_stage', {
+            p_tenant_id: tenantId,
+            p_slug: slug,
+            p_migrations: migrationBatches,
+            p_fallback_stage: initialStageSlug,
+        });
 
-        if ((remainingCount || 0) > 0) {
-            const { error: fallbackError } = await supabaseAdmin
-                .from('companies')
-                .update({ stage: initialStageSlug, updated_at: new Date().toISOString() })
-                .eq('tenant_id', tenantId)
-                .eq('stage', slug);
-
-            if (fallbackError) {
-                log.error({ err: fallbackError }, 'Failed to move remaining companies to initial stage');
-                throw new AppError('Failed to reassign remaining companies', 500);
-            }
-            companiesMoved += remainingCount || 0;
-        }
-
-        // Deactivate the stage
-        const { error: deactivateError } = await supabaseAdmin
-            .from('pipeline_stages')
-            .update({ is_active: false })
-            .eq('tenant_id', tenantId)
-            .eq('slug', slug);
-
-        if (deactivateError) {
-            log.error({ err: deactivateError }, 'Failed to deactivate stage');
+        if (txError) {
+            log.error({ err: txError }, 'Atomic deactivate transaction failed');
             throw new AppError('Failed to deactivate stage', 500);
         }
+
+        const companiesMoved = result?.companies_moved ?? migrations.length;
 
         invalidateStageCache(tenantId);
 

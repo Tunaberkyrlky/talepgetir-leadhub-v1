@@ -28,6 +28,7 @@ import {
     IconColumns,
     IconFileImport,
     IconShieldCog,
+    IconActivity,
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
 import { useTranslation } from 'react-i18next';
@@ -86,6 +87,7 @@ export default function Layout() {
         { path: '/companies', label: t('nav.companies'), icon: <IconBuilding size={20} /> },
         { path: '/people', label: t('nav.people'), icon: <IconUsers size={20} /> },
         { path: '/pipeline', label: t('nav.pipeline'), icon: <IconColumns size={20} /> },
+        { path: '/activities', label: t('nav.activities'), icon: <IconActivity size={20} /> },
         ...(hasRolePermission(user?.role || '', 'import')
             ? [{ path: '/import', label: t('nav.import'), icon: <IconFileImport size={20} /> }]
             : []),

@@ -52,9 +52,10 @@ export default function DeactivateStageModal({ stageSlug, stageName, onClose, on
     const pendingCount = Object.values(selections).filter((v) => v === null).length;
     const allAssigned = companies.length > 0 && pendingCount === 0;
 
-    // Target stage options: active stages excluding the stage being deactivated
+    // Target stage options: active non-terminal stages excluding the stage being deactivated
+    // Terminal stages require a closing report and cannot be used as migration targets
     const targetOptions = allStages
-        .filter((s) => s.is_active && s.slug !== stageSlug)
+        .filter((s) => s.is_active && s.slug !== stageSlug && s.stage_type !== 'terminal')
         .map((s) => ({ value: s.slug, label: getStageLabel(s.slug) }));
 
     const moveAllToInitial = () => {

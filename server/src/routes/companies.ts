@@ -202,22 +202,63 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
             if (col) col.push(company);
         }
 
-        // Terminal stage counts
-        const terminalResults = await Promise.all(
-            terminalStages.map((stage) =>
-                db
-                    .from('companies')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('tenant_id', tenantId)
-                    .eq('stage', stage)
-            )
-        );
-        const terminalCounts: Record<string, number> = {};
-        terminalStages.forEach((stage, i) => {
-            terminalCounts[stage] = terminalResults[i].count || 0;
-        });
+        // Terminal stage companies + counts
+        let terminalQuery = db
+            .from('companies')
+            .select('id, name, industry, stage, next_step, company_summary, updated_at, stage_changed_at, contact_count')
+            .eq('tenant_id', tenantId)
+            .in('stage', terminalStages)
+            .order('updated_at', { ascending: false });
 
-        res.json({ columns, terminalCounts });
+        if (search) {
+            const safe = sanitizeSearch(search);
+            if (safe.length > 0) {
+                const pattern = `%${safe}%`;
+                terminalQuery = terminalQuery.or(`name.ilike.${pattern},next_step.ilike.${pattern},company_summary.ilike.${pattern}`);
+            }
+        }
+
+        const { data: terminalData, error: terminalError } = await terminalQuery;
+
+        if (terminalError) {
+            log.error({ err: terminalError }, 'Terminal stage query error');
+            throw new AppError('Failed to fetch terminal stage data', 500);
+        }
+
+        // Fetch closing report activities for terminal companies
+        const terminalIds = (terminalData ?? []).map((c: any) => c.id);
+        let closingReports: Record<string, { summary: string; detail: string | null; outcome: string; occurred_at: string }> = {};
+        if (terminalIds.length > 0) {
+            const { data: reports } = await db
+                .from('activities')
+                .select('company_id, summary, detail, outcome, occurred_at')
+                .eq('tenant_id', tenantId)
+                .eq('type', 'sonlandirma_raporu')
+                .in('company_id', terminalIds)
+                .order('occurred_at', { ascending: false });
+            // Keep only the latest report per company
+            for (const r of reports ?? []) {
+                if (!closingReports[r.company_id]) {
+                    closingReports[r.company_id] = { summary: r.summary, detail: r.detail, outcome: r.outcome, occurred_at: r.occurred_at };
+                }
+            }
+        }
+
+        const terminalColumns: Record<string, any[]> = {};
+        const terminalCounts: Record<string, number> = {};
+        for (const stage of terminalStages) {
+            terminalColumns[stage] = [];
+            terminalCounts[stage] = 0;
+        }
+        for (const company of terminalData ?? []) {
+            const col = terminalColumns[company.stage];
+            if (col) {
+                col.push({ ...company, closing_report: closingReports[company.id] || null });
+                terminalCounts[company.stage]++;
+            }
+        }
+
+        res.json({ columns, terminalCounts, terminalColumns });
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Pipeline data error');
@@ -604,9 +645,9 @@ router.patch(
             }
 
             // Terminal stages cannot be set via bulk update — each company requires a closing report
-            const TERMINAL_STAGES_BULK = ['won', 'lost', 'on_hold', 'cancelled'];
-            if (TERMINAL_STAGES_BULK.includes(stage)) {
-                res.status(400).json({ error: 'Terminal stages (won, lost, on_hold, cancelled) cannot be set via bulk update. Each company requires an individual closing report.' });
+            const terminalSlugs = await getTerminalStageSlugs(tenantId);
+            if (terminalSlugs.includes(stage)) {
+                res.status(400).json({ error: `Terminal stages (${terminalSlugs.join(', ')}) cannot be set via bulk update. Each company requires an individual closing report.` });
                 return;
             }
 

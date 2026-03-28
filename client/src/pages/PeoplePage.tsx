@@ -227,7 +227,7 @@ export default function PeoplePage() {
     const [colPopoverOpen, setColPopoverOpen] = useState(false);
 
     const userRole = user?.role || '';
-    const userIsInternal = canWrite(userRole);
+    const userCanEdit = canWrite(userRole);
     const userCanDelete = canDelete(userRole);
 
     const columnLabels: Record<ColumnKey, string> = {
@@ -515,7 +515,7 @@ export default function PeoplePage() {
                 <Title order={2} fw={700}>
                     {t('people.title')}
                 </Title>
-                {userIsInternal && (
+                {userCanEdit && (
                     <Button
                         leftSection={<IconPlus size={18} />}
                         onClick={openCreate}
@@ -711,7 +711,7 @@ export default function PeoplePage() {
                                     >
                                         {visibleColumns.map(col => renderColumnCell(col.key, contact))}
                                         <Table.Td style={{ padding: '0 4px' }}>
-                                            {userIsInternal && (
+                                            {userCanEdit && (
                                                 <Menu withinPortal position="bottom-end" shadow="sm">
                                                     <Menu.Target>
                                                         <ActionIcon

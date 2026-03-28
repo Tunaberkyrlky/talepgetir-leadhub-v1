@@ -35,14 +35,21 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const db = dbClient(req);
         let query = db
             .from('activities')
-            .select('*, contacts(first_name, last_name)', { count: 'exact' })
+            .select('*', { count: 'exact' })
             .eq('tenant_id', tenantId)
             .eq('company_id', company_id as string)
             .order('occurred_at', { ascending: false })
             .range(offset, offset + limit - 1);
 
         if (contact_id) query = query.eq('contact_id', contact_id as string);
-        if (type) query = query.eq('type', type as string);
+        if (type) {
+            const VALID_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change'];
+            if (!VALID_TYPES.includes(type as string)) {
+                res.status(400).json({ error: `Invalid activity type: ${type}` });
+                return;
+            }
+            query = query.eq('type', type as string);
+        }
 
         const { data, count, error } = await query;
 
@@ -51,11 +58,22 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             throw new AppError('Failed to fetch activities', 500);
         }
 
+        // Resolve contact names (no FK constraint on contact_id)
+        const contactIds = [...new Set((data || []).map((a: any) => a.contact_id).filter(Boolean))];
+        const contactMap: Record<string, string> = {};
+        if (contactIds.length > 0) {
+            const { data: contacts } = await db
+                .from('contacts')
+                .select('id, first_name, last_name')
+                .in('id', contactIds);
+            for (const c of contacts || []) {
+                contactMap[c.id] = [c.first_name, c.last_name].filter(Boolean).join(' ');
+            }
+        }
+
         const mapped = (data || []).map((a: any) => {
-            const c = a.contacts;
-            const contact_name = c ? [c.first_name, c.last_name].filter(Boolean).join(' ') : null;
-            const { contacts: _, ...rest } = a;
-            return { ...rest, contact_name };
+            const contact_name = a.contact_id ? (contactMap[a.contact_id] || null) : null;
+            return { ...a, contact_name };
         });
 
         res.json({
@@ -72,6 +90,79 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'List activities error');
+        res.status(500).json({ error: 'Failed to fetch activities' });
+    }
+});
+
+// GET /api/activities/all — List all activities across companies (for Activities page)
+router.get('/all', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const { type, date_from, date_to } = req.query;
+        const page = Math.max(1, parseInt(req.query.page as string) || 1);
+        const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20));
+        const offset = (page - 1) * limit;
+
+        const db = dbClient(req);
+        let query = db
+            .from('activities')
+            .select('*, companies(name)', { count: 'exact' })
+            .eq('tenant_id', tenantId)
+            .order('occurred_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+
+        if (type) {
+            const VALID_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change'];
+            if (!VALID_TYPES.includes(type as string)) {
+                res.status(400).json({ error: `Invalid activity type: ${type}` });
+                return;
+            }
+            query = query.eq('type', type as string);
+        }
+        if (date_from) query = query.gte('occurred_at', date_from as string);
+        if (date_to) query = query.lte('occurred_at', date_to as string);
+
+        const { data, count, error } = await query;
+
+        if (error) {
+            log.error({ err: error }, 'List all activities error');
+            throw new AppError('Failed to fetch activities', 500);
+        }
+
+        // Resolve contact names for activities that have contact_id
+        const contactIds = [...new Set((data || []).map((a: any) => a.contact_id).filter(Boolean))];
+        const contactMap: Record<string, string> = {};
+        if (contactIds.length > 0) {
+            const { data: contacts } = await db
+                .from('contacts')
+                .select('id, first_name, last_name')
+                .in('id', contactIds);
+            for (const c of contacts || []) {
+                contactMap[c.id] = [c.first_name, c.last_name].filter(Boolean).join(' ');
+            }
+        }
+
+        const mapped = (data || []).map((a: any) => {
+            const company_name = a.companies?.name || null;
+            const contact_name = a.contact_id ? (contactMap[a.contact_id] || null) : null;
+            const { companies: _co, ...rest } = a;
+            return { ...rest, contact_name, company_name };
+        });
+
+        res.json({
+            data: mapped,
+            pagination: {
+                page,
+                limit,
+                total: count || 0,
+                totalPages: Math.ceil((count || 0) / limit),
+                hasNext: page < Math.ceil((count || 0) / limit),
+                hasPrev: page > 1,
+            },
+        });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'List all activities error');
         res.status(500).json({ error: 'Failed to fetch activities' });
     }
 });
@@ -111,6 +202,12 @@ router.post(
         try {
             const tenantId = req.tenantId!;
             const { company_id, contact_id, type, summary, detail, outcome, visibility, occurred_at } = req.body;
+
+            // Non-internal roles cannot create internal-visibility activities
+            if (visibility === 'internal' && !isInternalRole(req.user!.role)) {
+                res.status(422).json({ error: 'Only internal roles can create activities with internal visibility' });
+                return;
+            }
 
             const { data, error } = await supabaseAdmin
                 .from('activities')

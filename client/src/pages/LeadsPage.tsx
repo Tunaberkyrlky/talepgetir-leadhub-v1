@@ -73,9 +73,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { canWrite } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
 import CompanyForm from '../components/CompanyForm';
+import ClosingReportModal from '../components/ClosingReportModal';
 import TruncatedText from '../components/TruncatedText';
 import EmailStatusIcon from '../components/EmailStatusIcon';
 import { useUndoStack } from '../hooks/useUndoStack';
+import { TERMINAL_STAGES } from '../lib/stages';
+import type { ClosingOutcome } from '../types/activity';
 
 interface Company {
     id: string;
@@ -266,8 +269,13 @@ export default function LeadsPage() {
     const searchRef = useRef<HTMLInputElement>(null);
     const undoStack = useUndoStack();
     const [deleteModalCompany, setDeleteModalCompany] = useState<Company | null>(null);
+    const [closingReportTarget, setClosingReportTarget] = useState<{
+        companyId: string;
+        companyName: string;
+        targetStage: ClosingOutcome;
+    } | null>(null);
 
-    const isOpsOrAdmin = canWrite(user?.role || '');
+    const canEdit = canWrite(user?.role || '');
 
     // Build query params (moved up so useQuery can be before handleRowSelect)
     const buildQueryParams = useCallback(() => {
@@ -389,6 +397,10 @@ export default function LeadsPage() {
     });
 
     const handleBulkStageChange = useCallback((newStage: string) => {
+        if (TERMINAL_STAGES.includes(newStage as any)) {
+            showInfo(t('bulk.terminalNotBulk', 'Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir.'));
+            return;
+        }
         const ids = Array.from(selectedIds);
         const oldStages: Record<string, string> = {};
         for (const id of ids) {
@@ -626,7 +638,20 @@ export default function LeadsPage() {
                                     <Menu.Item
                                         key={s.slug}
                                         onClick={() => {
-                                            const ids = selectedIds.has(company.id) && selectedIds.size > 1
+                                            const isBulk = selectedIds.has(company.id) && selectedIds.size > 1;
+                                            if (TERMINAL_STAGES.includes(s.slug as any)) {
+                                                if (isBulk) {
+                                                    showInfo(t('bulk.terminalNotBulk', 'Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir.'));
+                                                } else {
+                                                    setClosingReportTarget({
+                                                        companyId: company.id,
+                                                        companyName: company.name,
+                                                        targetStage: s.slug as ClosingOutcome,
+                                                    });
+                                                }
+                                                return;
+                                            }
+                                            const ids = isBulk
                                                 ? Array.from(selectedIds)
                                                 : [company.id];
                                             const oldStages: Record<string, string> = {};
@@ -832,7 +857,7 @@ export default function LeadsPage() {
                 <Title order={2} fw={700}>
                     {t('leads.title')}
                 </Title>
-                {isOpsOrAdmin && (
+                {canEdit && (
                     <Group>
                         <Button
                             leftSection={<IconFileImport size={18} />}
@@ -1115,7 +1140,7 @@ export default function LeadsPage() {
                                         </Table.Td>
                                         {visibleColumns.map(col => renderColumnCell(col.key, company))}
                                         <Table.Td style={{ padding: '0 4px' }}>
-                                            {isOpsOrAdmin && (
+                                            {canEdit && (
                                                 <Menu withinPortal position="bottom-end" shadow="sm">
                                                     <Menu.Target>
                                                         <ActionIcon
@@ -1219,6 +1244,23 @@ export default function LeadsPage() {
                     </Group>
                 </Stack>
             </Modal>
+
+            {closingReportTarget && (
+                <ClosingReportModal
+                    opened={true}
+                    onClose={() => setClosingReportTarget(null)}
+                    companyId={closingReportTarget.companyId}
+                    companyName={closingReportTarget.companyName}
+                    targetStage={closingReportTarget.targetStage}
+                    onSuccess={() => {
+                        setClosingReportTarget(null);
+                        queryClient.invalidateQueries({ queryKey: ['companies'] });
+                        queryClient.invalidateQueries({ queryKey: ['filterOptions'] });
+                        queryClient.invalidateQueries({ queryKey: ['statistics'] });
+                        queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+                    }}
+                />
+            )}
         </Container>
     );
 }

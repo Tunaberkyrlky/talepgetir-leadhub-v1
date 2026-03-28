@@ -28,6 +28,7 @@ import {
     Alert,
     Popover,
     Checkbox,
+    Tabs,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
@@ -114,24 +115,28 @@ const DETAIL_FIELDS = [
 
 type DetailFieldKey = typeof DETAIL_FIELDS[number]['key'];
 
-const FIELD_VISIBILITY_KEY = 'company_detail_field_visibility';
+function getFieldVisibilityKey(tenantId?: string): string {
+    return tenantId
+        ? `company_detail_field_visibility_${tenantId}`
+        : 'company_detail_field_visibility';
+}
 
-function loadFieldVisibility(): Set<string> {
+function loadFieldVisibility(tenantId?: string): Set<string> {
     try {
-        const stored = localStorage.getItem(FIELD_VISIBILITY_KEY);
+        const stored = localStorage.getItem(getFieldVisibilityKey(tenantId));
         return stored ? new Set(JSON.parse(stored) as string[]) : new Set();
     } catch {
         return new Set();
     }
 }
 
-function saveFieldVisibility(hidden: Set<string>): void {
-    localStorage.setItem(FIELD_VISIBILITY_KEY, JSON.stringify([...hidden]));
+function saveFieldVisibility(hidden: Set<string>, tenantId?: string): void {
+    localStorage.setItem(getFieldVisibilityKey(tenantId), JSON.stringify([...hidden]));
 }
 
 interface ContactCardProps {
     contact: Contact;
-    isOpsOrAdmin: boolean;
+    canEdit: boolean;
     isSuperadmin: boolean;
     onNavigate: (id: string) => void;
     onEdit: (contact: Contact) => void;
@@ -139,7 +144,7 @@ interface ContactCardProps {
     t: (key: string) => string;
 }
 
-function ContactCard({ contact, isOpsOrAdmin, isSuperadmin, onNavigate, onEdit, onDelete, t }: ContactCardProps) {
+function ContactCard({ contact, canEdit, isSuperadmin, onNavigate, onEdit, onDelete, t }: ContactCardProps) {
     const href = safeUrl(contact.linkedin);
     return (
         <Card withBorder radius="md" p="md" style={{ cursor: 'pointer' }} onClick={() => onNavigate(contact.id)}>
@@ -183,7 +188,7 @@ function ContactCard({ contact, isOpsOrAdmin, isSuperadmin, onNavigate, onEdit, 
                             <IconBrandLinkedin size={16} color="#0A66C2" />
                         </Anchor>
                     )}
-                    {isOpsOrAdmin && (
+                    {canEdit && (
                         <Menu withinPortal position="bottom-end" shadow="sm">
                             <Menu.Target>
                                 <ActionIcon variant="subtle" color="gray" size="sm" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
@@ -221,25 +226,25 @@ export default function CompanyDetailPage() {
     const [editingContact, setEditingContact] = useState<Contact | null>(null);
     const [deleteContactTarget, setDeleteContactTarget] = useState<Contact | null>(null);
     const [showTranslation, setShowTranslation] = useState(false);
-    const [hiddenFields, setHiddenFields] = useState<Set<string>>(() => loadFieldVisibility());
+    const [hiddenFields, setHiddenFields] = useState<Set<string>>(() => loadFieldVisibility(user?.tenantId));
     const [fieldPopoverOpen, setFieldPopoverOpen] = useState(false);
     const [closingReportTarget, setClosingReportTarget] = useState<{
         companyId: string;
         companyName: string;
         targetStage: ClosingOutcome;
     } | null>(null);
-    const isOpsOrAdmin = canWrite(user?.role || '');
+    const canEdit = canWrite(user?.role || '');
 
     const toggleField = (key: DetailFieldKey) => {
         const next = new Set(hiddenFields);
         if (next.has(key)) next.delete(key); else next.add(key);
         setHiddenFields(next);
-        saveFieldVisibility(next);
+        saveFieldVisibility(next, user?.tenantId);
     };
 
     const resetFields = () => {
         setHiddenFields(new Set());
-        saveFieldVisibility(new Set());
+        saveFieldVisibility(new Set(), user?.tenantId);
     };
 
     const translateMutation = useMutation({
@@ -398,7 +403,7 @@ export default function CompanyDetailPage() {
                     {t('company.back')}
                 </Button>
                 <Group gap="xs">
-                    {isOpsOrAdmin && (
+                    {canEdit && (
                         <Button
                             variant="light"
                             color="blue"
@@ -421,7 +426,7 @@ export default function CompanyDetailPage() {
                             {showTranslation ? t('translate.hideTranslation') : t('translate.showTranslation')}
                         </Button>
                     )}
-                    {isOpsOrAdmin && (
+                    {canEdit && (
                         <Button
                             variant="light"
                             color="violet"
@@ -517,8 +522,8 @@ export default function CompanyDetailPage() {
                                         style={{
                                             padding: '4px 9px',
                                             borderRadius: 6,
-                                            background: '#f3f0ff',
-                                            border: '1px solid #cc5de8',
+                                            background: 'var(--mantine-color-violet-0)',
+                                            border: '1px solid var(--mantine-color-violet-5)',
                                             cursor: 'pointer',
                                         }}
                                         onClick={() => setFieldPopoverOpen((o) => !o)}
@@ -633,53 +638,68 @@ export default function CompanyDetailPage() {
                 </SimpleGrid>
             </Paper>
 
-            {/* Contacts Section */}
+            {/* Activities & Contacts Tabs */}
             <Paper shadow="sm" radius="lg" p="xl" withBorder>
-                <Group justify="space-between" mb="lg">
-                    <Title order={4} fw={600}>{t('company.contacts')}</Title>
-                    {isOpsOrAdmin && (
-                        <Button
-                            size="sm"
-                            leftSection={<IconPlus size={16} />}
-                            onClick={handleAddContact}
-                            variant="light"
-                            color="violet"
-                            radius="md"
-                        >
-                            {t('contact.addContact')}
-                        </Button>
-                    )}
-                </Group>
+                <Tabs defaultValue="activities">
+                    <Tabs.List mb="lg">
+                        <Tabs.Tab value="activities">{t('activity.timeline')}</Tabs.Tab>
+                        <Tabs.Tab value="contacts">
+                            <Group gap={6} wrap="nowrap">
+                                {t('company.contacts')}
+                                {company.contacts.length > 0 && (
+                                    <Badge size="xs" variant="light" color="violet" circle>{company.contacts.length}</Badge>
+                                )}
+                            </Group>
+                        </Tabs.Tab>
+                    </Tabs.List>
 
-                {company.contacts.length === 0 ? (
-                    <Center py="xl">
-                        <Stack align="center" gap="xs">
-                            <IconUser size={40} color="#ccc" />
-                            <Text c="dimmed">{t('company.noContacts')}</Text>
-                        </Stack>
-                    </Center>
-                ) : (() => {
-                    const cardProps = {
-                        isOpsOrAdmin,
-                        isSuperadmin: user?.role === 'superadmin',
-                        onNavigate: (cid: string) => navigate(`/people/${cid}`),
-                        onEdit: handleEditContact,
-                        onDelete: setDeleteContactTarget,
-                        t,
-                    };
-                    return (
-                        <Stack gap="sm">
-                            {company.contacts.map((c) => (
-                                <ContactCard key={c.id} contact={c} {...cardProps} />
-                            ))}
-                        </Stack>
-                    );
-                })()}
+                    <Tabs.Panel value="activities">
+                        {id && <ActivityTimeline companyId={id} />}
+                    </Tabs.Panel>
 
+                    <Tabs.Panel value="contacts">
+                        <Group justify="flex-end" mb="md">
+                            {canEdit && (
+                                <Button
+                                    size="sm"
+                                    leftSection={<IconPlus size={16} />}
+                                    onClick={handleAddContact}
+                                    variant="light"
+                                    color="violet"
+                                    radius="md"
+                                >
+                                    {t('contact.addContact')}
+                                </Button>
+                            )}
+                        </Group>
+
+                        {company.contacts.length === 0 ? (
+                            <Center py="xl">
+                                <Stack align="center" gap="xs">
+                                    <IconUser size={40} color="#ccc" />
+                                    <Text c="dimmed">{t('company.noContacts')}</Text>
+                                </Stack>
+                            </Center>
+                        ) : (() => {
+                            const cardProps = {
+                                canEdit,
+                                isSuperadmin: user?.role === 'superadmin',
+                                onNavigate: (cid: string) => navigate(`/people/${cid}`),
+                                onEdit: handleEditContact,
+                                onDelete: setDeleteContactTarget,
+                                t,
+                            };
+                            return (
+                                <Stack gap="sm">
+                                    {company.contacts.map((c) => (
+                                        <ContactCard key={c.id} contact={c} {...cardProps} />
+                                    ))}
+                                </Stack>
+                            );
+                        })()}
+                    </Tabs.Panel>
+                </Tabs>
             </Paper>
-
-            {/* Activity Timeline */}
-            {id && <ActivityTimeline companyId={id} />}
 
             {/* Company Edit Modal */}
             <CompanyForm

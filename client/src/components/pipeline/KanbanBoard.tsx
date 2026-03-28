@@ -12,8 +12,9 @@ import {
     Skeleton,
     Button,
     ThemeIcon,
+    SegmentedControl,
 } from '@mantine/core';
-import { IconPlus, IconTrophy, IconXboxX, IconClock, IconBan } from '@tabler/icons-react';
+import { IconPlus, IconTrophy, IconXboxX, IconClock, IconBan, IconFileText } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import ActivityTimeline from '../ActivityTimeline';
 import ActivityForm from '../ActivityForm';
@@ -42,6 +43,12 @@ interface KanbanBoardProps {
     onStageChange: (companyId: string, newStage: string, oldStage: string) => void;
     initialFocusStage?: string | null;
     terminalCounts?: Record<string, number>;
+    /** Override which stage slugs to render as columns (defaults to pipelineStageSlugs) */
+    stageSlugs?: string[];
+    /** Hide the terminal drop zones row */
+    hideTerminalZones?: boolean;
+    /** Outcomes view: show closing report + read-only activities in spotlight */
+    isOutcomesView?: boolean;
 }
 
 const TERMINAL_ICONS: Record<string, typeof IconTrophy> = {
@@ -120,6 +127,7 @@ function CompanyDetailCell({ companyId }: { companyId: string }) {
     const ref = useRef<HTMLDivElement>(null);
     const [isVisible, setIsVisible] = useState(false);
     const [formOpened, setFormOpened] = useState(false);
+    const [typeFilter, setTypeFilter] = useState('');
 
     useEffect(() => {
         const el = ref.current;
@@ -157,7 +165,7 @@ function CompanyDetailCell({ companyId }: { companyId: string }) {
                     >
                         {t('activities.addActivity')}
                     </Button>
-                    <ActivityTimeline companyId={companyId} compact />
+                    <ActivityTimeline companyId={companyId} compact typeFilter={typeFilter} hideEmpty />
                     <ActivityForm
                         opened={formOpened}
                         onClose={() => setFormOpened(false)}
@@ -165,6 +173,39 @@ function CompanyDetailCell({ companyId }: { companyId: string }) {
                         contacts={data?.contacts}
                     />
                 </Stack>
+            )}
+        </Box>
+    );
+}
+
+/** Spotlight panel for outcomes view — shows closing report + read-only activities */
+function OutcomeDetailCell({ companyId, closingReport }: { companyId: string; closingReport?: { summary: string; detail: string | null; outcome: string; occurred_at: string } | null }) {
+    const { t } = useTranslation();
+    const ref = useRef<HTMLDivElement>(null);
+    const [isVisible, setIsVisible] = useState(false);
+
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const observer = new IntersectionObserver(
+            ([entry]) => { if (entry.isIntersecting) { setIsVisible(true); observer.disconnect(); } },
+            { threshold: 0.1 },
+        );
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
+
+    const formatDate = (d: string) => new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+
+    return (
+        <Box ref={ref} style={{ flex: 1, minWidth: 0 }}>
+            {!isVisible ? (
+                <Stack gap={6}>
+                    <Skeleton height={12} width="60%" radius="sm" />
+                    <Skeleton height={10} width="80%" radius="sm" />
+                </Stack>
+            ) : (
+                <ActivityTimeline companyId={companyId} compact hideEmpty />
             )}
         </Box>
     );
@@ -179,6 +220,7 @@ function StageColumn({
     isSpotlight,
     isCollapsed,
     onHeaderClick,
+    isOutcomesView = false,
 }: {
     stage: string;
     companies: PipelineCompany[];
@@ -187,6 +229,7 @@ function StageColumn({
     isSpotlight: boolean;
     isCollapsed: boolean;
     onHeaderClick: (stage: string) => void;
+    isOutcomesView?: boolean;
 }) {
     const { t } = useTranslation();
     const { getStageColor, getStageLabel } = useStages();
@@ -314,7 +357,7 @@ function StageColumn({
                                     style={{
                                         display: 'flex',
                                         gap: 12,
-                                        alignItems: 'stretch',
+                                        alignItems: 'start',
                                     }}
                                 >
                                     <Box style={{ flex: '0 0 260px', minWidth: 260 }}>
@@ -330,7 +373,11 @@ function StageColumn({
                                             background: 'var(--mantine-color-default-hover)',
                                         }}
                                     >
-                                        <CompanyDetailCell companyId={company.id} />
+                                        {isOutcomesView ? (
+                                            <OutcomeDetailCell companyId={company.id} closingReport={company.closing_report} />
+                                        ) : (
+                                            <CompanyDetailCell companyId={company.id} />
+                                        )}
                                     </Paper>
                                 </Box>
                             ) : (
@@ -376,8 +423,12 @@ export default function KanbanBoard({
     onStageChange,
     initialFocusStage,
     terminalCounts = {},
+    stageSlugs: customStageSlugs,
+    hideTerminalZones = false,
+    isOutcomesView = false,
 }: KanbanBoardProps) {
     const { pipelineStageSlugs, terminalStageSlugs } = useStages();
+    const stageSlugs = customStageSlugs || pipelineStageSlugs;
     const [activeCompany, setActiveCompany] = useState<PipelineCompany | null>(null);
     const [overColumnId, setOverColumnId] = useState<string | null>(null);
     const [spotlightStage, setSpotlightStage] = useState<string | null>(initialFocusStage ?? null);
@@ -411,9 +462,9 @@ export default function KanbanBoard({
             return;
         }
         const id = String(event.over.id);
-        const stage = resolveTargetStage(id, columns, pipelineStageSlugs, terminalStageSlugs);
+        const stage = resolveTargetStage(id, columns, stageSlugs, terminalStageSlugs);
         setOverColumnId(stage);
-    }, [columns, pipelineStageSlugs, terminalStageSlugs]);
+    }, [columns, stageSlugs, terminalStageSlugs]);
 
     const handleDragEnd = useCallback(
         (event: DragEndEvent) => {
@@ -426,12 +477,12 @@ export default function KanbanBoard({
             const company = active.data.current?.company as PipelineCompany | undefined;
             if (!company) return;
 
-            const newStage = resolveTargetStage(String(over.id), columns, pipelineStageSlugs, terminalStageSlugs);
+            const newStage = resolveTargetStage(String(over.id), columns, stageSlugs, terminalStageSlugs);
             if (newStage && newStage !== company.stage) {
                 onStageChange(company.id, newStage, company.stage);
             }
         },
-        [onStageChange, columns, pipelineStageSlugs, terminalStageSlugs]
+        [onStageChange, columns, stageSlugs, terminalStageSlugs]
     );
 
     const handleDragCancel = useCallback(() => {
@@ -451,7 +502,7 @@ export default function KanbanBoard({
             onDragCancel={handleDragCancel}
         >
             {/* Terminal stage drop zones */}
-            {terminalStageSlugs.length > 0 && (
+            {!hideTerminalZones && terminalStageSlugs.length > 0 && (
                 <Box
                     style={{
                         display: 'flex',
@@ -480,7 +531,7 @@ export default function KanbanBoard({
                     alignItems: 'flex-start',
                 }}
             >
-                {pipelineStageSlugs.map((stage) => (
+                {stageSlugs.map((stage) => (
                     <StageColumn
                         key={stage}
                         stage={stage}
@@ -490,6 +541,7 @@ export default function KanbanBoard({
                         isSpotlight={spotlightStage === stage}
                         isCollapsed={spotlightStage !== null && spotlightStage !== stage}
                         onHeaderClick={toggleSpotlight}
+                        isOutcomesView={isOutcomesView}
                     />
                 ))}
             </Box>

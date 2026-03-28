@@ -13,7 +13,6 @@ import {
     Center,
     Divider,
     Title,
-    SegmentedControl,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -40,6 +39,11 @@ interface ActivityTimelineProps {
     companyId: string;
     contactId?: string;
     compact?: boolean;
+    typeFilter?: string;
+    /** When true, render nothing instead of "no activities" message */
+    hideEmpty?: boolean;
+    /** When true, render without Paper wrapper, header, and add button — for embedding inside tabs */
+    embedded?: boolean;
 }
 
 interface ActivitiesResponse {
@@ -88,7 +92,7 @@ function formatActivityDate(isoString: string): string {
     });
 }
 
-export default function ActivityTimeline({ companyId, contactId, compact }: ActivityTimelineProps) {
+export default function ActivityTimeline({ companyId, contactId, compact, typeFilter: externalTypeFilter, hideEmpty, embedded }: ActivityTimelineProps) {
     const { t } = useTranslation();
     const { user } = useAuth();
     const queryClient = useQueryClient();
@@ -96,9 +100,9 @@ export default function ActivityTimeline({ companyId, contactId, compact }: Acti
     const [allActivities, setAllActivities] = useState<Activity[]>([]);
     const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
     const [formOpened, { open: openForm, close: closeForm }] = useDisclosure(false);
-    const [typeFilter, setTypeFilter] = useState('');
+    const typeFilter = externalTypeFilter ?? '';
 
-    const isInternal = hasRolePermission(user?.role || '', 'activity_write' as any);
+    const canEditActivities = hasRolePermission(user?.role || '', 'activity_write');
     const isSuperadmin = user?.role === 'superadmin';
 
     // Reset accumulated pages when typeFilter changes
@@ -119,11 +123,21 @@ export default function ActivityTimeline({ companyId, contactId, compact }: Acti
         },
     });
 
-    // Keep accumulated list as pages load
-    const shownList: Activity[] = (() => {
-        if (page === 1 && data) return data.data;
-        return allActivities;
-    })();
+    // Accumulate pages as they load
+    useEffect(() => {
+        if (!data?.data) return;
+        if (page === 1) {
+            setAllActivities(data.data);
+        } else {
+            setAllActivities((prev) => {
+                const existingIds = new Set(prev.map((a) => a.id));
+                const newItems = data.data.filter((a: Activity) => !existingIds.has(a.id));
+                return [...prev, ...newItems];
+            });
+        }
+    }, [data, page]);
+
+    const shownList: Activity[] = allActivities;
 
     const deleteMutation = useMutation({
         mutationFn: async (id: string) => {
@@ -161,55 +175,18 @@ export default function ActivityTimeline({ companyId, contactId, compact }: Acti
     const hasMore = data?.pagination?.hasNext ?? false;
     const totalCount = data?.pagination?.total ?? (allActivities.length > 0 ? allActivities.length : undefined);
 
-    return (
-        <Paper shadow={compact ? undefined : 'sm'} radius="lg" p={compact ? 'xs' : 'xl'} withBorder>
-            <Group justify="space-between" mb="lg">
-                <Group gap="xs">
-                    <IconNotes size={20} color="var(--mantine-color-violet-6)" />
-                    <Title order={4} fw={600}>{t('activity.timeline')}</Title>
-                    {totalCount != null && (
-                        <Badge size="sm" variant="light" color="violet" circle>
-                            {totalCount}
-                        </Badge>
-                    )}
-                </Group>
-                {isInternal && (
-                    <Button
-                        size="sm"
-                        leftSection={<IconPlus size={16} />}
-                        onClick={handleAddActivity}
-                        variant="light"
-                        color="violet"
-                        radius="md"
-                    >
-                        {t('activity.addActivity')}
-                    </Button>
-                )}
-            </Group>
-
-            {compact && (
-                <SegmentedControl
-                    size="xs"
-                    value={typeFilter}
-                    onChange={setTypeFilter}
-                    mb="sm"
-                    data={[
-                        { label: t('activities.all'), value: '' },
-                        { label: t('activities.types.not'), value: 'not' },
-                        { label: t('activities.types.meeting'), value: 'meeting' },
-                        { label: t('activities.types.follow_up'), value: 'follow_up' },
-                    ]}
-                />
-            )}
-
+    const content = (
+        <>
             {isLoading && page === 1 ? (
-                <Center py="xl">
+                <Center py={compact ? 'xs' : 'xl'}>
                     <Loader size="sm" color="violet" />
                 </Center>
             ) : shownList.length === 0 ? (
-                <Center py="xl">
-                    <Text size="sm" c="dimmed" fs="italic">{t('activity.noActivities')}</Text>
-                </Center>
+                hideEmpty ? null : (
+                    <Center py={compact ? 'xs' : 'xl'}>
+                        <Text size={compact ? 'xs' : 'sm'} c="dimmed" fs="italic">{t('activity.noActivities')}</Text>
+                    </Center>
+                )
             ) : (
                 <Stack gap={compact ? 4 : 'sm'}>
                     {shownList.map((activity, idx) => {
@@ -270,7 +247,7 @@ export default function ActivityTimeline({ companyId, contactId, compact }: Acti
                                             <Text size="xs" c="dimmed">
                                                 {formatActivityDate(activity.occurred_at)}
                                             </Text>
-                                            {isInternal && !isStatusChange && (
+                                            {canEditActivities && !isStatusChange && (
                                                 <Menu withinPortal position="bottom-end" shadow="sm">
                                                     <Menu.Target>
                                                         <ActionIcon variant="subtle" size="sm" color="gray">
@@ -342,6 +319,39 @@ export default function ActivityTimeline({ companyId, contactId, compact }: Acti
                 contactId={contactId}
                 activity={editingActivity}
             />
+        </>
+    );
+
+    if (embedded || compact) {
+        return content;
+    }
+
+    return (
+        <Paper shadow="sm" radius="lg" p="xl" withBorder>
+            <Group justify="space-between" mb="lg">
+                <Group gap="xs">
+                    <IconNotes size={20} color="var(--mantine-color-violet-6)" />
+                    <Title order={4} fw={600}>{t('activity.timeline')}</Title>
+                    {totalCount != null && (
+                        <Badge size="sm" variant="light" color="violet" circle>
+                            {totalCount}
+                        </Badge>
+                    )}
+                </Group>
+                {canEditActivities && (
+                    <Button
+                        size="sm"
+                        leftSection={<IconPlus size={16} />}
+                        onClick={handleAddActivity}
+                        variant="light"
+                        color="violet"
+                        radius="md"
+                    >
+                        {t('activity.addActivity')}
+                    </Button>
+                )}
+            </Group>
+            {content}
         </Paper>
     );
 }

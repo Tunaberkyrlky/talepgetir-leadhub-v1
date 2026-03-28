@@ -1,5 +1,4 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { randomUUID } from 'crypto';
 import { supabaseAdmin, createUserClient } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -16,25 +15,6 @@ const log = createLogger('route:contacts');
 function dbClient(req: Request) {
     if (isInternalRole(req.user!.role)) return supabaseAdmin;
     return createUserClient(req.accessToken!);
-}
-
-interface ContactNote {
-    id: string;
-    text: string;
-    created_at: string;
-    created_by: string;
-}
-
-/** Parse notes from DB — handles both JSONB (array) and TEXT (JSON string) formats */
-function parseNotes(raw: unknown): ContactNote[] {
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw === 'string') {
-        try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) return parsed;
-        } catch { /* not JSON */ }
-    }
-    return [];
 }
 
 // Sanitize search input for safe use in PostgREST .or() filter strings.
@@ -223,7 +203,7 @@ router.post(
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
-            const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary, notes } = req.body;
+            const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary } = req.body;
 
             const { data: company } = await supabaseAdmin
                 .from('companies')
@@ -260,7 +240,6 @@ router.post(
                 seniority: seniority || null,
                 department: department || null,
                 is_primary: is_primary || false,
-                notes: notes ? [{ id: randomUUID(), text: notes, created_at: new Date().toISOString(), created_by: req.user?.email || 'unknown' }] : [],
             };
 
             const { data, error } = await supabaseAdmin
@@ -348,7 +327,7 @@ router.put(
     }
 );
 
-// POST /api/contacts/:id/translate — Translate contact text fields + notes to Turkish
+// POST /api/contacts/:id/translate — Translate contact text fields to Turkish
 router.post(
     '/:id/translate',
     requireRole('superadmin', 'ops_agent'),
@@ -369,18 +348,11 @@ router.post(
                 return;
             }
 
-            // Collect translatable texts: title + each note
+            // Collect translatable texts
             const texts: Array<{ field: string; text: string }> = [];
 
             if (contact.title && contact.title.trim().length >= 2) {
                 texts.push({ field: 'title', text: contact.title });
-            }
-
-            const notes: ContactNote[] = parseNotes(contact.notes);
-            for (const note of notes) {
-                if (note.text && note.text.trim().length >= 2) {
-                    texts.push({ field: `note:${note.id}`, text: note.text });
-                }
             }
 
             if (texts.length === 0) {
@@ -398,16 +370,6 @@ router.post(
             // Build translations object
             const translations: Record<string, unknown> = { translated_at: new Date().toISOString() };
             if (translated.title) translations.title = translated.title;
-
-            const noteTranslations: Record<string, string> = {};
-            for (const [key, value] of Object.entries(translated)) {
-                if (key.startsWith('note:')) {
-                    noteTranslations[key.slice(5)] = value;
-                }
-            }
-            if (Object.keys(noteTranslations).length > 0) {
-                translations.notes = noteTranslations;
-            }
 
             const { data: updated, error: updateError } = await supabaseAdmin
                 .from('contacts')
