@@ -267,6 +267,52 @@ router.get('/stats', async (req: Request, res: Response, next: NextFunction): Pr
     }
 });
 
+// GET /api/activities/users — List users who have created activities in this tenant
+router.get('/users', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+
+        // Get distinct created_by user IDs from activities
+        const { data: activities, error } = await supabaseAdmin
+            .from('activities')
+            .select('created_by')
+            .eq('tenant_id', tenantId)
+            .not('created_by', 'is', null);
+
+        if (error) {
+            log.error({ err: error }, 'Activity users error');
+            throw new AppError('Failed to fetch activity users', 500);
+        }
+
+        const uniqueIds = [...new Set((activities || []).map((a: any) => a.created_by))];
+
+        if (uniqueIds.length === 0) {
+            res.json([]);
+            return;
+        }
+
+        // Resolve emails via Supabase Auth admin API
+        // (memberships table does not have an email column)
+        const { data: { users: authUsers }, error: authError } = await supabaseAdmin.auth.admin.listUsers();
+
+        if (authError) {
+            log.error({ err: authError }, 'Activity users auth lookup error');
+            throw new AppError('Failed to fetch user details', 500);
+        }
+
+        const userMap = new Map(authUsers.map(u => [u.id, u.email]));
+        const users = uniqueIds
+            .filter(id => userMap.has(id))
+            .map(id => ({ id, email: userMap.get(id) }));
+
+        res.json(users);
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Activity users error');
+        res.status(500).json({ error: 'Failed to fetch activity users' });
+    }
+});
+
 // GET /api/activities/:id — Get single activity
 router.get('/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
