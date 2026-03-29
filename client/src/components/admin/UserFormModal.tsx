@@ -78,9 +78,10 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
         },
     });
 
+    const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     const canSubmit = isEdit
         ? (email !== user?.email || password.length > 0)
-        : (email.length > 0 && password.length >= 8);
+        : (emailValid && password.length >= 8 && (!tenantId || !!role));
 
     return (
         <Modal
@@ -112,7 +113,7 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
                             placeholder={t('admin.tenantSelectPlaceholder')}
                             data={tenantOptions}
                             value={tenantId}
-                            onChange={setTenantId}
+                            onChange={(v) => { setTenantId(v); if (!v) setRole(null); }}
                             clearable
                             searchable
                         />

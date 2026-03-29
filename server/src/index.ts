@@ -25,6 +25,7 @@ import tenantsRoutes from './routes/tenants.js';
 import statisticsRoutes from './routes/statistics.js';
 import adminRoutes from './routes/admin.js';
 import settingsRoutes from './routes/settings.js';
+import activitiesRoutes from './routes/activities.js';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -48,7 +49,14 @@ app.use(pinoHttp({
 app.use(cors({
     origin: process.env.NODE_ENV === 'production' || process.env.VERCEL
         ? [process.env.CLIENT_URL || 'https://leadhub.app']
-        : ['http://localhost:5173', 'http://localhost:3000'],
+        : (origin, callback) => {
+            // Allow any localhost port in development (Vite may pick 5173, 5174, etc.)
+            if (!origin || /^http:\/\/localhost:\d+$/.test(origin)) {
+                callback(null, true);
+            } else {
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
     credentials: true,
 }));
 app.use(cookieParser());
@@ -101,6 +109,7 @@ app.use('/api/tenants', authMiddleware, tenantsRoutes);
 app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/statistics', authMiddleware, statisticsRoutes);
 app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
+app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);

@@ -42,9 +42,12 @@ export function getErrorMessage(error: unknown, fallback?: string): string {
 
         switch (status) {
             case 400:
-            case 422:
+            case 422: {
                 // Validation — show the server's specific message if available
+                const details: string[] | undefined = error.response.data?.details;
+                if (details?.length) return `${serverMessage || t('errors.validationFailed')}: ${details.join(', ')}`;
                 return serverMessage || t('errors.validationFailed');
+            }
             case 401:
                 // Auth errors are handled by the interceptor, but just in case
                 return t('errors.unauthorized');

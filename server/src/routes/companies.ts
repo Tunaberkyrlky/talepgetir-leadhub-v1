@@ -1,11 +1,13 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { supabaseAdmin } from '../lib/supabase.js';
+import { supabaseAdmin, createUserClient } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
-import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs } from './settings.js';
+import { validateBody, createCompanySchema, updateCompanySchema } from '../lib/validation.js';
+import { isInternalRole } from '../lib/roles.js';
+import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
 import { invalidateOverviewCache, invalidatePipelineStatsCache } from './statistics.js';
 
 const log = createLogger('route:companies');
@@ -15,8 +17,21 @@ const COMPANY_TRANSLATE_FIELDS = ['product_services', 'product_portfolio', 'comp
 const router = Router();
 
 // Sanitize search input for safe use in PostgREST .or() filter strings.
+// Strip PostgREST syntax chars, then escape ILIKE wildcards so user input
+// cannot act as a wildcard pattern (e.g. searching "50%" won't match everything).
 function sanitizeSearch(value: string): string {
-    return value.replace(/[,().\\]/g, '');
+    return value
+        .replace(/[,().\\]/g, '')   // strip PostgREST syntax chars (backslash first)
+        .replace(/%/g, '\\%')       // escape ILIKE wildcard %
+        .replace(/_/g, '\\_');      // escape ILIKE wildcard _
+}
+
+// For read endpoints: internal roles may be operating cross-tenant (X-Tenant-Id header),
+// so they require supabaseAdmin. Client roles access only their own tenant — use the
+// user client so RLS acts as a second isolation layer.
+function dbClient(req: Request) {
+    if (isInternalRole(req.user!.role)) return supabaseAdmin;
+    return createUserClient(req.accessToken!);
 }
 
 const VALID_EMAIL_STATUSES = ['valid', 'uncertain', 'invalid'] as const;
@@ -57,15 +72,17 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const sortBy = SORT_COLUMNS[req.query.sortBy as string] || 'updated_at';
         const sortOrder = (req.query.sortOrder as string) === 'asc';
 
+        const db = dbClient(req);
+
         // Build count query with filters
-        let countQuery = supabaseAdmin
+        let countQuery = db
             .from('companies')
             .select('*', { count: 'exact', head: true })
             .eq('tenant_id', tenantId);
 
-        let dataQuery = supabaseAdmin
+        let dataQuery = db
             .from('companies')
-            .select('id, name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_fields, contact_count, created_at, updated_at')
+            .select('id, name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at')
             .eq('tenant_id', tenantId);
 
         // Apply search (ILIKE on multiple columns)
@@ -106,8 +123,8 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const { count, error: countError } = await countQuery;
 
         if (countError) {
-            log.error({ countError: countError.message, code: countError.code, details: countError.details }, 'Supabase count companies error');
-            throw new AppError('Failed to count companies', 500);
+            log.error({ err: countError }, 'Count query failed');
+            throw new AppError(`Kayıt sayısı alınamadı (DB Hatası): ${countError.message}`, 500);
         }
 
         // Apply sort and pagination
@@ -118,8 +135,8 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             .range(offset, offset + limit - 1);
 
         if (error) {
-            log.error({ supabaseError: error.message, code: error.code, details: error.details, hint: error.hint }, 'Supabase fetch companies error');
-            throw new AppError('Failed to fetch companies', 500);
+            log.error({ err: error, sortBy, sortOrder }, 'Data query failed');
+            throw new AppError(`Şirketler listelenirken DB hatası: ${error.message || 'Bilinmeyen hata'}`, 500);
         }
 
         const totalPages = Math.ceil((count || 0) / limit);
@@ -152,7 +169,9 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
         const pipelineStages = await getPipelineStageSlugs(tenantId);
         const terminalStages = await getTerminalStageSlugs(tenantId);
 
-        let query = supabaseAdmin
+        const db = dbClient(req);
+
+        let query = db
             .from('companies')
             .select('id, name, industry, stage, next_step, company_summary, updated_at, stage_changed_at, contact_count')
             .eq('tenant_id', tenantId)
@@ -183,22 +202,63 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
             if (col) col.push(company);
         }
 
-        // Terminal stage counts
-        const terminalResults = await Promise.all(
-            terminalStages.map((stage) =>
-                supabaseAdmin
-                    .from('companies')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('tenant_id', tenantId)
-                    .eq('stage', stage)
-            )
-        );
-        const terminalCounts: Record<string, number> = {};
-        terminalStages.forEach((stage, i) => {
-            terminalCounts[stage] = terminalResults[i].count || 0;
-        });
+        // Terminal stage companies + counts
+        let terminalQuery = db
+            .from('companies')
+            .select('id, name, industry, stage, next_step, company_summary, updated_at, stage_changed_at, contact_count')
+            .eq('tenant_id', tenantId)
+            .in('stage', terminalStages)
+            .order('updated_at', { ascending: false });
 
-        res.json({ columns, terminalCounts });
+        if (search) {
+            const safe = sanitizeSearch(search);
+            if (safe.length > 0) {
+                const pattern = `%${safe}%`;
+                terminalQuery = terminalQuery.or(`name.ilike.${pattern},next_step.ilike.${pattern},company_summary.ilike.${pattern}`);
+            }
+        }
+
+        const { data: terminalData, error: terminalError } = await terminalQuery;
+
+        if (terminalError) {
+            log.error({ err: terminalError }, 'Terminal stage query error');
+            throw new AppError('Failed to fetch terminal stage data', 500);
+        }
+
+        // Fetch closing report activities for terminal companies
+        const terminalIds = (terminalData ?? []).map((c: any) => c.id);
+        let closingReports: Record<string, { summary: string; detail: string | null; outcome: string; occurred_at: string }> = {};
+        if (terminalIds.length > 0) {
+            const { data: reports } = await db
+                .from('activities')
+                .select('company_id, summary, detail, outcome, occurred_at')
+                .eq('tenant_id', tenantId)
+                .eq('type', 'sonlandirma_raporu')
+                .in('company_id', terminalIds)
+                .order('occurred_at', { ascending: false });
+            // Keep only the latest report per company
+            for (const r of reports ?? []) {
+                if (!closingReports[r.company_id]) {
+                    closingReports[r.company_id] = { summary: r.summary, detail: r.detail, outcome: r.outcome, occurred_at: r.occurred_at };
+                }
+            }
+        }
+
+        const terminalColumns: Record<string, any[]> = {};
+        const terminalCounts: Record<string, number> = {};
+        for (const stage of terminalStages) {
+            terminalColumns[stage] = [];
+            terminalCounts[stage] = 0;
+        }
+        for (const company of terminalData ?? []) {
+            const col = terminalColumns[company.stage];
+            if (col) {
+                col.push({ ...company, closing_report: closingReports[company.id] || null });
+                terminalCounts[company.stage]++;
+            }
+        }
+
+        res.json({ columns, terminalCounts, terminalColumns });
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Pipeline data error');
@@ -212,7 +272,9 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
         const tenantId = req.tenantId!;
         const { id } = req.params;
 
-        const { data, error } = await supabaseAdmin
+        const db = dbClient(req);
+
+        const { data, error } = await db
             .from('companies')
             .select('*')
             .eq('id', id)
@@ -226,7 +288,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
         }
 
         // Fetch contacts for this company
-        const { data: contacts } = await supabaseAdmin
+        const { data: contacts } = await db
             .from('contacts')
             .select('*')
             .eq('company_id', id)
@@ -244,7 +306,8 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
 // POST /api/companies — Create new company
 router.post(
     '/',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    validateBody(createCompanySchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
@@ -252,7 +315,7 @@ router.post(
                 name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone,
                 company_email, email_status,
                 stage, company_summary, internal_notes, next_step, custom_fields,
-                fit_score, partnership_observation_1, partnership_observation_2, partnership_observation_3,
+                fit_score, custom_field_1, custom_field_2, custom_field_3,
                 contact_first_name, contact_last_name, contact_title, contact_email, contact_phone_e164
             } = req.body;
 
@@ -310,9 +373,9 @@ router.post(
                 next_step: next_step || null,
                 custom_fields: custom_fields || {},
                 fit_score: fit_score || null,
-                partnership_observation_1: partnership_observation_1 || null,
-                partnership_observation_2: partnership_observation_2 || null,
-                partnership_observation_3: partnership_observation_3 || null,
+                custom_field_1: custom_field_1 || null,
+                custom_field_2: custom_field_2 || null,
+                custom_field_3: custom_field_3 || null,
                 assigned_to: req.user!.id,
             };
 
@@ -376,7 +439,8 @@ router.post(
 // PUT /api/companies/:id — Update company
 router.put(
     '/:id',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    validateBody(updateCompanySchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
@@ -395,7 +459,7 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score } = req.body;
+            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3 } = req.body;
 
             // Validate stage if provided
             if (stage) {
@@ -437,6 +501,9 @@ router.put(
             if (company_summary !== undefined) updateData.company_summary = company_summary;
             if (internal_notes !== undefined) updateData.internal_notes = internal_notes;
             if (fit_score !== undefined) updateData.fit_score = fit_score;
+            if (custom_field_1 !== undefined) updateData.custom_field_1 = custom_field_1;
+            if (custom_field_2 !== undefined) updateData.custom_field_2 = custom_field_2;
+            if (custom_field_3 !== undefined) updateData.custom_field_3 = custom_field_3;
             if (next_step !== undefined) updateData.next_step = next_step;
             if (custom_fields !== undefined) updateData.custom_fields = custom_fields;
 
@@ -459,6 +526,12 @@ router.put(
                 throw new AppError('Failed to update company', 500);
             }
 
+            // Stage changed via edit form — keep statistics cache consistent
+            if (updateData.stage !== undefined) {
+                invalidateOverviewCache(tenantId);
+                invalidatePipelineStatsCache(tenantId);
+            }
+
             res.json({ data });
         } catch (err) {
             if (err instanceof AppError) return next(err);
@@ -471,24 +544,17 @@ router.put(
 // POST /api/companies/geocode — Batch geocode pipeline companies missing coordinates
 router.post(
     '/geocode',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
 
             // Only geocode companies that are visible on the map:
-            // pipeline-type stages (initial + pipeline) — terminal/cold stages are excluded
-            const [pipelineStages, initialStageSlugs] = await Promise.all([
-                getPipelineStageSlugs(tenantId),
-                supabaseAdmin
-                    .from('tenant_stage_settings')
-                    .select('slug')
-                    .eq('tenant_id', tenantId)
-                    .eq('stage_type', 'initial'),
-            ]);
-
-            const initialSlugs = (initialStageSlugs.data || []).map((s: { slug: string }) => s.slug);
-            const targetStages = [...initialSlugs, ...pipelineStages];
+            // initial + pipeline-type stages — terminal stages are excluded
+            const allStages = await getTenantStages(tenantId);
+            const targetStages = allStages
+                .filter((s) => s.stage_type === 'initial' || s.stage_type === 'pipeline')
+                .map((s) => s.slug);
 
             if (targetStages.length === 0) {
                 res.json({ total: 0, geocoded: 0 });
@@ -550,7 +616,7 @@ router.post(
 // PATCH /api/companies/bulk-stage — Bulk update stage for multiple companies
 router.patch(
     '/bulk-stage',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
@@ -561,9 +627,27 @@ router.patch(
                 return;
             }
 
+            if (ids.length > 500) {
+                res.status(400).json({ error: 'Cannot update more than 500 companies at once' });
+                return;
+            }
+
+            const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (!ids.every((id: unknown) => typeof id === 'string' && UUID_RE.test(id))) {
+                res.status(400).json({ error: 'ids must be an array of valid UUIDs' });
+                return;
+            }
+
             const validSlugs = await getValidStageSlugs(tenantId);
             if (!stage || !validSlugs.includes(stage)) {
                 res.status(400).json({ error: `Invalid stage. Valid stages: ${validSlugs.join(', ')}` });
+                return;
+            }
+
+            // Terminal stages cannot be set via bulk update — each company requires a closing report
+            const terminalSlugs = await getTerminalStageSlugs(tenantId);
+            if (terminalSlugs.includes(stage)) {
+                res.status(400).json({ error: `Terminal stages (${terminalSlugs.join(', ')}) cannot be set via bulk update. Each company requires an individual closing report.` });
                 return;
             }
 
@@ -592,7 +676,7 @@ router.patch(
 // PATCH /api/companies/:id/stage — Lightweight stage update (drag-drop)
 router.patch(
     '/:id/stage',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;

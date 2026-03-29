@@ -70,11 +70,15 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import { canWrite } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
 import CompanyForm from '../components/CompanyForm';
+import ClosingReportModal from '../components/ClosingReportModal';
 import TruncatedText from '../components/TruncatedText';
 import EmailStatusIcon from '../components/EmailStatusIcon';
 import { useUndoStack } from '../hooks/useUndoStack';
+import { TERMINAL_STAGES } from '../lib/stages';
+import type { ClosingOutcome } from '../types/activity';
 
 interface Company {
     id: string;
@@ -93,9 +97,9 @@ interface Company {
     company_summary: string | null;
     next_step: string | null;
     fit_score: string | null;
-    partnership_observation_1: string | null;
-    partnership_observation_2: string | null;
-    partnership_observation_3: string | null;
+    custom_field_1: string | null;
+    custom_field_2: string | null;
+    custom_field_3: string | null;
     assigned_to: string | null;
     created_at: string;
     updated_at: string;
@@ -130,7 +134,7 @@ type ColumnKey =
     | 'employee_size' | 'product_services' | 'product_portfolio'
     | 'linkedin' | 'company_phone' | 'company_email' | 'company_summary'
     | 'next_step' | 'assigned_to' | 'contact_count'
-    | 'fit_score' | 'partnership_observation_1' | 'partnership_observation_2' | 'partnership_observation_3'
+    | 'fit_score' | 'custom_field_1' | 'custom_field_2' | 'custom_field_3'
     | 'created_at' | 'updated_at';
 
 interface ColumnDef {
@@ -156,9 +160,9 @@ const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'company_email', visible: false },
     { key: 'company_summary', visible: false },
     { key: 'fit_score', visible: false },
-    { key: 'partnership_observation_1', visible: false },
-    { key: 'partnership_observation_2', visible: false },
-    { key: 'partnership_observation_3', visible: false },
+    { key: 'custom_field_1', visible: false },
+    { key: 'custom_field_2', visible: false },
+    { key: 'custom_field_3', visible: false },
     { key: 'assigned_to', visible: false },
     { key: 'contact_count', visible: false },
     { key: 'created_at', visible: false },
@@ -265,8 +269,13 @@ export default function LeadsPage() {
     const searchRef = useRef<HTMLInputElement>(null);
     const undoStack = useUndoStack();
     const [deleteModalCompany, setDeleteModalCompany] = useState<Company | null>(null);
+    const [closingReportTarget, setClosingReportTarget] = useState<{
+        companyId: string;
+        companyName: string;
+        targetStage: ClosingOutcome;
+    } | null>(null);
 
-    const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
+    const canEdit = canWrite(user?.role || '');
 
     // Build query params (moved up so useQuery can be before handleRowSelect)
     const buildQueryParams = useCallback(() => {
@@ -388,6 +397,10 @@ export default function LeadsPage() {
     });
 
     const handleBulkStageChange = useCallback((newStage: string) => {
+        if (TERMINAL_STAGES.includes(newStage as any)) {
+            showInfo(t('bulk.terminalNotBulk', 'Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir.'));
+            return;
+        }
         const ids = Array.from(selectedIds);
         const oldStages: Record<string, string> = {};
         for (const id of ids) {
@@ -411,9 +424,9 @@ export default function LeadsPage() {
         company_email: t('company.companyEmail'),
         company_summary: t('company.companySummary'),
         fit_score: t('company.fitScore'),
-        partnership_observation_1: t('company.partnershipObservation1'),
-        partnership_observation_2: t('company.partnershipObservation2'),
-        partnership_observation_3: t('company.partnershipObservation3'),
+        custom_field_1: user?.tenantSettings?.custom_field_1_label || t('company.customField1', 'Özel Alan 1'),
+        custom_field_2: user?.tenantSettings?.custom_field_2_label || t('company.customField2', 'Özel Alan 2'),
+        custom_field_3: user?.tenantSettings?.custom_field_3_label || t('company.customField3', 'Özel Alan 3'),
         next_step: t('company.nextStep'),
         assigned_to: t('company.assignedTo'),
         contact_count: t('company.contactCount'),
@@ -626,7 +639,20 @@ export default function LeadsPage() {
                                     <Menu.Item
                                         key={s.slug}
                                         onClick={() => {
-                                            const ids = selectedIds.has(company.id) && selectedIds.size > 1
+                                            const isBulk = selectedIds.has(company.id) && selectedIds.size > 1;
+                                            if (TERMINAL_STAGES.includes(s.slug as any)) {
+                                                if (isBulk) {
+                                                    showInfo(t('bulk.terminalNotBulk', 'Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir.'));
+                                                } else {
+                                                    setClosingReportTarget({
+                                                        companyId: company.id,
+                                                        companyName: company.name,
+                                                        targetStage: s.slug as ClosingOutcome,
+                                                    });
+                                                }
+                                                return;
+                                            }
+                                            const ids = isBulk
                                                 ? Array.from(selectedIds)
                                                 : [company.id];
                                             const oldStages: Record<string, string> = {};
@@ -728,22 +754,22 @@ export default function LeadsPage() {
                         <TruncatedText size="sm">{company.fit_score}</TruncatedText>
                     </Table.Td>
                 );
-            case 'partnership_observation_1':
+            case 'custom_field_1':
                 return (
-                    <Table.Td key="partnership_observation_1">
-                        <TruncatedText size="sm">{company.partnership_observation_1}</TruncatedText>
+                    <Table.Td key="custom_field_1">
+                        <TruncatedText size="sm">{company.custom_field_1}</TruncatedText>
                     </Table.Td>
                 );
-            case 'partnership_observation_2':
+            case 'custom_field_2':
                 return (
-                    <Table.Td key="partnership_observation_2">
-                        <TruncatedText size="sm">{company.partnership_observation_2}</TruncatedText>
+                    <Table.Td key="custom_field_2">
+                        <TruncatedText size="sm">{company.custom_field_2}</TruncatedText>
                     </Table.Td>
                 );
-            case 'partnership_observation_3':
+            case 'custom_field_3':
                 return (
-                    <Table.Td key="partnership_observation_3">
-                        <TruncatedText size="sm">{company.partnership_observation_3}</TruncatedText>
+                    <Table.Td key="custom_field_3">
+                        <TruncatedText size="sm">{company.custom_field_3}</TruncatedText>
                     </Table.Td>
                 );
             case 'next_step':
@@ -832,7 +858,7 @@ export default function LeadsPage() {
                 <Title order={2} fw={700}>
                     {t('leads.title')}
                 </Title>
-                {isOpsOrAdmin && (
+                {canEdit && (
                     <Group>
                         <Button
                             leftSection={<IconFileImport size={18} />}
@@ -1115,7 +1141,7 @@ export default function LeadsPage() {
                                         </Table.Td>
                                         {visibleColumns.map(col => renderColumnCell(col.key, company))}
                                         <Table.Td style={{ padding: '0 4px' }}>
-                                            {isOpsOrAdmin && (
+                                            {canEdit && (
                                                 <Menu withinPortal position="bottom-end" shadow="sm">
                                                     <Menu.Target>
                                                         <ActionIcon
@@ -1219,6 +1245,23 @@ export default function LeadsPage() {
                     </Group>
                 </Stack>
             </Modal>
+
+            {closingReportTarget && (
+                <ClosingReportModal
+                    opened={true}
+                    onClose={() => setClosingReportTarget(null)}
+                    companyId={closingReportTarget.companyId}
+                    companyName={closingReportTarget.companyName}
+                    targetStage={closingReportTarget.targetStage}
+                    onSuccess={() => {
+                        setClosingReportTarget(null);
+                        queryClient.invalidateQueries({ queryKey: ['companies'] });
+                        queryClient.invalidateQueries({ queryKey: ['filterOptions'] });
+                        queryClient.invalidateQueries({ queryKey: ['statistics'] });
+                        queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+                    }}
+                />
+            )}
         </Container>
     );
 }

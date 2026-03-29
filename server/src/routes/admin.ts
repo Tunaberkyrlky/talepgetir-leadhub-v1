@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
+import { clearAuthCacheForUser } from '../middleware/auth.js';
 import {
     validateBody,
     createUserSchema, updateUserSchema,
@@ -13,7 +14,7 @@ import {
 const log = createLogger('route:admin');
 const router = Router();
 
-async function logAuditAction(
+export async function logAuditAction(
     actorId: string,
     action: string,
     targetType: string,
@@ -300,6 +301,7 @@ router.delete('/users/:id', async (req: Request, res: Response, next: NextFuncti
                 log.error({ err: error }, 'Delete user error');
                 throw new AppError('Failed to delete user', 500);
             }
+            clearAuthCacheForUser(id);
             await logAuditAction(req.user!.id, 'user.hard_delete', 'user', id);
         } else {
             // Soft delete: deactivate all memberships
@@ -312,6 +314,7 @@ router.delete('/users/:id', async (req: Request, res: Response, next: NextFuncti
                 log.error({ err: error }, 'Deactivate memberships error');
                 throw new AppError('Failed to deactivate user', 500);
             }
+            clearAuthCacheForUser(id);
             await logAuditAction(req.user!.id, 'user.deactivate', 'user', id);
         }
 
@@ -538,6 +541,28 @@ router.delete('/tenants/:id', async (req: Request, res: Response, next: NextFunc
         if (req.query.confirm !== 'true') {
             res.status(400).json({ error: 'Must confirm deletion with ?confirm=true' });
             return;
+        }
+
+        // Before deleting the tenant, find all users whose app_metadata.tenant_id
+        // points to this tenant — they would get 403 on every request after deletion.
+        // Clear their tenant pointer and evict them from the auth cache.
+        const { data: memberships } = await supabaseAdmin
+            .from('memberships')
+            .select('user_id')
+            .eq('tenant_id', id);
+
+        if (memberships && memberships.length > 0) {
+            await Promise.all(
+                memberships.map(async ({ user_id }) => {
+                    const { data: userData } = await supabaseAdmin.auth.admin.getUserById(user_id);
+                    if (userData?.user?.app_metadata?.tenant_id === id) {
+                        await supabaseAdmin.auth.admin.updateUserById(user_id, {
+                            app_metadata: { tenant_id: null },
+                        });
+                    }
+                    clearAuthCacheForUser(user_id);
+                })
+            );
         }
 
         const { error } = await supabaseAdmin

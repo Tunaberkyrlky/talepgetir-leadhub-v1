@@ -193,8 +193,8 @@ router.post(
             const suggestions = autoMapHeaders(headers);
             const availableFields = getAvailableDbFields();
 
-            // Return preview (first 5 rows)
-            const previewRows = rows.slice(0, 5);
+            // Return preview (first 10 rows)
+            const previewRows = rows.slice(0, 10);
 
             // Store parsed data in DB (survives deploys/restarts)
             const fileId = await storeFileCache(
@@ -278,10 +278,10 @@ router.post(
             );
             const hasPersonData = (row: Record<string, string>) =>
                 peopleOnlyCols.some((col) => row[col]);
-            const matchedPreview = matchResult.mergedRows.filter(hasPersonData).slice(0, 5);
+            const matchedPreview = matchResult.mergedRows.filter(hasPersonData).slice(0, 10);
             const previewRows = matchedPreview.length > 0
                 ? matchedPreview
-                : matchResult.mergedRows.slice(0, 5);
+                : matchResult.mergedRows.slice(0, 10);
 
             // Store merged data in DB (survives deploys/restarts)
             const fileId = await storeFileCache(
@@ -356,6 +356,28 @@ router.post(
             if (rows.length > MAX_SYNC_ROWS) {
                 res.status(400).json({ error: `Dosya çok büyük: ${rows.length} satır. Maksimum ${MAX_SYNC_ROWS} satır desteklenmektedir.` });
                 return;
+            }
+
+            // Check if any custom fields were mapped, and save their labels
+            const newSettings: Record<string, string> = {};
+            for (const [header, dbField] of Object.entries(mapping)) {
+                if (dbField === 'companies.custom_field_1') newSettings.custom_field_1_label = header;
+                if (dbField === 'companies.custom_field_2') newSettings.custom_field_2_label = header;
+                if (dbField === 'companies.custom_field_3') newSettings.custom_field_3_label = header;
+            }
+
+            if (Object.keys(newSettings).length > 0) {
+                const { data: tenant } = await supabaseAdmin
+                    .from('tenants')
+                    .select('settings')
+                    .eq('id', req.tenantId!)
+                    .single();
+                
+                const currentSettings = (tenant?.settings as Record<string, unknown>) || {};
+                await supabaseAdmin
+                    .from('tenants')
+                    .update({ settings: { ...currentSettings, ...newSettings } })
+                    .eq('id', req.tenantId!);
             }
 
             // Execute import synchronously

@@ -1,7 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
+import { logAuditAction } from './admin.js';
 
 const log = createLogger('route:settings');
 const router = Router();
@@ -319,6 +321,11 @@ router.delete('/stages/:slug', async (req: Request, res: Response, next: NextFun
             .eq('slug', slug);
 
         if (deleteError) {
+            // FK violation: stage still referenced by companies
+            if ((deleteError as any).code === '23503') {
+                res.status(409).json({ error: 'Stage has companies — deactivate it first using the deactivate endpoint' });
+                return;
+            }
             log.error({ err: deleteError }, 'Delete stage error');
             throw new AppError('Failed to delete stage', 500);
         }
@@ -329,6 +336,185 @@ router.delete('/stages/:slug', async (req: Request, res: Response, next: NextFun
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Delete stage error');
         res.status(500).json({ error: 'Failed to delete stage' });
+    }
+});
+
+// GET /api/settings/stages/:slug/companies — companies in a stage (for deactivation modal)
+router.get('/stages/:slug/companies', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Insufficient permissions' });
+            return;
+        }
+
+        const { slug } = req.params;
+
+        // Verify stage belongs to this tenant
+        const { data: stage, error: stageError } = await supabaseAdmin
+            .from('pipeline_stages')
+            .select('id, slug, display_name, stage_type')
+            .eq('tenant_id', tenantId)
+            .eq('slug', slug)
+            .single();
+
+        if (stageError || !stage) {
+            res.status(404).json({ error: 'Stage not found' });
+            return;
+        }
+
+        const { data: companies, error: companiesError } = await supabaseAdmin
+            .from('companies')
+            .select('id, name')
+            .eq('tenant_id', tenantId)
+            .eq('stage', slug)
+            .order('name');
+
+        if (companiesError) {
+            log.error({ err: companiesError }, 'Failed to fetch companies for stage');
+            throw new AppError('Failed to fetch companies', 500);
+        }
+
+        res.json({ stage, companies: companies || [] });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Get stage companies error');
+        res.status(500).json({ error: 'Failed to fetch companies' });
+    }
+});
+
+// POST /api/settings/stages/:slug/deactivate — soft-delete a stage, migrate companies
+const deactivateSchema = z.object({
+    migrations: z.array(z.object({
+        companyId: z.string().uuid(),
+        targetStage: z.string().min(1),
+    })),
+});
+
+router.post('/stages/:slug/deactivate', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Insufficient permissions' });
+            return;
+        }
+
+        const { slug } = req.params;
+
+        // Parse and validate body
+        const parsed = deactivateSchema.safeParse(req.body);
+        if (!parsed.success) {
+            res.status(400).json({ error: 'Invalid request body', details: parsed.error.flatten() });
+            return;
+        }
+        const { migrations } = parsed.data;
+
+        // Verify stage belongs to this tenant
+        const { data: stage, error: stageError } = await supabaseAdmin
+            .from('pipeline_stages')
+            .select('id, slug, stage_type')
+            .eq('tenant_id', tenantId)
+            .eq('slug', slug)
+            .single();
+
+        if (stageError || !stage) {
+            res.status(404).json({ error: 'Stage not found' });
+            return;
+        }
+
+        // Block deactivation of initial stage
+        if (stage.stage_type === 'initial') {
+            res.status(400).json({ error: 'Cannot deactivate the initial stage' });
+            return;
+        }
+
+        // Resolve tenant's initial stage slug for fallback
+        const tenantStages = await getTenantStages(tenantId);
+        const initialStageSlug = tenantStages.find((s) => s.stage_type === 'initial')?.slug;
+        if (!initialStageSlug) {
+            res.status(500).json({ error: 'Tenant has no initial stage configured' });
+            return;
+        }
+
+        // Validate all targetStage values
+        const activeSlugs = new Set(tenantStages.map((s) => s.slug));
+        const terminalSlugs = new Set(tenantStages.filter((s) => s.stage_type === 'terminal').map((s) => s.slug));
+        for (const m of migrations) {
+            if (!activeSlugs.has(m.targetStage)) {
+                res.status(422).json({ error: `Target stage "${m.targetStage}" is not active or does not exist` });
+                return;
+            }
+            if (m.targetStage === slug) {
+                res.status(400).json({ error: `Cannot migrate companies to the stage being deactivated` });
+                return;
+            }
+            if (terminalSlugs.has(m.targetStage)) {
+                res.status(400).json({ error: `Cannot migrate companies to terminal stage "${m.targetStage}" — each company requires an individual closing report` });
+                return;
+            }
+        }
+
+        // Validate all companyIds belong to this tenant
+        if (migrations.length > 0) {
+            const companyIds = migrations.map((m) => m.companyId);
+            const { data: ownedCompanies, error: ownershipError } = await supabaseAdmin
+                .from('companies')
+                .select('id')
+                .eq('tenant_id', tenantId)
+                .in('id', companyIds);
+
+            if (ownershipError) throw new AppError('Failed to validate company ownership', 500);
+
+            const ownedIds = new Set((ownedCompanies || []).map((c) => c.id));
+            const foreignId = companyIds.find((id) => !ownedIds.has(id));
+            if (foreignId) {
+                res.status(400).json({ error: `Company "${foreignId}" does not belong to this tenant` });
+                return;
+            }
+        }
+
+        // Group explicit migrations by target stage for batch updates
+        const byTarget = new Map<string, string[]>();
+        for (const m of migrations) {
+            const list = byTarget.get(m.targetStage) || [];
+            list.push(m.companyId);
+            byTarget.set(m.targetStage, list);
+        }
+
+        // Build migrations array for the atomic RPC: [{company_ids: [...], target_stage: "..."}]
+        const migrationBatches = Array.from(byTarget.entries()).map(([target, ids]) => ({
+            company_ids: ids,
+            target_stage: target,
+        }));
+
+        // Execute atomically via Postgres function (single transaction)
+        const { data: result, error: txError } = await supabaseAdmin.rpc('deactivate_pipeline_stage', {
+            p_tenant_id: tenantId,
+            p_slug: slug,
+            p_migrations: migrationBatches,
+            p_fallback_stage: initialStageSlug,
+        });
+
+        if (txError) {
+            log.error({ err: txError }, 'Atomic deactivate transaction failed');
+            throw new AppError('Failed to deactivate stage', 500);
+        }
+
+        const companiesMoved = result?.companies_moved ?? migrations.length;
+
+        invalidateStageCache(tenantId);
+
+        // Audit log
+        await logAuditAction(req.user!.id, 'stage.deactivate', 'pipeline_stage', stage.id, {
+            slug,
+            companiesMoved,
+        });
+
+        res.json({ deactivated: slug, companiesMoved });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Deactivate stage error');
+        res.status(500).json({ error: 'Failed to deactivate stage' });
     }
 });
 

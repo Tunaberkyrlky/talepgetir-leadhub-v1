@@ -1,36 +1,30 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { randomUUID } from 'crypto';
-import { supabaseAdmin } from '../lib/supabase.js';
+import { supabaseAdmin, createUserClient } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { translateTexts } from '../lib/deepl.js';
-import { validateBody, createContactSchema, updateContactSchema, contactNoteSchema } from '../lib/validation.js';
+import { validateBody, createContactSchema, updateContactSchema } from '../lib/validation.js';
+import { isInternalRole } from '../lib/roles.js';
 
 const log = createLogger('route:contacts');
 
-interface ContactNote {
-    id: string;
-    text: string;
-    created_at: string;
-    created_by: string;
-}
-
-/** Parse notes from DB — handles both JSONB (array) and TEXT (JSON string) formats */
-function parseNotes(raw: unknown): ContactNote[] {
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw === 'string') {
-        try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) return parsed;
-        } catch { /* not JSON */ }
-    }
-    return [];
+// For read endpoints: internal roles may be operating cross-tenant (X-Tenant-Id header),
+// so they require supabaseAdmin. Client roles access only their own tenant — use the
+// user client so RLS acts as a second isolation layer.
+function dbClient(req: Request) {
+    if (isInternalRole(req.user!.role)) return supabaseAdmin;
+    return createUserClient(req.accessToken!);
 }
 
 // Sanitize search input for safe use in PostgREST .or() filter strings.
+// Strip PostgREST syntax chars, then escape ILIKE wildcards so user input
+// cannot act as a wildcard pattern (e.g. searching "50%" won't match everything).
 function sanitizeSearch(value: string): string {
-    return value.replace(/[,().\\]/g, '');
+    return value
+        .replace(/[,().\\]/g, '')   // strip PostgREST syntax chars (backslash first)
+        .replace(/%/g, '\\%')       // escape ILIKE wildcard %
+        .replace(/_/g, '\\_');      // escape ILIKE wildcard _
 }
 
 const router = Router();
@@ -40,30 +34,27 @@ router.get('/filter-options', async (req: Request, res: Response, next: NextFunc
     try {
         const tenantId = req.tenantId!;
 
-        const [seniorityRes, countryRes, companyRes] = await Promise.all([
-            supabaseAdmin
-                .from('contacts')
-                .select('seniority')
-                .eq('tenant_id', tenantId)
-                .not('seniority', 'is', null),
-            supabaseAdmin
-                .from('contacts')
-                .select('country')
-                .eq('tenant_id', tenantId)
-                .not('country', 'is', null),
-            supabaseAdmin
+        // Use RPC for seniorities + countries: single query with SQL DISTINCT,
+        // far more efficient than fetching all rows and deduplicating in JS.
+        // Companies are fetched separately since we need id+name pairs, not just distinct values.
+        const [filterRes, companyRes] = await Promise.all([
+            supabaseAdmin.rpc('get_contact_filter_options', { p_tenant_id: tenantId }),
+            dbClient(req)
                 .from('companies')
                 .select('id, name')
                 .eq('tenant_id', tenantId)
                 .order('name'),
         ]);
 
-        const unique = <T>(arr: T[]): T[] => [...new Set(arr)];
+        if (filterRes.error) {
+            log.error({ err: filterRes.error }, 'get_contact_filter_options RPC error');
+            throw new AppError('Failed to fetch filter options', 500);
+        }
 
         res.json({
             data: {
-                seniorities: unique((seniorityRes.data || []).map((r: any) => r.seniority)).sort(),
-                countries: unique((countryRes.data || []).map((r: any) => r.country)).sort(),
+                seniorities: filterRes.data?.seniorities || [],
+                countries: filterRes.data?.countries || [],
                 companies: (companyRes.data || []).map((c: any) => ({ id: c.id, name: c.name })),
             },
         });
@@ -80,9 +71,11 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const tenantId = req.tenantId!;
         const companyId = req.query.company_id as string | undefined;
 
+        const db = dbClient(req);
+
         // When fetching for a company detail page (company_id provided), simple ordered list
         if (companyId) {
-            const { data, error } = await supabaseAdmin
+            const { data, error } = await db
                 .from('contacts')
                 .select('*')
                 .eq('tenant_id', tenantId)
@@ -119,9 +112,14 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const allowedSortFields = ['first_name', 'last_name', 'email', 'country', 'seniority', 'created_at', 'updated_at'];
         const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'updated_at';
 
-        let query = supabaseAdmin
+        let query = db
             .from('contacts')
-            .select(`*, companies(id, name, stage)`, { count: 'exact' })
+            .select(
+                `id, first_name, last_name, email, phone_e164, title, country, seniority,
+                 is_primary, linkedin, created_at, updated_at,
+                 companies(id, name, stage)`,
+                { count: 'exact' }
+            )
             .eq('tenant_id', tenantId);
 
         if (search) {
@@ -177,7 +175,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
         const tenantId = req.tenantId!;
         const { id } = req.params;
 
-        const { data, error } = await supabaseAdmin
+        const { data, error } = await dbClient(req)
             .from('contacts')
             .select(`*, companies(id, name, website, stage, location, industry)`)
             .eq('id', id)
@@ -200,12 +198,12 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
 // POST /api/contacts — Create contact
 router.post(
     '/',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     validateBody(createContactSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
-            const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary, notes } = req.body;
+            const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary } = req.body;
 
             const { data: company } = await supabaseAdmin
                 .from('companies')
@@ -217,6 +215,15 @@ router.post(
             if (!company) {
                 res.status(404).json({ error: 'Company not found' });
                 return;
+            }
+
+            // Ensure at most one primary per company — unset others before inserting
+            if (is_primary) {
+                await supabaseAdmin
+                    .from('contacts')
+                    .update({ is_primary: false })
+                    .eq('company_id', company_id)
+                    .eq('tenant_id', tenantId);
             }
 
             // Build payload
@@ -233,7 +240,6 @@ router.post(
                 seniority: seniority || null,
                 department: department || null,
                 is_primary: is_primary || false,
-                notes: notes ? [{ id: randomUUID(), text: notes, created_at: new Date().toISOString(), created_by: req.user?.email || 'unknown' }] : [],
             };
 
             const { data, error } = await supabaseAdmin
@@ -259,7 +265,7 @@ router.post(
 // PUT /api/contacts/:id — Update contact
 router.put(
     '/:id',
-    requireRole('superadmin', 'ops_agent'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     validateBody(updateContactSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
@@ -279,6 +285,25 @@ router.put(
             if (seniority !== undefined) updateData.seniority = seniority;
             if (department !== undefined) updateData.department = department;
             if (is_primary !== undefined) updateData.is_primary = is_primary;
+
+            // Ensure at most one primary per company — unset others before this update
+            if (is_primary === true) {
+                const { data: existing } = await supabaseAdmin
+                    .from('contacts')
+                    .select('company_id')
+                    .eq('id', id)
+                    .eq('tenant_id', tenantId)
+                    .single();
+
+                if (existing?.company_id) {
+                    await supabaseAdmin
+                        .from('contacts')
+                        .update({ is_primary: false })
+                        .eq('company_id', existing.company_id)
+                        .eq('tenant_id', tenantId)
+                        .neq('id', id);
+                }
+            }
 
             const { data, error } = await supabaseAdmin
                 .from('contacts')
@@ -302,115 +327,7 @@ router.put(
     }
 );
 
-// POST /api/contacts/:id/notes — Add a note to a contact
-router.post(
-    '/:id/notes',
-    requireRole('superadmin', 'ops_agent'),
-    validateBody(contactNoteSchema),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-        try {
-            const tenantId = req.tenantId!;
-            const { id } = req.params;
-            const { text } = req.body;
-
-            // Fetch current notes
-            const { data: contact, error: fetchError } = await supabaseAdmin
-                .from('contacts')
-                .select('notes')
-                .eq('id', id)
-                .eq('tenant_id', tenantId)
-                .single();
-
-            if (fetchError || !contact) {
-                res.status(404).json({ error: 'Contact not found' });
-                return;
-            }
-
-            const existingNotes: ContactNote[] = parseNotes(contact.notes);
-
-            const newNote: ContactNote = {
-                id: randomUUID(),
-                text: text.trim(),
-                created_at: new Date().toISOString(),
-                created_by: req.user?.email || 'unknown',
-            };
-
-            const updatedNotes = [newNote, ...existingNotes];
-
-            const { data, error } = await supabaseAdmin
-                .from('contacts')
-                .update({ notes: updatedNotes })
-                .eq('id', id)
-                .eq('tenant_id', tenantId)
-                .select()
-                .single();
-
-            if (error || !data) {
-                res.status(500).json({ error: 'Failed to add note' });
-                return;
-            }
-
-            res.status(201).json({ data });
-        } catch (err) {
-            if (err instanceof AppError) return next(err);
-            log.error({ err }, 'Add note error');
-            res.status(500).json({ error: 'Failed to add note' });
-        }
-    }
-);
-
-// DELETE /api/contacts/:id/notes/:noteId — Remove a note from a contact
-router.delete(
-    '/:id/notes/:noteId',
-    requireRole('superadmin', 'ops_agent'),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-        try {
-            const tenantId = req.tenantId!;
-            const { id, noteId } = req.params;
-
-            const { data: contact, error: fetchError } = await supabaseAdmin
-                .from('contacts')
-                .select('notes')
-                .eq('id', id)
-                .eq('tenant_id', tenantId)
-                .single();
-
-            if (fetchError || !contact) {
-                res.status(404).json({ error: 'Contact not found' });
-                return;
-            }
-
-            const existingNotes: ContactNote[] = parseNotes(contact.notes);
-            const updatedNotes = existingNotes.filter((n) => n.id !== noteId);
-
-            if (updatedNotes.length === existingNotes.length) {
-                res.status(404).json({ error: 'Note not found' });
-                return;
-            }
-
-            const { data, error } = await supabaseAdmin
-                .from('contacts')
-                .update({ notes: updatedNotes })
-                .eq('id', id)
-                .eq('tenant_id', tenantId)
-                .select()
-                .single();
-
-            if (error || !data) {
-                res.status(500).json({ error: 'Failed to delete note' });
-                return;
-            }
-
-            res.json({ data });
-        } catch (err) {
-            if (err instanceof AppError) return next(err);
-            log.error({ err }, 'Delete note error');
-            res.status(500).json({ error: 'Failed to delete note' });
-        }
-    }
-);
-
-// POST /api/contacts/:id/translate — Translate contact text fields + notes to Turkish
+// POST /api/contacts/:id/translate — Translate contact text fields to Turkish
 router.post(
     '/:id/translate',
     requireRole('superadmin', 'ops_agent'),
@@ -431,18 +348,11 @@ router.post(
                 return;
             }
 
-            // Collect translatable texts: title + each note
+            // Collect translatable texts
             const texts: Array<{ field: string; text: string }> = [];
 
             if (contact.title && contact.title.trim().length >= 2) {
                 texts.push({ field: 'title', text: contact.title });
-            }
-
-            const notes: ContactNote[] = parseNotes(contact.notes);
-            for (const note of notes) {
-                if (note.text && note.text.trim().length >= 2) {
-                    texts.push({ field: `note:${note.id}`, text: note.text });
-                }
             }
 
             if (texts.length === 0) {
@@ -460,16 +370,6 @@ router.post(
             // Build translations object
             const translations: Record<string, unknown> = { translated_at: new Date().toISOString() };
             if (translated.title) translations.title = translated.title;
-
-            const noteTranslations: Record<string, string> = {};
-            for (const [key, value] of Object.entries(translated)) {
-                if (key.startsWith('note:')) {
-                    noteTranslations[key.slice(5)] = value;
-                }
-            }
-            if (Object.keys(noteTranslations).length > 0) {
-                translations.notes = noteTranslations;
-            }
 
             const { data: updated, error: updateError } = await supabaseAdmin
                 .from('contacts')

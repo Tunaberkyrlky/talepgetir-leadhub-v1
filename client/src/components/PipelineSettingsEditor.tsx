@@ -26,6 +26,7 @@ import {
     IconArrowBack,
     IconEdit,
     IconGripVertical,
+    IconBan,
 } from '@tabler/icons-react';
 import {
     DndContext,
@@ -52,13 +53,14 @@ import {
     PIPELINE_GROUP_COLORS,
 } from '../lib/pipelineConfig';
 import { useStages, type StageDefinition } from '../contexts/StagesContext';
+import DeactivateStageModal from './DeactivateStageModal';
 
 export interface PipelineSettingsEditorHandle {
     save: () => void;
 }
 
 /** Sortable stage row — defined outside to prevent remounting on parent re-render */
-function SortableStageRow({ slug, groupColor, stage, isEditing, label, editName, editColor, onEditNameChange, onEditColorChange, onSave, isSaving, onCancel, onStartEdit, onRemoveFromGroup, onDelete }: {
+function SortableStageRow({ slug, groupColor, stage, isEditing, label, editName, editColor, onEditNameChange, onEditColorChange, onSave, isSaving, onCancel, onStartEdit, onRemoveFromGroup, onDelete, onDeactivate }: {
     slug: string;
     groupColor: string;
     stage: StageDefinition;
@@ -74,6 +76,7 @@ function SortableStageRow({ slug, groupColor, stage, isEditing, label, editName,
     onStartEdit: () => void;
     onRemoveFromGroup: () => void;
     onDelete: () => void;
+    onDeactivate: () => void;
 }) {
     const { t } = useTranslation();
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: slug });
@@ -122,6 +125,11 @@ function SortableStageRow({ slug, groupColor, stage, isEditing, label, editName,
                             <IconTrash size={12} />
                         </ActionIcon>
                     </Tooltip>
+                    <Tooltip label={t('pipelineSettings.deactivate', 'Devre Dışı Bırak')}>
+                        <ActionIcon variant="subtle" color="orange" size="xs" onClick={onDeactivate}>
+                            <IconBan size={12} />
+                        </ActionIcon>
+                    </Tooltip>
                 </Group>
             )}
         </Group>
@@ -151,6 +159,8 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveS
     const [deleteSlug, setDeleteSlug] = useState<string | null>(null);
     const [reassignTo, setReassignTo] = useState<string | null>(null);
     const [deleteCompanyCount, setDeleteCompanyCount] = useState(0);
+    const [deactivateSlug, setDeactivateSlug] = useState<string | null>(null);
+    const [deactivateStageName, setDeactivateStageName] = useState('');
 
     // ─── Group state ───
     const [groups, setGroups] = useState<PipelineStageGroup[]>([]);
@@ -265,9 +275,7 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveS
     });
 
     // Expose save to parent
-    useEffect(() => {
-        if (saveRef) saveRef.current = { save: () => saveGroupsMutation.mutate(groups) };
-    });
+    if (saveRef) saveRef.current = { save: () => saveGroupsMutation.mutate(groups) };
 
     // ─── Stage actions ───
     const startEdit = (stage: StageDefinition) => {
@@ -284,6 +292,11 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveS
     const confirmDeleteWithReassign = () => {
         if (!deleteSlug || !reassignTo) return;
         deleteMutation.mutate({ slug: deleteSlug, reassign_to: reassignTo });
+    };
+
+    const handleDeactivate = (stage: StageDefinition) => {
+        setDeactivateSlug(stage.slug);
+        setDeactivateStageName(getStageLabel(stage.slug));
     };
 
     const handleStageDragEnd = (groupIndex: number, event: DragEndEvent) => {
@@ -469,6 +482,7 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveS
                                             onStartEdit={() => startEdit(stg)}
                                             onRemoveFromGroup={() => removeStageFromGroup(gi, slug)}
                                             onDelete={() => handleDelete(slug)}
+                                            onDeactivate={() => handleDeactivate(stg)}
                                         />
                                     );
                                 })}
@@ -562,6 +576,17 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveS
                     </Group>
                 </Stack>
             </Modal>
+
+            {/* ═══ Deactivate Modal ═══ */}
+            <DeactivateStageModal
+                stageSlug={deactivateSlug}
+                stageName={deactivateStageName}
+                onClose={() => setDeactivateSlug(null)}
+                onSuccess={() => {
+                    setDeactivateSlug(null);
+                    invalidateAll();
+                }}
+            />
         </Stack>
     );
 }

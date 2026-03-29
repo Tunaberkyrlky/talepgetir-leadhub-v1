@@ -1,0 +1,118 @@
+<h2>Tasarım Önizleme</h2>
+<p class="subtitle">Şirket detay sayfası — alan görünürlüğü kontrolü</p>
+
+<div class="section">
+  <h3>Normal durum (popover kapalı)</h3>
+  <div class="mockup">
+    <div class="mockup-header">Şirket Detay — Bilgiler Kartı</div>
+    <div class="mockup-body" style="padding:20px;">
+      <!-- Paper card -->
+      <div style="border:1px solid #dee2e6;border-radius:12px;padding:20px;background:white;">
+
+        <!-- Header row -->
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+          <div>
+            <div style="display:flex;align-items:baseline;gap:8px;">
+              <span style="font-size:20px;font-weight:700;">Makina</span>
+              <span style="font-size:13px;color:#868e96;">— Hardware Store</span>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:6px;align-items:center;">
+              <span style="background:#e9ecef;color:#495057;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:500;">NİTELİKLİ</span>
+              <span style="font-size:12px;color:#868e96;">📍 Spain</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+            <span style="font-size:12px;color:#7950f2;">🌐 http://makina-online.es</span>
+            <span style="font-size:12px;color:#0A66C2;">in LinkedIn</span>
+          </div>
+        </div>
+
+        <div style="border-top:1px solid #f1f3f5;padding-top:16px;">
+          <!-- Alanlar başlık + ikon -->
+          <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+            <div style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;background:#f1f3f5;cursor:pointer;font-size:11px;color:#868e96;border:1px solid #dee2e6;">
+              <!-- IconLayoutColumns benzeri -->
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#868e96" stroke-width="2"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/></svg>
+              Alanlar
+            </div>
+          </div>
+
+          <!-- Detail grid -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div>
+              <div style="font-size:10px;color:#adb5bd;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">ŞİRKET ÖZETİ</div>
+              <div style="font-size:13px;color:#212529;line-height:1.5;">Online hardware and industrial tools retailer based in Madrid…</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:#adb5bd;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">UYUM PUANI</div>
+              <div style="font-size:13px;color:#212529;">50</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:#adb5bd;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">ÖZEL ALAN 1</div>
+              <div style="font-size:13px;color:#212529;line-height:1.5;">Given Makina's focus on distributing…</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:#adb5bd;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">ÖZEL ALAN 2</div>
+              <div style="font-size:13px;color:#212529;line-height:1.5;">Your extensive range of tools…</div>
+            </div>
+            <!-- custom_field_3 gizlenmiş — gösterilmiyor -->
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:#adb5bd;text-align:right;">1 alan gizlendi</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Popover açık — alan seçimi</h3>
+  <div class="mockup">
+    <div class="mockup-header">Alanlar popover'ı</div>
+    <div class="mockup-body" style="padding:20px;display:flex;justify-content:flex-end;">
+      <!-- Popover kutusu -->
+      <div style="width:220px;border:1px solid #dee2e6;border-radius:8px;background:white;box-shadow:0 4px 20px rgba(0,0,0,0.12);padding:12px;">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#868e96;letter-spacing:.5px;margin-bottom:10px;">GÖRÜNEN ALANLAR</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" checked style="accent-color:#7950f2;"> Şirket Özeti
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" checked style="accent-color:#7950f2;"> Ürün / Hizmetler
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" checked style="accent-color:#7950f2;"> Ürün Portföyü
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" checked style="accent-color:#7950f2;"> Sonraki Adım
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" checked style="accent-color:#7950f2;"> Uyum Puanı
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" checked style="accent-color:#7950f2;"> Özel Alan 1
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" checked style="accent-color:#7950f2;"> Özel Alan 2
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#868e96;">
+            <input type="checkbox" style="accent-color:#7950f2;"> Özel Alan 3
+          </label>
+        </div>
+        <div style="border-top:1px solid #f1f3f5;margin-top:10px;padding-top:8px;">
+          <button style="background:none;border:none;color:#7950f2;font-size:12px;cursor:pointer;padding:0;">Varsayılana sıfırla</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Teknik özet</h3>
+  <div style="background:#f8f9fa;border-radius:8px;padding:16px;font-size:13px;line-height:1.8;">
+    <div><strong>localStorage key:</strong> <code>company_detail_field_visibility</code> — gizli alan key'lerinin JSON dizisi, ör. <code>["custom_field_3"]</code></div>
+    <div><strong>Varsayılan:</strong> Tüm alanlar görünür (boş dizi = hiç gizli alan yok)</div>
+    <div><strong>Ikon:</strong> <code>IconLayoutColumns</code> + "Alanlar" etiketi — leads "Sütunları düzenle" ile aynı desen</div>
+    <div><strong>Değişen dosyalar:</strong> Sadece <code>CompanyDetailPage.tsx</code> + <code>tr.json</code> / <code>en.json</code></div>
+    <div><strong>Custom field etiketleri:</strong> Popover'da da tenant ayarından okunur (<code>user?.tenantSettings?.custom_field_X_label</code>)</div>
+  </div>
+</div>

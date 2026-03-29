@@ -70,7 +70,7 @@ export default function DashboardPage() {
 
     // Company locations — for globe map (pro tier only)
     const queryClient = useQueryClient();
-    const { data: companyLocations, isLoading: locationsLoading } = useQuery<{ data: CompanyLocation[] }>({
+    const { data: companyLocations, isLoading: locationsLoading } = useQuery<{ data: CompanyLocation[], missingCount: number }>({
         queryKey: ['statistics', 'company-locations'],
         queryFn: async () => (await api.get('/statistics/company-locations')).data,
         enabled: isAdvanced,
@@ -197,10 +197,11 @@ export default function DashboardPage() {
                     <Suspense fallback={<Center style={{ height: 320 }}><Loader color="violet" /></Center>}>
                         <GlobeMap
                             data={companyLocations?.data || []}
+                            missingCount={companyLocations?.missingCount || 0}
                             isLoading={locationsLoading}
                             onGeocode={() => geocodeMutation.mutate()}
                             geocodeLoading={geocodeMutation.isPending}
-                            canGeocode={['superadmin', 'ops_agent'].includes(role)}
+                            canGeocode={['superadmin', 'ops_agent', 'client_admin'].includes(role)}
                         />
                     </Suspense>
                 </>

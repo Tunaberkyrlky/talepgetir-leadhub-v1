@@ -28,9 +28,9 @@ export type TierFeature =
 const ROLE_PERMISSIONS: Record<RoleFeature, Role[]> = {
     import: ['superadmin', 'ops_agent', 'client_admin'],
     delete_records: ['superadmin'],
-    crud: ['superadmin', 'ops_agent'],
+    crud: ['superadmin', 'ops_agent', 'client_admin'],
     internal_notes: ['superadmin', 'ops_agent'],
-    activity_write: ['superadmin', 'ops_agent'],
+    activity_write: ['superadmin', 'ops_agent', 'client_admin'],
     pipeline_dragdrop: ['superadmin', 'ops_agent', 'client_admin'],
     invite_members: ['superadmin', 'client_admin'],
     export_full: ['superadmin', 'ops_agent', 'client_admin'],
@@ -60,7 +60,7 @@ export function canDelete(role: string): boolean {
 
 /** Check if a role can create/edit data */
 export function canWrite(role: string): boolean {
-    return ['superadmin', 'ops_agent'].includes(role);
+    return ['superadmin', 'ops_agent', 'client_admin'].includes(role);
 }
 
 /** Check if a role is read-only */

@@ -25,12 +25,10 @@ import {
     IconLayoutKanban,
     IconTable,
     IconColumns,
-    IconTrophy,
-    IconXboxX,
-    IconClock,
     IconUsers,
     IconRefresh,
     IconWifi,
+    IconTrophy,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -42,16 +40,20 @@ import { useStages } from '../contexts/StagesContext';
 import KanbanBoard from '../components/pipeline/KanbanBoard';
 import type { PipelineCompany } from '../components/pipeline/PipelineCard';
 import { useUndoStack } from '../hooks/useUndoStack';
+import ClosingReportModal from '../components/ClosingReportModal';
+import { TERMINAL_STAGES } from '../lib/stages';
+import type { ClosingOutcome } from '../types/activity';
 
 interface PipelineData {
     columns: Record<string, PipelineCompany[]>;
     terminalCounts: Record<string, number>;
+    terminalColumns: Record<string, PipelineCompany[]>;
 }
 
 export default function PipelinePage() {
     const { t } = useTranslation();
     const { user } = useAuth();
-    const { pipelineStageSlugs, getStageColor } = useStages();
+    const { pipelineStageSlugs, terminalStageSlugs, getStageColor } = useStages();
     const queryClient = useQueryClient();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
@@ -63,12 +65,20 @@ export default function PipelinePage() {
     const searchRef = useRef<HTMLInputElement>(null);
     const undoStack = useUndoStack();
 
+    // Closing report modal state (triggered when dragging to terminal stage)
+    const [closingReportState, setClosingReportState] = useState<{
+        companyId: string;
+        companyName: string;
+        targetStage: ClosingOutcome;
+    } | null>(null);
+
     // Page-level keyboard shortcuts
     useHotkeys([
         ['mod+K', () => searchRef.current?.focus()],
         ['mod+F', () => searchRef.current?.focus()],
         ['1', () => setViewMode('board')],
         ['2', () => setViewMode('table')],
+        ['3', () => setViewMode('outcomes')],
         ['Escape', () => { if (search) setSearch(''); }],
         ['mod+Z', () => {
             const entry = undoStack.pop();
@@ -99,8 +109,12 @@ export default function PipelinePage() {
             return res.data;
         },
         onMutate: async ({ companyId, newStage }) => {
+            // Capture search at mutation time — user may change it before onError fires,
+            // which would cause the rollback to write to the wrong cache key.
+            const searchSnapshot = debouncedSearch;
+
             await queryClient.cancelQueries({ queryKey: ['pipeline'] });
-            const previous = queryClient.getQueryData<PipelineData>(['pipeline', debouncedSearch]);
+            const previous = queryClient.getQueryData<PipelineData>(['pipeline', searchSnapshot]);
 
             // Optimistic update
             if (previous) {
@@ -122,15 +136,15 @@ export default function PipelinePage() {
                     updated.columns[newStage] = [movedCompany, ...updated.columns[newStage]];
                 }
 
-                queryClient.setQueryData(['pipeline', debouncedSearch], updated);
+                queryClient.setQueryData(['pipeline', searchSnapshot], updated);
             }
 
-            return { previous };
+            return { previous, searchSnapshot };
         },
         onError: (_err, _vars, context) => {
-            // Rollback on error
+            // Rollback using the search snapshot captured at mutation start
             if (context?.previous) {
-                queryClient.setQueryData(['pipeline', debouncedSearch], context.previous);
+                queryClient.setQueryData(['pipeline', context.searchSnapshot], context.previous);
             }
             showError(t('pipeline.moveError'));
         },
@@ -146,23 +160,44 @@ export default function PipelinePage() {
 
     const handleStageChange = useCallback(
         (companyId: string, newStage: string, oldStage: string) => {
-            stageMutation.mutate({ companyId, newStage });
-            undoStack.push({
-                description: t('pipeline.stageMoved', 'Aşama taşıma'),
-                undo: () => stageMutation.mutate({ companyId, newStage: oldStage }),
-            });
+            if (TERMINAL_STAGES.includes(newStage as any)) {
+                // Terminal stage → open ClosingReportModal, do NOT call stageMutation
+                const company = Object.values(data?.columns || {}).flat().find((c) => c.id === companyId);
+                setClosingReportState({
+                    companyId,
+                    companyName: company?.name || companyId,
+                    targetStage: newStage as ClosingOutcome,
+                });
+            } else {
+                // Normal stage → existing mutation
+                stageMutation.mutate({ companyId, newStage });
+                undoStack.push({
+                    description: t('pipeline.stageMoved', 'Aşama taşma'),
+                    undo: () => stageMutation.mutate({ companyId, newStage: oldStage }),
+                });
+            }
         },
-        [stageMutation]
+        // stageMutation.mutate is stable across renders (TanStack Query guarantee)
+        [stageMutation.mutate, undoStack, t, data]
     );
 
     // Flatten all companies for table view
     const allCompanies = useMemo(
         () => (data ? pipelineStageSlugs.flatMap((stage) => data.columns[stage] || []) : []),
-        [data]
+        [data, pipelineStageSlugs]
     );
 
     const totalActive = allCompanies.length;
     const terminalCounts = data?.terminalCounts || {};
+
+    const allTerminalCompanies = useMemo(
+        () => {
+            if (!data?.terminalColumns) return [];
+            return terminalStageSlugs.flatMap((stage) => data.terminalColumns[stage] || []);
+        },
+        [data, terminalStageSlugs]
+    );
+    const totalTerminal = allTerminalCompanies.length;
 
     const formatDate = (dateStr: string) =>
         new Date(dateStr).toLocaleDateString(undefined, {
@@ -198,7 +233,9 @@ export default function PipelinePage() {
                         <Title order={2} fw={700}>
                             {t('nav.pipeline')}
                         </Title>
-                        <Badge size="lg" variant="light" color="violet">{totalActive}</Badge>
+                        <Badge size="lg" variant="light" color="violet">
+                            {viewMode === 'outcomes' ? totalTerminal : totalActive}
+                        </Badge>
                     </Group>
 
                     <Group gap="sm">
@@ -226,31 +263,11 @@ export default function PipelinePage() {
                             data={[
                                 { label: <IconLayoutKanban size={16} />, value: 'board' },
                                 { label: <IconTable size={16} />, value: 'table' },
+                                { label: <IconTrophy size={16} />, value: 'outcomes' },
                             ]}
                         />
                     </Group>
                 </Flex>
-
-                {/* Terminal stage summary */}
-                {(terminalCounts.won > 0 || terminalCounts.lost > 0 || terminalCounts.on_hold > 0) && (
-                    <Group gap="xs" mb="md">
-                        {terminalCounts.won > 0 && (
-                            <Badge size="md" variant="light" color="green" leftSection={<IconTrophy size={12} />}>
-                                {t('stages.won')}: {terminalCounts.won}
-                            </Badge>
-                        )}
-                        {terminalCounts.lost > 0 && (
-                            <Badge size="md" variant="light" color="red" leftSection={<IconXboxX size={12} />}>
-                                {t('stages.lost')}: {terminalCounts.lost}
-                            </Badge>
-                        )}
-                        {terminalCounts.on_hold > 0 && (
-                            <Badge size="md" variant="light" color="gray" leftSection={<IconClock size={12} />}>
-                                {t('stages.on_hold')}: {terminalCounts.on_hold}
-                            </Badge>
-                        )}
-                    </Group>
-                )}
 
                 {/* Loading */}
                 {isLoading && (
@@ -283,6 +300,7 @@ export default function PipelinePage() {
                         isDragEnabled={canDrag}
                         onStageChange={handleStageChange}
                         initialFocusStage={focusStage}
+                        terminalCounts={terminalCounts}
                     />
                 )}
 
@@ -405,7 +423,57 @@ export default function PipelinePage() {
                         )}
                     </Paper>
                 )}
+
+                {/* Outcomes View */}
+                {!isLoading && !error && data && viewMode === 'outcomes' && (
+                    data.terminalColumns && allTerminalCompanies.length > 0 ? (
+                        <KanbanBoard
+                            columns={data.terminalColumns}
+                            isDragEnabled={false}
+                            onStageChange={() => {}}
+                            stageSlugs={terminalStageSlugs}
+                            hideTerminalZones
+                            isOutcomesView
+                        />
+                    ) : (
+                        <Center py={80}>
+                            <Stack align="center" gap="sm">
+                                <IconTrophy size={48} color="#ccc" />
+                                {debouncedSearch ? (
+                                    <>
+                                        <Text fw={500} c="dimmed">
+                                            "{debouncedSearch}" {t('pipeline.noSearchResults', 'için sonuç bulunamadı')}
+                                        </Text>
+                                        <Button
+                                            size="xs"
+                                            variant="subtle"
+                                            leftSection={<IconX size={14} />}
+                                            onClick={() => setSearch('')}
+                                        >
+                                            {t('filter.clearSearch', 'Aramayı Temizle')}
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <Text fw={500} c="dimmed">{t('pipeline.noOutcomes', 'Henüz sonuçlanan şirket yok')}</Text>
+                                )}
+                            </Stack>
+                        </Center>
+                    )
+                )}
             </Container>
+
+            {closingReportState && (
+                <ClosingReportModal
+                    opened={true}
+                    onClose={() => setClosingReportState(null)}
+                    companyId={closingReportState.companyId}
+                    companyName={closingReportState.companyName}
+                    targetStage={closingReportState.targetStage}
+                    onSuccess={() => {
+                        setClosingReportState(null);
+                    }}
+                />
+            )}
         </TierGate>
     );
 }

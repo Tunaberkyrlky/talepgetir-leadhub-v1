@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin, supabaseAuth } from '../lib/supabase.js';
 import { createLogger } from '../lib/logger.js';
+import { isInternalRole } from '../lib/roles.js';
 
 const log = createLogger('auth');
 
@@ -12,13 +13,20 @@ interface CachedAuth {
 const authCache = new Map<string, CachedAuth>();
 const AUTH_CACHE_TTL = 60_000; // 60 seconds
 
-// Clean stale entries periodically
-setInterval(() => {
-    const now = Date.now();
-    for (const [key, val] of authCache) {
-        if (now - val.ts > AUTH_CACHE_TTL * 2) authCache.delete(key);
-    }
-}, 120_000);
+// Clean stale entries lazily — started on first auth request.
+// Storing the reference prevents duplicate intervals when the module is re-evaluated
+// (e.g. on Vercel serverless cold starts in the same process lifetime).
+let _cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
+
+function ensureCacheCleanupRunning(): void {
+    if (_cacheCleanupInterval) return;
+    _cacheCleanupInterval = setInterval(() => {
+        const now = Date.now();
+        for (const [key, val] of authCache) {
+            if (now - val.ts > AUTH_CACHE_TTL * 2) authCache.delete(key);
+        }
+    }, 120_000);
+}
 
 // Extend Express Request type
 declare global {
@@ -31,6 +39,8 @@ declare global {
                 role: string;
             };
             tenantId?: string;
+            /** Raw JWT access token — use with createUserClient() to enforce RLS */
+            accessToken?: string;
         }
     }
 }
@@ -40,6 +50,7 @@ export async function authMiddleware(
     res: Response,
     next: NextFunction
 ): Promise<void> {
+    ensureCacheCleanupRunning();
     try {
         // Read token from httpOnly cookie first, fall back to Authorization header
         const authHeader = req.headers.authorization;
@@ -50,6 +61,9 @@ export async function authMiddleware(
             res.status(401).json({ error: 'Missing or invalid authorization' });
             return;
         }
+
+        // Attach raw token so route handlers can create RLS-enforcing user clients
+        req.accessToken = token;
 
         // Check tenant override header for cache key
         const requestedTenantId = req.headers['x-tenant-id'] as string | undefined;
@@ -174,6 +188,17 @@ export async function authMiddleware(
     }
 }
 
+/**
+ * Evict all cache entries for a given user ID.
+ * Call this after deactivating or deleting a user so their next request
+ * is forced through a fresh auth check instead of hitting a cached result.
+ */
+export function clearAuthCacheForUser(userId: string): void {
+    for (const [key, val] of authCache) {
+        if (val.user.id === userId) authCache.delete(key);
+    }
+}
+
 // Role check middleware factory
 export function requireRole(...roles: string[]) {
     return (req: Request, res: Response, next: NextFunction): void => {
@@ -190,7 +215,6 @@ export function requireRole(...roles: string[]) {
 }
 
 // Tier check middleware factory. Internal roles (superadmin, ops_agent) are always allowed.
-const INTERNAL_ROLES = ['superadmin', 'ops_agent'];
 
 export function requireTier(...tiers: string[]) {
     return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -200,7 +224,7 @@ export function requireTier(...tiers: string[]) {
         }
 
         // Internal roles bypass tier checks
-        if (INTERNAL_ROLES.includes(req.user.role)) {
+        if (isInternalRole(req.user.role)) {
             next();
             return;
         }

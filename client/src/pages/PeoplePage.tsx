@@ -65,7 +65,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { canDelete, isInternal } from '../lib/permissions';
+import { canDelete, canWrite } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
 import ContactForm from '../components/ContactForm';
 import TruncatedText from '../components/TruncatedText';
@@ -81,7 +81,6 @@ interface Contact {
     phone_e164: string | null;
     linkedin: string | null;
     is_primary: boolean;
-    notes: import('../types/contact').ContactNote[] | null;
     company_id: string;
     created_at: string;
     updated_at: string;
@@ -113,7 +112,7 @@ type SortKey = 'first_name' | 'last_name' | 'email' | 'updated_at' | 'created_at
 type ColumnKey =
     | 'full_name' | 'company' | 'title_dept' | 'email' | 'phone'
     | 'seniority' | 'country' | 'linkedin' | 'is_primary'
-    | 'notes' | 'updated_at' | 'created_at';
+    | 'updated_at' | 'created_at';
 
 interface ColumnDef {
     key: ColumnKey;
@@ -133,7 +132,6 @@ const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'phone', visible: false },
     { key: 'linkedin', visible: false },
     { key: 'is_primary', visible: false },
-    { key: 'notes', visible: false },
     { key: 'created_at', visible: false },
 ];
 
@@ -229,7 +227,7 @@ export default function PeoplePage() {
     const [colPopoverOpen, setColPopoverOpen] = useState(false);
 
     const userRole = user?.role || '';
-    const userIsInternal = isInternal(userRole);
+    const userCanEdit = canWrite(userRole);
     const userCanDelete = canDelete(userRole);
 
     const columnLabels: Record<ColumnKey, string> = {
@@ -242,7 +240,6 @@ export default function PeoplePage() {
         country: t('people.country'),
         linkedin: t('contact.linkedin'),
         is_primary: t('contact.isPrimary'),
-        notes: t('contact.notes'),
         created_at: t('company.createdAt'),
         updated_at: t('people.updatedAt'),
     };
@@ -481,12 +478,6 @@ export default function PeoplePage() {
                         ) : <Text size="sm">—</Text>}
                     </Table.Td>
                 );
-            case 'notes':
-                return (
-                    <Table.Td key="notes">
-                        <TruncatedText size="sm">{Array.isArray(contact.notes) ? contact.notes.map((n) => n.text).join(' | ') : ''}</TruncatedText>
-                    </Table.Td>
-                );
             case 'created_at':
                 return (
                     <Table.Td key="created_at">
@@ -524,7 +515,7 @@ export default function PeoplePage() {
                 <Title order={2} fw={700}>
                     {t('people.title')}
                 </Title>
-                {userIsInternal && (
+                {userCanEdit && (
                     <Button
                         leftSection={<IconPlus size={18} />}
                         onClick={openCreate}
@@ -720,7 +711,7 @@ export default function PeoplePage() {
                                     >
                                         {visibleColumns.map(col => renderColumnCell(col.key, contact))}
                                         <Table.Td style={{ padding: '0 4px' }}>
-                                            {userIsInternal && (
+                                            {userCanEdit && (
                                                 <Menu withinPortal position="bottom-end" shadow="sm">
                                                     <Menu.Target>
                                                         <ActionIcon
