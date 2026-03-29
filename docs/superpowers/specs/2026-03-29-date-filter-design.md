@@ -66,11 +66,22 @@ function parseDateParams(dateFrom?: string, dateTo?: string): { dateFrom?: strin
 - Returns 400 if `dateFrom > dateTo`
 - Returns parsed ISO strings or undefined if not provided
 
-### Shared: Cache Key Update
+### Shared: Cache Key & Invalidation Update
 
 The statistics endpoints cache results by `tenantId`. Cache keys must include date params to prevent stale cross-filter results:
 
 - Key format: `${tenantId}:${dateFrom || ''}:${dateTo || ''}`
+- **Invalidation**: The existing `invalidateOverviewCache(tenantId)` and `invalidatePipelineStatsCache(tenantId)` functions currently call `cache.delete(tenantId)`. With composite keys, they must iterate and delete all keys starting with `${tenantId}`:
+
+```typescript
+export function invalidateOverviewCache(tenantId: string) {
+    for (const key of overviewCache.keys()) {
+        if (key.startsWith(tenantId)) overviewCache.delete(key);
+    }
+}
+```
+
+Same pattern for `invalidatePipelineStatsCache`.
 
 ### GET `/api/companies`
 
@@ -94,7 +105,7 @@ New optional query parameters: `dateFrom`, `dateTo`
 
 Affected queries:
 - **totalCompanies**: `.gte('created_at', dateFrom).lte('created_at', dateTo)` on companies count
-- **totalContacts**: Sum `contact_count` from the date-filtered companies query (avoids cross-table join; leverages existing `contact_count` column maintained by triggers)
+- **totalContacts**: When date filters are active, sum `contact_count` from date-filtered companies (`.select('contact_count').eq('tenant_id', tenantId).gte/.lte` then JS reduce). When no date filters, preserve existing efficient `head: true` count on contacts table. This avoids cross-table joins and leverages the trigger-maintained `contact_count` column.
 - **stageCounts**: Call updated `get_stage_counts` RPC with `p_date_from` and `p_date_to` parameters
 - **conversionRate**: Calculated from filtered wonCount and lostCount
 
