@@ -65,7 +65,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         let dataQuery = supabaseAdmin
             .from('companies')
-            .select('id, name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, partnership_observation_1, partnership_observation_2, partnership_observation_3, contact_count, created_at, updated_at')
+            .select('id, name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_fields, contact_count, created_at, updated_at')
             .eq('tenant_id', tenantId);
 
         // Apply search (ILIKE on multiple columns)
@@ -106,6 +106,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const { count, error: countError } = await countQuery;
 
         if (countError) {
+            log.error({ countError: countError.message, code: countError.code, details: countError.details }, 'Supabase count companies error');
             throw new AppError('Failed to count companies', 500);
         }
 
@@ -117,6 +118,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             .range(offset, offset + limit - 1);
 
         if (error) {
+            log.error({ supabaseError: error.message, code: error.code, details: error.details, hint: error.hint }, 'Supabase fetch companies error');
             throw new AppError('Failed to fetch companies', 500);
         }
 
@@ -393,7 +395,7 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, partnership_observation_1, partnership_observation_2, partnership_observation_3 } = req.body;
+            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score } = req.body;
 
             // Validate stage if provided
             if (stage) {
@@ -435,9 +437,6 @@ router.put(
             if (company_summary !== undefined) updateData.company_summary = company_summary;
             if (internal_notes !== undefined) updateData.internal_notes = internal_notes;
             if (fit_score !== undefined) updateData.fit_score = fit_score;
-            if (partnership_observation_1 !== undefined) updateData.partnership_observation_1 = partnership_observation_1;
-            if (partnership_observation_2 !== undefined) updateData.partnership_observation_2 = partnership_observation_2;
-            if (partnership_observation_3 !== undefined) updateData.partnership_observation_3 = partnership_observation_3;
             if (next_step !== undefined) updateData.next_step = next_step;
             if (custom_fields !== undefined) updateData.custom_fields = custom_fields;
 

@@ -607,7 +607,8 @@ export default function LeadsPage() {
                                     variant="light"
                                     size="sm"
                                     radius="sm"
-                                    style={{ cursor: 'pointer' }}
+                                    rightSection={<IconChevronDown size={12} />}
+                                    style={{ cursor: 'pointer', paddingRight: 4 }}
                                 >
                                     {getStageLabel(company.stage)}
                                 </Badge>
@@ -1042,7 +1043,7 @@ export default function LeadsPage() {
                                                     </ActionIcon>
                                                 </Tooltip>
                                             </Popover.Target>
-                                            <Popover.Dropdown p="sm" style={{ minWidth: 240 }}>
+                                            <Popover.Dropdown p="sm" style={{ minWidth: 240, maxHeight: 400, overflowY: 'auto' }}>
                                                 <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs" style={{ letterSpacing: '0.5px' }}>
                                                     {t('leads.columns')}
                                                 </Text>

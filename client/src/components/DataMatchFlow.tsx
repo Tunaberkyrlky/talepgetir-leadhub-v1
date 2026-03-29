@@ -15,6 +15,7 @@ import {
     Accordion,
     Badge,
     ThemeIcon,
+    Tooltip,
 } from '@mantine/core';
 import { Dropzone, MIME_TYPES } from '@mantine/dropzone';
 import {
@@ -179,6 +180,14 @@ export default function DataMatchFlow() {
             onStepClick={(step) => { if (step < active) setActive(step); }}
             color="violet"
             mb="xl"
+            styles={{
+                stepIcon: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingTop: 3,
+                },
+            }}
         >
             {/* Step 1: Upload Two Files */}
             <Stepper.Step label={t('import.matchUploadStep')} icon={<IconUpload size={18} />}>
@@ -366,7 +375,9 @@ export default function DataMatchFlow() {
                                                             <Table.Tr key={i}>
                                                                 {Object.values(row).map((val, j) => (
                                                                     <Table.Td key={j}>
-                                                                        <Text size="xs" lineClamp={1} maw={150}>{val || '—'}</Text>
+                                                                        <Tooltip label={val || '—'} multiline maw={300} withArrow disabled={!val || String(val).length <= 20}>
+                                                                            <Text size="xs" lineClamp={1} maw={150}>{val || '—'}</Text>
+                                                                        </Tooltip>
                                                                     </Table.Td>
                                                                 ))}
                                                             </Table.Tr>
@@ -442,13 +453,17 @@ export default function DataMatchFlow() {
                         <Table striped highlightOnHover>
                             <Table.Thead>
                                 <Table.Tr>
-                                    {previewData?.headers.map((h) => (
+                                    {[...(previewData?.headers || [])].sort((a, b) => {
+                                        const aMapped = mapping[a] ? 0 : 1;
+                                        const bMapped = mapping[b] ? 0 : 1;
+                                        return aMapped - bMapped;
+                                    }).map((h) => (
                                         <Table.Th key={h}>
                                             <Stack gap={2}>
-                                                <Text size="xs" c="dimmed">{h}</Text>
                                                 <Text size="xs" fw={600} c={mapping[h] ? 'violet' : 'gray'}>
-                                                    → {mapping[h] || t('import.unmapped')}
+                                                    {mapping[h] || t('import.unmapped')}
                                                 </Text>
+                                                <Text size="xs" c="dimmed">{h}</Text>
                                             </Stack>
                                         </Table.Th>
                                     ))}
@@ -457,7 +472,11 @@ export default function DataMatchFlow() {
                             <Table.Tbody>
                                 {previewData?.previewRows.map((row, i) => (
                                     <Table.Tr key={i}>
-                                        {previewData.headers.map((h) => (
+                                        {[...(previewData?.headers || [])].sort((a, b) => {
+                                            const aMapped = mapping[a] ? 0 : 1;
+                                            const bMapped = mapping[b] ? 0 : 1;
+                                            return aMapped - bMapped;
+                                        }).map((h) => (
                                             <Table.Td key={h}>
                                                 <Text size="sm" lineClamp={1} maw={200}>
                                                     {row[h] || '—'}
