@@ -27,7 +27,7 @@ export function getDateRange(period: DatePeriod): { dateFrom: string; dateTo: st
     };
 }
 
-export function getCustomDateRange(from: Date, to: Date): { dateFrom: string; dateTo: string } {
+export function getCustomDateRange(from: Date | string, to: Date | string): { dateFrom: string; dateTo: string } {
     return {
         dateFrom: dayjs(from).startOf('day').toISOString(),
         dateTo: dayjs(to).endOf('day').toISOString(),

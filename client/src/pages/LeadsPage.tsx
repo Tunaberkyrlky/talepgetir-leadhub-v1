@@ -258,7 +258,7 @@ export default function LeadsPage() {
     const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
     const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
     const [datePeriod, setDatePeriod] = useState<DatePeriod | null>(null);
-    const [customDateRange, setCustomDateRange] = useState<[Date | null, Date | null]>([null, null]);
+    const [customDateRange, setCustomDateRange] = useState<[Date | string | null, Date | string | null]>([null, null]);
 
     // Sort state
     const [sortBy, setSortBy] = useState<SortKey>('updated_at');
@@ -577,7 +577,7 @@ export default function LeadsPage() {
         }
     };
 
-    const handleCustomDateChange = (value: [Date | null, Date | null]) => {
+    const handleCustomDateChange = (value: [Date | string | null, Date | string | null]) => {
         setCustomDateRange(value);
         if (value[0] && value[1]) {
             setDatePeriod(null); // clear period when custom range selected
