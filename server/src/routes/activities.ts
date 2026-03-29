@@ -98,9 +98,9 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 router.get('/all', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
-        const { type, date_from, date_to } = req.query;
+        const { type, date_from, date_to, search, visibility, created_by } = req.query;
         const page = Math.max(1, parseInt(req.query.page as string) || 1);
-        const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20));
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
         const offset = (page - 1) * limit;
 
         const db = dbClient(req);
@@ -121,6 +121,33 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
         }
         if (date_from) query = query.gte('occurred_at', date_from as string);
         if (date_to) query = query.lte('occurred_at', date_to as string);
+
+        // Search: ILIKE on summary and detail
+        if (search && typeof search === 'string' && search.trim()) {
+            const term = search.trim();
+            query = query.or(`summary.ilike.%${term}%,detail.ilike.%${term}%`);
+        }
+
+        // Visibility filter (only internal roles can filter by 'internal')
+        if (visibility && typeof visibility === 'string') {
+            const allowed = ['internal', 'client'];
+            if (allowed.includes(visibility)) {
+                if (visibility === 'internal' && !isInternalRole(req.user!.role)) {
+                    // Non-internal roles cannot see internal activities — ignore the filter
+                } else {
+                    query = query.eq('visibility', visibility);
+                }
+            }
+        }
+
+        // Created-by filter
+        if (created_by && typeof created_by === 'string') {
+            // Basic UUID format check
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (uuidRegex.test(created_by)) {
+                query = query.eq('created_by', created_by);
+            }
+        }
 
         const { data, count, error } = await query;
 
