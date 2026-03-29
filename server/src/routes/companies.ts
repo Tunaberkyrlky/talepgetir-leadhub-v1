@@ -68,6 +68,23 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const locations = (req.query.locations as string || '').split(',').filter(Boolean);
         const products = (req.query.products as string || '').split(',').filter(Boolean);
 
+        const dateFrom = req.query.dateFrom as string | undefined;
+        const dateTo = req.query.dateTo as string | undefined;
+
+        // Validate date params
+        if (dateFrom && isNaN(Date.parse(dateFrom))) {
+            res.status(400).json({ error: 'Invalid dateFrom parameter' });
+            return;
+        }
+        if (dateTo && isNaN(Date.parse(dateTo))) {
+            res.status(400).json({ error: 'Invalid dateTo parameter' });
+            return;
+        }
+        if (dateFrom && dateTo && new Date(dateFrom) > new Date(dateTo)) {
+            res.status(400).json({ error: 'dateFrom must be before dateTo' });
+            return;
+        }
+
         // Sort params
         const sortBy = SORT_COLUMNS[req.query.sortBy as string] || 'updated_at';
         const sortOrder = (req.query.sortOrder as string) === 'asc';
@@ -118,6 +135,16 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         if (products.length > 0) {
             countQuery = countQuery.in('product_services', products);
             dataQuery = dataQuery.in('product_services', products);
+        }
+
+        // Apply date filters
+        if (dateFrom) {
+            countQuery = countQuery.gte('created_at', dateFrom);
+            dataQuery = dataQuery.gte('created_at', dateFrom);
+        }
+        if (dateTo) {
+            countQuery = countQuery.lte('created_at', dateTo);
+            dataQuery = dataQuery.lte('created_at', dateTo);
         }
 
         const { count, error: countError } = await countQuery;
