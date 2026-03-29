@@ -194,6 +194,79 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
     }
 });
 
+// GET /api/activities/stats — Aggregated counts by type
+router.get('/stats', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const { type, date_from, date_to, search, visibility, created_by } = req.query;
+
+        const db = dbClient(req);
+        let query = db
+            .from('activities')
+            .select('type')
+            .eq('tenant_id', tenantId);
+
+        if (type) {
+            const VALID_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change'];
+            if (VALID_TYPES.includes(type as string)) {
+                query = query.eq('type', type as string);
+            }
+        }
+        if (date_from) query = query.gte('occurred_at', date_from as string);
+        if (date_to) query = query.lte('occurred_at', date_to as string);
+
+        if (search && typeof search === 'string' && search.trim()) {
+            const term = search.trim();
+            query = query.or(`summary.ilike.%${term}%,detail.ilike.%${term}%`);
+        }
+        if (visibility && typeof visibility === 'string') {
+            const allowed = ['internal', 'client'];
+            if (allowed.includes(visibility)) {
+                if (visibility === 'internal' && !isInternalRole(req.user!.role)) {
+                    // skip
+                } else {
+                    query = query.eq('visibility', visibility);
+                }
+            }
+        }
+        if (created_by && typeof created_by === 'string') {
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (uuidRegex.test(created_by)) {
+                query = query.eq('created_by', created_by);
+            }
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+            log.error({ err: error }, 'Activity stats error');
+            throw new AppError('Failed to fetch activity stats', 500);
+        }
+
+        // Count by type
+        const counts: Record<string, number> = {};
+        let total = 0;
+        for (const row of data || []) {
+            const t = (row as any).type as string;
+            counts[t] = (counts[t] || 0) + 1;
+            total++;
+        }
+
+        res.json({
+            meeting: counts['meeting'] || 0,
+            not: counts['not'] || 0,
+            follow_up: counts['follow_up'] || 0,
+            sonlandirma_raporu: counts['sonlandirma_raporu'] || 0,
+            status_change: counts['status_change'] || 0,
+            total,
+        });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Activity stats error');
+        res.status(500).json({ error: 'Failed to fetch activity stats' });
+    }
+});
+
 // GET /api/activities/:id — Get single activity
 router.get('/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
