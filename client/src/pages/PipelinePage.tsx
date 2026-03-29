@@ -15,6 +15,7 @@ import {
     Center,
     Loader,
     Button,
+    UnstyledButton,
 } from '@mantine/core';
 import { useDebouncedValue, useHotkeys } from '@mantine/hooks';
 import { showSuccess, showError, showInfo } from '../lib/notifications';
@@ -29,6 +30,9 @@ import {
     IconRefresh,
     IconWifi,
     IconTrophy,
+    IconChevronUp,
+    IconChevronDown,
+    IconSelector,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -64,6 +68,20 @@ export default function PipelinePage() {
     const [viewMode, setViewMode] = useState<string>('board');
     const searchRef = useRef<HTMLInputElement>(null);
     const undoStack = useUndoStack();
+
+    // Table sort state
+    type SortKey = 'name' | 'stage' | 'industry' | 'days' | 'updated_at' | 'contact_count';
+    const [tableSortBy, setTableSortBy] = useState<SortKey>('updated_at');
+    const [tableSortOrder, setTableSortOrder] = useState<'asc' | 'desc'>('desc');
+
+    const handleTableSort = (column: SortKey) => {
+        if (tableSortBy === column) {
+            setTableSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
+        } else {
+            setTableSortBy(column);
+            setTableSortOrder(column === 'name' || column === 'industry' ? 'asc' : 'desc');
+        }
+    };
 
     // Closing report modal state (triggered when dragging to terminal stage)
     const [closingReportState, setClosingReportState] = useState<{
@@ -181,11 +199,39 @@ export default function PipelinePage() {
         [stageMutation.mutate, undoStack, t, data]
     );
 
-    // Flatten all companies for table view
-    const allCompanies = useMemo(
-        () => (data ? pipelineStageSlugs.flatMap((stage) => data.columns[stage] || []) : []),
-        [data, pipelineStageSlugs]
-    );
+    // Flatten all companies for table view, with client-side sorting
+    const allCompanies = useMemo(() => {
+        if (!data) return [];
+        const flat = pipelineStageSlugs.flatMap((stage) => data.columns[stage] || []);
+
+        const getDays = (c: PipelineCompany) =>
+            c.stage_changed_at ? Math.floor((Date.now() - new Date(c.stage_changed_at).getTime()) / 86400000) : -1;
+
+        return [...flat].sort((a, b) => {
+            let cmp = 0;
+            switch (tableSortBy) {
+                case 'name':
+                    cmp = a.name.localeCompare(b.name);
+                    break;
+                case 'stage':
+                    cmp = a.stage.localeCompare(b.stage);
+                    break;
+                case 'industry':
+                    cmp = (a.industry || '').localeCompare(b.industry || '');
+                    break;
+                case 'days':
+                    cmp = getDays(a) - getDays(b);
+                    break;
+                case 'contact_count':
+                    cmp = a.contact_count - b.contact_count;
+                    break;
+                case 'updated_at':
+                    cmp = new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
+                    break;
+            }
+            return tableSortOrder === 'asc' ? cmp : -cmp;
+        });
+    }, [data, pipelineStageSlugs, tableSortBy, tableSortOrder]);
 
     const totalActive = allCompanies.length;
     const terminalCounts = data?.terminalCounts || {};
@@ -230,12 +276,27 @@ export default function PipelinePage() {
                 {/* Header */}
                 <Flex justify="space-between" align="center" mb="md" wrap="wrap" gap="sm">
                     <Group gap="sm">
-                        <Title order={2} fw={700}>
-                            {t('nav.pipeline')}
-                        </Title>
-                        <Badge size="lg" variant="light" color="violet">
-                            {viewMode === 'outcomes' ? totalTerminal : totalActive}
-                        </Badge>
+                        <Stack gap={0}>
+                            <Group gap="xs">
+                                <Title order={2} fw={700}>
+                                    {viewMode === 'outcomes'
+                                        ? t('pipeline.outcomesTitle')
+                                        : viewMode === 'table'
+                                        ? t('pipeline.tableTitle')
+                                        : t('pipeline.boardTitle')}
+                                </Title>
+                                <Badge size="lg" variant="light" color="violet">
+                                    {viewMode === 'outcomes' ? totalTerminal : totalActive}
+                                </Badge>
+                            </Group>
+                            <Text size="sm" c="dimmed">
+                                {viewMode === 'outcomes'
+                                    ? t('pipeline.outcomesSubtitle')
+                                    : viewMode === 'table'
+                                    ? t('pipeline.tableSubtitle')
+                                    : t('pipeline.boardSubtitle')}
+                            </Text>
+                        </Stack>
                     </Group>
 
                     <Group gap="sm">
@@ -331,7 +392,7 @@ export default function PipelinePage() {
                                 </Stack>
                             </Center>
                         ) : (
-                            <Table.ScrollContainer minWidth={600}>
+                            <Table.ScrollContainer minWidth={700}>
                                 <Table
                                     striped
                                     highlightOnHover
@@ -354,12 +415,41 @@ export default function PipelinePage() {
                                 >
                                     <Table.Thead>
                                         <Table.Tr>
-                                            <Table.Th>{t('company.name')}</Table.Th>
-                                            <Table.Th>{t('company.stage')}</Table.Th>
-                                            <Table.Th>{t('company.industry')}</Table.Th>
-                                            <Table.Th>{t('company.nextStep')}</Table.Th>
-                                            <Table.Th>{t('pipeline.daysInStage')}</Table.Th>
-                                            <Table.Th>{t('company.updatedAt')}</Table.Th>
+                                            {([
+                                                ['name', t('company.name')],
+                                                ['stage', t('company.stage')],
+                                                ['industry', t('company.industry')],
+                                                [null, t('company.nextStep')],
+                                                ['contact_count', t('contacts.title')],
+                                                ['days', t('pipeline.daysInStage')],
+                                                ['updated_at', t('company.updatedAt')],
+                                            ] as const).map(([key, label], i) =>
+                                                key ? (
+                                                    <Table.Th key={key}>
+                                                        <UnstyledButton
+                                                            onClick={() => handleTableSort(key as SortKey)}
+                                                            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                                                        >
+                                                            <Text size="xs" fw={600} tt="uppercase" style={{ letterSpacing: '0.5px', color: 'white' }}>
+                                                                {label}
+                                                            </Text>
+                                                            {(() => {
+                                                                const isSorted = tableSortBy === key;
+                                                                const Icon = isSorted
+                                                                    ? (tableSortOrder === 'asc' ? IconChevronUp : IconChevronDown)
+                                                                    : IconSelector;
+                                                                return <Icon size={14} color={isSorted ? '#a78bfa' : 'rgba(255,255,255,0.5)'} />;
+                                                            })()}
+                                                        </UnstyledButton>
+                                                    </Table.Th>
+                                                ) : (
+                                                    <Table.Th key={`ns-${i}`}>
+                                                        <Text size="xs" fw={600} tt="uppercase" c="white" style={{ letterSpacing: '0.5px' }}>
+                                                            {label}
+                                                        </Text>
+                                                    </Table.Th>
+                                                )
+                                            )}
                                         </Table.Tr>
                                     </Table.Thead>
                                     <Table.Tbody>
@@ -374,14 +464,7 @@ export default function PipelinePage() {
                                                     onClick={() => navigate(`/companies/${company.id}`)}
                                                 >
                                                     <Table.Td>
-                                                        <Group gap="xs" wrap="nowrap">
-                                                            <Text size="sm" fw={600}>{company.name}</Text>
-                                                            {company.contact_count > 0 && (
-                                                                <Badge size="xs" variant="light" color="violet" leftSection={<IconUsers size={10} />}>
-                                                                    {company.contact_count}
-                                                                </Badge>
-                                                            )}
-                                                        </Group>
+                                                        <Text size="sm" fw={600}>{company.name}</Text>
                                                     </Table.Td>
                                                     <Table.Td>
                                                         <Badge
@@ -396,7 +479,13 @@ export default function PipelinePage() {
                                                         <Text size="sm" c="dimmed">{company.industry || '—'}</Text>
                                                     </Table.Td>
                                                     <Table.Td>
-                                                        <Text size="sm" lineClamp={1}>{company.next_step || '—'}</Text>
+                                                        <Text size="sm" lineClamp={1} maw={200}>{company.next_step || '—'}</Text>
+                                                    </Table.Td>
+                                                    <Table.Td>
+                                                        <Group gap={4}>
+                                                            <IconUsers size={14} color="var(--mantine-color-violet-5)" />
+                                                            <Text size="sm" fw={500}>{company.contact_count}</Text>
+                                                        </Group>
                                                     </Table.Td>
                                                     <Table.Td>
                                                         {days !== null ? (

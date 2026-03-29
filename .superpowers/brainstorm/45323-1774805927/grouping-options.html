@@ -1,0 +1,99 @@
+<h2>Aktivite Gruplama Seçenekleri</h2>
+<p class="subtitle">Aktiviteler nasıl gruplanarak gösterilsin? Birden fazla seçebilirsin.</p>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="by-date" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Güne Göre Gruplama</h3>
+      <p>Aktiviteler gün başlıkları altında listelenir: "Bugün", "Dün", "27 Mart 2026"... Günlük takip için ideal.</p>
+      <div class="mockup" style="margin-top:12px;padding:12px">
+        <div style="margin-bottom:8px"><strong style="color:#868e96;font-size:13px">📅 Bugün — 29 Mart 2026</strong></div>
+        <div style="background:#f8f9fa;border-radius:8px;padding:8px 12px;margin-bottom:4px;font-size:13px">
+          <span style="background:#e8d5ff;color:#7048e8;padding:2px 8px;border-radius:4px;font-size:11px">Toplantı</span>
+          Ahlens — İlk görüşme yapıldı
+          <span style="float:right;color:#adb5bd;font-size:11px">14:30</span>
+        </div>
+        <div style="background:#f8f9fa;border-radius:8px;padding:8px 12px;margin-bottom:4px;font-size:13px">
+          <span style="background:#dbe4ff;color:#4263eb;padding:2px 8px;border-radius:4px;font-size:11px">Not</span>
+          Sonia — Fiyat teklifi gönderildi
+          <span style="float:right;color:#adb5bd;font-size:11px">10:15</span>
+        </div>
+        <div style="margin-top:12px;margin-bottom:8px"><strong style="color:#868e96;font-size:13px">📅 Dün — 28 Mart 2026</strong></div>
+        <div style="background:#f8f9fa;border-radius:8px;padding:8px 12px;margin-bottom:4px;font-size:13px">
+          <span style="background:#fff3bf;color:#e67700;padding:2px 8px;border-radius:4px;font-size:11px">Takip</span>
+          MEDS — Geri dönüş bekleniyor
+          <span style="float:right;color:#adb5bd;font-size:11px">16:45</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="by-company" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Şirkete Göre Gruplama</h3>
+      <p>Her şirketin aktiviteleri bir arada. Hangi şirketle ne kadar iletişim kurulmuş hızlıca görülür.</p>
+      <div class="mockup" style="margin-top:12px;padding:12px">
+        <div style="margin-bottom:8px"><strong style="color:#868e96;font-size:13px">🏢 Ahlens <span style="background:#e8e8e8;padding:2px 6px;border-radius:10px;font-size:11px">3 aktivite</span></strong></div>
+        <div style="background:#f8f9fa;border-radius:8px;padding:8px 12px;margin-bottom:4px;font-size:13px">
+          <span style="background:#e8d5ff;color:#7048e8;padding:2px 8px;border-radius:4px;font-size:11px">Toplantı</span>
+          İlk görüşme yapıldı
+          <span style="float:right;color:#adb5bd;font-size:11px">29 Mar 14:30</span>
+        </div>
+        <div style="background:#f8f9fa;border-radius:8px;padding:8px 12px;margin-bottom:4px;font-size:13px">
+          <span style="background:#dbe4ff;color:#4263eb;padding:2px 8px;border-radius:4px;font-size:11px">Not</span>
+          Teklif hazırlandı
+          <span style="float:right;color:#adb5bd;font-size:11px">28 Mar 11:00</span>
+        </div>
+        <div style="margin-top:12px;margin-bottom:8px"><strong style="color:#868e96;font-size:13px">🏢 MEDS <span style="background:#e8e8e8;padding:2px 6px;border-radius:10px;font-size:11px">2 aktivite</span></strong></div>
+        <div style="background:#f8f9fa;border-radius:8px;padding:8px 12px;margin-bottom:4px;font-size:13px">
+          <span style="background:#fff3bf;color:#e67700;padding:2px 8px;border-radius:4px;font-size:11px">Takip</span>
+          Geri dönüş bekleniyor
+          <span style="float:right;color:#adb5bd;font-size:11px">28 Mar 16:45</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="by-type" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Tipe Göre Gruplama</h3>
+      <p>Toplantılar, notlar, takipler ayrı gruplarda. Raporlama için "bu hafta kaç toplantı yapıldı" hızla görülür.</p>
+      <div class="mockup" style="margin-top:12px;padding:12px">
+        <div style="margin-bottom:8px"><strong style="color:#7048e8;font-size:13px">🗓 Toplantılar <span style="background:#e8d5ff;padding:2px 6px;border-radius:10px;font-size:11px">5</span></strong></div>
+        <div style="background:#f8f9fa;border-radius:8px;padding:8px 12px;margin-bottom:4px;font-size:13px">
+          Ahlens — İlk görüşme
+          <span style="float:right;color:#adb5bd;font-size:11px">29 Mar</span>
+        </div>
+        <div style="background:#f8f9fa;border-radius:8px;padding:8px 12px;margin-bottom:4px;font-size:13px">
+          Sonia — Demo sunumu
+          <span style="float:right;color:#adb5bd;font-size:11px">28 Mar</span>
+        </div>
+        <div style="margin-top:12px;margin-bottom:8px"><strong style="color:#e67700;font-size:13px">⏰ Takipler <span style="background:#fff3bf;padding:2px 6px;border-radius:10px;font-size:11px">3</span></strong></div>
+        <div style="background:#f8f9fa;border-radius:8px;padding:8px 12px;margin-bottom:4px;font-size:13px">
+          MEDS — Geri dönüş bekleniyor
+          <span style="float:right;color:#adb5bd;font-size:11px">28 Mar</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="switchable" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Değiştirilebilir (Toggle)</h3>
+      <p>Kullanıcı üstteki bir kontrol ile gruplama modunu değiştirebilir: Gün / Şirket / Tip / Düz liste. Her kullanım senaryosuna uyum sağlar.</p>
+      <div class="mockup" style="margin-top:12px;padding:12px">
+        <div style="display:flex;gap:4px;margin-bottom:12px">
+          <span style="background:#7048e8;color:white;padding:4px 12px;border-radius:16px;font-size:12px">Güne Göre</span>
+          <span style="background:#e8e8e8;padding:4px 12px;border-radius:16px;font-size:12px">Şirkete Göre</span>
+          <span style="background:#e8e8e8;padding:4px 12px;border-radius:16px;font-size:12px">Tipe Göre</span>
+          <span style="background:#e8e8e8;padding:4px 12px;border-radius:16px;font-size:12px">Düz Liste</span>
+        </div>
+        <div style="color:#868e96;font-size:12px;text-align:center">↑ Segmented control ile gruplama modu seçimi</div>
+      </div>
+    </div>
+  </div>
+</div>

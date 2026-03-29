@@ -265,7 +265,7 @@ export default function ActivitiesPage() {
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
 
     // Period / date navigation
-    const [periodType, setPeriodType] = useState<PeriodType>('week');
+    const [periodType, setPeriodType] = useState<PeriodType>('month');
     const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date());
     const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null]);
 
@@ -334,10 +334,11 @@ export default function ActivitiesPage() {
         enabled: queryEnabled,
     });
 
+    // Stats query: intentionally excludes typeFilter so cards always show
+    // the full type breakdown for the selected period
     const { data: stats, isLoading: statsLoading } = useQuery<ActivityStats>({
         queryKey: [
             'activities-stats',
-            typeFilter,
             visibilityFilter,
             createdByFilter,
             debouncedSearch,
@@ -346,7 +347,6 @@ export default function ActivitiesPage() {
         ],
         queryFn: async () => {
             const params: Record<string, string> = {};
-            if (typeFilter) params.type = typeFilter;
             if (visibilityFilter) params.visibility = visibilityFilter;
             if (createdByFilter) params.created_by = createdByFilter;
             if (debouncedSearch) params.search = debouncedSearch;
@@ -365,6 +365,9 @@ export default function ActivitiesPage() {
     // ── Effects ──
 
     // Reset pagination when filters/dates change
+    // Note: groupBy is NOT included — grouping is client-side only (useMemo),
+    // no refetch needed. Including it would clear allActivities without triggering
+    // a refetch, leaving the list empty.
     useEffect(() => {
         setPage(1);
         setAllActivities([]);
@@ -375,7 +378,6 @@ export default function ActivitiesPage() {
         debouncedSearch,
         dateRange.from,
         dateRange.to,
-        groupBy,
     ]);
 
     // Accumulate pages
@@ -523,74 +525,120 @@ export default function ActivitiesPage() {
                 )}
             </SimpleGrid>
 
-            {/* Date Navigation */}
+            {/* Filters + Date Navigation */}
             <Paper p="md" radius="md" withBorder mb="sm">
                 <Stack gap="sm">
+                    {/* Row 1: Filters (left) + Date Navigation (right) */}
                     <Group justify="space-between" wrap="wrap" gap="sm">
-                        <SegmentedControl
-                            size="sm"
-                            value={periodType}
-                            onChange={(v) => {
-                                setPeriodType(v as PeriodType);
-                                setPeriodAnchor(new Date());
-                            }}
-                            data={[
-                                { label: t('activities.periodDay'), value: 'day' },
-                                { label: t('activities.periodWeek'), value: 'week' },
-                                { label: t('activities.periodMonth'), value: 'month' },
-                                { label: t('activities.periodCustom'), value: 'custom' },
-                            ]}
-                        />
-
-                        {periodType !== 'custom' && (
-                            <Group gap="xs">
-                                <ActionIcon
-                                    variant="subtle"
-                                    color="gray"
-                                    onClick={() =>
-                                        setPeriodAnchor((prev) => shiftPeriod(periodType, prev, -1))
-                                    }
-                                >
-                                    <IconChevronLeft size={18} />
-                                </ActionIcon>
-                                <Text size="sm" fw={500} miw={160} ta="center">
-                                    {periodLabel}
-                                </Text>
-                                <ActionIcon
-                                    variant="subtle"
-                                    color="gray"
-                                    disabled={isCurrent}
-                                    onClick={() =>
-                                        setPeriodAnchor((prev) => shiftPeriod(periodType, prev, 1))
-                                    }
-                                >
-                                    <IconChevronRight size={18} />
-                                </ActionIcon>
-                                {!isCurrent && (
-                                    <Button
-                                        size="xs"
-                                        variant="light"
-                                        color="violet"
-                                        onClick={() => setPeriodAnchor(new Date())}
-                                    >
-                                        {t('activities.today')}
-                                    </Button>
-                                )}
-                            </Group>
-                        )}
-
-                        {periodType === 'custom' && (
-                            <DatePickerInput
-                                type="range"
-                                placeholder={t('activities.dateRange')}
-                                value={customRange}
-                                onChange={(v) => setCustomRange(v as [Date | null, Date | null])}
-                                clearable
+                        <Group gap="sm" wrap="wrap">
+                            <SegmentedControl
                                 size="sm"
+                                value={typeFilter}
+                                onChange={(v) => setTypeFilter(v)}
+                                data={[
+                                    { label: t('activities.all'), value: '' },
+                                    { label: t('activities.types.not'), value: 'not' },
+                                    { label: t('activities.types.meeting'), value: 'meeting' },
+                                    { label: t('activities.types.follow_up'), value: 'follow_up' },
+                                ]}
                             />
-                        )}
+
+                            {isInternal(user?.role || '') && (
+                                <SegmentedControl
+                                    size="sm"
+                                    value={visibilityFilter}
+                                    onChange={(v) => setVisibilityFilter(v)}
+                                    data={[
+                                        { label: t('activities.allVisibility'), value: '' },
+                                        { label: t('activity.visibility_options.internal'), value: 'internal' },
+                                        { label: t('activity.visibility_options.client'), value: 'client' },
+                                    ]}
+                                />
+                            )}
+
+                            {userSelectData.length > 0 && (
+                                <Select
+                                    size="sm"
+                                    placeholder={t('activities.allUsers')}
+                                    clearable
+                                    searchable
+                                    value={createdByFilter}
+                                    onChange={(v) => setCreatedByFilter(v || '')}
+                                    data={userSelectData}
+                                    style={{ minWidth: 180 }}
+                                />
+                            )}
+                        </Group>
+
+                        <Group gap="xs" wrap="nowrap">
+                            <SegmentedControl
+                                size="xs"
+                                value={periodType}
+                                onChange={(v) => {
+                                    setPeriodType(v as PeriodType);
+                                    setPeriodAnchor(new Date());
+                                }}
+                                data={[
+                                    { label: t('activities.periodDay'), value: 'day' },
+                                    { label: t('activities.periodWeek'), value: 'week' },
+                                    { label: t('activities.periodMonth'), value: 'month' },
+                                    { label: t('activities.periodCustom'), value: 'custom' },
+                                ]}
+                            />
+
+                            {periodType !== 'custom' && (
+                                <Group gap={4} wrap="nowrap">
+                                    <ActionIcon
+                                        variant="subtle"
+                                        color="gray"
+                                        size="sm"
+                                        onClick={() =>
+                                            setPeriodAnchor((prev) => shiftPeriod(periodType, prev, -1))
+                                        }
+                                    >
+                                        <IconChevronLeft size={14} />
+                                    </ActionIcon>
+                                    <Text size="xs" fw={600} miw={120} ta="center">
+                                        {periodLabel}
+                                    </Text>
+                                    <ActionIcon
+                                        variant="subtle"
+                                        color="gray"
+                                        size="sm"
+                                        disabled={isCurrent}
+                                        onClick={() =>
+                                            setPeriodAnchor((prev) => shiftPeriod(periodType, prev, 1))
+                                        }
+                                    >
+                                        <IconChevronRight size={14} />
+                                    </ActionIcon>
+                                    {!isCurrent && (
+                                        <Button
+                                            size="compact-xs"
+                                            variant="light"
+                                            color="violet"
+                                            onClick={() => setPeriodAnchor(new Date())}
+                                        >
+                                            {t('activities.today')}
+                                        </Button>
+                                    )}
+                                </Group>
+                            )}
+
+                            {periodType === 'custom' && (
+                                <DatePickerInput
+                                    type="range"
+                                    placeholder={t('activities.dateRange')}
+                                    value={customRange}
+                                    onChange={(v) => setCustomRange(v as [Date | null, Date | null])}
+                                    clearable
+                                    size="xs"
+                                />
+                            )}
+                        </Group>
                     </Group>
 
+                    {/* Row 2: Search bar full width */}
                     <TextInput
                         size="sm"
                         placeholder={t('activities.search')}
@@ -599,56 +647,6 @@ export default function ActivitiesPage() {
                         onChange={(e) => setSearch(e.currentTarget.value)}
                     />
                 </Stack>
-            </Paper>
-
-            {/* Type + Visibility + User Filters */}
-            <Paper p="md" radius="md" withBorder mb="sm">
-                <Group gap="sm" wrap="wrap">
-                    <SegmentedControl
-                        size="sm"
-                        value={typeFilter}
-                        onChange={(v) => setTypeFilter(v)}
-                        data={[
-                            { label: t('activities.all'), value: '' },
-                            { label: t('activities.types.not'), value: 'not' },
-                            { label: t('activities.types.meeting'), value: 'meeting' },
-                            { label: t('activities.types.follow_up'), value: 'follow_up' },
-                        ]}
-                    />
-
-                    {isInternal(user?.role || '') && (
-                        <Select
-                            size="sm"
-                            placeholder={t('activities.allVisibility')}
-                            clearable
-                            value={visibilityFilter}
-                            onChange={(v) => setVisibilityFilter(v || '')}
-                            data={[
-                                {
-                                    label: t('activity.visibility_options.internal'),
-                                    value: 'internal',
-                                },
-                                {
-                                    label: t('activity.visibility_options.client'),
-                                    value: 'client',
-                                },
-                            ]}
-                            style={{ minWidth: 160 }}
-                        />
-                    )}
-
-                    {userSelectData.length > 0 && (
-                        <Select
-                            size="sm"
-                            placeholder={t('activities.allUsers')}
-                            clearable
-                            value={createdByFilter}
-                            onChange={(v) => setCreatedByFilter(v || '')}
-                            data={userSelectData}
-                            style={{ minWidth: 200 }}
-                        />
-                    )}
-                </Group>
             </Paper>
 
             {/* Grouping Control */}

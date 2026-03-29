@@ -164,7 +164,9 @@ function CompanyDetailCell({ companyId }: { companyId: string }) {
                     >
                         {t('activities.addActivity')}
                     </Button>
-                    <ActivityTimeline companyId={companyId} compact typeFilter={typeFilter} hideEmpty />
+                    <ScrollArea.Autosize mah={320} offsetScrollbars type="auto">
+                        <ActivityTimeline companyId={companyId} compact typeFilter={typeFilter} hideEmpty />
+                    </ScrollArea.Autosize>
                     <ActivityForm
                         opened={formOpened}
                         onClose={() => setFormOpened(false)}

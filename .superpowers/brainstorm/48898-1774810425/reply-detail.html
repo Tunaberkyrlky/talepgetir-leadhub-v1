@@ -1,0 +1,144 @@
+<h2>Yanıt Detay Görünümü</h2>
+<p class="subtitle">Satıra tıklayınca açılan modal/drawer</p>
+
+<div class="mockup">
+  <div class="mockup-header">Email Yanıt Detayı</div>
+  <div class="mockup-body" style="padding: 0; background: #fff;">
+
+    <!-- Header -->
+    <div style="padding: 20px 24px; border-bottom: 1px solid #e9ecef;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+          <div style="font-size: 11px; text-transform: uppercase; color: #868e96; letter-spacing: 0.5px; margin-bottom: 6px;">Kampanya</div>
+          <span style="background: #e7f5ff; color: #1971c2; padding: 3px 10px; border-radius: 4px; font-size: 13px; font-weight: 500;">Q1 Outreach</span>
+        </div>
+        <div style="text-align: right;">
+          <div style="font-size: 11px; text-transform: uppercase; color: #868e96; letter-spacing: 0.5px; margin-bottom: 6px;">Tarih</div>
+          <div style="font-size: 13px; color: #495057;">29 Mart 2026, 14:32</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sender & Match Info -->
+    <div style="display: flex; gap: 0; border-bottom: 1px solid #e9ecef;">
+      <!-- Sender -->
+      <div style="flex: 1; padding: 16px 24px; border-right: 1px solid #e9ecef;">
+        <div style="font-size: 11px; text-transform: uppercase; color: #868e96; letter-spacing: 0.5px; margin-bottom: 8px;">Gönderen</div>
+        <div style="font-size: 14px; font-weight: 500; color: #212529;">ahmet@acme.com</div>
+      </div>
+      <!-- Company -->
+      <div style="flex: 1; padding: 16px 24px; border-right: 1px solid #e9ecef;">
+        <div style="font-size: 11px; text-transform: uppercase; color: #868e96; letter-spacing: 0.5px; margin-bottom: 8px;">Şirket</div>
+        <a href="#" style="font-size: 14px; font-weight: 500; color: #1971c2; text-decoration: none;">Acme Corp ↗</a>
+      </div>
+      <!-- Contact -->
+      <div style="flex: 1; padding: 16px 24px;">
+        <div style="font-size: 11px; text-transform: uppercase; color: #868e96; letter-spacing: 0.5px; margin-bottom: 8px;">Kişi</div>
+        <div style="font-size: 14px; font-weight: 500; color: #212529;">Ahmet Yılmaz</div>
+        <div style="font-size: 12px; color: #868e96;">CEO</div>
+      </div>
+    </div>
+
+    <!-- Reply Body -->
+    <div style="padding: 20px 24px; border-bottom: 1px solid #e9ecef;">
+      <div style="font-size: 11px; text-transform: uppercase; color: #868e96; letter-spacing: 0.5px; margin-bottom: 10px;">Yanıt İçeriği</div>
+      <div style="background: #f8f9fa; border-radius: 8px; padding: 16px; font-size: 14px; line-height: 1.7; color: #343a40; border-left: 3px solid #1971c2;">
+        Merhaba,<br><br>
+        Ürününüzle ilgileniyoruz. Ekibimizle konuştuk ve bir demo toplantısı yapmak istiyoruz.
+        Gelecek hafta Salı veya Çarşamba uygun olur mu?<br><br>
+        Teşekkürler,<br>
+        Ahmet Yılmaz
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div style="padding: 20px 24px; background: #f8f9fa;">
+      <div style="font-size: 11px; text-transform: uppercase; color: #868e96; letter-spacing: 0.5px; margin-bottom: 12px;">Aksiyonlar</div>
+      <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+
+        <!-- Stage Update -->
+        <div style="display: flex; align-items: center; gap: 8px; background: #fff; padding: 8px 12px; border-radius: 8px; border: 1px solid #dee2e6;">
+          <span style="font-size: 13px; color: #495057; white-space: nowrap;">Stage Güncelle:</span>
+          <select style="padding: 6px 10px; border: 1px solid #dee2e6; border-radius: 6px; font-size: 13px; background: #fff; color: #495057;">
+            <option>Mevcut: İlk Temas</option>
+            <option>─────────</option>
+            <option>İlgileniyor</option>
+            <option>Toplantı Aşaması</option>
+            <option>Teklif Aşaması</option>
+            <option>Kazanıldı</option>
+            <option>Kaybedildi</option>
+          </select>
+          <button style="padding: 6px 16px; background: #1971c2; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; font-weight: 500;">Güncelle</button>
+        </div>
+
+        <!-- Read/Unread Toggle -->
+        <button style="padding: 8px 16px; background: #fff; color: #495057; border: 1px solid #dee2e6; border-radius: 6px; font-size: 13px; cursor: pointer;">
+          ✓ Okundu İşaretle
+        </button>
+
+      </div>
+
+      <!-- Category (future - disabled) -->
+      <div style="margin-top: 16px; padding: 12px; background: #fff; border-radius: 8px; border: 1px dashed #dee2e6; opacity: 0.6;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 13px; color: #868e96;">🤖 AI Kategori:</span>
+          <span style="font-size: 13px; color: #adb5bd; font-style: italic;">Yakında — otomatik segmentasyon</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<h2 style="margin-top: 32px;">Eşleşmemiş Yanıt — Manuel Atama</h2>
+<p class="subtitle">company_id null olan yanıtlarda ek atama alanı</p>
+
+<div class="mockup">
+  <div class="mockup-header">Eşleşmemiş Yanıt Detayı</div>
+  <div class="mockup-body" style="padding: 0; background: #fff;">
+
+    <!-- Warning Banner -->
+    <div style="padding: 12px 24px; background: #fff9db; border-bottom: 1px solid #f0e68c; display: flex; align-items: center; gap: 8px;">
+      <span style="font-size: 16px;">⚠️</span>
+      <span style="font-size: 13px; color: #8a6d3b; font-weight: 500;">Bu yanıt henüz bir şirketle eşleşmedi. Lütfen manuel olarak atayın.</span>
+    </div>
+
+    <!-- Sender -->
+    <div style="padding: 16px 24px; border-bottom: 1px solid #e9ecef;">
+      <div style="font-size: 11px; text-transform: uppercase; color: #868e96; letter-spacing: 0.5px; margin-bottom: 8px;">Gönderen</div>
+      <div style="font-size: 14px; font-weight: 500; color: #212529;">unknown@xyz.io</div>
+    </div>
+
+    <!-- Assignment -->
+    <div style="padding: 16px 24px; border-bottom: 1px solid #e9ecef; background: #fff8e1;">
+      <div style="font-size: 11px; text-transform: uppercase; color: #868e96; letter-spacing: 0.5px; margin-bottom: 10px;">Şirkete Ata</div>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <input class="mock-input" placeholder="Şirket ara..." style="flex: 1; padding: 8px 12px; font-size: 13px;">
+        <button style="padding: 8px 16px; background: #2b8a3e; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; font-weight: 500; white-space: nowrap;">Ata</button>
+      </div>
+      <div style="margin-top: 8px; font-size: 12px; color: #868e96;">İsteğe bağlı: Kişi de seçebilirsiniz</div>
+      <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px;">
+        <input class="mock-input" placeholder="Kişi ara (opsiyonel)..." style="flex: 1; padding: 8px 12px; font-size: 13px;">
+      </div>
+    </div>
+
+    <!-- Reply Body -->
+    <div style="padding: 20px 24px;">
+      <div style="font-size: 11px; text-transform: uppercase; color: #868e96; letter-spacing: 0.5px; margin-bottom: 10px;">Yanıt İçeriği</div>
+      <div style="background: #f8f9fa; border-radius: 8px; padding: 16px; font-size: 14px; line-height: 1.7; color: #343a40; border-left: 3px solid #e67700;">
+        Bu konuda daha fazla bilgi almak isteriz, lütfen bizi arayın.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div style="margin-top: 24px; padding: 16px; background: #f8f9fa; border-radius: 8px; font-size: 13px; color: #495057;">
+  <strong>Etkileşim Notları:</strong>
+  <ul style="margin: 8px 0 0; padding-left: 20px; line-height: 1.8;">
+    <li>Stage güncellendiğinde mevcut pipeline stage update API'si kullanılır + activity log'a "status_change" yazılır</li>
+    <li>Atama yapıldığında match_status 'matched' olur, company/contact_id güncellenir</li>
+    <li>AI kategori alanı şimdilik disabled — ileride aktifleştirilecek</li>
+    <li>Şirket adı tıklanınca company detail sayfasına yönlendirir</li>
+  </ul>
+</div>

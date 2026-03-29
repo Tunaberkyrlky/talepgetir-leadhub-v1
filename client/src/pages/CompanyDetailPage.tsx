@@ -475,7 +475,7 @@ export default function CompanyDetailPage() {
                                                 </Badge>
                                             }
                                             onClick={() => {
-                                                api.patch(`/companies/${company.id}`, { stage: s.slug }).then(() => {
+                                                api.patch(`/companies/${company.id}/stage`, { stage: s.slug }).then(() => {
                                                     queryClient.invalidateQueries({ queryKey: ['company', id] });
                                                     queryClient.invalidateQueries({ queryKey: ['companies'] });
                                                     queryClient.invalidateQueries({ queryKey: ['pipeline'] });

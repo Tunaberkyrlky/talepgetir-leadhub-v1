@@ -1,0 +1,75 @@
+<h2>Tarih Navigasyonu Tasarımı</h2>
+<p class="subtitle">Hızlı kısayollar + önceki dönemlere geçiş nasıl görünsün?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Chip Kısayolları + Ok Navigasyonu</h3>
+      <p>Üstte chip'ler ile dönem seçimi, ok butonları ile ileri/geri. Seçili döneme göre ok'lar o birimi kaydırır.</p>
+      <div class="mockup" style="margin-top:12px;padding:16px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <span style="background:#e8e8e8;padding:5px 14px;border-radius:16px;font-size:12px;cursor:pointer">Bugün</span>
+          <span style="background:#7048e8;color:white;padding:5px 14px;border-radius:16px;font-size:12px;cursor:pointer">Bu Hafta</span>
+          <span style="background:#e8e8e8;padding:5px 14px;border-radius:16px;font-size:12px;cursor:pointer">Bu Ay</span>
+          <span style="background:#e8e8e8;padding:5px 14px;border-radius:16px;font-size:12px;cursor:pointer">Son 7 Gün</span>
+          <span style="background:#e8e8e8;padding:5px 14px;border-radius:16px;font-size:12px;cursor:pointer">Son 30 Gün</span>
+          <span style="background:#e8e8e8;padding:5px 14px;border-radius:16px;font-size:12px;cursor:pointer">Özel</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <button style="background:#f1f3f5;border:1px solid #dee2e6;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px">← Önceki Hafta</button>
+          <span style="font-weight:600;font-size:14px;color:#495057">23 — 29 Mart 2026</span>
+          <button style="background:#f1f3f5;border:1px solid #dee2e6;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px;opacity:0.4" disabled>Sonraki Hafta →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Segmented Control + Kompakt Navigasyon</h3>
+      <p>Segmented control ile dönem tipi, altında kompakt ok'lar ve tarih gösterimi. Daha az yer kaplar.</p>
+      <div class="mockup" style="margin-top:12px;padding:16px">
+        <div style="display:inline-flex;background:#f1f3f5;border-radius:8px;padding:3px;gap:2px;margin-bottom:12px">
+          <span style="padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer">Gün</span>
+          <span style="background:white;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,0.1)">Hafta</span>
+          <span style="padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer">Ay</span>
+          <span style="padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer">Özel</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button style="background:none;border:1px solid #dee2e6;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:12px">‹</button>
+          <span style="font-weight:600;font-size:13px;color:#495057;min-width:160px;text-align:center">23 — 29 Mart 2026</span>
+          <button style="background:none;border:1px solid #dee2e6;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:12px;opacity:0.4" disabled>›</button>
+          <span style="color:#adb5bd;font-size:11px;margin-left:4px">Bu hafta</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Hibrit — Hızlı Chip + Segmented Navigasyon</h3>
+      <p>Üstte "Bugün / Son 7 Gün / Son 30 Gün" gibi sık kullanılanlar chip olarak, altında dönem tipi seçip ok'larla gezme.</p>
+      <div class="mockup" style="margin-top:12px;padding:16px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <span style="background:#e8e8e8;padding:4px 10px;border-radius:12px;font-size:11px;cursor:pointer">Bugün</span>
+          <span style="background:#e8e8e8;padding:4px 10px;border-radius:12px;font-size:11px;cursor:pointer">Son 7 Gün</span>
+          <span style="background:#e8e8e8;padding:4px 10px;border-radius:12px;font-size:11px;cursor:pointer">Son 30 Gün</span>
+          <span style="color:#adb5bd;font-size:11px;margin-left:4px">veya:</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="display:inline-flex;background:#f1f3f5;border-radius:8px;padding:2px;gap:2px">
+            <span style="padding:4px 10px;border-radius:6px;font-size:11px">Gün</span>
+            <span style="background:white;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,0.1)">Hafta</span>
+            <span style="padding:4px 10px;border-radius:6px;font-size:11px">Ay</span>
+          </div>
+          <button style="background:none;border:1px solid #dee2e6;border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:11px">‹</button>
+          <span style="font-weight:600;font-size:12px;color:#495057">23 — 29 Mar</span>
+          <button style="background:none;border:1px solid #dee2e6;border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:11px;opacity:0.4" disabled>›</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

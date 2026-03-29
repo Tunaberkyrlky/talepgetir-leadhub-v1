@@ -351,6 +351,12 @@
         "noData": "No active deals in pipeline",
         "days": " days",
         "daysInStage": "Days in Stage",
+        "boardTitle": "Pipeline",
+        "boardSubtitle": "Active deals in progress",
+        "tableTitle": "Pipeline",
+        "tableSubtitle": "Active deals — table view",
+        "outcomesTitle": "Concluded Leads",
+        "outcomesSubtitle": "Won, lost and on-hold deals",
         "emptyColumn": "No companies",
         "stageMoved": "Stage updated",
         "moveError": "Failed to move company",
@@ -469,6 +475,9 @@
             "on_hold": "On Hold",
             "cancelled": "Cancelled"
         },
+        "dateTime": "Date & Time",
+        "dateRequired": "Please select a valid date and time",
+        "invalidDate": "Invalid date format, please select again",
         "tierRequired": "Activity timeline is available on the Pro plan"
     },
     "activities": {

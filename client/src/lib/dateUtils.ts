@@ -23,7 +23,7 @@ export function getDateRange(period: DatePeriod): { dateFrom: string; dateTo: st
 
     return {
         dateFrom: start.toISOString(),
-        dateTo: now.toISOString(),
+        dateTo: now.endOf('day').toISOString(),
     };
 }
 

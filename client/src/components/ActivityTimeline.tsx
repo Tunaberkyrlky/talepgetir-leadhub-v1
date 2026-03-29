@@ -167,9 +167,6 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
     const handleFormClose = () => {
         setEditingActivity(null);
         closeForm();
-        setPage(1);
-        setAllActivities([]);
-        queryClient.invalidateQueries({ queryKey: ['activities', companyId] });
     };
 
     const hasMore = data?.pagination?.hasNext ?? false;
@@ -260,7 +257,7 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
                                                                 leftSection={<IconPencil size={14} />}
                                                                 onClick={() => handleEditActivity(activity)}
                                                             >
-                                                                {t('contact.editContact').replace('Contact', 'Activity')}
+                                                                {t('activity.editActivity')}
                                                             </Menu.Item>
                                                         )}
                                                         {isSuperadmin && (
@@ -323,7 +320,25 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
     );
 
     if (embedded || compact) {
-        return content;
+        return (
+            <>
+                {embedded && canEditActivities && (
+                    <Group justify="flex-end" mb="md">
+                        <Button
+                            size="sm"
+                            leftSection={<IconPlus size={16} />}
+                            onClick={handleAddActivity}
+                            variant="light"
+                            color="violet"
+                            radius="md"
+                        >
+                            {t('activity.addActivity')}
+                        </Button>
+                    </Group>
+                )}
+                {content}
+            </>
+        );
     }
 
     return (

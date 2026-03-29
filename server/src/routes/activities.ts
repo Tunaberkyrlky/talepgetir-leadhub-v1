@@ -11,6 +11,13 @@ const log = createLogger('route:activities');
 
 const router = Router();
 
+function sanitizeSearch(value: string): string {
+    return value
+        .replace(/[,().\\]/g, '')   // strip PostgREST syntax chars
+        .replace(/%/g, '\\%')       // escape ILIKE wildcard %
+        .replace(/_/g, '\\_');      // escape ILIKE wildcard _
+}
+
 
 
 function dbClient(req: Request) {
@@ -124,8 +131,10 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
 
         // Search: ILIKE on summary and detail
         if (search && typeof search === 'string' && search.trim()) {
-            const term = search.trim();
-            query = query.or(`summary.ilike.%${term}%,detail.ilike.%${term}%`);
+            const safe = sanitizeSearch(search.trim());
+            if (safe.length > 0) {
+                query = query.or(`summary.ilike.%${safe}%,detail.ilike.%${safe}%`);
+            }
         }
 
         // Visibility filter (only internal roles can filter by 'internal')
@@ -133,7 +142,7 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
             const allowed = ['internal', 'client'];
             if (allowed.includes(visibility)) {
                 if (visibility === 'internal' && !isInternalRole(req.user!.role)) {
-                    // Non-internal roles cannot see internal activities — ignore the filter
+                    query = query.eq('visibility', 'client');
                 } else {
                     query = query.eq('visibility', visibility);
                 }
@@ -194,62 +203,72 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
     }
 });
 
-// GET /api/activities/stats — Aggregated counts by type
+// GET /api/activities/stats — Aggregated counts by type (via SQL RPC)
 router.get('/stats', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
         const { type, date_from, date_to, search, visibility, created_by } = req.query;
 
-        const db = dbClient(req);
-        let query = db
-            .from('activities')
-            .select('type')
-            .eq('tenant_id', tenantId);
-
+        // Validate type
+        let validType: string | null = null;
         if (type) {
             const VALID_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change'];
-            if (VALID_TYPES.includes(type as string)) {
-                query = query.eq('type', type as string);
+            if (!VALID_TYPES.includes(type as string)) {
+                res.status(400).json({ error: `Invalid activity type: ${type}` });
+                return;
             }
+            validType = type as string;
         }
-        if (date_from) query = query.gte('occurred_at', date_from as string);
-        if (date_to) query = query.lte('occurred_at', date_to as string);
 
-        if (search && typeof search === 'string' && search.trim()) {
-            const term = search.trim();
-            query = query.or(`summary.ilike.%${term}%,detail.ilike.%${term}%`);
-        }
+        // Resolve visibility for non-internal users
+        let resolvedVisibility: string | null = null;
         if (visibility && typeof visibility === 'string') {
             const allowed = ['internal', 'client'];
             if (allowed.includes(visibility)) {
                 if (visibility === 'internal' && !isInternalRole(req.user!.role)) {
-                    // skip
+                    resolvedVisibility = 'client';
                 } else {
-                    query = query.eq('visibility', visibility);
+                    resolvedVisibility = visibility;
                 }
             }
         }
+
+        // Validate and sanitize created_by
+        let validCreatedBy: string | null = null;
         if (created_by && typeof created_by === 'string') {
             const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
             if (uuidRegex.test(created_by)) {
-                query = query.eq('created_by', created_by);
+                validCreatedBy = created_by;
             }
         }
 
-        const { data, error } = await query;
+        // Sanitize search
+        let safeSearch: string | null = null;
+        if (search && typeof search === 'string' && search.trim()) {
+            const sanitized = sanitizeSearch(search.trim());
+            if (sanitized.length > 0) safeSearch = sanitized;
+        }
+
+        const { data, error } = await supabaseAdmin.rpc('get_activity_type_counts', {
+            p_tenant_id: tenantId,
+            p_date_from: (date_from as string) || null,
+            p_date_to: (date_to as string) || null,
+            p_type: validType,
+            p_visibility: resolvedVisibility,
+            p_created_by: validCreatedBy,
+            p_search: safeSearch,
+        });
 
         if (error) {
             log.error({ err: error }, 'Activity stats error');
             throw new AppError('Failed to fetch activity stats', 500);
         }
 
-        // Count by type
         const counts: Record<string, number> = {};
         let total = 0;
         for (const row of data || []) {
-            const t = (row as any).type as string;
-            counts[t] = (counts[t] || 0) + 1;
-            total++;
+            counts[row.type] = Number(row.count);
+            total += Number(row.count);
         }
 
         res.json({
@@ -272,8 +291,9 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
     try {
         const tenantId = req.tenantId!;
 
-        // Get distinct created_by user IDs from activities
-        const { data: activities, error } = await supabaseAdmin
+        // Get distinct created_by user IDs from activities (use dbClient for RLS)
+        const db = dbClient(req);
+        const { data: activities, error } = await db
             .from('activities')
             .select('created_by')
             .eq('tenant_id', tenantId)
@@ -291,16 +311,24 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
             return;
         }
 
-        // Resolve emails via Supabase Auth admin API
-        // (memberships table does not have an email column)
-        const { data: { users: authUsers }, error: authError } = await supabaseAdmin.auth.admin.listUsers();
-
-        if (authError) {
-            log.error({ err: authError }, 'Activity users auth lookup error');
-            throw new AppError('Failed to fetch user details', 500);
+        // Resolve emails via Supabase Auth admin API (paginated)
+        const allAuthUsers: any[] = [];
+        let authPage = 1;
+        while (true) {
+            const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({
+                page: authPage,
+                perPage: 1000,
+            });
+            if (authError) {
+                log.error({ err: authError }, 'Activity users auth lookup error');
+                throw new AppError('Failed to fetch user details', 500);
+            }
+            allAuthUsers.push(...authData.users);
+            if (authData.users.length < 1000) break;
+            authPage++;
         }
 
-        const userMap = new Map(authUsers.map(u => [u.id, u.email]));
+        const userMap = new Map(allAuthUsers.map(u => [u.id, u.email]));
         const users = uniqueIds
             .filter(id => userMap.has(id))
             .map(id => ({ id, email: userMap.get(id) }));

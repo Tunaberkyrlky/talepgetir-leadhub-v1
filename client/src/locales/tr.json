@@ -351,6 +351,12 @@
         "noData": "Pipeline'da aktif anlaşma yok",
         "days": " gün",
         "daysInStage": "Aşamadaki Gün",
+        "boardTitle": "Pipeline",
+        "boardSubtitle": "Devam eden aktif fırsatlar",
+        "tableTitle": "Pipeline",
+        "tableSubtitle": "Aktif fırsatlar — tablo görünümü",
+        "outcomesTitle": "Sonuçlanan Leadler",
+        "outcomesSubtitle": "Kazanılan, kaybedilen ve askıdaki fırsatlar",
         "emptyColumn": "Şirket yok",
         "stageMoved": "Aşama güncellendi",
         "moveError": "Şirket taşınamadı",
@@ -469,6 +475,9 @@
             "on_hold": "Beklemede",
             "cancelled": "İptal Edildi"
         },
+        "dateTime": "Tarih ve Saat",
+        "dateRequired": "Lütfen geçerli bir tarih ve saat seçin",
+        "invalidDate": "Geçersiz tarih formatı, lütfen tekrar seçin",
         "tierRequired": "Aktivite zaman çizelgesi Pro planda kullanılabilir"
     },
     "activities": {

@@ -139,10 +139,12 @@ export default function Layout() {
                                 size="sm"
                             />
                         )}
-                        <IconBuilding size={28} color="#6c63ff" />
-                        <Title order={3} c="white" fw={700}>
-                            {t('app.title')}
-                        </Title>
+                        <Group gap="xs" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+                            <IconBuilding size={28} color="#6c63ff" />
+                            <Title order={3} c="white" fw={700}>
+                                {t('app.title')}
+                            </Title>
+                        </Group>
                     </Group>
 
                     {/* Right side */}

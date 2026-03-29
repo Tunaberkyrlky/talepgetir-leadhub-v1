@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from '@mantine/form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -9,7 +9,10 @@ import {
     Button,
     Stack,
     Group,
+    Text,
+    Alert,
 } from '@mantine/core';
+import { IconAlertCircle } from '@tabler/icons-react';
 import { DateTimePicker } from '@mantine/dates';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -46,9 +49,9 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, co
         validate: {
             summary: (v: string) => (v.trim() ? null : t('activity.summary') + ' is required'),
             occurred_at: (value) => {
-                if (!value) return 'Lütfen geçerli bir tarih ve saat seçin';
+                if (!value) return t('activity.dateRequired');
                 const date = new Date(value);
-                if (isNaN(date.getTime())) return 'Geçersiz tarih formatı, lütfen tekrar seçin';
+                if (isNaN(date.getTime())) return t('activity.invalidDate');
                 return null;
             },
         },
@@ -66,10 +69,12 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, co
                     occurred_at: new Date(activity.occurred_at),
                     contact_id: activity?.contact_id || contactId || '',
                 });
+                form.resetDirty();
             } else {
                 form.reset();
                 form.setFieldValue('occurred_at', new Date());
                 form.setFieldValue('contact_id', contactId || '');
+                form.resetDirty();
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -132,6 +137,8 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, co
 
     const isSaving = createMutation.isPending || updateMutation.isPending;
 
+    const [confirmOpen, setConfirmOpen] = useState(false);
+
     const typeOptions = [
         { value: 'not', label: t('activity.types.not') },
         { value: 'meeting', label: t('activity.types.meeting') },
@@ -143,11 +150,25 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, co
         ...(isInternal(user?.role || '') ? [{ value: 'internal', label: t('activity.visibility_options.internal') }] : []),
     ];
 
+    const handleClose = () => {
+        if (form.isDirty()) {
+            setConfirmOpen(true);
+            return;
+        }
+        onClose();
+    };
+
+    const handleConfirmDiscard = () => {
+        setConfirmOpen(false);
+        onClose();
+    };
+
     return (
+        <>
         <Modal
             opened={opened}
-            onClose={onClose}
-            title={isEdit ? t('activity.updated') : t('activity.addActivity')}
+            onClose={handleClose}
+            title={isEdit ? t('activity.editActivity') : t('activity.addActivity')}
             size="md"
             radius="lg"
             centered
@@ -202,22 +223,24 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, co
                         {...form.getInputProps('outcome')}
                     />
 
-                    <Select
-                        label={t('activity.visibility')}
-                        data={visibilityOptions}
-                        radius="md"
-                        {...form.getInputProps('visibility')}
-                    />
+                    {isInternal(user?.role || '') && (
+                        <Select
+                            label={t('activity.visibility')}
+                            data={visibilityOptions}
+                            radius="md"
+                            {...form.getInputProps('visibility')}
+                        />
+                    )}
 
                     <DateTimePicker
-                        label="Date & Time"
+                        label={t('activity.dateTime')}
                         radius="md"
                         valueFormat="DD MMM YYYY HH:mm"
                         {...form.getInputProps('occurred_at')}
                     />
 
                     <Group justify="flex-end" mt="sm">
-                        <Button variant="default" radius="md" onClick={onClose}>
+                        <Button variant="default" radius="md" onClick={handleClose}>
                             {t('common.cancel')}
                         </Button>
                         <Button
@@ -233,5 +256,34 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, co
                 </Stack>
             </form>
         </Modal>
+
+        <Modal
+            opened={confirmOpen}
+            onClose={() => setConfirmOpen(false)}
+            title={t('common.unsavedChangesTitle')}
+            radius="lg"
+            centered
+            size="sm"
+            overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}
+            styles={{ title: { fontWeight: 700, fontSize: '1.1rem' } }}
+            zIndex={1000}
+        >
+            <Stack gap="md">
+                <Alert icon={<IconAlertCircle size={16} />} color="orange" variant="light">
+                    <Text size="sm">
+                        {t('common.unsavedChanges')}
+                    </Text>
+                </Alert>
+                <Group justify="flex-end">
+                    <Button variant="default" radius="md" onClick={() => setConfirmOpen(false)}>
+                        {t('common.stayEditing')}
+                    </Button>
+                    <Button color="red" radius="md" onClick={handleConfirmDiscard}>
+                        {t('common.discardChanges')}
+                    </Button>
+                </Group>
+            </Stack>
+        </Modal>
+        </>
     );
 }
