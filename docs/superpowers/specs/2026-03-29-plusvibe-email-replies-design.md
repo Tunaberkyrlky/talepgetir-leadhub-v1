@@ -280,7 +280,7 @@ emailReplies:
 - `client/src/types/emailReply.ts` — TypeScript tipleri
 
 ### Database
-- `supabase/migrations/018_email_replies.sql` — Tablo + RLS + indeksler
+- `supabase/migrations/019_email_replies.sql` — Tablo + RLS + indeksler
 
 ### Config
 - `.env`: `PLUSVIBE_WEBHOOK_SECRET`, `PLUSVIBE_DEFAULT_TENANT_ID`
