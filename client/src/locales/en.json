@@ -208,7 +208,11 @@
         "showMore": "Show more",
         "showLess": "Show less",
         "fullscreen": "Fullscreen",
-        "exitFullscreen": "Exit fullscreen"
+        "exitFullscreen": "Exit fullscreen",
+        "unsavedChanges": "You have unsaved changes. Are you sure you want to leave?",
+        "unsavedChangesTitle": "Unsaved Changes",
+        "stayEditing": "Keep Editing",
+        "discardChanges": "Discard Changes"
     },
     "filter": {
         "stage": "Filter by stage...",
@@ -427,6 +431,7 @@
     "activity": {
         "timeline": "Activity Timeline",
         "addActivity": "Add Activity",
+        "editActivity": "Edit Activity",
         "type": "Type",
         "summary": "Summary",
         "detail": "Details",
@@ -473,7 +478,21 @@
             "not": "Note",
             "meeting": "Meeting",
             "follow_up": "Follow-up"
-        }
+        },
+        "groupByNone": "Flat List",
+        "groupByDate": "By Date",
+        "groupByCompany": "By Company",
+        "groupByType": "By Type",
+        "periodDay": "Day",
+        "periodWeek": "Week",
+        "periodMonth": "Month",
+        "periodCustom": "Custom",
+        "search": "Search...",
+        "allVisibility": "All",
+        "allUsers": "All Users",
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "statsTotal": "Total"
     },
     "errors": {
         "network": "Check your internet connection",

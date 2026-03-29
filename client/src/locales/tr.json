@@ -208,7 +208,11 @@
         "showMore": "Daha fazla",
         "showLess": "Daha az",
         "fullscreen": "Tam ekran",
-        "exitFullscreen": "Tam ekrandan çık"
+        "exitFullscreen": "Tam ekrandan çık",
+        "unsavedChanges": "Kaydedilmemiş değişiklikler var. Çıkmak istediğinize emin misiniz?",
+        "unsavedChangesTitle": "Kaydedilmemiş Değişiklikler",
+        "stayEditing": "Düzenlemeye Dön",
+        "discardChanges": "Değişiklikleri At"
     },
     "filter": {
         "stage": "Aşamaya göre filtrele...",
@@ -427,6 +431,7 @@
     "activity": {
         "timeline": "Aktivite Zaman Çizelgesi",
         "addActivity": "Aktivite Ekle",
+        "editActivity": "Aktiviteyi Düzenle",
         "type": "Tür",
         "summary": "Özet",
         "detail": "Detaylar",
@@ -473,7 +478,21 @@
             "not": "Not",
             "meeting": "Toplantı",
             "follow_up": "Takip"
-        }
+        },
+        "groupByNone": "Düz Liste",
+        "groupByDate": "Güne Göre",
+        "groupByCompany": "Şirkete Göre",
+        "groupByType": "Tipe Göre",
+        "periodDay": "Gün",
+        "periodWeek": "Hafta",
+        "periodMonth": "Ay",
+        "periodCustom": "Özel",
+        "search": "Ara...",
+        "allVisibility": "Tümü",
+        "allUsers": "Tüm Kullanıcılar",
+        "today": "Bugün",
+        "yesterday": "Dün",
+        "statsTotal": "Toplam"
     },
     "errors": {
         "network": "İnternet bağlantınızı kontrol edin",
