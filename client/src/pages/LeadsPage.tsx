@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -49,8 +49,11 @@ import {
     IconArrowLeft,
     IconMap,
     IconAlertCircle,
+    IconCalendar,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import { DatePickerInput } from '@mantine/dates';
+import { type DatePeriod, getDateRange, getCustomDateRange } from '../lib/dateUtils';
 import {
     DndContext,
     closestCenter,
@@ -254,6 +257,8 @@ export default function LeadsPage() {
     const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
     const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
     const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+    const [datePeriod, setDatePeriod] = useState<DatePeriod | null>(null);
+    const [customDateRange, setCustomDateRange] = useState<[Date | null, Date | null]>([null, null]);
 
     // Sort state
     const [sortBy, setSortBy] = useState<SortKey>('updated_at');
@@ -277,6 +282,14 @@ export default function LeadsPage() {
 
     const canEdit = canWrite(user?.role || '');
 
+    const dateParams = useMemo(() => {
+        if (datePeriod) return getDateRange(datePeriod);
+        if (customDateRange[0] && customDateRange[1]) {
+            return getCustomDateRange(customDateRange[0], customDateRange[1]);
+        }
+        return null;
+    }, [datePeriod, customDateRange]);
+
     // Build query params (moved up so useQuery can be before handleRowSelect)
     const buildQueryParams = useCallback(() => {
         const params = new URLSearchParams();
@@ -289,12 +302,14 @@ export default function LeadsPage() {
         if (selectedIndustries.length) params.set('industries', selectedIndustries.join(','));
         if (selectedLocations.length) params.set('locations', selectedLocations.join(','));
         if (selectedProducts.length) params.set('products', selectedProducts.join(','));
+        if (dateParams?.dateFrom) params.set('dateFrom', dateParams.dateFrom);
+        if (dateParams?.dateTo) params.set('dateTo', dateParams.dateTo);
         return params.toString();
-    }, [page, sortBy, sortOrder, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
+    }, [page, sortBy, sortOrder, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts, dateParams]);
 
     // Fetch companies (moved up so data is available for handleRowSelect and useHotkeys)
     const { data, isLoading, error } = useQuery<PaginatedResponse>({
-        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts, sortBy, sortOrder],
+        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts, sortBy, sortOrder, dateParams],
         queryFn: async () => {
             const res = await api.get(`/companies?${buildQueryParams()}`);
             return res.data;
@@ -475,6 +490,10 @@ export default function LeadsPage() {
         setPage(1);
     }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
 
+    useEffect(() => {
+        setPage(1);
+    }, [dateParams]);
+
     // Fetch filter options
     const { data: filterOptions } = useQuery<FilterOptions>({
         queryKey: ['filterOptions'],
@@ -537,7 +556,7 @@ export default function LeadsPage() {
         });
     };
 
-    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedProducts.length);
+    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedProducts.length || !!datePeriod || !!(customDateRange[0] && customDateRange[1]));
 
     const clearAllFilters = () => {
         setSearch('');
@@ -545,6 +564,24 @@ export default function LeadsPage() {
         setSelectedIndustries([]);
         setSelectedLocations([]);
         setSelectedProducts([]);
+        setDatePeriod(null);
+        setCustomDateRange([null, null]);
+    };
+
+    const handleDatePeriodToggle = (value: DatePeriod) => {
+        if (value === datePeriod) {
+            setDatePeriod(null); // toggle off
+        } else {
+            setDatePeriod(value);
+            setCustomDateRange([null, null]); // clear custom range
+        }
+    };
+
+    const handleCustomDateChange = (value: [Date | null, Date | null]) => {
+        setCustomDateRange(value);
+        if (value[0] && value[1]) {
+            setDatePeriod(null); // clear period when custom range selected
+        }
     };
 
     // Sort header component
@@ -934,6 +971,31 @@ export default function LeadsPage() {
                         searchable
                         radius="md"
                         maxDropdownHeight={200}
+                    />
+                </Group>
+                <Group mt="xs" gap="sm">
+                    <Button.Group>
+                        {(['day', 'week', 'month'] as DatePeriod[]).map((period) => (
+                            <Button
+                                key={period}
+                                variant={datePeriod === period ? 'filled' : 'default'}
+                                size="sm"
+                                onClick={() => handleDatePeriodToggle(period)}
+                            >
+                                {t(`filter.${period}`)}
+                            </Button>
+                        ))}
+                    </Button.Group>
+                    <DatePickerInput
+                        type="range"
+                        placeholder={t('filter.customRange')}
+                        value={customDateRange}
+                        onChange={handleCustomDateChange}
+                        leftSection={<IconCalendar size={16} />}
+                        clearable
+                        size="sm"
+                        maxDate={new Date()}
+                        w={220}
                     />
                 </Group>
                 {hasActiveFilters && (
