@@ -222,7 +222,12 @@
         "clearAll": "Filtreleri temizle",
         "results": "sonuç",
         "noResults": "Sonuç bulunamadı",
-        "tryDifferent": "Farklı arama terimleri veya filtreler deneyin."
+        "tryDifferent": "Farklı arama terimleri veya filtreler deneyin.",
+        "day": "Gün",
+        "week": "Hafta",
+        "month": "Ay",
+        "all": "Tümü",
+        "customRange": "Özel Aralık"
     },
     "tenant": {
         "switch": "Müşteri Değiştir",

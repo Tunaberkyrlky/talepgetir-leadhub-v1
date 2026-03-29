@@ -222,7 +222,12 @@
         "clearAll": "Clear filters",
         "results": "results",
         "noResults": "No results found",
-        "tryDifferent": "Try different search terms or filters."
+        "tryDifferent": "Try different search terms or filters.",
+        "day": "Day",
+        "week": "Week",
+        "month": "Month",
+        "all": "All",
+        "customRange": "Custom Range"
     },
     "tenant": {
         "switch": "Switch Tenant",
