@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table,
@@ -58,8 +58,6 @@ function truncate(text: string | null, maxLen: number): string {
 export default function EmailRepliesPage() {
     const { t, i18n } = useTranslation();
     const navigate = useNavigate();
-    const queryClient = useQueryClient();
-
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
 
     // Filters
@@ -72,7 +70,6 @@ export default function EmailRepliesPage() {
 
     // Pagination
     const [page, setPage] = useState(1);
-    const [allReplies, setAllReplies] = useState<EmailReply[]>([]);
 
     // Selected reply (for modal — wired in Task 9)
     const [selectedReply, setSelectedReply] = useState<EmailReply | null>(null);
@@ -121,46 +118,13 @@ export default function EmailRepliesPage() {
         queryFn: async () => (await api.get('/email-replies/campaigns')).data,
     });
 
-    // ── Mutations ──
+    // ── Filter change helpers (reset page) ──
 
-    const readToggle = useMutation({
-        mutationFn: async ({ id, read }: { id: string; read: boolean }) => {
-            return (await api.patch(`/email-replies/${id}/read`, { read })).data;
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['email-replies'] });
-            queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
-        },
-    });
+    const resetPage = () => setPage(1);
 
-    // ── Effects ──
+    // ── Displayed replies ──
 
-    // Reset pagination when filters change
-    useEffect(() => {
-        setPage(1);
-        setAllReplies([]);
-    }, [
-        campaignFilter,
-        matchStatusFilter,
-        readStatusFilter,
-        debouncedSearch,
-        dateFrom,
-        dateTo,
-    ]);
-
-    // Accumulate pages
-    useEffect(() => {
-        if (!data?.data) return;
-        if (page === 1) {
-            setAllReplies(data.data);
-        } else {
-            setAllReplies((prev) => {
-                const existingIds = new Set(prev.map((r) => r.id));
-                const newItems = data.data.filter((r: EmailReply) => !existingIds.has(r.id));
-                return [...prev, ...newItems];
-            });
-        }
-    }, [data, page]);
+    const displayedReplies = useMemo(() => data?.data ?? [], [data]);
 
     const hasMore = data?.pagination?.hasNext ?? false;
     const total = data?.pagination?.total ?? 0;
@@ -253,7 +217,7 @@ export default function EmailRepliesPage() {
                             clearable
                             searchable
                             value={campaignFilter || null}
-                            onChange={(v) => setCampaignFilter(v || '')}
+                            onChange={(v) => { setCampaignFilter(v || ''); resetPage(); }}
                             data={campaignSelectData}
                             style={{ minWidth: 180 }}
                         />
@@ -262,7 +226,7 @@ export default function EmailRepliesPage() {
                             placeholder={t('emailReplies.filters.allMatchStatuses')}
                             clearable
                             value={matchStatusFilter || null}
-                            onChange={(v) => setMatchStatusFilter(v || '')}
+                            onChange={(v) => { setMatchStatusFilter(v || ''); resetPage(); }}
                             data={matchStatusData}
                             style={{ minWidth: 160 }}
                         />
@@ -271,7 +235,7 @@ export default function EmailRepliesPage() {
                             placeholder={t('emailReplies.filters.allReadStatuses')}
                             clearable
                             value={readStatusFilter || null}
-                            onChange={(v) => setReadStatusFilter(v || '')}
+                            onChange={(v) => { setReadStatusFilter(v || ''); resetPage(); }}
                             data={readStatusData}
                             style={{ minWidth: 160 }}
                         />
@@ -279,7 +243,7 @@ export default function EmailRepliesPage() {
                             type="range"
                             placeholder={t('emailReplies.filters.dateRange')}
                             value={dateRange}
-                            onChange={(v) => setDateRange(v as [Date | null, Date | null])}
+                            onChange={(v) => { setDateRange(v as [Date | null, Date | null]); resetPage(); }}
                             clearable
                             size="sm"
                             style={{ minWidth: 220 }}
@@ -289,11 +253,11 @@ export default function EmailRepliesPage() {
             </Paper>
 
             {/* Table */}
-            {isLoading && allReplies.length === 0 ? (
+            {isLoading && displayedReplies.length === 0 ? (
                 <Center py="xl">
                     <Loader size="md" color="violet" />
                 </Center>
-            ) : allReplies.length === 0 ? (
+            ) : displayedReplies.length === 0 ? (
                 <Center py="xl">
                     <Stack align="center" gap="xs">
                         <Text c="dimmed" fs="italic">
@@ -320,7 +284,7 @@ export default function EmailRepliesPage() {
                                 </Table.Tr>
                             </Table.Thead>
                             <Table.Tbody>
-                                {allReplies.map((reply) => {
+                                {displayedReplies.map((reply) => {
                                     const isUnread = reply.read_status === 'unread';
                                     const isUnmatched = reply.match_status === 'unmatched';
 
