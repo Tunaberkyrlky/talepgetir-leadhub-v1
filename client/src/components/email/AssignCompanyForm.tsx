@@ -49,13 +49,13 @@ export default function AssignCompanyForm({ replyId, onAssigned }: AssignCompany
         enabled: debouncedCompanySearch.length >= 2,
     });
 
-    // ── Contact search query (only when company selected) ──
+    // ── Contact query (loads when company selected, filtered by search) ──
     const { data: contacts, isLoading: contactsLoading } = useQuery<ContactOption[]>({
         queryKey: ['contacts-search', selectedCompanyId, debouncedContactSearch],
         queryFn: async () => {
-            const res = await api.get('/contacts', {
-                params: { company_id: selectedCompanyId, limit: 10 },
-            });
+            const params: Record<string, string> = { company_id: selectedCompanyId!, limit: '20' };
+            if (debouncedContactSearch) params.search = debouncedContactSearch;
+            const res = await api.get('/contacts', { params });
             return res.data.data || res.data;
         },
         enabled: !!selectedCompanyId,
@@ -64,10 +64,11 @@ export default function AssignCompanyForm({ replyId, onAssigned }: AssignCompany
     // ── Assign mutation ──
     const assignMutation = useMutation({
         mutationFn: async () => {
-            return (await api.patch(`/email-replies/${replyId}/assign`, {
-                company_id: selectedCompanyId,
-                contact_id: selectedContactId || null,
-            })).data;
+            const payload: { company_id: string; contact_id?: string } = {
+                company_id: selectedCompanyId!,
+            };
+            if (selectedContactId) payload.contact_id = selectedContactId;
+            return (await api.patch(`/email-replies/${replyId}/assign`, payload)).data;
         },
         onSuccess: () => {
             showSuccess(t('emailReplies.assigned'));
@@ -124,7 +125,7 @@ export default function AssignCompanyForm({ replyId, onAssigned }: AssignCompany
                 onChange={setSelectedContactId}
                 onSearchChange={setContactSearch}
                 searchValue={contactSearch}
-                nothingFoundMessage={contactsLoading ? '...' : undefined}
+                nothingFoundMessage={contactsLoading ? '...' : t('emailReplies.assign.noContacts', 'Kişi bulunamadı')}
             />
 
             <Group justify="flex-end">
