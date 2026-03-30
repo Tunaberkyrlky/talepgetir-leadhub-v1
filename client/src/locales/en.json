@@ -239,7 +239,12 @@
         "darkMode": "Dark Mode",
         "language": "Language",
         "general": "General",
-        "pipelineTab": "Pipeline Stages"
+        "pipelineTab": "Pipeline Stages",
+        "integrationsTab": "Integrations",
+        "webhookTitle": "PlusVibe Webhook URL",
+        "webhookDesc": "Add this URL to your PlusVibe webhook settings. Replies from campaigns will be automatically matched to this account.",
+        "webhookCopied": "Copied!",
+        "webhookSecretHint": "Also set your Webhook Secret in PlusVibe — it must match the PLUSVIBE_WEBHOOK_SECRET value on the server."
     },
     "pipelineSettings": {
         "flowPreview": "Pipeline Flow",

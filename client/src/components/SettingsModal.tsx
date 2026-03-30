@@ -16,6 +16,11 @@ import {
     ScrollArea,
     Collapse,
     UnstyledButton,
+    TextInput,
+    ActionIcon,
+    Alert,
+    CopyButton,
+    Tooltip,
 } from '@mantine/core';
 import {
     IconSun,
@@ -25,8 +30,13 @@ import {
     IconColumns,
     IconChevronDown,
     IconChevronRight,
+    IconWebhook,
+    IconCopy,
+    IconCheck,
+    IconInfoCircle,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import { useAuth } from '../contexts/AuthContext';
 import PipelineSettingsEditor, { type PipelineSettingsEditorHandle } from './PipelineSettingsEditor';
 
 interface SettingsModalProps {
@@ -64,6 +74,7 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
     const { setColorScheme } = useMantineColorScheme();
     const computed = useComputedColorScheme('light');
     const { t, i18n } = useTranslation();
+    const { activeTenantId } = useAuth();
     const isDark = computed === 'dark';
     const isTurkish = i18n.language === 'tr';
 
@@ -92,9 +103,14 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
         setConfirmCloseOpened(false);
     }, []);
 
+    const webhookUrl = activeTenantId
+        ? `${window.location.origin}/api/webhooks/plusvibe/${activeTenantId}`
+        : '';
+
     const tabs = [
         { value: 'general', label: t('settings.general', 'Genel'), icon: <IconSettings size={18} /> },
         { value: 'pipeline', label: t('settings.pipelineTab', 'Pipeline'), icon: <IconColumns size={18} /> },
+        { value: 'integrations', label: t('settings.integrationsTab', 'Entegrasyonlar'), icon: <IconWebhook size={18} /> },
     ];
 
     return (
@@ -219,6 +235,35 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
                                     saveRef={pipelineSaveRef}
                                     onSaveSuccess={() => { setPipelineDirty(false); }}
                                 />
+                            )}
+
+                            {activeTab === 'integrations' && (
+                                <Stack gap="md">
+                                    <Text size="sm" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.5px' }}>
+                                        PlusVibe
+                                    </Text>
+                                    <Text size="sm" fw={500}>{t('settings.webhookTitle')}</Text>
+                                    <Text size="xs" c="dimmed">{t('settings.webhookDesc')}</Text>
+                                    <CopyButton value={webhookUrl} timeout={2000}>
+                                        {({ copied, copy }) => (
+                                            <TextInput
+                                                value={webhookUrl}
+                                                readOnly
+                                                styles={{ input: { fontFamily: 'monospace', fontSize: 12 } }}
+                                                rightSection={
+                                                    <Tooltip label={copied ? t('settings.webhookCopied') : t('common.copy', 'Kopyala')} withArrow>
+                                                        <ActionIcon variant="subtle" color={copied ? 'teal' : 'gray'} onClick={copy}>
+                                                            {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
+                                                        </ActionIcon>
+                                                    </Tooltip>
+                                                }
+                                            />
+                                        )}
+                                    </CopyButton>
+                                    <Alert icon={<IconInfoCircle size={16} />} color="blue" variant="light" radius="md">
+                                        <Text size="xs">{t('settings.webhookSecretHint')}</Text>
+                                    </Alert>
+                                </Stack>
                             )}
                         </Box>
                     </ScrollArea>

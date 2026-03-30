@@ -239,7 +239,12 @@
         "darkMode": "Koyu Mod",
         "language": "Dil",
         "general": "Genel",
-        "pipelineTab": "Pipeline Aşamaları"
+        "pipelineTab": "Pipeline Aşamaları",
+        "integrationsTab": "Entegrasyonlar",
+        "webhookTitle": "PlusVibe Webhook URL",
+        "webhookDesc": "Bu URL'i PlusVibe webhook ayarlarına ekleyin. Kampanya yanıtları otomatik olarak bu hesaba eşleştirilecektir.",
+        "webhookCopied": "Kopyalandı!",
+        "webhookSecretHint": "PlusVibe'da Webhook Secret alanını da doldurun — sunucudaki PLUSVIBE_WEBHOOK_SECRET değeriyle aynı olmalı."
     },
     "pipelineSettings": {
         "flowPreview": "Pipeline Akışı",
