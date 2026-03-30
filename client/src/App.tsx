@@ -30,6 +30,7 @@ const PeoplePage = lazy(() => import('./pages/PeoplePage'));
 const PersonDetailPage = lazy(() => import('./pages/PersonDetailPage'));
 const PipelinePage = lazy(() => import('./pages/PipelinePage'));
 const ActivitiesPage = lazy(() => import('./pages/ActivitiesPage'));
+const EmailRepliesPage = lazy(() => import('./pages/EmailRepliesPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 
 const queryClient = new QueryClient({
@@ -95,6 +96,7 @@ function App() {
                           <Route path="/people/:id" element={<PersonDetailPage />} />
                           <Route path="/pipeline" element={<PipelinePage />} />
                           <Route path="/activities" element={<ActivitiesPage />} />
+                          <Route path="/email-replies" element={<EmailRepliesPage />} />
                           <Route path="/import" element={<ImportPage />} />
                           <Route path="/admin" element={<AdminPage />} />
                           <Route path="/admin/:tab" element={<AdminPage />} />
