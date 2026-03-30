@@ -206,3 +206,19 @@ export const closingReportSchema = z.object({
     visibility: z.enum(ALLOWED_VISIBILITY).default('client'),
     occurred_at: z.string().datetime({ message: 'occurred_at must be a valid ISO datetime' }).optional(),
 });
+
+// ── Email Reply schemas ──
+
+export const webhookPayloadSchema = z.object({
+    event: z.literal('replied'),
+    campaign_id: z.string().max(500).optional().nullable(),
+    campaign_name: z.string().max(500).optional().nullable(),
+    recipient_email: z.string().email('Invalid recipient email'),
+    reply_body: z.string().optional().nullable(),
+    replied_at: z.string().datetime({ message: 'replied_at must be a valid ISO datetime' }).optional().nullable(),
+});
+
+export const assignReplySchema = z.object({
+    company_id: uuidField('Invalid company_id'),
+    contact_id: uuidField('Invalid contact_id').optional(),
+});
