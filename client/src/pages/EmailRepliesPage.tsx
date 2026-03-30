@@ -15,6 +15,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import StatCard from '../components/StatCard';
+import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import type { EmailReply, EmailReplyStats, Campaign } from '../types/emailReply';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
@@ -430,6 +431,12 @@ export default function EmailRepliesPage() {
                     )}
                 </Stack>
             )}
+            {/* Reply Detail Modal */}
+            <ReplyDetailModal
+                reply={selectedReply}
+                opened={!!selectedReply}
+                onClose={() => setSelectedReply(null)}
+            />
         </Container>
     );
 }
