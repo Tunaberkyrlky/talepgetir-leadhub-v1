@@ -26,6 +26,7 @@ import statisticsRoutes from './routes/statistics.js';
 import adminRoutes from './routes/admin.js';
 import settingsRoutes from './routes/settings.js';
 import activitiesRoutes from './routes/activities.js';
+import emailRepliesRoutes from './routes/email-replies.js';
 import webhooksRoutes from './routes/webhooks.js';
 
 const app = express();
@@ -122,6 +123,7 @@ app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/statistics', authMiddleware, statisticsRoutes);
 app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
+app.use('/api/email-replies', authMiddleware, emailRepliesRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);
