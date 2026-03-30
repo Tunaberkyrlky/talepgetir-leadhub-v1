@@ -193,6 +193,14 @@ export default function ImportPage() {
                 }}
                 color="violet"
                 mb="xl"
+                styles={{
+                    stepIcon: {
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        paddingTop: 3,
+                    },
+                }}
             >
                 {/* Step 1: Upload */}
                 <Stepper.Step label={t('import.step1')} icon={<IconUpload size={18} />}>

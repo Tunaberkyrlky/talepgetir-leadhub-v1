@@ -11,9 +11,8 @@ import {
     Stack,
     Alert,
     Box,
-    Group,
 } from '@mantine/core';
-import { IconAlertCircle, IconBuilding } from '@tabler/icons-react';
+import { IconAlertCircle } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -61,21 +60,21 @@ export default function LoginPage() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                padding: '24px 0',
             }}
         >
-            <Container size={420} w="100%">
-                <Stack align="center" mb="xl">
-                    <Group gap="sm">
-                        <IconBuilding size={40} color="#6c63ff" />
-                        <Title order={1} c="white" fw={800}>
-                            {t('app.title')}
-                        </Title>
-                    </Group>
-                    <Text c="dimmed" size="sm">
-                        {t('app.subtitle')}
-                    </Text>
-                </Stack>
-
+            <Container size={420} w="100%" style={{ position: 'relative' }}>
+                <Box style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    left: 0,
+                    right: 0,
+                    display: 'flex',
+                    justifyContent: 'center',
+                    paddingBottom: 16,
+                }}>
+                    <img src="/Tibexa Global logo.svg" alt="Tibexa Global" width={220} />
+                </Box>
                 <Paper
                     withBorder
                     shadow="xl"

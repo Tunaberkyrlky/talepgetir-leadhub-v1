@@ -17,10 +17,6 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import {
     IconNotes,
-    IconCalendar,
-    IconClock,
-    IconFileReport,
-    IconArrowsExchange,
     IconPlus,
     IconDotsVertical,
     IconPencil,
@@ -28,12 +24,13 @@ import {
     IconUser,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS } from '../lib/activityConstants';
 import { useAuth } from '../contexts/AuthContext';
 import { hasRolePermission } from '../lib/permissions';
 import { showSuccess, showError } from '../lib/notifications';
 import api from '../lib/api';
 import ActivityForm from './ActivityForm';
-import type { Activity, ActivityType } from '../types/activity';
+import type { Activity } from '../types/activity';
 
 interface ActivityTimelineProps {
     companyId: string;
@@ -58,32 +55,9 @@ interface ActivitiesResponse {
     };
 }
 
-const ACTIVITY_ICONS: Record<ActivityType, React.ReactNode> = {
-    not: <IconNotes size={16} />,
-    meeting: <IconCalendar size={16} />,
-    follow_up: <IconClock size={16} />,
-    sonlandirma_raporu: <IconFileReport size={16} />,
-    status_change: <IconArrowsExchange size={16} />,
-};
-
-const ACTIVITY_COLORS: Record<ActivityType, string> = {
-    not: 'blue',
-    meeting: 'violet',
-    follow_up: 'orange',
-    sonlandirma_raporu: 'green',
-    status_change: 'gray',
-};
-
-const OUTCOME_COLORS: Record<string, string> = {
-    won: 'green',
-    lost: 'red',
-    on_hold: 'gray',
-    cancelled: 'dark',
-};
-
-function formatActivityDate(isoString: string): string {
+function formatActivityDate(isoString: string, locale: string = 'tr-TR'): string {
     const date = new Date(isoString);
-    return date.toLocaleDateString('tr-TR', {
+    return date.toLocaleDateString(locale, {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
@@ -93,7 +67,8 @@ function formatActivityDate(isoString: string): string {
 }
 
 export default function ActivityTimeline({ companyId, contactId, compact, typeFilter: externalTypeFilter, hideEmpty, embedded }: ActivityTimelineProps) {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.language === 'tr' ? 'tr-TR' : 'en-US';
     const { user } = useAuth();
     const queryClient = useQueryClient();
     const [page, setPage] = useState(1);
@@ -121,6 +96,7 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
             const res = await api.get(`/activities?${searchParams.toString()}`);
             return res.data as ActivitiesResponse;
         },
+        refetchOnWindowFocus: false,
     });
 
     // Accumulate pages as they load
@@ -167,9 +143,6 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
     const handleFormClose = () => {
         setEditingActivity(null);
         closeForm();
-        setPage(1);
-        setAllActivities([]);
-        queryClient.invalidateQueries({ queryKey: ['activities', companyId] });
     };
 
     const hasMore = data?.pagination?.hasNext ?? false;
@@ -245,7 +218,7 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
 
                                         <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
                                             <Text size="xs" c="dimmed">
-                                                {formatActivityDate(activity.occurred_at)}
+                                                {formatActivityDate(activity.occurred_at, locale)}
                                             </Text>
                                             {canEditActivities && !isStatusChange && (
                                                 <Menu withinPortal position="bottom-end" shadow="sm">
@@ -260,7 +233,7 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
                                                                 leftSection={<IconPencil size={14} />}
                                                                 onClick={() => handleEditActivity(activity)}
                                                             >
-                                                                {t('contact.editContact').replace('Contact', 'Activity')}
+                                                                {t('activity.editActivity')}
                                                             </Menu.Item>
                                                         )}
                                                         {isSuperadmin && (
@@ -323,7 +296,25 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
     );
 
     if (embedded || compact) {
-        return content;
+        return (
+            <>
+                {embedded && canEditActivities && (
+                    <Group justify="flex-end" mb="md">
+                        <Button
+                            size="sm"
+                            leftSection={<IconPlus size={16} />}
+                            onClick={handleAddActivity}
+                            variant="light"
+                            color="violet"
+                            radius="md"
+                        >
+                            {t('activity.addActivity')}
+                        </Button>
+                    </Group>
+                )}
+                {content}
+            </>
+        );
     }
 
     return (

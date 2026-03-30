@@ -1,0 +1,141 @@
+import { timingSafeEqual } from 'crypto';
+import { Router, Request, Response, NextFunction } from 'express';
+import { supabaseAdmin } from '../lib/supabase.js';
+import { createLogger } from '../lib/logger.js';
+import { AppError } from '../middleware/errorHandler.js';
+import { validateBody, webhookPayloadSchema } from '../lib/validation.js';
+import { matchSenderEmail } from '../lib/emailMatcher.js';
+
+const log = createLogger('route:webhooks');
+const router = Router();
+
+const WEBHOOK_SECRET = process.env.PLUSVIBE_WEBHOOK_SECRET;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Middleware: validate webhook secret before anything else */
+function verifyWebhookSecret(req: Request, res: Response, next: NextFunction): void {
+    const secret = req.headers['x-webhook-secret'] as string;
+    if (!WEBHOOK_SECRET) {
+        log.error('PLUSVIBE_WEBHOOK_SECRET env var is not set — all webhook requests will be rejected');
+        res.status(503).json({
+            error: 'Webhook endpoint not configured',
+            code: 'WEBHOOK_SECRET_MISSING',
+            hint: 'Set PLUSVIBE_WEBHOOK_SECRET in the server environment and restart.',
+        });
+        return;
+    }
+    const secretBuf = Buffer.from(secret || '');
+    const expectedBuf = Buffer.from(WEBHOOK_SECRET);
+    const valid = secretBuf.length === expectedBuf.length && timingSafeEqual(secretBuf, expectedBuf);
+    if (!valid) {
+        log.warn({ ip: req.ip }, 'Invalid webhook secret received');
+        res.status(401).json({
+            error: 'Invalid webhook secret',
+            code: 'INVALID_WEBHOOK_SECRET',
+            hint: 'Ensure the x-webhook-secret header matches the configured PLUSVIBE_WEBHOOK_SECRET.',
+        });
+        return;
+    }
+    next();
+}
+
+/** Trim raw_payload to prevent storing oversized bodies */
+const MAX_RAW_PAYLOAD_SIZE = 10_000; // characters
+function sanitizePayload(body: unknown): unknown {
+    const json = JSON.stringify(body);
+    if (json.length > MAX_RAW_PAYLOAD_SIZE) {
+        return { _truncated: true, _size: json.length };
+    }
+    return body;
+}
+
+// POST /api/webhooks/plusvibe/:tenantId — receive PlusVibe reply events
+// Each tenant configures their own webhook URL with their tenant UUID in the path.
+router.post(
+    '/plusvibe/:tenantId',
+    verifyWebhookSecret,
+    validateBody(webhookPayloadSchema),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.params.tenantId as string;
+
+            if (!UUID_RE.test(tenantId)) {
+                res.status(400).json({
+                    error: 'Invalid tenant ID',
+                    code: 'INVALID_TENANT_ID',
+                    hint: 'The tenantId URL segment must be a valid UUID.',
+                });
+                return;
+            }
+
+            const { campaign_id, campaign_name, recipient_email, reply_body, replied_at } = req.body;
+
+            // Match sender email to contact/company within this tenant
+            let match;
+            try {
+                match = await matchSenderEmail(recipient_email, tenantId);
+            } catch (matchErr) {
+                log.error({ err: matchErr, recipient_email }, 'Email matching failed — database may be unavailable');
+                res.status(503).json({
+                    error: 'Email matching service unavailable',
+                    code: 'EMAIL_MATCH_FAILED',
+                    hint: 'Database lookup failed. Retry the webhook later.',
+                });
+                return;
+            }
+
+            // Insert email reply
+            // Deduplication: partial unique index on (campaign_id, sender_email, replied_at) WHERE campaign_id IS NOT NULL
+            // For inserts with campaign_id, use upsert with ignoreDuplicates.
+            // For inserts without campaign_id, always insert (no dedup possible).
+            const row = {
+                tenant_id: match.tenant_id,
+                campaign_id: campaign_id || null,
+                campaign_name: campaign_name || null,
+                sender_email: recipient_email.toLowerCase().trim(),
+                reply_body: reply_body || null,
+                replied_at: replied_at || new Date().toISOString(),
+                company_id: match.company_id,
+                contact_id: match.contact_id,
+                match_status: match.match_status,
+                read_status: 'unread',
+                raw_payload: sanitizePayload(req.body),
+            };
+
+            let error;
+            if (campaign_id) {
+                ({ error } = await supabaseAdmin
+                    .from('email_replies')
+                    .upsert(row, { onConflict: 'campaign_id,sender_email,replied_at', ignoreDuplicates: true }));
+            } else {
+                ({ error } = await supabaseAdmin
+                    .from('email_replies')
+                    .insert(row));
+            }
+
+            if (error) {
+                log.error({ err: error, campaign_id, sender: recipient_email }, 'Failed to insert email reply into database');
+                res.status(500).json({
+                    error: 'Failed to store email reply',
+                    code: 'DB_INSERT_FAILED',
+                    hint: 'Database write failed. Retry the webhook. If this persists, check Supabase logs.',
+                });
+                return;
+            }
+
+            log.info({ campaign_id, sender: recipient_email, match_status: match.match_status }, 'Webhook processed successfully');
+            res.status(200).json({ ok: true });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Unexpected webhook processing error');
+            res.status(500).json({
+                error: 'Unexpected error processing webhook',
+                code: 'WEBHOOK_UNEXPECTED_ERROR',
+                hint: 'An unexpected server error occurred. Check server logs for details.',
+            });
+        }
+    }
+);
+
+export default router;

@@ -9,12 +9,29 @@ CREATE OR REPLACE FUNCTION deactivate_pipeline_stage(
 )
 RETURNS jsonb
 LANGUAGE plpgsql
+SECURITY INVOKER
 AS $$
 DECLARE
     v_batch jsonb;
     v_moved int := 0;
     v_remaining int;
 BEGIN
+    -- Validate inputs
+    IF p_slug IS NULL OR p_slug = '' THEN
+        RAISE EXCEPTION 'p_slug must not be empty';
+    END IF;
+    IF p_fallback_stage IS NULL OR p_fallback_stage = '' THEN
+        RAISE EXCEPTION 'p_fallback_stage must not be empty';
+    END IF;
+
+    -- Validate fallback stage exists and is active
+    IF NOT EXISTS (
+        SELECT 1 FROM pipeline_stages
+        WHERE tenant_id = p_tenant_id AND slug = p_fallback_stage AND is_active = true
+    ) THEN
+        RAISE EXCEPTION 'Fallback stage "%" is not active for this tenant', p_fallback_stage;
+    END IF;
+
     -- Apply explicit migrations (batched by target stage)
     FOR v_batch IN SELECT * FROM jsonb_array_elements(p_migrations)
     LOOP

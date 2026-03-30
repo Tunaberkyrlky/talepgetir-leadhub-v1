@@ -29,6 +29,7 @@ import {
     IconFileImport,
     IconShieldCog,
     IconActivity,
+    IconMail,
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
 import { useTranslation } from 'react-i18next';
@@ -88,6 +89,7 @@ export default function Layout() {
         { path: '/people', label: t('nav.people'), icon: <IconUsers size={20} /> },
         { path: '/pipeline', label: t('nav.pipeline'), icon: <IconColumns size={20} /> },
         { path: '/activities', label: t('nav.activities'), icon: <IconActivity size={20} /> },
+        { path: '/email-replies', label: t('nav.emailReplies'), icon: <IconMail size={20} /> },
         ...(hasRolePermission(user?.role || '', 'import')
             ? [{ path: '/import', label: t('nav.import'), icon: <IconFileImport size={20} /> }]
             : []),
@@ -139,10 +141,12 @@ export default function Layout() {
                                 size="sm"
                             />
                         )}
-                        <IconBuilding size={28} color="#6c63ff" />
-                        <Title order={3} c="white" fw={700}>
-                            {t('app.title')}
-                        </Title>
+                        <Group gap="xs" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+                            <img src="/logo.svg" alt="TG Core" height={32} width={32} />
+                            <Title order={3} c="white" fw={700}>
+                                {t('app.title')}
+                            </Title>
+                        </Group>
                     </Group>
 
                     {/* Right side */}

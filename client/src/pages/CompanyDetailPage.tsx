@@ -48,6 +48,7 @@ import {
     IconDotsVertical,
     IconLanguage,
     IconAlertCircle,
+    IconChevronDown,
     IconEyeOff,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
@@ -219,7 +220,7 @@ export default function CompanyDetailPage() {
     const navigate = useNavigate();
     const goBack = useNavigateBack();
     const { user } = useAuth();
-    const { getStageColor, getStageLabel } = useStages();
+    const { getStageColor, getStageLabel, allStages } = useStages();
     const queryClient = useQueryClient();
     const [opened, { open, close }] = useDisclosure(false);
     const [editCompanyOpened, { open: openEditCompany, close: closeEditCompany }] = useDisclosure(false);
@@ -281,7 +282,7 @@ export default function CompanyDetailPage() {
             is_primary: false,
         },
         validate: {
-            first_name: (v: string) => (v.trim() ? null : 'Required'),
+            first_name: (v: string) => (v.trim() ? null : t('validation.required', { field: t('contact.firstName') })),
         },
     });
 
@@ -452,9 +453,44 @@ export default function CompanyDetailPage() {
                             )}
                         </Group>
                         <Group mt="xs" gap="sm">
-                            <Badge color={getStageColor(company.stage)} size="lg" variant="light">
-                                {getStageLabel(company.stage)}
-                            </Badge>
+                            <Menu withinPortal position="bottom-start" shadow="md">
+                                <Menu.Target>
+                                    <Badge
+                                        color={getStageColor(company.stage)}
+                                        size="lg"
+                                        variant="light"
+                                        rightSection={<IconChevronDown size={14} />}
+                                        style={{ cursor: 'pointer', paddingRight: 6 }}
+                                    >
+                                        {getStageLabel(company.stage)}
+                                    </Badge>
+                                </Menu.Target>
+                                <Menu.Dropdown>
+                                    {allStages.map((s) => (
+                                        <Menu.Item
+                                            key={s.slug}
+                                            leftSection={
+                                                <Badge color={s.color} variant="light" size="xs" radius="sm">
+                                                    {' '}
+                                                </Badge>
+                                            }
+                                            onClick={() => {
+                                                api.patch(`/companies/${company.id}/stage`, { stage: s.slug }).then(() => {
+                                                    queryClient.invalidateQueries({ queryKey: ['company', id] });
+                                                    queryClient.invalidateQueries({ queryKey: ['companies'] });
+                                                    queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+                                                    queryClient.invalidateQueries({ queryKey: ['statistics'] });
+                                                    showSuccess(t('company.updated'));
+                                                }).catch((err) => showErrorFromApi(err));
+                                            }}
+                                        >
+                                            <Text size="sm" fw={company.stage === s.slug ? 700 : 400}>
+                                                {getStageLabel(s.slug)}
+                                            </Text>
+                                        </Menu.Item>
+                                    ))}
+                                </Menu.Dropdown>
+                            </Menu>
                             {company.employee_size && (
                                 <Group gap={4}>
                                     <IconUsers size={14} color="var(--mantine-color-gray-5)" />

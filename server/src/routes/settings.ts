@@ -23,6 +23,7 @@ interface CachedStages {
 }
 const stageCache = new Map<string, CachedStages>();
 const CACHE_TTL = 60_000;
+const MAX_STAGE_CACHE_SIZE = 200;
 
 /** Fetch tenant's valid stage slugs (cached) */
 export async function getTenantStages(tenantId: string): Promise<{ slug: string; stage_type: string }[]> {
@@ -42,6 +43,7 @@ export async function getTenantStages(tenantId: string): Promise<{ slug: string;
     }
 
     const result = data || [];
+    if (stageCache.size >= MAX_STAGE_CACHE_SIZE) stageCache.clear();
     stageCache.set(tenantId, { all: result, ts: Date.now() });
     return result;
 }
@@ -149,7 +151,7 @@ router.post('/stages', async (req: Request, res: Response, next: NextFunction): 
         let { slug } = req.body;
 
         if (!display_name || typeof display_name !== 'string' || display_name.trim().length === 0) {
-            res.status(400).json({ error: 'display_name is required' });
+            res.status(400).json({ error: 'Please enter a stage name' });
             return;
         }
 
@@ -182,7 +184,7 @@ router.post('/stages', async (req: Request, res: Response, next: NextFunction): 
 
         if (error) {
             if (error.code === '23505') {
-                res.status(409).json({ error: `Stage "${slug}" already exists` });
+                res.status(409).json({ error: 'A stage with this name already exists' });
                 return;
             }
             log.error({ err: error }, 'Create stage error');
@@ -216,7 +218,7 @@ router.put('/stages/:slug', async (req: Request, res: Response, next: NextFuncti
         if (sort_order !== undefined) updateData.sort_order = sort_order;
 
         if (Object.keys(updateData).length === 0) {
-            res.status(400).json({ error: 'No fields to update' });
+            res.status(400).json({ error: 'Please make a change before saving' });
             return;
         }
 
@@ -269,11 +271,11 @@ router.delete('/stages/:slug', async (req: Request, res: Response, next: NextFun
 
         // Cannot delete initial or terminal stages
         if (stage.stage_type === 'initial') {
-            res.status(400).json({ error: 'Cannot delete the initial stage' });
+            res.status(400).json({ error: 'The starting stage cannot be deleted' });
             return;
         }
         if (stage.stage_type === 'terminal') {
-            res.status(400).json({ error: 'Cannot delete terminal stages (won/lost/on_hold)' });
+            res.status(400).json({ error: 'Outcome stages (Won, Lost, On Hold) cannot be deleted' });
             return;
         }
 
@@ -287,7 +289,7 @@ router.delete('/stages/:slug', async (req: Request, res: Response, next: NextFun
         if ((count || 0) > 0) {
             if (!reassign_to) {
                 res.status(400).json({
-                    error: `${count} companies are in this stage. Provide reassign_to to move them.`,
+                    error: `There are ${count} companies in this stage. Please choose another stage to move them to first.`,
                     company_count: count,
                 });
                 return;
@@ -296,7 +298,7 @@ router.delete('/stages/:slug', async (req: Request, res: Response, next: NextFun
             // Validate reassign_to is a valid stage
             const validSlugs = await getValidStageSlugs(tenantId);
             if (!validSlugs.includes(reassign_to) || reassign_to === slug) {
-                res.status(400).json({ error: `Invalid reassign_to stage: "${reassign_to}"` });
+                res.status(400).json({ error: 'The selected target stage is not valid' });
                 return;
             }
 
@@ -323,7 +325,7 @@ router.delete('/stages/:slug', async (req: Request, res: Response, next: NextFun
         if (deleteError) {
             // FK violation: stage still referenced by companies
             if ((deleteError as any).code === '23503') {
-                res.status(409).json({ error: 'Stage has companies — deactivate it first using the deactivate endpoint' });
+                res.status(409).json({ error: 'This stage still has companies. Please deactivate it first.' });
                 return;
             }
             log.error({ err: deleteError }, 'Delete stage error');
@@ -404,7 +406,7 @@ router.post('/stages/:slug/deactivate', async (req: Request, res: Response, next
         // Parse and validate body
         const parsed = deactivateSchema.safeParse(req.body);
         if (!parsed.success) {
-            res.status(400).json({ error: 'Invalid request body', details: parsed.error.flatten() });
+            res.status(400).json({ error: 'Please check the form and try again', details: parsed.error.flatten() });
             return;
         }
         const { migrations } = parsed.data;
@@ -424,7 +426,7 @@ router.post('/stages/:slug/deactivate', async (req: Request, res: Response, next
 
         // Block deactivation of initial stage
         if (stage.stage_type === 'initial') {
-            res.status(400).json({ error: 'Cannot deactivate the initial stage' });
+            res.status(400).json({ error: 'The starting stage cannot be deactivated' });
             return;
         }
 
@@ -432,7 +434,7 @@ router.post('/stages/:slug/deactivate', async (req: Request, res: Response, next
         const tenantStages = await getTenantStages(tenantId);
         const initialStageSlug = tenantStages.find((s) => s.stage_type === 'initial')?.slug;
         if (!initialStageSlug) {
-            res.status(500).json({ error: 'Tenant has no initial stage configured' });
+            res.status(500).json({ error: 'No starting stage is configured. Please contact support.' });
             return;
         }
 
@@ -441,15 +443,15 @@ router.post('/stages/:slug/deactivate', async (req: Request, res: Response, next
         const terminalSlugs = new Set(tenantStages.filter((s) => s.stage_type === 'terminal').map((s) => s.slug));
         for (const m of migrations) {
             if (!activeSlugs.has(m.targetStage)) {
-                res.status(422).json({ error: `Target stage "${m.targetStage}" is not active or does not exist` });
+                res.status(422).json({ error: 'The target stage is no longer available' });
                 return;
             }
             if (m.targetStage === slug) {
-                res.status(400).json({ error: `Cannot migrate companies to the stage being deactivated` });
+                res.status(400).json({ error: 'Companies cannot be moved to the stage being deactivated' });
                 return;
             }
             if (terminalSlugs.has(m.targetStage)) {
-                res.status(400).json({ error: `Cannot migrate companies to terminal stage "${m.targetStage}" — each company requires an individual closing report` });
+                res.status(400).json({ error: 'Companies cannot be moved directly to outcome stages. Use a closing report instead.' });
                 return;
             }
         }
@@ -468,7 +470,7 @@ router.post('/stages/:slug/deactivate', async (req: Request, res: Response, next
             const ownedIds = new Set((ownedCompanies || []).map((c) => c.id));
             const foreignId = companyIds.find((id) => !ownedIds.has(id));
             if (foreignId) {
-                res.status(400).json({ error: `Company "${foreignId}" does not belong to this tenant` });
+                res.status(400).json({ error: 'Some selected companies could not be found' });
                 return;
             }
         }
@@ -529,7 +531,26 @@ router.put('/stages-reorder', async (req: Request, res: Response, next: NextFunc
 
         const { order } = req.body;
         if (!Array.isArray(order) || order.length === 0) {
-            res.status(400).json({ error: 'order must be a non-empty array of slugs' });
+            res.status(400).json({ error: 'Please provide the stage order' });
+            return;
+        }
+
+        // Validate all elements are strings
+        if (!order.every((s: unknown) => typeof s === 'string' && s.length > 0)) {
+            res.status(400).json({ error: 'Invalid stage order data' });
+            return;
+        }
+
+        // Validate slugs belong to this tenant
+        const { data: tenantStages } = await supabaseAdmin
+            .from('pipeline_stages')
+            .select('slug')
+            .eq('tenant_id', tenantId);
+
+        const validSlugs = new Set((tenantStages || []).map((s: any) => s.slug));
+        const invalidSlugs = order.filter((slug: string) => !validSlugs.has(slug));
+        if (invalidSlugs.length > 0) {
+            res.status(422).json({ error: 'Some stages in the order are not recognized' });
             return;
         }
 
@@ -542,7 +563,11 @@ router.put('/stages-reorder', async (req: Request, res: Response, next: NextFunc
                 .eq('slug', slug)
         );
 
-        await Promise.all(updates);
+        const results = await Promise.all(updates);
+        const failed = results.filter(r => r.error);
+        if (failed.length > 0) {
+            log.error({ errors: failed.map(f => f.error) }, 'Stage reorder partial failure');
+        }
 
         invalidateStageCache(tenantId);
         res.json({ success: true });
@@ -596,7 +621,7 @@ router.put('/pipeline', async (req: Request, res: Response, next: NextFunction):
         const { groups } = req.body;
 
         if (!Array.isArray(groups) || groups.length === 0) {
-            res.status(400).json({ error: 'Pipeline groups must be a non-empty array' });
+            res.status(400).json({ error: 'Please set up at least one pipeline group' });
             return;
         }
 
@@ -606,16 +631,16 @@ router.put('/pipeline', async (req: Request, res: Response, next: NextFunction):
         // Validate each group
         for (const group of groups) {
             if (!group.id || !group.label || !group.color) {
-                res.status(400).json({ error: 'Each group must have id, label, and color' });
+                res.status(400).json({ error: 'Each group needs a name and color' });
                 return;
             }
             if (!Array.isArray(group.stages) || group.stages.length === 0) {
-                res.status(400).json({ error: `Group "${group.id}" must have at least one stage` });
+                res.status(400).json({ error: 'Each group must contain at least one stage' });
                 return;
             }
             for (const stage of group.stages) {
                 if (!validStageSlugs.includes(stage)) {
-                    res.status(400).json({ error: `Invalid stage "${stage}" in group "${group.id}"` });
+                    res.status(400).json({ error: 'One of the stages in the group is not valid' });
                     return;
                 }
             }

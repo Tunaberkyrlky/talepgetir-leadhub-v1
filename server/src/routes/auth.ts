@@ -20,7 +20,10 @@ router.post('/login', validateBody(loginSchema), async (req: Request, res: Respo
         });
 
         if (error) {
-            res.status(401).json({ error: error.message });
+            const msg = error.message === 'Invalid login credentials'
+                ? 'Incorrect email or password. Please try again.'
+                : 'Could not sign in. Please try again.';
+            res.status(401).json({ error: msg });
             return;
         }
 
@@ -44,7 +47,7 @@ router.post('/login', validateBody(loginSchema), async (req: Request, res: Respo
         });
     } catch (err) {
         log.error({ err }, 'Login error');
-        res.status(500).json({ error: 'Login failed' });
+        res.status(500).json({ error: 'Could not sign in. Please try again.' });
     }
 });
 
@@ -57,7 +60,11 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
         const refreshToken = req.cookies?.refresh_token;
 
         if (!refreshToken) {
+<<<<<<< HEAD
             res.status(401).json({ error: 'No refresh token' });
+=======
+            res.status(401).json({ error: 'Your session has expired. Please sign in again.' });
+>>>>>>> development
             return;
         }
 
@@ -67,7 +74,11 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
 
         if (error || !data.session) {
             clearAuthCookies(res);
+<<<<<<< HEAD
             res.status(401).json({ error: 'Invalid refresh token' });
+=======
+            res.status(401).json({ error: 'Your session has expired. Please sign in again.' });
+>>>>>>> development
             return;
         }
 
@@ -76,7 +87,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
         res.json({ ok: true });
     } catch (err) {
         log.error({ err }, 'Token refresh error');
-        res.status(500).json({ error: 'Token refresh failed' });
+        res.status(500).json({ error: 'Could not refresh your session. Please sign in again.' });
     }
 });
 
@@ -88,14 +99,18 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
             || (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null);
 
         if (!token) {
+<<<<<<< HEAD
             res.status(401).json({ error: 'Not authenticated' });
+=======
+            res.status(401).json({ error: 'Please sign in to continue' });
+>>>>>>> development
             return;
         }
 
         const { data: { user }, error } = await supabaseAuth.auth.getUser(token);
 
         if (error || !user) {
-            res.status(401).json({ error: 'Invalid token' });
+            res.status(401).json({ error: 'Your session is no longer valid. Please sign in again.' });
             return;
         }
 
@@ -116,7 +131,7 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
         });
     } catch (err) {
         log.error({ err }, 'Get user info error');
-        res.status(500).json({ error: 'Failed to get user info' });
+        res.status(500).json({ error: 'Could not load your account. Please try again.' });
     }
 });
 

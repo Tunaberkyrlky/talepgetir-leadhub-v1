@@ -34,6 +34,7 @@ import {
 } from '@dnd-kit/core';
 import { useStages } from '../../contexts/StagesContext';
 import api from '../../lib/api';
+import { OUTCOME_COLORS, OUTCOME_ICONS } from '../../lib/activityConstants';
 import PipelineCard, { type PipelineCompany } from './PipelineCard';
 
 interface KanbanBoardProps {
@@ -164,7 +165,9 @@ function CompanyDetailCell({ companyId }: { companyId: string }) {
                     >
                         {t('activities.addActivity')}
                     </Button>
-                    <ActivityTimeline companyId={companyId} compact typeFilter={typeFilter} hideEmpty />
+                    <ScrollArea.Autosize mah={320} offsetScrollbars type="auto">
+                        <ActivityTimeline companyId={companyId} compact typeFilter={typeFilter} hideEmpty />
+                    </ScrollArea.Autosize>
                     <ActivityForm
                         opened={formOpened}
                         onClose={() => setFormOpened(false)}
@@ -183,11 +186,6 @@ function OutcomeDetailCell({ companyId, closingReport }: { companyId: string; cl
     const ref = useRef<HTMLDivElement>(null);
     const [isVisible, setIsVisible] = useState(false);
 
-    const OUTCOME_COLORS: Record<string, string> = { won: 'green', lost: 'red', on_hold: 'gray', cancelled: 'dark' };
-    const OUTCOME_ICONS: Record<string, React.ReactNode> = {
-        won: <IconTrophy size={12} />, lost: <IconXboxX size={12} />,
-        on_hold: <IconClock size={12} />, cancelled: <IconBan size={12} />,
-    };
 
     useEffect(() => {
         const el = ref.current;

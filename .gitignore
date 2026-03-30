@@ -27,6 +27,13 @@ supabase/.temp/
 # MCP (contains secrets)
 .mcp.json
 
+# Superpowers temp files
+.superpowers/
+
+# Temporary files
+temp/*
+!temp/.gitkeep
+
 # Project docs
 CRM_EXPANSION_PLAN.md
 plans/

@@ -12,6 +12,10 @@ interface CachedAuth {
 }
 const authCache = new Map<string, CachedAuth>();
 const AUTH_CACHE_TTL = 60_000; // 60 seconds
+<<<<<<< HEAD
+=======
+const MAX_AUTH_CACHE_SIZE = 1000;
+>>>>>>> development
 
 // Clean stale entries lazily — started on first auth request.
 // Storing the reference prevents duplicate intervals when the module is re-evaluated
@@ -58,7 +62,11 @@ export async function authMiddleware(
             || (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null);
 
         if (!token) {
+<<<<<<< HEAD
             res.status(401).json({ error: 'Missing or invalid authorization' });
+=======
+            res.status(401).json({ error: 'Please sign in to continue' });
+>>>>>>> development
             return;
         }
 
@@ -83,7 +91,7 @@ export async function authMiddleware(
 
         if (error || !user) {
             log.warn({ error: error?.message }, 'Token invalid or user not found');
-            res.status(401).json({ error: 'Invalid or expired token' });
+            res.status(401).json({ error: 'Your session has expired. Please sign in again.' });
             return;
         }
 
@@ -104,7 +112,7 @@ export async function authMiddleware(
             const firstMembership = allMemberships?.[0];
             if (!firstMembership && !isPlatformSuperadmin) {
                 log.warn({ userId: user.id }, 'No tenant_id in app_metadata and no active memberships');
-                res.status(403).json({ error: 'User has no tenant assigned' });
+                res.status(403).json({ error: 'Your account is not set up yet. Please contact your administrator.' });
                 return;
             }
             if (firstMembership) {
@@ -117,7 +125,7 @@ export async function authMiddleware(
 
         if (!isPlatformSuperadmin && !primaryMembership) {
             log.warn({ userId: user.id, tenantId: defaultTenantId }, 'No active membership for user in default tenant');
-            res.status(403).json({ error: 'User has no active membership in this tenant' });
+            res.status(403).json({ error: 'You don\'t have access to this workspace. Please contact your administrator.' });
             return;
         }
 
@@ -139,7 +147,7 @@ export async function authMiddleware(
                     .single();
 
                 if (!tenant) {
-                    res.status(403).json({ error: 'Tenant not found or inactive' });
+                    res.status(403).json({ error: 'This workspace is not available. Please contact your administrator.' });
                     return;
                 }
                 // Superadmin retains superadmin role across tenants
@@ -155,13 +163,13 @@ export async function authMiddleware(
                     .single();
 
                 if (!targetMembership) {
-                    res.status(403).json({ error: 'You do not have access to this tenant' });
+                    res.status(403).json({ error: 'You don\'t have access to this workspace' });
                     return;
                 }
                 effectiveRole = targetMembership.role;
             } else {
                 // Client roles cannot switch tenants
-                res.status(403).json({ error: 'You do not have permission to switch tenants' });
+                res.status(403).json({ error: 'You don\'t have permission to switch workspaces' });
                 return;
             }
         }
@@ -179,12 +187,27 @@ export async function authMiddleware(
         req.tenantId = effectiveTenantId;
 
         // Cache for subsequent requests
+<<<<<<< HEAD
+=======
+        if (authCache.size >= MAX_AUTH_CACHE_SIZE) authCache.clear();
+>>>>>>> development
         authCache.set(cacheKey, { user: authUser, ts: Date.now() });
 
         next();
     } catch (err) {
         log.error({ err }, 'Auth middleware error');
-        res.status(500).json({ error: 'Internal authentication error' });
+        res.status(500).json({ error: 'Something went wrong. Please try signing in again.' });
+    }
+}
+
+/**
+ * Evict all cache entries for a given user ID.
+ * Call this after deactivating or deleting a user so their next request
+ * is forced through a fresh auth check instead of hitting a cached result.
+ */
+export function clearAuthCacheForUser(userId: string): void {
+    for (const [key, val] of authCache) {
+        if (val.user.id === userId) authCache.delete(key);
     }
 }
 

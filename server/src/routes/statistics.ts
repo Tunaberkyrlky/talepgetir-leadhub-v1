@@ -15,10 +15,44 @@ interface CachedOverview {
 }
 const overviewCache = new Map<string, CachedOverview>();
 const OVERVIEW_TTL = 30_000; // 30 seconds
+<<<<<<< HEAD
 
 /** Invalidate overview cache for a tenant (call after stage changes, imports, etc.) */
 export function invalidateOverviewCache(tenantId: string) {
     overviewCache.delete(tenantId);
+=======
+const MAX_STATS_CACHE_SIZE = 500;
+
+/** Invalidate overview cache for a tenant (call after stage changes, imports, etc.) */
+export function invalidateOverviewCache(tenantId: string) {
+    for (const key of overviewCache.keys()) {
+        if (key.startsWith(tenantId)) overviewCache.delete(key);
+    }
+}
+
+function parseDateFilters(req: Request, res: Response): { dateFrom?: string; dateTo?: string } | null {
+    const dateFrom = req.query.dateFrom as string | undefined;
+    const dateTo = req.query.dateTo as string | undefined;
+
+    if (dateFrom && isNaN(Date.parse(dateFrom))) {
+        res.status(400).json({ error: 'Please enter a valid start date' });
+        return null;
+    }
+    if (dateTo && isNaN(Date.parse(dateTo))) {
+        res.status(400).json({ error: 'Please enter a valid end date' });
+        return null;
+    }
+    if (dateFrom && dateTo && new Date(dateFrom) > new Date(dateTo)) {
+        res.status(400).json({ error: 'Start date must be before end date' });
+        return null;
+    }
+
+    return { dateFrom, dateTo };
+}
+
+function buildCacheKey(tenantId: string, dateFrom?: string, dateTo?: string): string {
+    return `${tenantId}:${dateFrom || ''}:${dateTo || ''}`;
+>>>>>>> development
 }
 
 // GET /api/statistics/overview — Summary stats for dashboard
@@ -26,13 +60,24 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
 
+<<<<<<< HEAD
         // Check cache first
         const cached = overviewCache.get(tenantId);
+=======
+        const dateFilters = parseDateFilters(req, res);
+        if (!dateFilters) return; // 400 already sent
+        const { dateFrom, dateTo } = dateFilters;
+        const cacheKey = buildCacheKey(tenantId, dateFrom, dateTo);
+
+        // Check cache first
+        const cached = overviewCache.get(cacheKey);
+>>>>>>> development
         if (cached && Date.now() - cached.ts < OVERVIEW_TTL) {
             res.json(cached.data);
             return;
         }
 
+<<<<<<< HEAD
         // Run all counts in parallel (including pipeline stages to avoid extra round-trip)
         const [companiesRes, contactsRes, stagesRes, tenantPipelineStages] = await Promise.all([
             supabaseAdmin
@@ -45,16 +90,60 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
                 .eq('tenant_id', tenantId),
             supabaseAdmin
                 .rpc('get_stage_counts', { p_tenant_id: tenantId }),
+=======
+        // Build companies query with optional date filters
+        let companiesQuery = supabaseAdmin
+            .from('companies')
+            .select('*', { count: 'exact', head: true })
+            .eq('tenant_id', tenantId);
+        if (dateFrom) companiesQuery = companiesQuery.gte('created_at', dateFrom);
+        if (dateTo) companiesQuery = companiesQuery.lte('created_at', dateTo);
+
+        // Run all counts in parallel (including pipeline stages to avoid extra round-trip)
+        const [companiesRes, stagesRes, tenantPipelineStages] = await Promise.all([
+            companiesQuery,
+            supabaseAdmin.rpc('get_stage_counts', {
+                p_tenant_id: tenantId,
+                p_date_from: dateFrom || null,
+                p_date_to: dateTo || null,
+            }),
+>>>>>>> development
             getPipelineStageSlugs(tenantId),
         ]);
 
         if (stagesRes.error) {
             log.error({ err: stagesRes.error }, 'Stage counts RPC error');
         }
+<<<<<<< HEAD
 
         const totalCompanies = companiesRes.count || 0;
         const totalContacts = contactsRes.count || 0;
 
+=======
+
+        const totalCompanies = companiesRes.count || 0;
+
+        let totalContacts: number;
+        if (dateFrom || dateTo) {
+            // Sum contact_count from date-filtered companies
+            let contactQuery = supabaseAdmin
+                .from('companies')
+                .select('contact_count')
+                .eq('tenant_id', tenantId);
+            if (dateFrom) contactQuery = contactQuery.gte('created_at', dateFrom);
+            if (dateTo) contactQuery = contactQuery.lte('created_at', dateTo);
+            const { data: contactData } = await contactQuery;
+            totalContacts = (contactData || []).reduce((sum, c) => sum + (c.contact_count || 0), 0);
+        } else {
+            // Existing efficient head count on contacts table
+            const { count } = await supabaseAdmin
+                .from('contacts')
+                .select('*', { count: 'exact', head: true })
+                .eq('tenant_id', tenantId);
+            totalContacts = count ?? 0;
+        }
+
+>>>>>>> development
         // Build stage counts from RPC result
         const stageCounts: Record<string, number> = {};
         for (const row of stagesRes.data || []) {
@@ -81,7 +170,12 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
         };
 
         // Cache result
+<<<<<<< HEAD
         overviewCache.set(tenantId, { data: result, ts: Date.now() });
+=======
+        if (overviewCache.size >= MAX_STATS_CACHE_SIZE) overviewCache.clear();
+        overviewCache.set(cacheKey, { data: result, ts: Date.now() });
+>>>>>>> development
 
         res.json(result);
     } catch (err) {
@@ -94,7 +188,13 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
 const pipelineStatsCache = new Map<string, CachedOverview>();
 
 export function invalidatePipelineStatsCache(tenantId: string) {
+<<<<<<< HEAD
     pipelineStatsCache.delete(tenantId);
+=======
+    for (const key of pipelineStatsCache.keys()) {
+        if (key.startsWith(tenantId)) pipelineStatsCache.delete(key);
+    }
+>>>>>>> development
 }
 
 // GET /api/statistics/pipeline — Funnel data for pipeline stages (pro tier only)
@@ -102,6 +202,7 @@ router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response):
     try {
         const tenantId = req.tenantId!;
 
+<<<<<<< HEAD
         const cached = pipelineStatsCache.get(tenantId);
         if (cached && Date.now() - cached.ts < OVERVIEW_TTL) {
             res.json(cached.data);
@@ -111,6 +212,26 @@ router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response):
         // Fetch stage counts + stage config in parallel
         const [stagesRes, pipelineStages, terminalStages] = await Promise.all([
             supabaseAdmin.rpc('get_stage_counts', { p_tenant_id: tenantId }),
+=======
+        const dateFilters = parseDateFilters(req, res);
+        if (!dateFilters) return; // 400 already sent
+        const { dateFrom, dateTo } = dateFilters;
+        const cacheKey = buildCacheKey(tenantId, dateFrom, dateTo);
+
+        const cached = pipelineStatsCache.get(cacheKey);
+        if (cached && Date.now() - cached.ts < OVERVIEW_TTL) {
+            res.json(cached.data);
+            return;
+        }
+
+        // Fetch stage counts + stage config in parallel
+        const [stagesRes, pipelineStages, terminalStages] = await Promise.all([
+            supabaseAdmin.rpc('get_stage_counts', {
+                p_tenant_id: tenantId,
+                p_date_from: dateFrom || null,
+                p_date_to: dateTo || null,
+            }),
+>>>>>>> development
             getPipelineStageSlugs(tenantId),
             getTerminalStageSlugs(tenantId),
         ]);
@@ -137,7 +258,12 @@ router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response):
         }));
 
         const result = { funnel, terminal };
+<<<<<<< HEAD
         pipelineStatsCache.set(tenantId, { data: result, ts: Date.now() });
+=======
+        if (pipelineStatsCache.size >= MAX_STATS_CACHE_SIZE) pipelineStatsCache.clear();
+        pipelineStatsCache.set(cacheKey, { data: result, ts: Date.now() });
+>>>>>>> development
 
         res.json(result);
     } catch (err) {
@@ -151,11 +277,19 @@ router.get('/company-locations', requireTier('pro'), async (req: Request, res: R
     try {
         const tenantId = req.tenantId!;
 
+<<<<<<< HEAD
+=======
+        const dateFilters = parseDateFilters(req, res);
+        if (!dateFilters) return;
+        const { dateFrom, dateTo } = dateFilters;
+
+>>>>>>> development
         // Get actual stage slugs for this tenant (initial + pipeline types)
         const allStages = await getTenantStages(tenantId);
         const geocodableStages = allStages
             .filter((s) => s.stage_type === 'initial' || s.stage_type === 'pipeline')
             .map((s) => s.slug);
+<<<<<<< HEAD
 
         const [locationsRes, missingRes] = await Promise.all([
             supabaseAdmin
@@ -175,6 +309,35 @@ router.get('/company-locations', requireTier('pro'), async (req: Request, res: R
                     .not('location', 'is', null)
                     .is('latitude', null)
                 : Promise.resolve({ count: 0, error: null })
+=======
+
+        let locationsQuery = supabaseAdmin
+            .from('companies')
+            .select('id, name, location, latitude, longitude, stage')
+            .eq('tenant_id', tenantId)
+            .not('latitude', 'is', null)
+            .not('longitude', 'is', null)
+            .order('updated_at', { ascending: false })
+            .limit(2000);
+        if (dateFrom) locationsQuery = locationsQuery.gte('created_at', dateFrom);
+        if (dateTo) locationsQuery = locationsQuery.lte('created_at', dateTo);
+
+        let missingQuery = geocodableStages.length > 0
+            ? supabaseAdmin
+                .from('companies')
+                .select('*', { count: 'exact', head: true })
+                .eq('tenant_id', tenantId)
+                .in('stage', geocodableStages)
+                .not('location', 'is', null)
+                .is('latitude', null)
+            : null;
+        if (missingQuery && dateFrom) missingQuery = missingQuery.gte('created_at', dateFrom);
+        if (missingQuery && dateTo) missingQuery = missingQuery.lte('created_at', dateTo);
+
+        const [locationsRes, missingRes] = await Promise.all([
+            locationsQuery,
+            missingQuery ?? Promise.resolve({ count: 0, error: null }),
+>>>>>>> development
         ]);
 
         if (locationsRes.error) {

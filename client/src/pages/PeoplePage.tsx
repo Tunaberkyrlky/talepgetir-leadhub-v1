@@ -661,7 +661,7 @@ export default function PeoplePage() {
                                                     </ActionIcon>
                                                 </Tooltip>
                                             </Popover.Target>
-                                            <Popover.Dropdown p="sm" style={{ minWidth: 240 }}>
+                                            <Popover.Dropdown p="sm" style={{ minWidth: 240, maxHeight: 400, overflowY: 'auto' }}>
                                                 <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs" style={{ letterSpacing: '0.5px' }}>
                                                     {t('leads.columns')}
                                                 </Text>

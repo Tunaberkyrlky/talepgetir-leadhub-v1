@@ -6,6 +6,7 @@ import { ModalsProvider } from '@mantine/modals';
 import { DatesProvider } from '@mantine/dates';
 import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 import { Center, Loader } from '@mantine/core';
+import { useTranslation } from 'react-i18next';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/dropzone/styles.css';
@@ -29,6 +30,7 @@ const PeoplePage = lazy(() => import('./pages/PeoplePage'));
 const PersonDetailPage = lazy(() => import('./pages/PersonDetailPage'));
 const PipelinePage = lazy(() => import('./pages/PipelinePage'));
 const ActivitiesPage = lazy(() => import('./pages/ActivitiesPage'));
+const EmailRepliesPage = lazy(() => import('./pages/EmailRepliesPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 
 const queryClient = new QueryClient({
@@ -68,10 +70,12 @@ const theme = createTheme({
 });
 
 function App() {
+  const { i18n } = useTranslation();
+
   return (
     <QueryClientProvider client={queryClient}>
       <MantineProvider theme={theme} defaultColorScheme="light">
-        <DatesProvider settings={{ locale: 'tr', firstDayOfWeek: 1 }}>
+        <DatesProvider settings={{ locale: i18n.language, firstDayOfWeek: 1 }}>
         <Notifications position="top-right" />
         <ModalsProvider>
           <BrowserRouter>
@@ -92,6 +96,7 @@ function App() {
                           <Route path="/people/:id" element={<PersonDetailPage />} />
                           <Route path="/pipeline" element={<PipelinePage />} />
                           <Route path="/activities" element={<ActivitiesPage />} />
+                          <Route path="/email-replies" element={<EmailRepliesPage />} />
                           <Route path="/import" element={<ImportPage />} />
                           <Route path="/admin" element={<AdminPage />} />
                           <Route path="/admin/:tab" element={<AdminPage />} />

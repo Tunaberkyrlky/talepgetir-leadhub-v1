@@ -14,6 +14,7 @@ CREATE OR REPLACE FUNCTION append_contact_note(
 )
 RETURNS JSONB
 LANGUAGE sql
+SECURITY INVOKER
 AS $$
     UPDATE contacts
     SET    notes = jsonb_build_array(p_note) || COALESCE(notes, '[]'::jsonb)
@@ -31,6 +32,7 @@ CREATE OR REPLACE FUNCTION remove_contact_note(
 )
 RETURNS JSONB
 LANGUAGE sql
+SECURITY INVOKER
 AS $$
     UPDATE contacts
     SET    notes = (

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { lazy, Suspense, useCallback } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Container,
@@ -11,7 +11,10 @@ import {
     Text,
     Button,
     Paper,
+    Group,
+    SegmentedControl,
 } from '@mantine/core';
+import { type DatePeriod, getDateRange } from '../lib/dateUtils';
 import {
     IconBuilding,
     IconUsers,
@@ -55,14 +58,27 @@ export default function DashboardPage() {
     const tier = (activeTenantTier || 'basic') as Tier;
     const isAdvanced = hasTierAccess(role, tier, 'advanced_stats');
 
+    const [datePeriod, setDatePeriod] = useState<DatePeriod | null>(null);
+
+    const dateParams = useMemo(() => {
+        if (!datePeriod) return null;
+        return getDateRange(datePeriod);
+    }, [datePeriod]);
+
     const handleStageClick = useCallback((stage: string) => {
         navigate(`/pipeline?focus=${stage}`);
     }, [navigate]);
 
     // Overview — always loaded, refetch every visit & periodically
     const { data: overview, isLoading: overviewLoading, error: overviewError } = useQuery<OverviewData>({
-        queryKey: ['statistics', 'overview'],
-        queryFn: async () => (await api.get('/statistics/overview')).data,
+        queryKey: ['statistics', 'overview', dateParams],
+        queryFn: async () => {
+            const params = new URLSearchParams();
+            if (dateParams?.dateFrom) params.set('dateFrom', dateParams.dateFrom);
+            if (dateParams?.dateTo) params.set('dateTo', dateParams.dateTo);
+            const query = params.toString();
+            return (await api.get(`/statistics/overview${query ? `?${query}` : ''}`)).data;
+        },
         staleTime: 30_000,
         refetchOnWindowFocus: true,
         refetchInterval: 5 * 60_000,
@@ -71,8 +87,14 @@ export default function DashboardPage() {
     // Company locations — for globe map (pro tier only)
     const queryClient = useQueryClient();
     const { data: companyLocations, isLoading: locationsLoading } = useQuery<{ data: CompanyLocation[], missingCount: number }>({
-        queryKey: ['statistics', 'company-locations'],
-        queryFn: async () => (await api.get('/statistics/company-locations')).data,
+        queryKey: ['statistics', 'company-locations', dateParams],
+        queryFn: async () => {
+            const params = new URLSearchParams();
+            if (dateParams?.dateFrom) params.set('dateFrom', dateParams.dateFrom);
+            if (dateParams?.dateTo) params.set('dateTo', dateParams.dateTo);
+            const query = params.toString();
+            return (await api.get(`/statistics/company-locations${query ? `?${query}` : ''}`)).data;
+        },
         enabled: isAdvanced,
         staleTime: 5 * 60_000,
         refetchOnWindowFocus: false,
@@ -95,8 +117,14 @@ export default function DashboardPage() {
 
     // Pipeline — Pro tier or internal
     const { data: pipeline } = useQuery<PipelineData>({
-        queryKey: ['statistics', 'pipeline'],
-        queryFn: async () => (await api.get('/statistics/pipeline')).data,
+        queryKey: ['statistics', 'pipeline', dateParams],
+        queryFn: async () => {
+            const params = new URLSearchParams();
+            if (dateParams?.dateFrom) params.set('dateFrom', dateParams.dateFrom);
+            if (dateParams?.dateTo) params.set('dateTo', dateParams.dateTo);
+            const query = params.toString();
+            return (await api.get(`/statistics/pipeline${query ? `?${query}` : ''}`)).data;
+        },
         enabled: isAdvanced,
         staleTime: 30_000,
         refetchOnWindowFocus: true,
@@ -130,9 +158,22 @@ export default function DashboardPage() {
 
     return (
         <Container size="xl" py="lg">
-            <Title order={2} fw={700} mb="lg">
-                {t('nav.dashboard')}
-            </Title>
+            <Group justify="space-between" align="center" mb="lg">
+                <Title order={2} fw={700}>
+                    {t('nav.dashboard')}
+                </Title>
+                <SegmentedControl
+                    value={datePeriod || 'all'}
+                    onChange={(value) => setDatePeriod(value === 'all' ? null : value as DatePeriod)}
+                    data={[
+                        { label: t('filter.all'), value: 'all' },
+                        { label: t('filter.month'), value: 'month' },
+                        { label: t('filter.week'), value: 'week' },
+                        { label: t('filter.day'), value: 'day' },
+                    ]}
+                    size="sm"
+                />
+            </Group>
 
             {/* Stat Cards — always visible */}
             <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} mb="lg">

@@ -7,6 +7,10 @@ import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
 import { validateBody, createCompanySchema, updateCompanySchema } from '../lib/validation.js';
 import { isInternalRole } from '../lib/roles.js';
+<<<<<<< HEAD
+=======
+import { sanitizeSearch } from '../lib/queryUtils.js';
+>>>>>>> development
 import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
 import { invalidateOverviewCache, invalidatePipelineStatsCache } from './statistics.js';
 
@@ -16,6 +20,7 @@ const COMPANY_TRANSLATE_FIELDS = ['product_services', 'product_portfolio', 'comp
 
 const router = Router();
 
+<<<<<<< HEAD
 // Sanitize search input for safe use in PostgREST .or() filter strings.
 // Strip PostgREST syntax chars, then escape ILIKE wildcards so user input
 // cannot act as a wildcard pattern (e.g. searching "50%" won't match everything).
@@ -34,6 +39,16 @@ function dbClient(req: Request) {
     return createUserClient(req.accessToken!);
 }
 
+=======
+// For read endpoints: internal roles may be operating cross-tenant (X-Tenant-Id header),
+// so they require supabaseAdmin. Client roles access only their own tenant — use the
+// user client so RLS acts as a second isolation layer.
+function dbClient(req: Request) {
+    if (isInternalRole(req.user!.role)) return supabaseAdmin;
+    return createUserClient(req.accessToken!);
+}
+
+>>>>>>> development
 const VALID_EMAIL_STATUSES = ['valid', 'uncertain', 'invalid'] as const;
 
 /** Basic email format validation */
@@ -67,6 +82,23 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const industries = (req.query.industries as string || '').split(',').filter(Boolean);
         const locations = (req.query.locations as string || '').split(',').filter(Boolean);
         const products = (req.query.products as string || '').split(',').filter(Boolean);
+
+        const dateFrom = req.query.dateFrom as string | undefined;
+        const dateTo = req.query.dateTo as string | undefined;
+
+        // Validate date params
+        if (dateFrom && isNaN(Date.parse(dateFrom))) {
+            res.status(400).json({ error: 'Please enter a valid start date' });
+            return;
+        }
+        if (dateTo && isNaN(Date.parse(dateTo))) {
+            res.status(400).json({ error: 'Please enter a valid end date' });
+            return;
+        }
+        if (dateFrom && dateTo && new Date(dateFrom) > new Date(dateTo)) {
+            res.status(400).json({ error: 'Start date must be before end date' });
+            return;
+        }
 
         // Sort params
         const sortBy = SORT_COLUMNS[req.query.sortBy as string] || 'updated_at';
@@ -120,11 +152,26 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             dataQuery = dataQuery.in('product_services', products);
         }
 
+        // Apply date filters
+        if (dateFrom) {
+            countQuery = countQuery.gte('created_at', dateFrom);
+            dataQuery = dataQuery.gte('created_at', dateFrom);
+        }
+        if (dateTo) {
+            countQuery = countQuery.lte('created_at', dateTo);
+            dataQuery = dataQuery.lte('created_at', dateTo);
+        }
+
         const { count, error: countError } = await countQuery;
 
         if (countError) {
+<<<<<<< HEAD
             log.error({ err: countError }, 'Count query failed');
             throw new AppError(`Kayıt sayısı alınamadı (DB Hatası): ${countError.message}`, 500);
+=======
+            log.error({ err: countError }, 'Failed to get company count');
+            throw new AppError('Failed to list companies', 500);
+>>>>>>> development
         }
 
         // Apply sort and pagination
@@ -135,8 +182,13 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             .range(offset, offset + limit - 1);
 
         if (error) {
+<<<<<<< HEAD
             log.error({ err: error, sortBy, sortOrder }, 'Data query failed');
             throw new AppError(`Şirketler listelenirken DB hatası: ${error.message || 'Bilinmeyen hata'}`, 500);
+=======
+            log.error({ err: error }, 'Failed to list companies');
+            throw new AppError('Failed to list companies', 500);
+>>>>>>> development
         }
 
         const totalPages = Math.ceil((count || 0) / limit);
@@ -328,28 +380,44 @@ router.post(
             if (stage) {
                 const validSlugs = await getValidStageSlugs(tenantId);
                 if (!validSlugs.includes(stage)) {
+<<<<<<< HEAD
                     res.status(400).json({ error: `Invalid stage. Valid stages: ${validSlugs.join(', ')}` });
+=======
+                    res.status(400).json({ error: 'The selected pipeline stage is not valid' });
+>>>>>>> development
                     return;
                 }
             }
 
             // Validate email_status if provided
             if (email_status && !VALID_EMAIL_STATUSES.includes(email_status)) {
+<<<<<<< HEAD
                 res.status(400).json({
                     error: `Invalid email_status. Valid values: ${VALID_EMAIL_STATUSES.join(', ')}`
                 });
+=======
+                res.status(400).json({ error: 'The selected email status is not valid' });
+>>>>>>> development
                 return;
             }
 
             // Validate company_email format if provided
             if (company_email && !isValidEmail(company_email)) {
+<<<<<<< HEAD
                 res.status(400).json({ error: 'Invalid company email format' });
+=======
+                res.status(400).json({ error: 'Please enter a valid company email address' });
+>>>>>>> development
                 return;
             }
 
             // Validate contact_email format if provided
             if (contact_email && !isValidEmail(contact_email)) {
+<<<<<<< HEAD
                 res.status(400).json({ error: 'Invalid contact email format' });
+=======
+                res.status(400).json({ error: 'Please enter a valid contact email address' });
+>>>>>>> development
                 return;
             }
 
@@ -465,16 +533,30 @@ router.put(
             if (stage) {
                 const validSlugs = await getValidStageSlugs(tenantId);
                 if (!validSlugs.includes(stage)) {
+<<<<<<< HEAD
                     res.status(400).json({ error: `Invalid stage. Valid stages: ${validSlugs.join(', ')}` });
+=======
+                    res.status(400).json({ error: 'The selected pipeline stage is not valid' });
+>>>>>>> development
                     return;
                 }
             }
 
             // Validate email_status if provided
             if (email_status && !VALID_EMAIL_STATUSES.includes(email_status)) {
+<<<<<<< HEAD
                 res.status(400).json({
                     error: `Invalid email_status. Valid values: ${VALID_EMAIL_STATUSES.join(', ')}`
                 });
+=======
+                res.status(400).json({ error: 'The selected email status is not valid' });
+                return;
+            }
+
+            // Validate company_email format if provided
+            if (company_email && !isValidEmail(company_email)) {
+                res.status(400).json({ error: 'Please enter a valid company email address' });
+>>>>>>> development
                 return;
             }
 
@@ -623,7 +705,7 @@ router.patch(
             const { ids, stage } = req.body;
 
             if (!Array.isArray(ids) || ids.length === 0) {
-                res.status(400).json({ error: 'ids must be a non-empty array' });
+                res.status(400).json({ error: 'Please select at least one company' });
                 return;
             }
 
@@ -634,13 +716,21 @@ router.patch(
 
             const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
             if (!ids.every((id: unknown) => typeof id === 'string' && UUID_RE.test(id))) {
+<<<<<<< HEAD
                 res.status(400).json({ error: 'ids must be an array of valid UUIDs' });
+=======
+                res.status(400).json({ error: 'Some selected companies are not valid. Please refresh and try again.' });
+>>>>>>> development
                 return;
             }
 
             const validSlugs = await getValidStageSlugs(tenantId);
             if (!stage || !validSlugs.includes(stage)) {
+<<<<<<< HEAD
                 res.status(400).json({ error: `Invalid stage. Valid stages: ${validSlugs.join(', ')}` });
+=======
+                res.status(400).json({ error: 'The selected pipeline stage is not valid' });
+>>>>>>> development
                 return;
             }
 
@@ -685,7 +775,11 @@ router.patch(
 
             const validSlugs = await getValidStageSlugs(tenantId);
             if (!stage || !validSlugs.includes(stage)) {
+<<<<<<< HEAD
                 res.status(400).json({ error: `Invalid stage. Valid stages: ${validSlugs.join(', ')}` });
+=======
+                res.status(400).json({ error: 'The selected pipeline stage is not valid' });
+>>>>>>> development
                 return;
             }
 
@@ -740,7 +834,11 @@ router.post(
                 .map((f) => ({ field: f, text: company[f] as string }));
 
             if (texts.length === 0) {
+<<<<<<< HEAD
                 res.status(400).json({ error: 'No translatable text fields found' });
+=======
+                res.status(400).json({ error: 'There is no text available to translate' });
+>>>>>>> development
                 return;
             }
 

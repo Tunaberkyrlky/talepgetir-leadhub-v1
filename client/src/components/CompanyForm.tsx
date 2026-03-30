@@ -87,7 +87,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
             contact_phone_e164: '',
         },
         validate: {
-            name: (value: string) => (value.trim().length > 0 ? null : t('company.name') + ' is required'),
+            name: (value: string) => (value.trim().length > 0 ? null : t('validation.required', { field: t('company.name') })),
         },
     });
 

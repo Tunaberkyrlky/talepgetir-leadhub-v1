@@ -46,6 +46,7 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
         const search = (req.query.search as string || '').trim().toLowerCase();
         const roleFilter = req.query.role as string || '';
 
+<<<<<<< HEAD
         // Fetch ALL users from Supabase Auth (paginate through auth API)
         const allUsers: any[] = [];
         let authPage = 1;
@@ -62,6 +63,20 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
             allUsers.push(...users);
             if (users.length < 1000) break;
             authPage++;
+=======
+        // Fetch users from Supabase Auth (single page, capped at 1000)
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({
+            page: 1,
+            perPage: 1000,
+        });
+        if (authError) {
+            log.error({ err: authError }, 'Failed to list users');
+            throw new AppError('Failed to fetch users', 500);
+>>>>>>> development
+        }
+        const allUsers = authData.users || [];
+        if (allUsers.length >= 1000) {
+            log.warn('User listing capped at 1000 — some users may be missing');
         }
 
         // Fetch all memberships for fetched users
@@ -463,7 +478,7 @@ router.post('/tenants', validateBody(createTenantSchema), async (req: Request, r
             .single();
 
         if (existing) {
-            res.status(409).json({ error: 'A tenant with this slug already exists' });
+            res.status(409).json({ error: 'A workspace with this identifier already exists' });
             return;
         }
 
@@ -539,7 +554,7 @@ router.delete('/tenants/:id', async (req: Request, res: Response, next: NextFunc
         const id = req.params.id as string;
 
         if (req.query.confirm !== 'true') {
-            res.status(400).json({ error: 'Must confirm deletion with ?confirm=true' });
+            res.status(400).json({ error: 'Please confirm the deletion to proceed' });
             return;
         }
 
@@ -705,7 +720,7 @@ router.post('/memberships', validateBody(createMembershipSchema), async (req: Re
 
         if (error) {
             if (error.code === '23505') {
-                res.status(409).json({ error: 'User already has a membership in this tenant' });
+                res.status(409).json({ error: 'This user is already a member of this workspace' });
                 return;
             }
             log.error({ err: error }, 'Create membership error');

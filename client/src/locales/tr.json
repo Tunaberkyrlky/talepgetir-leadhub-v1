@@ -208,7 +208,11 @@
         "showMore": "Daha fazla",
         "showLess": "Daha az",
         "fullscreen": "Tam ekran",
-        "exitFullscreen": "Tam ekrandan çık"
+        "exitFullscreen": "Tam ekrandan çık",
+        "unsavedChanges": "Kaydedilmemiş değişiklikler var. Çıkmak istediğinize emin misiniz?",
+        "unsavedChangesTitle": "Kaydedilmemiş Değişiklikler",
+        "stayEditing": "Düzenlemeye Dön",
+        "discardChanges": "Değişiklikleri At"
     },
     "filter": {
         "stage": "Aşamaya göre filtrele...",
@@ -218,7 +222,12 @@
         "clearAll": "Filtreleri temizle",
         "results": "sonuç",
         "noResults": "Sonuç bulunamadı",
-        "tryDifferent": "Farklı arama terimleri veya filtreler deneyin."
+        "tryDifferent": "Farklı arama terimleri veya filtreler deneyin.",
+        "day": "Gün",
+        "week": "Hafta",
+        "month": "Ay",
+        "all": "Tümü",
+        "customRange": "Özel Aralık"
     },
     "tenant": {
         "switch": "Müşteri Değiştir",
@@ -283,6 +292,7 @@
         "people": "Kişiler",
         "pipeline": "Pipeline",
         "activities": "Aktiviteler",
+        "emailReplies": "Email Yanıtları",
         "import": "İçe Aktar",
         "admin": "Yönetim Paneli"
     },
@@ -342,6 +352,12 @@
         "noData": "Pipeline'da aktif anlaşma yok",
         "days": " gün",
         "daysInStage": "Aşamadaki Gün",
+        "boardTitle": "Pipeline",
+        "boardSubtitle": "Devam eden aktif fırsatlar",
+        "tableTitle": "Pipeline",
+        "tableSubtitle": "Aktif fırsatlar — tablo görünümü",
+        "outcomesTitle": "Sonuçlanan Leadler",
+        "outcomesSubtitle": "Kazanılan, kaybedilen ve askıdaki fırsatlar",
         "emptyColumn": "Şirket yok",
         "stageMoved": "Aşama güncellendi",
         "moveError": "Şirket taşınamadı",
@@ -427,6 +443,7 @@
     "activity": {
         "timeline": "Aktivite Zaman Çizelgesi",
         "addActivity": "Aktivite Ekle",
+        "editActivity": "Aktiviteyi Düzenle",
         "type": "Tür",
         "summary": "Özet",
         "detail": "Detaylar",
@@ -459,6 +476,9 @@
             "on_hold": "Beklemede",
             "cancelled": "İptal Edildi"
         },
+        "dateTime": "Tarih ve Saat",
+        "dateRequired": "Lütfen geçerli bir tarih ve saat seçin",
+        "invalidDate": "Geçersiz tarih formatı, lütfen tekrar seçin",
         "tierRequired": "Aktivite zaman çizelgesi Pro planda kullanılabilir"
     },
     "activities": {
@@ -473,7 +493,98 @@
             "not": "Not",
             "meeting": "Toplantı",
             "follow_up": "Takip"
+        },
+        "groupByNone": "Düz Liste",
+        "groupByDate": "Güne Göre",
+        "groupByCompany": "Şirkete Göre",
+        "groupByType": "Tipe Göre",
+        "periodDay": "Gün",
+        "periodWeek": "Hafta",
+        "periodMonth": "Ay",
+        "periodCustom": "Özel",
+        "search": "Ara...",
+        "allVisibility": "Tümü",
+        "allUsers": "Tüm Kullanıcılar",
+        "today": "Bugün",
+        "yesterday": "Dün",
+        "statsTotal": "Toplam"
+    },
+    "emailReplies": {
+        "pageTitle": "Email Yanıtları",
+        "stats": {
+            "total": "Toplam Yanıt",
+            "unread": "Okunmamış",
+            "matched": "Eşleşmiş",
+            "unmatched": "Eşleşmemiş"
+        },
+        "filters": {
+            "search": "Yanıt, email veya şirket ara...",
+            "campaign": "Kampanya",
+            "allCampaigns": "Tüm Kampanyalar",
+            "matchStatus": "Eşleşme Durumu",
+            "allMatchStatuses": "Tüm Durumlar",
+            "readStatus": "Okunma Durumu",
+            "allReadStatuses": "Okundu / Okunmadı",
+            "dateRange": "Tarih Aralığı"
+        },
+        "table": {
+            "campaign": "Kampanya",
+            "sender": "Gönderen",
+            "company": "Şirket",
+            "contact": "Kişi",
+            "preview": "Yanıt Önizleme",
+            "date": "Tarih"
+        },
+        "status": {
+            "matched": "Eşleşmiş",
+            "unmatched": "Eşleşmemiş",
+            "read": "Okunmuş",
+            "unread": "Okunmamış"
+        },
+        "detail": {
+            "title": "Email Yanıt Detayı",
+            "campaign": "Kampanya",
+            "date": "Tarih",
+            "sender": "Gönderen",
+            "company": "Şirket",
+            "contact": "Kişi",
+            "replyBody": "Yanıt İçeriği",
+            "actions": "Aksiyonlar"
+        },
+        "actions": {
+            "updateStage": "Stage Güncelle",
+            "update": "Güncelle",
+            "markRead": "Okundu İşaretle",
+            "markUnread": "Okunmadı İşaretle",
+            "currentStage": "Mevcut"
+        },
+        "assign": {
+            "title": "Şirkete Ata",
+            "warning": "Bu yanıt henüz bir şirketle eşleşmedi. Lütfen manuel olarak atayın.",
+            "searchCompany": "Şirket ara...",
+            "searchContact": "Kişi ara (opsiyonel)...",
+            "assignButton": "Ata"
+        },
+        "aiCategory": {
+            "title": "AI Kategori",
+            "comingSoon": "Yakında — otomatik segmentasyon"
+        },
+        "noData": "Henüz email yanıtı yok",
+        "noDataDescription": "PlusVibe kampanyalarından gelen yanıtlar burada görünecek.",
+        "loadMore": "Daha Fazla",
+        "assigned": "Yanıt başarıyla atandı",
+        "stageUpdated": "Stage başarıyla güncellendi",
+        "readStatusUpdated": "Okunma durumu güncellendi",
+        "errors": {
+            "loadFailed": "Email yanıtları yüklenemedi",
+            "loadFailedDescription": "Veriler getirilirken bir sorun oluştu. Sayfayı yenileyin veya daha sonra tekrar deneyin.",
+            "readToggleFailed": "Okunma durumu güncellenemedi. Lütfen tekrar deneyin.",
+            "stageUpdateFailed": "Stage güncellenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
+            "assignFailed": "Şirket ataması yapılamadı. Lütfen tekrar deneyin."
         }
+    },
+    "validation": {
+        "required": "{{field}} zorunludur"
     },
     "errors": {
         "network": "İnternet bağlantınızı kontrol edin",

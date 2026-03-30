@@ -91,8 +91,13 @@ async function getFileCache(fileId: string, tenantId: string): Promise<{
 /**
  * Delete cached file data from DB after use.
  */
+<<<<<<< HEAD
 async function deleteFileCache(fileId: string): Promise<void> {
     await supabaseAdmin.from('import_file_cache').delete().eq('id', fileId);
+=======
+async function deleteFileCache(fileId: string, tenantId: string): Promise<void> {
+    await supabaseAdmin.from('import_file_cache').delete().eq('id', fileId).eq('tenant_id', tenantId);
+>>>>>>> development
 }
 
 /**
@@ -133,7 +138,7 @@ router.post(
             const { fileName, fileType, totalRows, mapping } = req.body;
 
             if (!fileName || !fileType || !totalRows || !mapping) {
-                res.status(400).json({ error: 'Missing required fields: fileName, fileType, totalRows, mapping' });
+                res.status(400).json({ error: 'Please complete the import setup before proceeding' });
                 return;
             }
 
@@ -166,7 +171,7 @@ router.post(
 
             await runMulter(upload.single('file'))(req, res);
             if (!req.file) {
-                res.status(400).json({ error: 'No file uploaded' });
+                res.status(400).json({ error: 'Please select a file to upload' });
                 return;
             }
 
@@ -333,12 +338,12 @@ router.post(
             const { fileId, fileName, fileType, mapping, jobId, defaultCompanyName } = req.body;
 
             if (!fileId || !fileName || !fileType || !mapping) {
-                res.status(400).json({ error: 'Missing required fields: fileId, fileName, fileType, mapping' });
+                res.status(400).json({ error: 'Please complete the import setup and try again' });
                 return;
             }
 
             if (!jobId) {
-                res.status(400).json({ error: 'Missing required field: jobId. Call /api/import/begin first.' });
+                res.status(400).json({ error: 'Import session has expired. Please start the import again.' });
                 return;
             }
             log.info({ fileName, fileType, jobId }, 'Import execute started');
@@ -354,7 +359,11 @@ router.post(
             const { rows } = cached;
 
             if (rows.length > MAX_SYNC_ROWS) {
+<<<<<<< HEAD
                 res.status(400).json({ error: `Dosya çok büyük: ${rows.length} satır. Maksimum ${MAX_SYNC_ROWS} satır desteklenmektedir.` });
+=======
+                res.status(400).json({ error: `File too large: ${rows.length} rows. Maximum ${MAX_SYNC_ROWS} rows supported.` });
+>>>>>>> development
                 return;
             }
 
@@ -400,7 +409,11 @@ router.post(
             res.status(500).json({ error: 'Import failed' });
         } finally {
             if (fileId_cleanup) {
+<<<<<<< HEAD
                 deleteFileCache(fileId_cleanup).catch((e) =>
+=======
+                deleteFileCache(fileId_cleanup, req.tenantId!).catch((e) =>
+>>>>>>> development
                     log.error({ err: e, fileId: fileId_cleanup }, 'Failed to delete file cache')
                 );
             }

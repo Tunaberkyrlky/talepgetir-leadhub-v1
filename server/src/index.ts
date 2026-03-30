@@ -26,6 +26,11 @@ import statisticsRoutes from './routes/statistics.js';
 import adminRoutes from './routes/admin.js';
 import settingsRoutes from './routes/settings.js';
 import activitiesRoutes from './routes/activities.js';
+<<<<<<< HEAD
+=======
+import emailRepliesRoutes from './routes/email-replies.js';
+import webhooksRoutes from './routes/webhooks.js';
+>>>>>>> development
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -87,6 +92,17 @@ const generalLimiter = rateLimit({
     message: { error: 'Too many requests, please try again later' },
 });
 
+<<<<<<< HEAD
+=======
+const webhookLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many webhook requests' },
+});
+
+>>>>>>> development
 // Apply general rate limit to all API routes
 app.use('/api', generalLimiter);
 
@@ -100,6 +116,9 @@ app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/refresh', authLimiter);
 app.use('/api/auth', authRoutes);
 
+// Webhook routes — public, validated by their own secret
+app.use('/api/webhooks', webhookLimiter, webhooksRoutes);
+
 // Protected routes — auth middleware applied
 app.use('/api/companies', authMiddleware, dataFilter, companiesRoutes);
 app.use('/api/contacts', authMiddleware, dataFilter, contactsRoutes);
@@ -110,9 +129,21 @@ app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/statistics', authMiddleware, statisticsRoutes);
 app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
+<<<<<<< HEAD
+=======
+app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
+>>>>>>> development
 
 // Error handler (must be last)
 app.use(errorHandler);
+
+// Warn about missing PlusVibe integration env vars at startup
+if (!process.env.PLUSVIBE_WEBHOOK_SECRET) {
+    logger.warn(
+        'PLUSVIBE_WEBHOOK_SECRET is not set — the /api/webhooks/plusvibe/:tenantId endpoint will reject all requests with 503. ' +
+        'Set this variable to enable PlusVibe webhook ingestion.'
+    );
+}
 
 // Only listen when running standalone (not on Vercel serverless)
 if (!process.env.VERCEL) {

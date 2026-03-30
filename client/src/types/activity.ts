@@ -2,9 +2,6 @@ export type ActivityType = 'not' | 'meeting' | 'follow_up' | 'sonlandirma_raporu
 export type ActivityVisibility = 'internal' | 'client';
 export type ClosingOutcome = 'won' | 'lost' | 'on_hold' | 'cancelled';
 
-export const TERMINAL_STAGES = ['won', 'lost', 'on_hold', 'cancelled'] as const;
-export type TerminalStage = typeof TERMINAL_STAGES[number];
-
 export interface Activity {
     id: string;
     tenant_id: string;

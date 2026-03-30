@@ -6,6 +6,10 @@ import { createLogger } from '../lib/logger.js';
 import { translateTexts } from '../lib/deepl.js';
 import { validateBody, createContactSchema, updateContactSchema } from '../lib/validation.js';
 import { isInternalRole } from '../lib/roles.js';
+<<<<<<< HEAD
+=======
+import { sanitizeSearch } from '../lib/queryUtils.js';
+>>>>>>> development
 
 const log = createLogger('route:contacts');
 
@@ -15,6 +19,7 @@ const log = createLogger('route:contacts');
 function dbClient(req: Request) {
     if (isInternalRole(req.user!.role)) return supabaseAdmin;
     return createUserClient(req.accessToken!);
+<<<<<<< HEAD
 }
 
 // Sanitize search input for safe use in PostgREST .or() filter strings.
@@ -25,6 +30,8 @@ function sanitizeSearch(value: string): string {
         .replace(/[,().\\]/g, '')   // strip PostgREST syntax chars (backslash first)
         .replace(/%/g, '\\%')       // escape ILIKE wildcard %
         .replace(/_/g, '\\_');      // escape ILIKE wildcard _
+=======
+>>>>>>> development
 }
 
 const router = Router();
@@ -356,7 +363,11 @@ router.post(
             }
 
             if (texts.length === 0) {
+<<<<<<< HEAD
                 res.status(400).json({ error: 'No translatable text fields found' });
+=======
+                res.status(400).json({ error: 'There is no text available to translate' });
+>>>>>>> development
                 return;
             }
 
