@@ -15,10 +15,7 @@ import {
     Center,
     Loader,
     Button,
-<<<<<<< HEAD
-=======
     UnstyledButton,
->>>>>>> development
 } from '@mantine/core';
 import { useDebouncedValue, useHotkeys } from '@mantine/hooks';
 import { showSuccess, showError, showInfo } from '../lib/notifications';
@@ -33,12 +30,9 @@ import {
     IconRefresh,
     IconWifi,
     IconTrophy,
-<<<<<<< HEAD
-=======
     IconChevronUp,
     IconChevronDown,
     IconSelector,
->>>>>>> development
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -75,8 +69,6 @@ export default function PipelinePage() {
     const searchRef = useRef<HTMLInputElement>(null);
     const undoStack = useUndoStack();
 
-<<<<<<< HEAD
-=======
     // Table sort state
     type SortKey = 'name' | 'stage' | 'industry' | 'days' | 'updated_at' | 'contact_count';
     const [tableSortBy, setTableSortBy] = useState<SortKey>('updated_at');
@@ -91,7 +83,6 @@ export default function PipelinePage() {
         }
     };
 
->>>>>>> development
     // Closing report modal state (triggered when dragging to terminal stage)
     const [closingReportState, setClosingReportState] = useState<{
         companyId: string;
@@ -208,13 +199,6 @@ export default function PipelinePage() {
         [stageMutation.mutate, undoStack, t, data]
     );
 
-<<<<<<< HEAD
-    // Flatten all companies for table view
-    const allCompanies = useMemo(
-        () => (data ? pipelineStageSlugs.flatMap((stage) => data.columns[stage] || []) : []),
-        [data, pipelineStageSlugs]
-    );
-=======
     // Flatten all companies for table view, with client-side sorting
     const allCompanies = useMemo(() => {
         if (!data) return [];
@@ -248,7 +232,6 @@ export default function PipelinePage() {
             return tableSortOrder === 'asc' ? cmp : -cmp;
         });
     }, [data, pipelineStageSlugs, tableSortBy, tableSortOrder]);
->>>>>>> development
 
     const totalActive = allCompanies.length;
     const terminalCounts = data?.terminalCounts || {};
@@ -293,14 +276,6 @@ export default function PipelinePage() {
                 {/* Header */}
                 <Flex justify="space-between" align="center" mb="md" wrap="wrap" gap="sm">
                     <Group gap="sm">
-<<<<<<< HEAD
-                        <Title order={2} fw={700}>
-                            {t('nav.pipeline')}
-                        </Title>
-                        <Badge size="lg" variant="light" color="violet">
-                            {viewMode === 'outcomes' ? totalTerminal : totalActive}
-                        </Badge>
-=======
                         <Stack gap={0}>
                             <Group gap="xs">
                                 <Title order={2} fw={700}>
@@ -322,7 +297,6 @@ export default function PipelinePage() {
                                     : t('pipeline.boardSubtitle')}
                             </Text>
                         </Stack>
->>>>>>> development
                     </Group>
 
                     <Group gap="sm">

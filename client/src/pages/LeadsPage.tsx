@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-import { useState, useEffect, useCallback, useRef } from 'react';
-=======
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
->>>>>>> development
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -53,10 +49,7 @@ import {
     IconArrowLeft,
     IconMap,
     IconAlertCircle,
-<<<<<<< HEAD
-=======
     IconCalendar,
->>>>>>> development
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { DatePickerInput } from '@mantine/dates';
@@ -292,8 +285,6 @@ export default function LeadsPage() {
 
     const canEdit = canWrite(user?.role || '');
 
-<<<<<<< HEAD
-=======
     const dateParams = useMemo(() => {
         if (datePeriod) return getDateRange(datePeriod);
         if (customDateRange[0] && customDateRange[1]) {
@@ -302,7 +293,6 @@ export default function LeadsPage() {
         return null;
     }, [datePeriod, customDateRange]);
 
->>>>>>> development
     // Build query params (moved up so useQuery can be before handleRowSelect)
     const buildQueryParams = useCallback(() => {
         const params = new URLSearchParams();
@@ -315,14 +305,6 @@ export default function LeadsPage() {
         if (selectedIndustries.length) params.set('industries', selectedIndustries.join(','));
         if (selectedLocations.length) params.set('locations', selectedLocations.join(','));
         if (selectedProducts.length) params.set('products', selectedProducts.join(','));
-<<<<<<< HEAD
-        return params.toString();
-    }, [page, sortBy, sortOrder, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
-
-    // Fetch companies (moved up so data is available for handleRowSelect and useHotkeys)
-    const { data, isLoading, error } = useQuery<PaginatedResponse>({
-        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts, sortBy, sortOrder],
-=======
         if (dateParams?.dateFrom) params.set('dateFrom', dateParams.dateFrom);
         if (dateParams?.dateTo) params.set('dateTo', dateParams.dateTo);
         return params.toString();
@@ -331,7 +313,6 @@ export default function LeadsPage() {
     // Fetch companies (moved up so data is available for handleRowSelect and useHotkeys)
     const { data, isLoading, error } = useQuery<PaginatedResponse>({
         queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts, sortBy, sortOrder, dateParams],
->>>>>>> development
         queryFn: async () => {
             const res = await api.get(`/companies?${buildQueryParams()}`);
             return res.data;
@@ -679,12 +660,8 @@ export default function LeadsPage() {
                                     variant="light"
                                     size="sm"
                                     radius="sm"
-<<<<<<< HEAD
-                                    style={{ cursor: 'pointer' }}
-=======
                                     rightSection={<IconChevronDown size={12} />}
                                     style={{ cursor: 'pointer', paddingRight: 4 }}
->>>>>>> development
                                 >
                                     {getStageLabel(company.stage)}
                                 </Badge>
