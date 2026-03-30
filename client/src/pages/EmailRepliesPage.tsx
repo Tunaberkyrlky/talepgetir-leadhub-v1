@@ -4,14 +4,15 @@ import { useNavigate } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table,
     Loader, Center, Button, SimpleGrid, Select, TextInput,
-    Skeleton, Tooltip,
+    Skeleton, Tooltip, Alert, Anchor,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
 import {
     IconMail, IconMailOpened, IconSearch,
-    IconCircleFilled, IconLink, IconLinkOff,
+    IconCircleFilled, IconLink, IconLinkOff, IconAlertCircle,
 } from '@tabler/icons-react';
+
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import StatCard from '../components/StatCard';
@@ -31,11 +32,27 @@ interface EmailRepliesResponse {
 
 // ─── Helper Functions ────────────────────────────────────────────────────────
 
-function toLocalDateStr(d: Date): string {
+// Issue 7: include timezone offset so server compares in user's local time, not UTC
+function tzOffset(d: Date): string {
+    const off = -d.getTimezoneOffset();
+    const sign = off >= 0 ? '+' : '-';
+    const hh = String(Math.floor(Math.abs(off) / 60)).padStart(2, '0');
+    const mm = String(Math.abs(off) % 60).padStart(2, '0');
+    return `${sign}${hh}:${mm}`;
+}
+
+function toLocalISOStart(d: Date): string {
     const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    return `${y}-${mo}-${day}T00:00:00${tzOffset(d)}`;
+}
+
+function toLocalISOEnd(d: Date): string {
+    const y = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${day}T23:59:59${tzOffset(d)}`;
 }
 
 function formatDate(iso: string, locale: string): string {
@@ -76,12 +93,12 @@ export default function EmailRepliesPage() {
 
     // ── Derived ──
 
-    const dateFrom = dateRange[0] ? toLocalDateStr(dateRange[0]) : '';
-    const dateTo = dateRange[1] ? `${toLocalDateStr(dateRange[1])}T23:59:59` : '';
+    const dateFrom = dateRange[0] ? toLocalISOStart(dateRange[0]) : '';
+    const dateTo = dateRange[1] ? toLocalISOEnd(dateRange[1]) : '';
 
     // ── Queries ──
 
-    const { data, isLoading } = useQuery<EmailRepliesResponse>({
+    const { data, isLoading, error: repliesError } = useQuery<EmailRepliesResponse>({
         queryKey: [
             'email-replies',
             page,
@@ -108,7 +125,7 @@ export default function EmailRepliesPage() {
         refetchOnWindowFocus: false,
     });
 
-    const { data: stats, isLoading: statsLoading } = useQuery<EmailReplyStats>({
+    const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<EmailReplyStats>({
         queryKey: ['email-replies-stats'],
         queryFn: async () => (await api.get('/email-replies/stats')).data,
     });
@@ -122,6 +139,15 @@ export default function EmailRepliesPage() {
 
     const resetPage = () => setPage(1);
 
+    // Issue 14: close modal when filters change to prevent showing stale data.
+    // Render-phase state comparison (same pattern as ReplyDetailModal localReply sync).
+    const filterSig = `${campaignFilter}|${matchStatusFilter}|${readStatusFilter}|${debouncedSearch}|${dateFrom}|${dateTo}`;
+    const [prevFilterSig, setPrevFilterSig] = useState(filterSig);
+    if (prevFilterSig !== filterSig) {
+        setPrevFilterSig(filterSig);
+        if (selectedReply !== null) setSelectedReply(null);
+    }
+
     // ── Displayed replies ──
 
     const displayedReplies = useMemo(() => data?.data ?? [], [data]);
@@ -131,10 +157,12 @@ export default function EmailRepliesPage() {
 
     // ── Select Data ──
 
-    const campaignSelectData = (campaigns || []).map((c) => ({
-        value: c.campaign_id,
-        label: c.campaign_name,
-    }));
+    const campaignSelectData = (campaigns || [])
+        .filter((c) => c.campaign_name != null)
+        .map((c) => ({
+            value: c.campaign_id,
+            label: c.campaign_name,
+        }));
 
     const matchStatusData = [
         { value: 'matched', label: t('emailReplies.status.matched') },
@@ -159,6 +187,19 @@ export default function EmailRepliesPage() {
                     </Badge>
                 </Group>
             </Group>
+
+            {/* Error state */}
+            {(repliesError || statsError) && (
+                <Alert
+                    icon={<IconAlertCircle size={16} />}
+                    color="red"
+                    variant="light"
+                    mb="md"
+                    title={t('emailReplies.errors.loadFailed')}
+                >
+                    {t('emailReplies.errors.loadFailedDescription')}
+                </Alert>
+            )}
 
             {/* Stats Cards */}
             <SimpleGrid cols={{ base: 2, sm: 4 }} mb="lg">
@@ -336,18 +377,18 @@ export default function EmailRepliesPage() {
                                                         {t('emailReplies.status.unmatched')}
                                                     </Badge>
                                                 ) : reply.company_name ? (
-                                                    <Text
+                                                    <Anchor
                                                         size="sm"
-                                                        c="blue"
                                                         fw={500}
-                                                        style={{ cursor: 'pointer' }}
+                                                        href={`/companies/${reply.company_id}`}
                                                         onClick={(e) => {
+                                                            e.preventDefault();
                                                             e.stopPropagation();
                                                             navigate(`/companies/${reply.company_id}`);
                                                         }}
                                                     >
                                                         {reply.company_name}
-                                                    </Text>
+                                                    </Anchor>
                                                 ) : (
                                                     <Text size="xs" c="dimmed">-</Text>
                                                 )}

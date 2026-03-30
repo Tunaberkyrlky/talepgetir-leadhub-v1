@@ -574,7 +574,14 @@
         "loadMore": "Load More",
         "assigned": "Reply assigned successfully",
         "stageUpdated": "Stage updated successfully",
-        "readStatusUpdated": "Read status updated"
+        "readStatusUpdated": "Read status updated",
+        "errors": {
+            "loadFailed": "Could not load email replies",
+            "loadFailedDescription": "There was a problem fetching data. Please refresh the page or try again later.",
+            "readToggleFailed": "Could not update read status. Please try again.",
+            "stageUpdateFailed": "Could not update stage. Please check your connection and try again.",
+            "assignFailed": "Could not assign company. Please try again."
+        }
     },
     "validation": {
         "required": "{{field}} is required"

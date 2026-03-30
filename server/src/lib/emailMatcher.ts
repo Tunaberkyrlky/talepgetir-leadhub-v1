@@ -11,12 +11,12 @@ export interface MatchResult {
 }
 
 /**
- * Match a sender email to a contact or company across all tenants.
+ * Match a sender email to a contact or company within the given tenant.
  *
  * Priority:
  * 1. contacts.email → prefer is_primary, then updated_at DESC → returns contact + company
  * 2. companies.company_email → updated_at DESC → returns company only
- * 3. No match → uses defaultTenantId
+ * 3. No match → returns defaultTenantId with unmatched status
  */
 export async function matchSenderEmail(
     senderEmail: string,
@@ -24,17 +24,19 @@ export async function matchSenderEmail(
 ): Promise<MatchResult> {
     const email = senderEmail.toLowerCase().trim();
 
-    // Step 1: Search contacts
+    // Step 1: Search contacts scoped to the tenant
     const { data: contacts, error: contactErr } = await supabaseAdmin
         .from('contacts')
         .select('id, company_id, tenant_id, is_primary, updated_at')
         .eq('email', email)
+        .eq('tenant_id', defaultTenantId)
         .order('is_primary', { ascending: false })
         .order('updated_at', { ascending: false })
         .limit(1);
 
     if (contactErr) {
         log.error({ err: contactErr, email }, 'Contact lookup failed');
+        throw new Error(`Contact lookup failed: ${contactErr.message}`);
     }
 
     if (contacts && contacts.length > 0) {
@@ -48,16 +50,18 @@ export async function matchSenderEmail(
         };
     }
 
-    // Step 2: Search companies
+    // Step 2: Search companies scoped to the tenant
     const { data: companies, error: companyErr } = await supabaseAdmin
         .from('companies')
         .select('id, tenant_id, updated_at')
         .eq('company_email', email)
+        .eq('tenant_id', defaultTenantId)
         .order('updated_at', { ascending: false })
         .limit(1);
 
     if (companyErr) {
         log.error({ err: companyErr, email }, 'Company lookup failed');
+        throw new Error(`Company lookup failed: ${companyErr.message}`);
     }
 
     if (companies && companies.length > 0) {

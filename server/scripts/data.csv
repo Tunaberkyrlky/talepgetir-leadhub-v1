@@ -1,0 +1,4 @@
+campaign_id,campaign_name,recipient_email,reply_body,replied_at
+camp_tech_01,B2B Tech Outreach,ahmet@techsolutions.com,"Merhaba, sunduğunuz yazılım çözümleriyle ilgileniyoruz. Salı günü 14:00'te bir demo yapabilir miyiz?",2026-03-30T09:00:00Z
+camp_global_01,Q2 Partnerlik Bülteni,info@globalyazilim.net,"Şu an için partnerlik programına katılmayı düşünmüyoruz, ama listemizde kalabilirsiniz.",2026-03-30T11:00:00Z
+camp_unknown_01,Rastgele Kampanya,bilinmeyen@baskasirket.com,"Fiyat politikanız çok yüksek, teşekkürler.",2026-03-30T13:30:00Z

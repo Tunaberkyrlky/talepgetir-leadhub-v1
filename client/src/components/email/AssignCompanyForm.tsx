@@ -76,7 +76,7 @@ export default function AssignCompanyForm({ replyId, onAssigned }: AssignCompany
             onAssigned();
         },
         onError: (err) => {
-            showErrorFromApi(err);
+            showErrorFromApi(err, t('emailReplies.errors.assignFailed'));
         },
     });
 

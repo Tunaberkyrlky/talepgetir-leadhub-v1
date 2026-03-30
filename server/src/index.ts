@@ -123,10 +123,18 @@ app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/statistics', authMiddleware, statisticsRoutes);
 app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
-app.use('/api/email-replies', authMiddleware, emailRepliesRoutes);
+app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);
+
+// Warn about missing PlusVibe integration env vars at startup
+if (!process.env.PLUSVIBE_WEBHOOK_SECRET) {
+    logger.warn(
+        'PLUSVIBE_WEBHOOK_SECRET is not set — the /api/webhooks/plusvibe/:tenantId endpoint will reject all requests with 503. ' +
+        'Set this variable to enable PlusVibe webhook ingestion.'
+    );
+}
 
 // Only listen when running standalone (not on Vercel serverless)
 if (!process.env.VERCEL) {

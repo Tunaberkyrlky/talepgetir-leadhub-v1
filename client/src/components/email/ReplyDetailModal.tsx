@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Modal, Paper, Group, Stack, Text, Badge, Select, Button, Divider,
-    SimpleGrid,
+    SimpleGrid, Anchor,
 } from '@mantine/core';
 import {
     IconMail, IconMailOpened, IconSparkles,
@@ -30,13 +30,21 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
 
     const [selectedStage, setSelectedStage] = useState<string | null>(null);
+    // Local copy so modal reflects mutations without waiting for query refetch
+    const [localReply, setLocalReply] = useState<EmailReply | null>(reply);
 
-    const isMatched = !!reply?.company_id;
+    // Sync when a new reply is selected
+    if (reply?.id !== localReply?.id) {
+        setLocalReply(reply);
+        setSelectedStage(null);
+    }
+
+    const isMatched = !!localReply?.company_id;
 
     // ── Stage update mutation ──
     const stageUpdateMutation = useMutation({
         mutationFn: async (newStage: string) => {
-            return (await api.put(`/companies/${reply!.company_id}`, { stage: newStage })).data;
+            return (await api.put(`/companies/${localReply!.company_id}`, { stage: newStage })).data;
         },
         onSuccess: () => {
             showSuccess(t('emailReplies.stageUpdated'));
@@ -45,23 +53,25 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             setSelectedStage(null);
         },
         onError: (err) => {
-            showErrorFromApi(err);
+            showErrorFromApi(err, t('emailReplies.errors.stageUpdateFailed'));
         },
     });
 
     // ── Read toggle mutation ──
+    // Issue 5 (Option A): send explicit desired status — no server-side race condition
     const readToggleMutation = useMutation({
         mutationFn: async () => {
-            const newStatus = reply!.read_status === 'read' ? false : true;
-            return (await api.patch(`/email-replies/${reply!.id}/read`, { read: newStatus })).data;
+            const read_status = localReply!.read_status === 'read' ? 'unread' : 'read';
+            return (await api.patch(`/email-replies/${localReply!.id}/read`, { read_status })).data;
         },
-        onSuccess: () => {
+        onSuccess: (data: { id: string; read_status: string }) => {
             showSuccess(t('emailReplies.readStatusUpdated'));
+            setLocalReply((prev) => prev ? { ...prev, read_status: data.read_status as EmailReply['read_status'] } : prev);
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
         },
         onError: (err) => {
-            showErrorFromApi(err);
+            showErrorFromApi(err, t('emailReplies.errors.readToggleFailed'));
         },
     });
 
@@ -75,7 +85,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         });
     };
 
-    if (!reply) return null;
+    if (!localReply) return null;
 
     return (
         <Modal
@@ -91,15 +101,15 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             <Stack gap="md">
                 {/* Header: Campaign badge + date */}
                 <Group justify="space-between">
-                    {reply.campaign_name ? (
+                    {localReply.campaign_name ? (
                         <Badge size="lg" variant="light" color="blue">
-                            {reply.campaign_name}
+                            {localReply.campaign_name}
                         </Badge>
                     ) : (
                         <Badge size="lg" variant="light" color="gray">-</Badge>
                     )}
                     <Text size="sm" c="dimmed">
-                        {formatDate(reply.replied_at)}
+                        {formatDate(localReply.replied_at)}
                     </Text>
                 </Group>
 
@@ -110,26 +120,26 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                             {t('emailReplies.detail.sender')}
                         </Text>
                         <Text size="sm" fw={500}>
-                            {reply.sender_email}
+                            {localReply.sender_email}
                         </Text>
                     </div>
                     <div>
                         <Text size="xs" c="dimmed" fw={500}>
                             {t('emailReplies.detail.company')}
                         </Text>
-                        {reply.company_id ? (
-                            <Text
+                        {localReply.company_id ? (
+                            <Anchor
                                 size="sm"
                                 fw={500}
-                                c="blue"
-                                style={{ cursor: 'pointer' }}
-                                onClick={() => {
+                                href={`/companies/${localReply.company_id}`}
+                                onClick={(e) => {
+                                    e.preventDefault();
                                     onClose();
-                                    navigate(`/companies/${reply.company_id}`);
+                                    navigate(`/companies/${localReply.company_id}`);
                                 }}
                             >
-                                {reply.company_name || '-'}
-                            </Text>
+                                {localReply.company_name || '-'}
+                            </Anchor>
                         ) : (
                             <Badge size="sm" variant="light" color="red">
                                 {t('emailReplies.status.unmatched')}
@@ -141,7 +151,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                             {t('emailReplies.detail.contact')}
                         </Text>
                         <Text size="sm" fw={500}>
-                            {reply.contact_name || '-'}
+                            {localReply.contact_name || '-'}
                         </Text>
                     </div>
                 </SimpleGrid>
@@ -165,7 +175,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                         }}
                     >
                         <Text size="sm">
-                            {reply.reply_body || '-'}
+                            {localReply.reply_body || '-'}
                         </Text>
                     </Paper>
                 </div>
@@ -205,8 +215,8 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                         {/* Read/Unread toggle */}
                         <Button
                             variant="light"
-                            color={reply.read_status === 'read' ? 'gray' : 'blue'}
-                            leftSection={reply.read_status === 'read'
+                            color={localReply.read_status === 'read' ? 'gray' : 'blue'}
+                            leftSection={localReply.read_status === 'read'
                                 ? <IconMailOpened size={16} />
                                 : <IconMail size={16} />
                             }
@@ -214,7 +224,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                             loading={readToggleMutation.isPending}
                             radius="md"
                         >
-                            {reply.read_status === 'read'
+                            {localReply.read_status === 'read'
                                 ? t('emailReplies.actions.markUnread')
                                 : t('emailReplies.actions.markRead')
                             }
@@ -234,7 +244,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 ) : (
                     /* Unmatched: show assign form */
                     <AssignCompanyForm
-                        replyId={reply.id}
+                        replyId={localReply.id}
                         onAssigned={onClose}
                     />
                 )}

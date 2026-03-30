@@ -574,7 +574,14 @@
         "loadMore": "Daha Fazla",
         "assigned": "Yanıt başarıyla atandı",
         "stageUpdated": "Stage başarıyla güncellendi",
-        "readStatusUpdated": "Okunma durumu güncellendi"
+        "readStatusUpdated": "Okunma durumu güncellendi",
+        "errors": {
+            "loadFailed": "Email yanıtları yüklenemedi",
+            "loadFailedDescription": "Veriler getirilirken bir sorun oluştu. Sayfayı yenileyin veya daha sonra tekrar deneyin.",
+            "readToggleFailed": "Okunma durumu güncellenemedi. Lütfen tekrar deneyin.",
+            "stageUpdateFailed": "Stage güncellenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
+            "assignFailed": "Şirket ataması yapılamadı. Lütfen tekrar deneyin."
+        }
     },
     "validation": {
         "required": "{{field}} zorunludur"

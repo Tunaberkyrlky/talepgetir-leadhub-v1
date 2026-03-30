@@ -2,7 +2,7 @@ import { z } from 'zod/v4';
 import { Request, Response, NextFunction } from 'express';
 
 /** Lenient UUID validator — accepts any 8-4-4-4-12 hex format (matches Postgres UUID type) */
-const uuidField = (message = 'Invalid UUID') =>
+export const uuidField = (message = 'Invalid UUID') =>
     z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, message);
 
 /** Express middleware that validates req.body against a Zod schema */
@@ -207,7 +207,24 @@ export const closingReportSchema = z.object({
     occurred_at: z.string().datetime({ message: 'occurred_at must be a valid ISO datetime' }).optional(),
 });
 
-// ── Email Reply schemas ──
+// ── Email Reply query filter schema ──
+
+export const emailRepliesQuerySchema = z.object({
+    page: z.coerce.number().int().min(1).optional().default(1),
+    limit: z.coerce.number().int().min(1).max(50).optional().default(20),
+    campaign_id: z.string().max(500).optional(),
+    match_status: z.enum(['matched', 'unmatched']).optional(),
+    read_status: z.enum(['unread', 'read']).optional(),
+    date_from: z.string().optional(),
+    date_to: z.string().optional(),
+    search: z.string().max(255).optional(),
+});
+
+export const readStatusBodySchema = z.object({
+    read_status: z.enum(['read', 'unread']),
+});
+
+// ── Email Reply webhook + assign schemas ──
 
 export const webhookPayloadSchema = z.object({
     event: z.literal('replied'),
