@@ -292,6 +292,7 @@
         "people": "People",
         "pipeline": "Pipeline",
         "activities": "Activities",
+        "emailReplies": "Email Replies",
         "import": "Import",
         "admin": "Admin Panel"
     },
@@ -507,6 +508,73 @@
         "today": "Today",
         "yesterday": "Yesterday",
         "statsTotal": "Total"
+    },
+    "emailReplies": {
+        "pageTitle": "Email Replies",
+        "stats": {
+            "total": "Total Replies",
+            "unread": "Unread",
+            "matched": "Matched",
+            "unmatched": "Unmatched"
+        },
+        "filters": {
+            "search": "Search replies, email, or company...",
+            "campaign": "Campaign",
+            "allCampaigns": "All Campaigns",
+            "matchStatus": "Match Status",
+            "allMatchStatuses": "All Statuses",
+            "readStatus": "Read Status",
+            "allReadStatuses": "Read / Unread",
+            "dateRange": "Date Range"
+        },
+        "table": {
+            "campaign": "Campaign",
+            "sender": "Sender",
+            "company": "Company",
+            "contact": "Contact",
+            "preview": "Reply Preview",
+            "date": "Date"
+        },
+        "status": {
+            "matched": "Matched",
+            "unmatched": "Unmatched",
+            "read": "Read",
+            "unread": "Unread"
+        },
+        "detail": {
+            "title": "Email Reply Detail",
+            "campaign": "Campaign",
+            "date": "Date",
+            "sender": "Sender",
+            "company": "Company",
+            "contact": "Contact",
+            "replyBody": "Reply Content",
+            "actions": "Actions"
+        },
+        "actions": {
+            "updateStage": "Update Stage",
+            "update": "Update",
+            "markRead": "Mark as Read",
+            "markUnread": "Mark as Unread",
+            "currentStage": "Current"
+        },
+        "assign": {
+            "title": "Assign to Company",
+            "warning": "This reply has not been matched to any company yet. Please assign manually.",
+            "searchCompany": "Search company...",
+            "searchContact": "Search contact (optional)...",
+            "assignButton": "Assign"
+        },
+        "aiCategory": {
+            "title": "AI Category",
+            "comingSoon": "Coming Soon — automatic segmentation"
+        },
+        "noData": "No email replies yet",
+        "noDataDescription": "Replies from PlusVibe campaigns will appear here.",
+        "loadMore": "Load More",
+        "assigned": "Reply assigned successfully",
+        "stageUpdated": "Stage updated successfully",
+        "readStatusUpdated": "Read status updated"
     },
     "validation": {
         "required": "{{field}} is required"

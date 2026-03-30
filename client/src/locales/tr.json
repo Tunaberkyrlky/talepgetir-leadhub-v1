@@ -292,6 +292,7 @@
         "people": "Kişiler",
         "pipeline": "Pipeline",
         "activities": "Aktiviteler",
+        "emailReplies": "Email Yanıtları",
         "import": "İçe Aktar",
         "admin": "Yönetim Paneli"
     },
@@ -507,6 +508,73 @@
         "today": "Bugün",
         "yesterday": "Dün",
         "statsTotal": "Toplam"
+    },
+    "emailReplies": {
+        "pageTitle": "Email Yanıtları",
+        "stats": {
+            "total": "Toplam Yanıt",
+            "unread": "Okunmamış",
+            "matched": "Eşleşmiş",
+            "unmatched": "Eşleşmemiş"
+        },
+        "filters": {
+            "search": "Yanıt, email veya şirket ara...",
+            "campaign": "Kampanya",
+            "allCampaigns": "Tüm Kampanyalar",
+            "matchStatus": "Eşleşme Durumu",
+            "allMatchStatuses": "Tüm Durumlar",
+            "readStatus": "Okunma Durumu",
+            "allReadStatuses": "Okundu / Okunmadı",
+            "dateRange": "Tarih Aralığı"
+        },
+        "table": {
+            "campaign": "Kampanya",
+            "sender": "Gönderen",
+            "company": "Şirket",
+            "contact": "Kişi",
+            "preview": "Yanıt Önizleme",
+            "date": "Tarih"
+        },
+        "status": {
+            "matched": "Eşleşmiş",
+            "unmatched": "Eşleşmemiş",
+            "read": "Okunmuş",
+            "unread": "Okunmamış"
+        },
+        "detail": {
+            "title": "Email Yanıt Detayı",
+            "campaign": "Kampanya",
+            "date": "Tarih",
+            "sender": "Gönderen",
+            "company": "Şirket",
+            "contact": "Kişi",
+            "replyBody": "Yanıt İçeriği",
+            "actions": "Aksiyonlar"
+        },
+        "actions": {
+            "updateStage": "Stage Güncelle",
+            "update": "Güncelle",
+            "markRead": "Okundu İşaretle",
+            "markUnread": "Okunmadı İşaretle",
+            "currentStage": "Mevcut"
+        },
+        "assign": {
+            "title": "Şirkete Ata",
+            "warning": "Bu yanıt henüz bir şirketle eşleşmedi. Lütfen manuel olarak atayın.",
+            "searchCompany": "Şirket ara...",
+            "searchContact": "Kişi ara (opsiyonel)...",
+            "assignButton": "Ata"
+        },
+        "aiCategory": {
+            "title": "AI Kategori",
+            "comingSoon": "Yakında — otomatik segmentasyon"
+        },
+        "noData": "Henüz email yanıtı yok",
+        "noDataDescription": "PlusVibe kampanyalarından gelen yanıtlar burada görünecek.",
+        "loadMore": "Daha Fazla",
+        "assigned": "Yanıt başarıyla atandı",
+        "stageUpdated": "Stage başarıyla güncellendi",
+        "readStatusUpdated": "Okunma durumu güncellendi"
     },
     "validation": {
         "required": "{{field}} zorunludur"
