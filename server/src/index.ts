@@ -26,6 +26,7 @@ import statisticsRoutes from './routes/statistics.js';
 import adminRoutes from './routes/admin.js';
 import settingsRoutes from './routes/settings.js';
 import activitiesRoutes from './routes/activities.js';
+import webhooksRoutes from './routes/webhooks.js';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -87,6 +88,14 @@ const generalLimiter = rateLimit({
     message: { error: 'Too many requests, please try again later' },
 });
 
+const webhookLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many webhook requests' },
+});
+
 // Apply general rate limit to all API routes
 app.use('/api', generalLimiter);
 
@@ -99,6 +108,9 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/refresh', authLimiter);
 app.use('/api/auth', authRoutes);
+
+// Webhook routes — public, validated by their own secret
+app.use('/api/webhooks', webhookLimiter, webhooksRoutes);
 
 // Protected routes — auth middleware applied
 app.use('/api/companies', authMiddleware, dataFilter, companiesRoutes);
