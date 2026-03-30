@@ -6,17 +6,11 @@ import { createLogger } from '../lib/logger.js';
 import { validateBody, createActivitySchema, updateActivitySchema, closingReportSchema } from '../lib/validation.js';
 import { invalidateOverviewCache, invalidatePipelineStatsCache } from './statistics.js';
 import { isInternalRole } from '../lib/roles.js';
+import { sanitizeSearch } from '../lib/queryUtils.js';
 
 const log = createLogger('route:activities');
 
 const router = Router();
-
-function sanitizeSearch(value: string): string {
-    return value
-        .replace(/[,().\\]/g, '')   // strip PostgREST syntax chars
-        .replace(/%/g, '\\%')       // escape ILIKE wildcard %
-        .replace(/_/g, '\\_');      // escape ILIKE wildcard _
-}
 
 
 
@@ -35,7 +29,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const offset = (page - 1) * limit;
 
         if (!company_id) {
-            res.status(400).json({ error: 'company_id is required' });
+            res.status(400).json({ error: 'Please select a company first' });
             return;
         }
 
@@ -52,7 +46,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         if (type) {
             const VALID_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change'];
             if (!VALID_TYPES.includes(type as string)) {
-                res.status(400).json({ error: `Invalid activity type: ${type}` });
+                res.status(400).json({ error: 'The selected activity type is not valid' });
                 return;
             }
             query = query.eq('type', type as string);
@@ -110,6 +104,15 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
         const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
         const offset = (page - 1) * limit;
 
+        if (date_from && isNaN(Date.parse(date_from as string))) {
+            res.status(400).json({ error: 'Please enter a valid start date' });
+            return;
+        }
+        if (date_to && isNaN(Date.parse(date_to as string))) {
+            res.status(400).json({ error: 'Please enter a valid end date' });
+            return;
+        }
+
         const db = dbClient(req);
         let query = db
             .from('activities')
@@ -121,7 +124,7 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
         if (type) {
             const VALID_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change'];
             if (!VALID_TYPES.includes(type as string)) {
-                res.status(400).json({ error: `Invalid activity type: ${type}` });
+                res.status(400).json({ error: 'The selected activity type is not valid' });
                 return;
             }
             query = query.eq('type', type as string);
@@ -209,12 +212,21 @@ router.get('/stats', async (req: Request, res: Response, next: NextFunction): Pr
         const tenantId = req.tenantId!;
         const { type, date_from, date_to, search, visibility, created_by } = req.query;
 
+        if (date_from && isNaN(Date.parse(date_from as string))) {
+            res.status(400).json({ error: 'Please enter a valid start date' });
+            return;
+        }
+        if (date_to && isNaN(Date.parse(date_to as string))) {
+            res.status(400).json({ error: 'Please enter a valid end date' });
+            return;
+        }
+
         // Validate type
         let validType: string | null = null;
         if (type) {
             const VALID_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change'];
             if (!VALID_TYPES.includes(type as string)) {
-                res.status(400).json({ error: `Invalid activity type: ${type}` });
+                res.status(400).json({ error: 'The selected activity type is not valid' });
                 return;
             }
             validType = type as string;
@@ -311,27 +323,30 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
             return;
         }
 
-        // Resolve emails via Supabase Auth admin API (paginated)
-        const allAuthUsers: any[] = [];
-        let authPage = 1;
-        while (true) {
-            const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({
-                page: authPage,
-                perPage: 1000,
-            });
-            if (authError) {
-                log.error({ err: authError }, 'Activity users auth lookup error');
-                throw new AppError('Failed to fetch user details', 500);
-            }
-            allAuthUsers.push(...authData.users);
-            if (authData.users.length < 1000) break;
-            authPage++;
-        }
+        // Resolve emails via targeted user lookups
+        const userMap = new Map<string, { email: string; name?: string }>();
+        await Promise.all(
+            uniqueIds.map(async (uid) => {
+                try {
+                    const { data: { user }, error } = await supabaseAdmin.auth.admin.getUserById(uid);
+                    if (!error && user) {
+                        userMap.set(uid, {
+                            email: user.email || uid,
+                            name: user.user_metadata?.full_name || user.user_metadata?.name,
+                        });
+                    }
+                } catch {
+                    // skip unresolvable users
+                }
+            })
+        );
 
-        const userMap = new Map(allAuthUsers.map(u => [u.id, u.email]));
         const users = uniqueIds
             .filter(id => userMap.has(id))
-            .map(id => ({ id, email: userMap.get(id) }));
+            .map(id => {
+                const info = userMap.get(id)!;
+                return { id, email: info.email, ...(info.name ? { name: info.name } : {}) };
+            });
 
         res.json(users);
     } catch (err) {
@@ -379,7 +394,7 @@ router.post(
 
             // Non-internal roles cannot create internal-visibility activities
             if (visibility === 'internal' && !isInternalRole(req.user!.role)) {
-                res.status(422).json({ error: 'Only internal roles can create activities with internal visibility' });
+                res.status(422).json({ error: 'You don\'t have permission to create internal-only notes' });
                 return;
             }
 
@@ -469,6 +484,11 @@ router.put(
             const tenantId = req.tenantId!;
             const { id } = req.params;
             const { summary, detail, outcome, visibility, occurred_at } = req.body;
+
+            if (visibility === 'internal' && !isInternalRole(req.user!.role)) {
+                res.status(422).json({ error: 'You don\'t have permission to change visibility to internal' });
+                return;
+            }
 
             const { data: existing, error: findError } = await supabaseAdmin
                 .from('activities')

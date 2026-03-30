@@ -255,7 +255,10 @@ export default function LeadsPage() {
     const [debouncedSearch] = useDebouncedValue(search, 300);
     const [selectedStages, setSelectedStages] = useState<string[]>([]);
     const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
-    const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+    const [selectedLocations, setSelectedLocations] = useState<string[]>(() => {
+        const loc = searchParams.get('locations');
+        return loc ? loc.split(',').filter(Boolean) : [];
+    });
     const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
     const [datePeriod, setDatePeriod] = useState<DatePeriod | null>(null);
     const [customDateRange, setCustomDateRange] = useState<[Date | string | null, Date | string | null]>([null, null]);

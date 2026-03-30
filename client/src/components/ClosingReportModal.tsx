@@ -46,8 +46,8 @@ export default function ClosingReportModal({
             visibility: 'client',
         },
         validate: {
-            outcome: (v: string) => (v ? null : t('activity.closingReport.outcomeLabel') + ' is required'),
-            summary: (v: string) => (v.trim() ? null : t('activity.summary') + ' is required'),
+            outcome: (v: string) => (v ? null : t('validation.required', { field: t('activity.closingReport.outcomeLabel') })),
+            summary: (v: string) => (v.trim() ? null : t('validation.required', { field: t('activity.summary') })),
         },
     });
 

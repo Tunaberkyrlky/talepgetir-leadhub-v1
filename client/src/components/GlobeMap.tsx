@@ -109,7 +109,7 @@ function CountryCompaniesModal({
                         variant="light"
                         size="compact-xs"
                         rightSection={<IconExternalLink size={12} />}
-                        onClick={() => navigate(`/companies?search=${encodeURIComponent(countryName)}&fromMap=true`)}
+                        onClick={() => navigate(`/companies?locations=${encodeURIComponent(countryName)}&fromMap=true`)}
                     >
                         {t('dashboard.goToTable', 'Tabloda göster')}
                     </Button>

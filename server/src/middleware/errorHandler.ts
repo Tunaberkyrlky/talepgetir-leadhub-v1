@@ -32,7 +32,7 @@ export function errorHandler(
     // Don't leak internal error details in production
     const message =
         process.env.NODE_ENV === 'production'
-            ? 'Internal server error'
+            ? 'Something went wrong. Please try again.'
             : err.message;
 
     res.status(500).json({

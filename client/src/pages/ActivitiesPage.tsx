@@ -9,7 +9,7 @@ import {
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
 import {
-    IconNotes, IconCalendar, IconClock, IconFileReport, IconArrowsExchange,
+    IconNotes, IconCalendar, IconClock,
     IconUser, IconSearch, IconChevronLeft, IconChevronRight,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
@@ -17,6 +17,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { isInternal } from '../lib/permissions';
 import api from '../lib/api';
 import StatCard from '../components/StatCard';
+import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS } from '../lib/activityConstants';
 import type { Activity, ActivityType } from '../types/activity';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
@@ -43,31 +44,6 @@ interface ActivityUser {
     id: string;
     email: string;
 }
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const ACTIVITY_ICONS: Record<ActivityType, React.ReactNode> = {
-    not: <IconNotes size={16} />,
-    meeting: <IconCalendar size={16} />,
-    follow_up: <IconClock size={16} />,
-    sonlandirma_raporu: <IconFileReport size={16} />,
-    status_change: <IconArrowsExchange size={16} />,
-};
-
-const ACTIVITY_COLORS: Record<ActivityType, string> = {
-    not: 'blue',
-    meeting: 'violet',
-    follow_up: 'orange',
-    sonlandirma_raporu: 'green',
-    status_change: 'gray',
-};
-
-const OUTCOME_COLORS: Record<string, string> = {
-    won: 'green',
-    lost: 'red',
-    on_hold: 'gray',
-    cancelled: 'dark',
-};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -332,6 +308,7 @@ export default function ActivitiesPage() {
             return (await api.get('/activities/all', { params })).data;
         },
         enabled: queryEnabled,
+        refetchOnWindowFocus: false,
     });
 
     // Stats query: intentionally excludes typeFilter so cards always show

@@ -10,7 +10,7 @@ CREATE OR REPLACE FUNCTION get_contact_filter_options(p_tenant_id uuid)
 RETURNS jsonb
 LANGUAGE sql
 STABLE
-SECURITY DEFINER
+SECURITY INVOKER
 AS $$
     SELECT jsonb_build_object(
         'seniorities', COALESCE(

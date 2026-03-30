@@ -282,7 +282,7 @@ export default function CompanyDetailPage() {
             is_primary: false,
         },
         validate: {
-            first_name: (v: string) => (v.trim() ? null : 'Required'),
+            first_name: (v: string) => (v.trim() ? null : t('validation.required', { field: t('contact.firstName') })),
         },
     });
 
@@ -481,7 +481,7 @@ export default function CompanyDetailPage() {
                                                     queryClient.invalidateQueries({ queryKey: ['pipeline'] });
                                                     queryClient.invalidateQueries({ queryKey: ['statistics'] });
                                                     showSuccess(t('company.updated'));
-                                                });
+                                                }).catch((err) => showErrorFromApi(err));
                                             }}
                                         >
                                             <Text size="sm" fw={company.stage === s.slug ? 700 : 400}>

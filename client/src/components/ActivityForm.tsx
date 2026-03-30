@@ -47,7 +47,7 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, co
             contact_id: '' as string,
         },
         validate: {
-            summary: (v: string) => (v.trim() ? null : t('activity.summary') + ' is required'),
+            summary: (v: string) => (v.trim() ? null : t('validation.required', { field: t('activity.summary') })),
             occurred_at: (value) => {
                 if (!value) return t('activity.dateRequired');
                 const date = new Date(value);

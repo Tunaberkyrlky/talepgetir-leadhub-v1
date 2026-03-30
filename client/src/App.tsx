@@ -6,6 +6,7 @@ import { ModalsProvider } from '@mantine/modals';
 import { DatesProvider } from '@mantine/dates';
 import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 import { Center, Loader } from '@mantine/core';
+import { useTranslation } from 'react-i18next';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/dropzone/styles.css';
@@ -68,10 +69,12 @@ const theme = createTheme({
 });
 
 function App() {
+  const { i18n } = useTranslation();
+
   return (
     <QueryClientProvider client={queryClient}>
       <MantineProvider theme={theme} defaultColorScheme="light">
-        <DatesProvider settings={{ locale: 'tr', firstDayOfWeek: 1 }}>
+        <DatesProvider settings={{ locale: i18n.language, firstDayOfWeek: 1 }}>
         <Notifications position="top-right" />
         <ModalsProvider>
           <BrowserRouter>

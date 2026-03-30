@@ -52,12 +52,16 @@ export function getErrorMessage(error: unknown, fallback?: string): string {
                 // Auth errors are handled by the interceptor, but just in case
                 return t('errors.unauthorized');
             case 403:
-                return t('errors.forbidden');
+                // Show server message when available (e.g. "This feature requires a higher plan")
+                return serverMessage || t('errors.forbidden');
             case 404:
-                return t('errors.notFound');
+                // Show server message when available (e.g. "Company not found")
+                return serverMessage || t('errors.notFound');
             case 409:
                 return serverMessage || t('errors.conflict');
             default:
+                // Never expose raw server error details for 5xx errors
+                if (status >= 500) return defaultMsg;
                 return serverMessage || defaultMsg;
         }
     }

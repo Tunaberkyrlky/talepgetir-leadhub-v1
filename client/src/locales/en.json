@@ -508,6 +508,9 @@
         "yesterday": "Yesterday",
         "statsTotal": "Total"
     },
+    "validation": {
+        "required": "{{field}} is required"
+    },
     "errors": {
         "network": "Check your internet connection",
         "timeout": "Request timed out, please try again",

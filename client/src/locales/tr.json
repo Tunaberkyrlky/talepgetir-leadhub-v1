@@ -508,6 +508,9 @@
         "yesterday": "Dün",
         "statsTotal": "Toplam"
     },
+    "validation": {
+        "required": "{{field}} zorunludur"
+    },
     "errors": {
         "network": "İnternet bağlantınızı kontrol edin",
         "timeout": "İstek zaman aşımına uğradı, tekrar deneyin",

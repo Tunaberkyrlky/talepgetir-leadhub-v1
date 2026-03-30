@@ -13,7 +13,7 @@ export function useNavigateBack() {
     const navigate = useNavigate();
 
     return (fallback: string) => {
-        if (window.history.length > 1) {
+        if (window.history.state?.idx > 0) {
             navigate(-1);
         } else {
             navigate(fallback, { replace: true });

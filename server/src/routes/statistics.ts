@@ -15,6 +15,7 @@ interface CachedOverview {
 }
 const overviewCache = new Map<string, CachedOverview>();
 const OVERVIEW_TTL = 30_000; // 30 seconds
+const MAX_STATS_CACHE_SIZE = 500;
 
 /** Invalidate overview cache for a tenant (call after stage changes, imports, etc.) */
 export function invalidateOverviewCache(tenantId: string) {
@@ -28,15 +29,15 @@ function parseDateFilters(req: Request, res: Response): { dateFrom?: string; dat
     const dateTo = req.query.dateTo as string | undefined;
 
     if (dateFrom && isNaN(Date.parse(dateFrom))) {
-        res.status(400).json({ error: 'Invalid dateFrom parameter' });
+        res.status(400).json({ error: 'Please enter a valid start date' });
         return null;
     }
     if (dateTo && isNaN(Date.parse(dateTo))) {
-        res.status(400).json({ error: 'Invalid dateTo parameter' });
+        res.status(400).json({ error: 'Please enter a valid end date' });
         return null;
     }
     if (dateFrom && dateTo && new Date(dateFrom) > new Date(dateTo)) {
-        res.status(400).json({ error: 'dateFrom must be before dateTo' });
+        res.status(400).json({ error: 'Start date must be before end date' });
         return null;
     }
 
@@ -135,6 +136,7 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
         };
 
         // Cache result
+        if (overviewCache.size >= MAX_STATS_CACHE_SIZE) overviewCache.clear();
         overviewCache.set(cacheKey, { data: result, ts: Date.now() });
 
         res.json(result);
@@ -202,6 +204,7 @@ router.get('/pipeline', requireTier('pro'), async (req: Request, res: Response):
         }));
 
         const result = { funnel, terminal };
+        if (pipelineStatsCache.size >= MAX_STATS_CACHE_SIZE) pipelineStatsCache.clear();
         pipelineStatsCache.set(cacheKey, { data: result, ts: Date.now() });
 
         res.json(result);
