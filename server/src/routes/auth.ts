@@ -60,11 +60,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
         const refreshToken = req.cookies?.refresh_token;
 
         if (!refreshToken) {
-<<<<<<< HEAD
-            res.status(401).json({ error: 'No refresh token' });
-=======
             res.status(401).json({ error: 'Your session has expired. Please sign in again.' });
->>>>>>> development
             return;
         }
 
@@ -74,11 +70,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
 
         if (error || !data.session) {
             clearAuthCookies(res);
-<<<<<<< HEAD
-            res.status(401).json({ error: 'Invalid refresh token' });
-=======
             res.status(401).json({ error: 'Your session has expired. Please sign in again.' });
->>>>>>> development
             return;
         }
 
@@ -99,11 +91,7 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
             || (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null);
 
         if (!token) {
-<<<<<<< HEAD
-            res.status(401).json({ error: 'Not authenticated' });
-=======
             res.status(401).json({ error: 'Please sign in to continue' });
->>>>>>> development
             return;
         }
 

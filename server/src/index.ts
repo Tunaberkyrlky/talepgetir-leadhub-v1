@@ -26,11 +26,8 @@ import statisticsRoutes from './routes/statistics.js';
 import adminRoutes from './routes/admin.js';
 import settingsRoutes from './routes/settings.js';
 import activitiesRoutes from './routes/activities.js';
-<<<<<<< HEAD
-=======
 import emailRepliesRoutes from './routes/email-replies.js';
 import webhooksRoutes from './routes/webhooks.js';
->>>>>>> development
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -92,8 +89,6 @@ const generalLimiter = rateLimit({
     message: { error: 'Too many requests, please try again later' },
 });
 
-<<<<<<< HEAD
-=======
 const webhookLimiter = rateLimit({
     windowMs: 60 * 1000,
     limit: 100,
@@ -102,7 +97,7 @@ const webhookLimiter = rateLimit({
     message: { error: 'Too many webhook requests' },
 });
 
->>>>>>> development
+
 // Apply general rate limit to all API routes
 app.use('/api', generalLimiter);
 
@@ -129,10 +124,7 @@ app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/statistics', authMiddleware, statisticsRoutes);
 app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
-<<<<<<< HEAD
-=======
 app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
->>>>>>> development
 
 // Error handler (must be last)
 app.use(errorHandler);

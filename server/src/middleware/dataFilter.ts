@@ -35,17 +35,12 @@ export function dataFilter(req: Request, _res: Response, next: NextFunction): vo
                 body.data = body.data
                     .filter((item: any) => item.visibility !== 'internal')
                     .map((item: any) => transformItem(item, viewer));
-<<<<<<< HEAD
-            } else {
-                body.data = transformItem(body.data, viewer);
-=======
             } else if (body.data) {
                 if (body.data.visibility === 'internal') {
                     body.data = null;
                 } else {
                     body.data = transformItem(body.data, viewer);
                 }
->>>>>>> development
             }
         }
         return originalJson(body);

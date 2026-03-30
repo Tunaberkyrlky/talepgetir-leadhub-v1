@@ -91,13 +91,8 @@ async function getFileCache(fileId: string, tenantId: string): Promise<{
 /**
  * Delete cached file data from DB after use.
  */
-<<<<<<< HEAD
-async function deleteFileCache(fileId: string): Promise<void> {
-    await supabaseAdmin.from('import_file_cache').delete().eq('id', fileId);
-=======
 async function deleteFileCache(fileId: string, tenantId: string): Promise<void> {
     await supabaseAdmin.from('import_file_cache').delete().eq('id', fileId).eq('tenant_id', tenantId);
->>>>>>> development
 }
 
 /**
@@ -359,11 +354,7 @@ router.post(
             const { rows } = cached;
 
             if (rows.length > MAX_SYNC_ROWS) {
-<<<<<<< HEAD
-                res.status(400).json({ error: `Dosya çok büyük: ${rows.length} satır. Maksimum ${MAX_SYNC_ROWS} satır desteklenmektedir.` });
-=======
                 res.status(400).json({ error: `File too large: ${rows.length} rows. Maximum ${MAX_SYNC_ROWS} rows supported.` });
->>>>>>> development
                 return;
             }
 
@@ -409,11 +400,7 @@ router.post(
             res.status(500).json({ error: 'Import failed' });
         } finally {
             if (fileId_cleanup) {
-<<<<<<< HEAD
-                deleteFileCache(fileId_cleanup).catch((e) =>
-=======
                 deleteFileCache(fileId_cleanup, req.tenantId!).catch((e) =>
->>>>>>> development
                     log.error({ err: e, fileId: fileId_cleanup }, 'Failed to delete file cache')
                 );
             }

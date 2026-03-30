@@ -12,10 +12,7 @@ interface CachedAuth {
 }
 const authCache = new Map<string, CachedAuth>();
 const AUTH_CACHE_TTL = 60_000; // 60 seconds
-<<<<<<< HEAD
-=======
 const MAX_AUTH_CACHE_SIZE = 1000;
->>>>>>> development
 
 // Clean stale entries lazily — started on first auth request.
 // Storing the reference prevents duplicate intervals when the module is re-evaluated
@@ -62,11 +59,7 @@ export async function authMiddleware(
             || (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null);
 
         if (!token) {
-<<<<<<< HEAD
-            res.status(401).json({ error: 'Missing or invalid authorization' });
-=======
             res.status(401).json({ error: 'Please sign in to continue' });
->>>>>>> development
             return;
         }
 
@@ -187,27 +180,13 @@ export async function authMiddleware(
         req.tenantId = effectiveTenantId;
 
         // Cache for subsequent requests
-<<<<<<< HEAD
-=======
         if (authCache.size >= MAX_AUTH_CACHE_SIZE) authCache.clear();
->>>>>>> development
         authCache.set(cacheKey, { user: authUser, ts: Date.now() });
 
         next();
     } catch (err) {
         log.error({ err }, 'Auth middleware error');
         res.status(500).json({ error: 'Something went wrong. Please try signing in again.' });
-    }
-}
-
-/**
- * Evict all cache entries for a given user ID.
- * Call this after deactivating or deleting a user so their next request
- * is forced through a fresh auth check instead of hitting a cached result.
- */
-export function clearAuthCacheForUser(userId: string): void {
-    for (const [key, val] of authCache) {
-        if (val.user.id === userId) authCache.delete(key);
     }
 }
 

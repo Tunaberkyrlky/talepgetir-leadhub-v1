@@ -46,24 +46,6 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
         const search = (req.query.search as string || '').trim().toLowerCase();
         const roleFilter = req.query.role as string || '';
 
-<<<<<<< HEAD
-        // Fetch ALL users from Supabase Auth (paginate through auth API)
-        const allUsers: any[] = [];
-        let authPage = 1;
-        while (true) {
-            const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({
-                page: authPage,
-                perPage: 1000,
-            });
-            if (authError) {
-                log.error({ err: authError }, 'Failed to list users');
-                throw new AppError('Failed to fetch users', 500);
-            }
-            const users = authData.users || [];
-            allUsers.push(...users);
-            if (users.length < 1000) break;
-            authPage++;
-=======
         // Fetch users from Supabase Auth (single page, capped at 1000)
         const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({
             page: 1,
@@ -72,7 +54,6 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
         if (authError) {
             log.error({ err: authError }, 'Failed to list users');
             throw new AppError('Failed to fetch users', 500);
->>>>>>> development
         }
         const allUsers = authData.users || [];
         if (allUsers.length >= 1000) {

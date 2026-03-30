@@ -63,6 +63,10 @@ SQL migration files live in `supabase/migrations/` (numbered 001–011). Key tab
 ### Middleware Stack Order
 Compression → Helmet → Pino-HTTP → CORS → Cookie Parser → JSON (10MB limit) → Rate Limiters → Health Check → Auth Routes (public) → Auth Middleware → Protected Routes → Admin Routes (superadmin only) → Error Handler
 
+## Temporary Files
+
+Geçici dosyalar (test scriptleri, deneme CSV'leri, tek seferlik araçlar vb.) için `temp/` klasörünü kullan. Bu klasör `.gitignore`'da tanımlıdır — içindekiler git'e girmez. Kaynak kodun içine (`server/scripts/`, `client/src/` vb.) geçici dosya koyma.
+
 ## Key Patterns
 
 - **Rate limiting:** Auth (10/15min), Import (30/15min), General (100/min)
