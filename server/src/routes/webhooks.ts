@@ -29,7 +29,7 @@ function verifyWebhookSecret(req: Request, res: Response, next: NextFunction): v
     const expectedBuf = Buffer.from(WEBHOOK_SECRET);
     const valid = secretBuf.length === expectedBuf.length && timingSafeEqual(secretBuf, expectedBuf);
     if (!valid) {
-        log.warn({ ip: req.ip }, 'Invalid webhook secret received');
+        log.warn({ ip: req.ip, headers: Object.keys(req.headers), secretHeader: secret ?? '(not present)' }, 'Invalid webhook secret received');
         res.status(401).json({
             error: 'Invalid webhook secret',
             code: 'INVALID_WEBHOOK_SECRET',

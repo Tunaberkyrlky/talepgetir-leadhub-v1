@@ -32,6 +32,9 @@ import webhooksRoutes from './routes/webhooks.js';
 const app = express();
 const PORT = process.env.API_PORT || 3001;
 
+// Trust Vercel / reverse-proxy X-Forwarded-For so rate limiters identify real IPs
+app.set('trust proxy', 1);
+
 // Compression (before all routes for smaller responses)
 app.use(compression());
 
