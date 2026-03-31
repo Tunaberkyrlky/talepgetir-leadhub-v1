@@ -6,11 +6,10 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import pinoHttp from 'pino-http';
+import path from 'path';
 
-// Load env first (skip in Vercel — env vars are injected)
-if (!process.env.VERCEL) {
-    dotenv.config({ path: '../.env' });
-}
+// Load env for local development (Railway/Vercel inject env vars directly)
+dotenv.config({ path: path.join(__dirname, '..', '..', '..', '.env') });
 
 import logger from './lib/logger.js';
 import { authMiddleware, requireRole } from './middleware/auth.js';
@@ -30,7 +29,7 @@ import emailRepliesRoutes from './routes/email-replies.js';
 import webhooksRoutes from './routes/webhooks.js';
 
 const app = express();
-const PORT = process.env.API_PORT || 3001;
+const PORT = process.env.PORT || process.env.API_PORT || 3001;
 
 // Trust Vercel / reverse-proxy X-Forwarded-For so rate limiters identify real IPs
 app.set('trust proxy', 1);
@@ -52,8 +51,8 @@ app.use(pinoHttp({
     },
 }));
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production' || process.env.VERCEL
-        ? [process.env.CLIENT_URL || 'https://leadhub.app']
+    origin: process.env.NODE_ENV === 'production'
+        ? (process.env.CLIENT_URL ? [process.env.CLIENT_URL] : false)
         : (origin, callback) => {
             // Allow any localhost port in development (Vite may pick 5173, 5174, etc.)
             if (!origin || /^http:\/\/localhost:\d+$/.test(origin)) {
@@ -133,6 +132,14 @@ app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
 app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
 
+// Serve static client build (Railway: single-service deployment)
+const CLIENT_DIST = path.join(__dirname, '..', '..', 'client', 'dist');
+app.use(express.static(CLIENT_DIST));
+// SPA fallback — serve index.html for any non-API route
+app.get(/^(?!\/api).*/, (_req, res) => {
+    res.sendFile(path.join(CLIENT_DIST, 'index.html'));
+});
+
 // Error handler (must be last)
 app.use(errorHandler);
 
@@ -144,11 +151,8 @@ if (!process.env.PLUSVIBE_WEBHOOK_SECRET) {
     );
 }
 
-// Only listen when running standalone (not on Vercel serverless)
-if (!process.env.VERCEL) {
-    app.listen(PORT, () => {
-        logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'TG Core API started');
-    });
-}
+app.listen(PORT, () => {
+    logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'TG Core API started');
+});
 
 export default app;
