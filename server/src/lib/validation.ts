@@ -226,14 +226,14 @@ export const readStatusBodySchema = z.object({
 
 // ── Email Reply webhook + assign schemas ──
 
+// PlusVibe webhook payload — only validates fields we actually use; extra fields pass through
 export const webhookPayloadSchema = z.object({
-    event: z.literal('replied'),
-    campaign_id: z.string().max(500).optional().nullable(),
+    from_email: z.string().email('Invalid from_email'),
+    camp_id: z.string().max(500).optional().nullable(),
     campaign_name: z.string().max(500).optional().nullable(),
-    recipient_email: z.string().email('Invalid recipient email'),
-    reply_body: z.string().optional().nullable(),
-    replied_at: z.string().datetime({ message: 'replied_at must be a valid ISO datetime' }).optional().nullable(),
-});
+    text_body: z.string().optional().nullable(),
+    replied_date: z.string().optional().nullable(),
+}).passthrough();
 
 export const assignReplySchema = z.object({
     company_id: uuidField('Invalid company_id'),

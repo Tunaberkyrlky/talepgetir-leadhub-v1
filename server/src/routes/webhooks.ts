@@ -71,10 +71,6 @@ function sanitizePayload(body: unknown): unknown {
 router.post(
     '/plusvibe/:tenantId',
     verifyWebhookSecret,
-    (req: Request, _res: Response, next: NextFunction) => {
-        log.info({ body: req.body }, 'PlusVibe raw payload (pre-validation)');
-        next();
-    },
     validateBody(webhookPayloadSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
@@ -89,14 +85,15 @@ router.post(
                 return;
             }
 
-            const { campaign_id, campaign_name, recipient_email, reply_body, replied_at } = req.body;
+            // Map PlusVibe field names to our internal names
+            const { camp_id, campaign_name, from_email, text_body, replied_date } = req.body;
 
             // Match sender email to contact/company within this tenant
             let match;
             try {
-                match = await matchSenderEmail(recipient_email, tenantId);
+                match = await matchSenderEmail(from_email, tenantId);
             } catch (matchErr) {
-                log.error({ err: matchErr, recipient_email }, 'Email matching failed — database may be unavailable');
+                log.error({ err: matchErr, from_email }, 'Email matching failed — database may be unavailable');
                 res.status(503).json({
                     error: 'Email matching service unavailable',
                     code: 'EMAIL_MATCH_FAILED',
@@ -111,11 +108,11 @@ router.post(
             // For inserts without campaign_id, always insert (no dedup possible).
             const row = {
                 tenant_id: match.tenant_id,
-                campaign_id: campaign_id || null,
+                campaign_id: camp_id || null,
                 campaign_name: campaign_name || null,
-                sender_email: recipient_email.toLowerCase().trim(),
-                reply_body: reply_body || null,
-                replied_at: replied_at || new Date().toISOString(),
+                sender_email: from_email.toLowerCase().trim(),
+                reply_body: text_body || null,
+                replied_at: replied_date || new Date().toISOString(),
                 company_id: match.company_id,
                 contact_id: match.contact_id,
                 match_status: match.match_status,
@@ -124,7 +121,7 @@ router.post(
             };
 
             let error;
-            if (campaign_id) {
+            if (camp_id) {
                 ({ error } = await supabaseAdmin
                     .from('email_replies')
                     .upsert(row, { onConflict: 'campaign_id,sender_email,replied_at', ignoreDuplicates: true }));
@@ -135,7 +132,7 @@ router.post(
             }
 
             if (error) {
-                log.error({ err: error, campaign_id, sender: recipient_email }, 'Failed to insert email reply into database');
+                log.error({ err: error, camp_id, sender: from_email }, 'Failed to insert email reply into database');
                 res.status(500).json({
                     error: 'Failed to store email reply',
                     code: 'DB_INSERT_FAILED',
@@ -144,7 +141,7 @@ router.post(
                 return;
             }
 
-            log.info({ campaign_id, sender: recipient_email, match_status: match.match_status }, 'Webhook processed successfully');
+            log.info({ camp_id, sender: from_email, match_status: match.match_status }, 'Webhook processed successfully');
             res.status(200).json({ ok: true });
         } catch (err) {
             if (err instanceof AppError) return next(err);
