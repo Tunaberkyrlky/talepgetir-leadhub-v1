@@ -65,7 +65,11 @@ app.use(cors({
     credentials: true,
 }));
 app.use(cookieParser());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+    limit: '10mb',
+    // Capture raw body buffer so webhook HMAC verification can re-read it
+    verify: (req: any, _res, buf) => { req.rawBody = buf; },
+}));
 
 // Rate limiters
 const authLimiter = rateLimit({

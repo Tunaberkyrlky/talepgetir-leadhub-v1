@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'crypto';
+import { timingSafeEqual, createHmac } from 'crypto';
 import { Router, Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { createLogger } from '../lib/logger.js';
@@ -13,9 +13,8 @@ const WEBHOOK_SECRET = process.env.PLUSVIBE_WEBHOOK_SECRET;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Middleware: validate webhook secret before anything else */
+/** Middleware: validate PlusVibe HMAC-SHA256 signature before anything else */
 function verifyWebhookSecret(req: Request, res: Response, next: NextFunction): void {
-    const secret = req.headers['x-webhook-secret'] as string;
     if (!WEBHOOK_SECRET) {
         log.error('PLUSVIBE_WEBHOOK_SECRET env var is not set — all webhook requests will be rejected');
         res.status(503).json({
@@ -25,16 +24,33 @@ function verifyWebhookSecret(req: Request, res: Response, next: NextFunction): v
         });
         return;
     }
-    const secretBuf = Buffer.from(secret || '');
-    const expectedBuf = Buffer.from(WEBHOOK_SECRET);
-    const valid = secretBuf.length === expectedBuf.length && timingSafeEqual(secretBuf, expectedBuf);
+
+    const signature = req.headers['signature'] as string | undefined;
+    if (!signature) {
+        log.warn({ ip: req.ip }, 'Missing signature header');
+        res.status(401).json({ error: 'Missing signature header', code: 'MISSING_SIGNATURE' });
+        return;
+    }
+
+    // PlusVibe signs the raw request body with HMAC-SHA256
+    const rawBody: Buffer = (req as any).rawBody ?? Buffer.alloc(0);
+    const expectedHex = createHmac('sha256', WEBHOOK_SECRET).update(rawBody).digest('hex');
+
+    // Accept both plain hex and "sha256=<hex>" formats
+    const receivedHex = signature.startsWith('sha256=') ? signature.slice(7) : signature;
+
+    let valid = false;
+    try {
+        const a = Buffer.from(receivedHex, 'hex');
+        const b = Buffer.from(expectedHex, 'hex');
+        valid = a.length > 0 && a.length === b.length && timingSafeEqual(a, b);
+    } catch {
+        valid = false;
+    }
+
     if (!valid) {
-        log.warn({ ip: req.ip, headers: Object.keys(req.headers), secretHeader: secret ?? '(not present)' }, 'Invalid webhook secret received');
-        res.status(401).json({
-            error: 'Invalid webhook secret',
-            code: 'INVALID_WEBHOOK_SECRET',
-            hint: 'Ensure the x-webhook-secret header matches the configured PLUSVIBE_WEBHOOK_SECRET.',
-        });
+        log.warn({ ip: req.ip }, 'Invalid webhook signature');
+        res.status(401).json({ error: 'Invalid webhook signature', code: 'INVALID_SIGNATURE' });
         return;
     }
     next();
