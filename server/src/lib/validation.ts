@@ -237,7 +237,7 @@ export const webhookPayloadSchema = z.object({
 
 export const assignReplySchema = z.object({
     company_id: uuidField('Invalid company_id'),
-    contact_id: uuidField('Invalid contact_id').optional(),
+    contact_id: uuidField('Invalid contact_id').optional().nullable(),
 });
 
 // ── PlusVibe integration schemas ──
@@ -255,4 +255,10 @@ export const campaignStatsQuerySchema = z.object({
     date_from: z.string().optional(),
     date_to: z.string().optional(),
     campaign_id: z.string().max(500).optional(),
+});
+
+export const threadHistoryQuerySchema = z.object({
+    sender_email: z.string().email('Invalid sender_email').max(255),
+    campaign_id: z.string().max(500).optional(),
+    exclude_id: uuidField('Invalid exclude_id').optional(),
 });

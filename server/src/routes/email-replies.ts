@@ -8,6 +8,7 @@ import {
     assignReplySchema,
     emailRepliesQuerySchema,
     readStatusBodySchema,
+    threadHistoryQuerySchema,
     uuidField,
 } from '../lib/validation.js';
 import { z } from 'zod/v4';
@@ -27,8 +28,8 @@ function dbClient(req: Request) {
     return createUserClient(req.accessToken);
 }
 
-// GET /api/email-replies — paginated list with filters
-// Issue 6: restricted to non-viewer roles
+// GET /api/email-replies — threaded list (latest email per sender+campaign)
+// Returns thread_count and has_unread alongside each row.
 router.get(
     '/',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
@@ -36,7 +37,6 @@ router.get(
         try {
             const tenantId = req.tenantId!;
 
-            // Issue 3: validate and coerce all query parameters
             const queryResult = emailRepliesQuerySchema.safeParse(req.query);
             if (!queryResult.success) {
                 res.status(400).json({ error: 'Invalid query parameters' });
@@ -45,51 +45,54 @@ router.get(
             const { page, limit, campaign_id, match_status, read_status, date_from, date_to, search } = queryResult.data;
             const offset = (page - 1) * limit;
 
-            const db = dbClient(req);
-            let query = db
-                .from('email_replies')
-                .select('*', { count: 'exact' })
-                .eq('tenant_id', tenantId)
-                .order('replied_at', { ascending: false })
-                .range(offset, offset + limit - 1);
+            const rpcParams = {
+                p_tenant_id: tenantId,
+                p_offset: offset,
+                p_limit: limit,
+                p_campaign_id: campaign_id || null,
+                p_match_status: match_status || null,
+                p_read_status: read_status || null,
+                p_search: search || null,
+                p_date_from: date_from || null,
+                p_date_to: date_to || null,
+            };
 
-            if (campaign_id) query = query.eq('campaign_id', campaign_id);
-            if (match_status) query = query.eq('match_status', match_status);
-            if (read_status) query = query.eq('read_status', read_status);
-            if (date_from) query = query.gte('replied_at', date_from);
-            if (date_to) query = query.lte('replied_at', date_to);
-            if (search) {
-                const term = search.replace(/%/g, '\\%').replace(/_/g, '\\_');
-                query = query.or(`reply_body.ilike.%${term}%,sender_email.ilike.%${term}%`);
-            }
+            const [{ data: rows, error }, { data: countData, error: countError }] = await Promise.all([
+                supabaseAdmin.rpc('get_email_reply_threads', rpcParams),
+                supabaseAdmin.rpc('count_email_reply_threads', {
+                    p_tenant_id: tenantId,
+                    p_campaign_id: campaign_id || null,
+                    p_match_status: match_status || null,
+                    p_read_status: read_status || null,
+                    p_search: search || null,
+                    p_date_from: date_from || null,
+                    p_date_to: date_to || null,
+                }),
+            ]);
 
-            const { data, count, error } = await query;
-
-            if (error) {
-                log.error({ err: error }, 'List email replies error');
+            if (error || countError) {
+                log.error({ err: error || countError }, 'List email replies (threaded) error');
                 throw new AppError('Failed to fetch email replies', 500);
             }
 
-            // Resolve company names and contact names
-            const rows = data || [];
-            const companyIds = [...new Set(rows.map((r: any) => r.company_id).filter(Boolean))];
-            const contactIds = [...new Set(rows.map((r: any) => r.contact_id).filter(Boolean))];
+            // Resolve company and contact names
+            const list = rows || [];
+            const companyIds = [...new Set(list.map((r: any) => r.company_id).filter(Boolean))];
+            const contactIds = [...new Set(list.map((r: any) => r.contact_id).filter(Boolean))];
 
             const companyMap: Record<string, string> = {};
             const contactMap: Record<string, string> = {};
 
             if (companyIds.length > 0) {
-                const { data: companies } = await db
+                const { data: companies } = await supabaseAdmin
                     .from('companies')
                     .select('id, name')
                     .in('id', companyIds);
-                for (const c of companies || []) {
-                    companyMap[c.id] = c.name;
-                }
+                for (const c of companies || []) companyMap[c.id] = c.name;
             }
 
             if (contactIds.length > 0) {
-                const { data: contacts } = await db
+                const { data: contacts } = await supabaseAdmin
                     .from('contacts')
                     .select('id, first_name, last_name')
                     .in('id', contactIds);
@@ -98,13 +101,13 @@ router.get(
                 }
             }
 
-            const mapped = rows.map((r: any) => ({
+            const mapped = list.map((r: any) => ({
                 ...r,
                 company_name: r.company_id ? (companyMap[r.company_id] || null) : null,
                 contact_name: r.contact_id ? (contactMap[r.contact_id] || null) : null,
             }));
 
-            const total = count || 0;
+            const total = Number(countData) || 0;
             res.json({
                 data: mapped,
                 pagination: {
@@ -120,6 +123,47 @@ router.get(
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'List email replies error');
             next(new AppError('Failed to fetch email replies', 500));
+        }
+    }
+);
+
+// GET /api/email-replies/thread-history — older messages in a thread
+// Returns all replies from the same sender+campaign, excluding the latest (exclude_id).
+router.get(
+    '/thread-history',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const queryResult = threadHistoryQuerySchema.safeParse(req.query);
+            if (!queryResult.success) {
+                res.status(400).json({ error: 'Invalid query parameters' });
+                return;
+            }
+            const { sender_email, campaign_id, exclude_id } = queryResult.data;
+            const tenantId = req.tenantId!;
+
+            let query = supabaseAdmin
+                .from('email_replies')
+                .select('id, sender_email, reply_body, replied_at, read_status, campaign_id')
+                .eq('tenant_id', tenantId)
+                .eq('sender_email', sender_email)
+                .order('replied_at', { ascending: false })
+                .limit(50);
+
+            if (campaign_id) query = query.eq('campaign_id', campaign_id);
+            if (exclude_id) query = query.neq('id', exclude_id);
+
+            const { data, error } = await query;
+            if (error) {
+                log.error({ err: error }, 'Thread history error');
+                throw new AppError('Failed to fetch thread history', 500);
+            }
+
+            res.json(data || []);
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Thread history error');
+            next(new AppError('Failed to fetch thread history', 500));
         }
     }
 );

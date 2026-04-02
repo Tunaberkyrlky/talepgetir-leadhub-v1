@@ -594,6 +594,10 @@
             "stageUpdateFailed": "Stage güncellenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
             "assignFailed": "Şirket ataması yapılamadı. Lütfen tekrar deneyin.",
             "deleteFailed": "Yanıt silinemedi. Lütfen tekrar deneyin."
+        },
+        "thread": {
+            "expand": "{{count}} önceki mesajı göster",
+            "collapse": "Önceki mesajları gizle"
         }
     },
     "validation": {

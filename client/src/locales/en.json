@@ -594,6 +594,10 @@
             "stageUpdateFailed": "Could not update stage. Please check your connection and try again.",
             "assignFailed": "Could not assign company. Please try again.",
             "deleteFailed": "Could not delete reply. Please try again."
+        },
+        "thread": {
+            "expand": "Show {{count}} previous messages",
+            "collapse": "Hide previous messages"
         }
     },
     "validation": {

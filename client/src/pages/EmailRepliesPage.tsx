@@ -1,18 +1,19 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table,
     Loader, Center, Button, SimpleGrid, Select, TextInput,
-    Skeleton, Tooltip, Alert, Anchor, Pagination,
+    Skeleton, Tooltip, Alert, Anchor, Pagination, ActionIcon,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
 import {
     IconMail, IconMailOpened, IconSearch,
     IconCircleFilled, IconLink, IconLinkOff, IconAlertCircle,
-    IconSpeakerphone, IconDownload,
+    IconSpeakerphone, IconDownload, IconChevronDown, IconChevronRight,
 } from '@tabler/icons-react';
+import ThreadHistoryRows from '../components/email/ThreadHistoryRows';
 
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -94,8 +95,19 @@ export default function EmailRepliesPage() {
     // Pagination
     const [page, setPage] = useState(1);
 
-    // Selected reply (for modal — wired in Task 9)
+    // Selected reply (for modal)
     const [selectedReply, setSelectedReply] = useState<EmailReply | null>(null);
+
+    // Expanded thread rows
+    const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+    const toggleExpand = useCallback((id: string) => {
+        setExpandedIds((prev) => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+        });
+    }, []);
 
     // ── Derived ──
 
@@ -184,6 +196,7 @@ export default function EmailRepliesPage() {
     if (prevFilterSig !== filterSig) {
         setPrevFilterSig(filterSig);
         if (selectedReply !== null) setSelectedReply(null);
+        if (expandedIds.size > 0) setExpandedIds(new Set());
     }
 
     // ── Displayed replies ──
@@ -391,7 +404,7 @@ export default function EmailRepliesPage() {
                         <Table highlightOnHover striped>
                             <Table.Thead>
                                 <Table.Tr>
-                                    <Table.Th style={{ width: 30 }} />
+                                    <Table.Th style={{ width: 46 }} />
                                     <Table.Th>{t('emailReplies.table.campaign')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.sender')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.company')}</Table.Th>
@@ -402,101 +415,141 @@ export default function EmailRepliesPage() {
                             </Table.Thead>
                             <Table.Tbody>
                                 {displayedReplies.map((reply) => {
-                                    const isUnread = reply.read_status === 'unread';
+                                    const hasUnread = reply.has_unread ?? reply.read_status === 'unread';
                                     const isUnmatched = reply.match_status === 'unmatched';
+                                    const threadCount = reply.thread_count ?? 1;
+                                    const isExpanded = expandedIds.has(reply.id);
 
                                     return (
-                                        <Table.Tr
-                                            key={reply.id}
-                                            style={{
-                                                cursor: 'pointer',
-                                                backgroundColor: isUnread
-                                                    ? 'var(--mantine-color-blue-0)'
-                                                    : undefined,
-                                            }}
-                                            onClick={() => setSelectedReply(reply)}
-                                        >
-                                            {/* Unread indicator */}
-                                            <Table.Td>
-                                                {isUnread && (
-                                                    <Tooltip label={t('emailReplies.status.unread')}>
-                                                        <IconCircleFilled
-                                                            size={10}
-                                                            style={{ color: 'var(--mantine-color-blue-5)' }}
-                                                        />
-                                                    </Tooltip>
-                                                )}
-                                            </Table.Td>
+                                        <>
+                                            <Table.Tr
+                                                key={reply.id}
+                                                style={{
+                                                    cursor: 'pointer',
+                                                    backgroundColor: hasUnread
+                                                        ? 'var(--mantine-color-blue-0)'
+                                                        : undefined,
+                                                }}
+                                                onClick={() => setSelectedReply(reply)}
+                                            >
+                                                {/* Unread dot + expand chevron */}
+                                                <Table.Td>
+                                                    <Group gap={4} wrap="nowrap" justify="center">
+                                                        {hasUnread && (
+                                                            <Tooltip label={t('emailReplies.status.unread')}>
+                                                                <IconCircleFilled
+                                                                    size={10}
+                                                                    style={{ color: 'var(--mantine-color-blue-5)', flexShrink: 0 }}
+                                                                />
+                                                            </Tooltip>
+                                                        )}
+                                                        {threadCount > 1 && (
+                                                            <Tooltip label={isExpanded ? t('emailReplies.thread.collapse') : t('emailReplies.thread.expand', { count: threadCount - 1 })}>
+                                                                <ActionIcon
+                                                                    size="xs"
+                                                                    variant="subtle"
+                                                                    color="gray"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        toggleExpand(reply.id);
+                                                                    }}
+                                                                >
+                                                                    {isExpanded
+                                                                        ? <IconChevronDown size={13} />
+                                                                        : <IconChevronRight size={13} />
+                                                                    }
+                                                                </ActionIcon>
+                                                            </Tooltip>
+                                                        )}
+                                                    </Group>
+                                                </Table.Td>
 
-                                            {/* Campaign code */}
-                                            <Table.Td>
-                                                {reply.campaign_id && campaignCodeMap.has(reply.campaign_id) ? (
-                                                    <Tooltip label={reply.campaign_name || reply.campaign_id} withArrow>
-                                                        <Badge size="sm" variant="filled" color="violet" circle>
-                                                            {campaignCodeMap.get(reply.campaign_id)}
+                                                {/* Campaign code */}
+                                                <Table.Td>
+                                                    {reply.campaign_id && campaignCodeMap.has(reply.campaign_id) ? (
+                                                        <Tooltip label={reply.campaign_name || reply.campaign_id} withArrow>
+                                                            <Badge size="sm" variant="filled" color="violet" circle>
+                                                                {campaignCodeMap.get(reply.campaign_id)}
+                                                            </Badge>
+                                                        </Tooltip>
+                                                    ) : reply.campaign_name ? (
+                                                        <Tooltip label={reply.campaign_name} withArrow>
+                                                            <Badge size="sm" variant="light" color="gray" circle>?</Badge>
+                                                        </Tooltip>
+                                                    ) : (
+                                                        <Text size="xs" c="dimmed">-</Text>
+                                                    )}
+                                                </Table.Td>
+
+                                                {/* Sender Email + thread badge */}
+                                                <Table.Td>
+                                                    <Group gap={6} wrap="nowrap">
+                                                        <Text size="sm" fw={hasUnread ? 600 : 400}>
+                                                            {reply.sender_email}
+                                                        </Text>
+                                                        {threadCount > 1 && (
+                                                            <Badge size="xs" variant="outline" color="gray" style={{ flexShrink: 0 }}>
+                                                                {threadCount}
+                                                            </Badge>
+                                                        )}
+                                                    </Group>
+                                                </Table.Td>
+
+                                                {/* Company */}
+                                                <Table.Td>
+                                                    {isUnmatched ? (
+                                                        <Badge size="sm" variant="light" color="red">
+                                                            {t('emailReplies.status.unmatched')}
                                                         </Badge>
-                                                    </Tooltip>
-                                                ) : reply.campaign_name ? (
-                                                    <Tooltip label={reply.campaign_name} withArrow>
-                                                        <Badge size="sm" variant="light" color="gray" circle>?</Badge>
-                                                    </Tooltip>
-                                                ) : (
-                                                    <Text size="xs" c="dimmed">-</Text>
-                                                )}
-                                            </Table.Td>
+                                                    ) : reply.company_name ? (
+                                                        <Anchor
+                                                            size="sm"
+                                                            fw={500}
+                                                            href={`/companies/${reply.company_id}`}
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                navigate(`/companies/${reply.company_id}`);
+                                                            }}
+                                                        >
+                                                            {reply.company_name}
+                                                        </Anchor>
+                                                    ) : (
+                                                        <Text size="xs" c="dimmed">-</Text>
+                                                    )}
+                                                </Table.Td>
 
-                                            {/* Sender Email */}
-                                            <Table.Td>
-                                                <Text size="sm" fw={isUnread ? 600 : 400}>
-                                                    {reply.sender_email}
-                                                </Text>
-                                            </Table.Td>
+                                                {/* Contact */}
+                                                <Table.Td>
+                                                    <Text size="sm">{reply.contact_name || '-'}</Text>
+                                                </Table.Td>
 
-                                            {/* Company */}
-                                            <Table.Td>
-                                                {isUnmatched ? (
-                                                    <Badge size="sm" variant="light" color="red">
-                                                        {t('emailReplies.status.unmatched')}
-                                                    </Badge>
-                                                ) : reply.company_name ? (
-                                                    <Anchor
-                                                        size="sm"
-                                                        fw={500}
-                                                        href={`/companies/${reply.company_id}`}
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            navigate(`/companies/${reply.company_id}`);
-                                                        }}
-                                                    >
-                                                        {reply.company_name}
-                                                    </Anchor>
-                                                ) : (
-                                                    <Text size="xs" c="dimmed">-</Text>
-                                                )}
-                                            </Table.Td>
+                                                {/* Reply Preview */}
+                                                <Table.Td>
+                                                    <Text size="xs" c="dimmed" lineClamp={1}>
+                                                        {truncate(reply.reply_body, 80)}
+                                                    </Text>
+                                                </Table.Td>
 
-                                            {/* Contact */}
-                                            <Table.Td>
-                                                <Text size="sm">
-                                                    {reply.contact_name || '-'}
-                                                </Text>
-                                            </Table.Td>
+                                                {/* Date */}
+                                                <Table.Td>
+                                                    <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+                                                        {formatDate(reply.replied_at, locale)}
+                                                    </Text>
+                                                </Table.Td>
+                                            </Table.Tr>
 
-                                            {/* Reply Preview */}
-                                            <Table.Td>
-                                                <Text size="xs" c="dimmed" lineClamp={1}>
-                                                    {truncate(reply.reply_body, 80)}
-                                                </Text>
-                                            </Table.Td>
-
-                                            {/* Date */}
-                                            <Table.Td>
-                                                <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                                                    {formatDate(reply.replied_at, locale)}
-                                                </Text>
-                                            </Table.Td>
-                                        </Table.Tr>
+                                            {/* Thread history rows */}
+                                            {isExpanded && threadCount > 1 && (
+                                                <ThreadHistoryRows
+                                                    senderEmail={reply.sender_email}
+                                                    campaignId={reply.campaign_id}
+                                                    excludeId={reply.id}
+                                                    locale={locale}
+                                                    colSpan={7}
+                                                />
+                                            )}
+                                        </>
                                     );
                                 })}
                             </Table.Tbody>
