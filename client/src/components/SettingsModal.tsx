@@ -67,7 +67,7 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
     const [confirmCloseOpened, setConfirmCloseOpened] = useState(false);
     const [shortcutsOpen, setShortcutsOpen] = useState(false);
     const pipelineSaveRef = useRef<PipelineSettingsEditorHandle | null>(null);
-    const { activeTenantId, accessibleTenants, user } = useAuth();
+    const { accessibleTenants, user } = useAuth();
     const isInternal = user?.role === 'superadmin' || user?.role === 'ops_agent';
 
     const apiBase = (import.meta.env.VITE_API_URL as string) || `${window.location.origin}/api`;

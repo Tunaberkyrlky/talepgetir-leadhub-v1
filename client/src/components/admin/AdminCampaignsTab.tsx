@@ -166,7 +166,7 @@ export default function AdminCampaignsTab() {
             </Group>
 
             {!pvStatus.connected && (
-                <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light" size="sm">
+                <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
                     {t('campaigns.connectionError')}
                 </Alert>
             )}
