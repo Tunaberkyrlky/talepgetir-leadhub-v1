@@ -43,6 +43,10 @@ app.use(compression());
 app.use(helmet({
     contentSecurityPolicy: false,
 }));
+app.use((_req, res, next) => {
+    res.setHeader('Permissions-Policy', 'window-management=(), protocol-handler=()');
+    next();
+});
 app.use(pinoHttp({
     logger,
     customSuccessMessage: (req: any, res: any, responseTime: any) =>
