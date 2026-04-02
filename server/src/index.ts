@@ -32,7 +32,7 @@ import webhooksRoutes from './routes/webhooks.js';
 import feedbackRoutes from './routes/feedback.js';
 
 const app = express();
-const PORT = process.env.API_PORT || 3001;
+const PORT = process.env.PORT || process.env.API_PORT || 3001;
 
 // Compression (before all routes for smaller responses)
 app.use(compression());
