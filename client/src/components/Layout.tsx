@@ -251,8 +251,8 @@ export default function Layout() {
                 </Flex>
             </AppShell.Header>
 
-            <AppShell.Navbar p="xs">
-                <Stack gap={4}>
+            <AppShell.Navbar p="xs" style={{ display: 'flex', flexDirection: 'column' }}>
+                <Stack gap={4} style={{ flex: 1 }}>
                     {navItems.map((item) => {
                         const active = location.pathname === item.path ||
                             (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
@@ -280,6 +280,9 @@ export default function Layout() {
                         );
                     })}
                 </Stack>
+                <Text size="xs" c="dimmed" ta={isIconOnly ? 'center' : 'left'} py="xs" px="sm">
+                    {isIconOnly ? `v${__APP_VERSION__}` : `TG Core v${__APP_VERSION__}`}
+                </Text>
             </AppShell.Navbar>
 
             <AppShell.Main>
