@@ -6,6 +6,8 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import pinoHttp from 'pino-http';
+import path from 'path';
+import fs from 'fs';
 
 // Load env first (skip in Vercel — env vars are injected)
 if (!process.env.VERCEL) {
@@ -139,6 +141,18 @@ app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
 app.use('/api/plusvibe/import-replies', authMiddleware, plusvibeImportLimiter);
 app.use('/api/plusvibe', authMiddleware, dataFilter, plusvibeRoutes);
 app.use('/api/feedback', authMiddleware, feedbackRoutes);
+
+// Serve static client files in production (Railway/non-Vercel)
+if (!process.env.VERCEL) {
+    const clientDist = path.resolve(__dirname, '../../client/dist');
+    if (fs.existsSync(path.join(clientDist, 'index.html'))) {
+        app.use(express.static(clientDist));
+        // SPA fallback — serve index.html for all non-API routes
+        app.get(/^(?!\/api).*/, (_req, res) => {
+            res.sendFile(path.join(clientDist, 'index.html'));
+        });
+    }
+}
 
 // Error handler (must be last)
 app.use(errorHandler);
