@@ -27,7 +27,9 @@ import adminRoutes from './routes/admin.js';
 import settingsRoutes from './routes/settings.js';
 import activitiesRoutes from './routes/activities.js';
 import emailRepliesRoutes from './routes/email-replies.js';
+import plusvibeRoutes from './routes/plusvibe.js';
 import webhooksRoutes from './routes/webhooks.js';
+import feedbackRoutes from './routes/feedback.js';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -97,6 +99,14 @@ const webhookLimiter = rateLimit({
     message: { error: 'Too many webhook requests' },
 });
 
+const plusvibeImportLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many PlusVibe import requests, please try again later' },
+});
+
 // Apply general rate limit to all API routes
 app.use('/api', generalLimiter);
 
@@ -124,6 +134,9 @@ app.use('/api/statistics', authMiddleware, statisticsRoutes);
 app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
 app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
+app.use('/api/plusvibe/import-replies', authMiddleware, plusvibeImportLimiter);
+app.use('/api/plusvibe', authMiddleware, dataFilter, plusvibeRoutes);
+app.use('/api/feedback', authMiddleware, feedbackRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);

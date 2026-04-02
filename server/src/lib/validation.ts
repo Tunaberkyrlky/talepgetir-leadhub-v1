@@ -226,16 +226,33 @@ export const readStatusBodySchema = z.object({
 
 // ── Email Reply webhook + assign schemas ──
 
+// PlusVibe webhook field names: from_email, camp_id, campaign_name, text_body, replied_date
 export const webhookPayloadSchema = z.object({
-    event: z.literal('replied'),
-    campaign_id: z.string().max(500).optional().nullable(),
+    from_email: z.string().email('Invalid from_email'),
+    camp_id: z.string().max(500).optional().nullable(),
     campaign_name: z.string().max(500).optional().nullable(),
-    recipient_email: z.string().email('Invalid recipient email'),
-    reply_body: z.string().optional().nullable(),
-    replied_at: z.string().datetime({ message: 'replied_at must be a valid ISO datetime' }).optional().nullable(),
-});
+    text_body: z.string().optional().nullable(),
+    replied_date: z.string().datetime({ message: 'replied_date must be a valid ISO datetime' }).optional().nullable(),
+}).passthrough();
 
 export const assignReplySchema = z.object({
     company_id: uuidField('Invalid company_id'),
     contact_id: uuidField('Invalid contact_id').optional(),
+});
+
+// ── PlusVibe integration schemas ──
+
+export const plusvibeCredentialSchema = z.object({
+    api_key: z.string().min(1, 'API key is required').max(500),
+    workspace_id: z.string().min(1, 'Workspace ID is required').max(500),
+});
+
+export const assignCampaignSchema = z.object({
+    tenant_id: uuidField('Invalid tenant_id'),
+});
+
+export const campaignStatsQuerySchema = z.object({
+    date_from: z.string().optional(),
+    date_to: z.string().optional(),
+    campaign_id: z.string().max(500).optional(),
 });

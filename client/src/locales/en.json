@@ -293,6 +293,7 @@
         "pipeline": "Pipeline",
         "activities": "Activities",
         "emailReplies": "Email Replies",
+        "campaigns": "Campaigns",
         "import": "Import",
         "admin": "Admin Panel"
     },
@@ -386,6 +387,8 @@
         "users": "Users",
         "tenants": "Tenants",
         "memberships": "Memberships",
+        "campaigns": "Campaigns",
+        "feedback": "Feedback",
         "searchUsers": "Search by email...",
         "searchTenants": "Search by name...",
         "filterByRole": "Filter by role...",
@@ -556,7 +559,11 @@
             "update": "Update",
             "markRead": "Mark as Read",
             "markUnread": "Mark as Unread",
-            "currentStage": "Current"
+            "currentStage": "Current",
+            "delete": "Delete Reply",
+            "deleteConfirm": "Are you sure you want to delete this reply?",
+            "confirmYes": "Yes, Delete",
+            "confirmNo": "Cancel"
         },
         "assign": {
             "title": "Assign to Company",
@@ -569,18 +576,24 @@
             "title": "AI Category",
             "comingSoon": "Coming Soon — automatic segmentation"
         },
+        "importReplies": "Import Past Emails",
+        "importSuccess": "{{count}} new replies imported",
+        "importUpToDate": "All replies are up to date",
+        "activeCampaigns": "Active Campaigns",
         "noData": "No email replies yet",
         "noDataDescription": "Replies from PlusVibe campaigns will appear here.",
         "loadMore": "Load More",
         "assigned": "Reply assigned successfully",
         "stageUpdated": "Stage updated successfully",
         "readStatusUpdated": "Read status updated",
+        "deleted": "Reply deleted successfully",
         "errors": {
             "loadFailed": "Could not load email replies",
             "loadFailedDescription": "There was a problem fetching data. Please refresh the page or try again later.",
             "readToggleFailed": "Could not update read status. Please try again.",
             "stageUpdateFailed": "Could not update stage. Please check your connection and try again.",
-            "assignFailed": "Could not assign company. Please try again."
+            "assignFailed": "Could not assign company. Please try again.",
+            "deleteFailed": "Could not delete reply. Please try again."
         }
     },
     "validation": {
@@ -595,5 +608,95 @@
         "conflict": "This record already exists",
         "validationFailed": "Please check the form",
         "generic": "Something went wrong, please try again"
+    },
+    "campaigns": {
+        "pageTitle": "Campaigns",
+        "sync": "Sync",
+        "synced": "Campaigns synced successfully",
+        "searchPlaceholder": "Search campaigns...",
+        "filters": {
+            "allStatuses": "All Statuses",
+            "active": "Active",
+            "paused": "Paused",
+            "completed": "Completed",
+            "draft": "Draft"
+        },
+        "notConfigured": "PlusVibe Not Configured",
+        "notConfiguredDesc": "To view campaigns, enter your PlusVibe API key and Workspace ID in Settings > Integrations.",
+        "connectionError": "Could not connect to PlusVibe. Please check your API key.",
+        "noData": "No campaigns yet",
+        "noAssignedDesc": "No campaigns have been assigned to you yet. Contact your administrator.",
+        "lastSync": "Last sync",
+        "stats": {
+            "sent": "Sent",
+            "opens": "Opens",
+            "clicks": "Clicks",
+            "replies": "Replies"
+        },
+        "table": {
+            "name": "Campaign Name",
+            "status": "Status",
+            "assignedTo": "Assigned To",
+            "unassigned": "Unassigned",
+            "leads": "Leads",
+            "sent": "Sent",
+            "openRate": "Open Rate",
+            "clickRate": "Click Rate",
+            "replyRate": "Reply Rate"
+        }
+    },
+    "feedback": {
+        "title": "Feedback",
+        "typeLabel": "Type",
+        "titleLabel": "Title",
+        "descriptionLabel": "Description",
+        "submit": "Submit",
+        "submitted": "Your feedback has been received. Thank you!",
+        "types": {
+            "featureRequest": "Feature Request",
+            "bugReport": "Bug Report"
+        },
+        "placeholders": {
+            "featureTitle": "What feature would you like to see?",
+            "featureDescription": "How do you expect this feature to work?",
+            "bugTitle": "Briefly describe the issue",
+            "bugDescription": "How can we reproduce the bug? What did you expect, what happened?"
+        },
+        "statuses": {
+            "open": "Open",
+            "inProgress": "In Progress",
+            "resolved": "Resolved",
+            "closed": "Closed"
+        },
+        "admin": {
+            "search": "Search title, description, or email...",
+            "allTypes": "All Types",
+            "allStatuses": "All Statuses",
+            "noData": "No feedback yet",
+            "statusUpdated": "Status updated",
+            "deleted": "Feedback deleted",
+            "delete": "Delete",
+            "table": {
+                "type": "Type",
+                "title": "Title",
+                "user": "User",
+                "status": "Status",
+                "date": "Date"
+            }
+        },
+        "errors": {
+            "submitFailed": "Could not submit feedback. Please try again.",
+            "updateFailed": "Could not update status.",
+            "deleteFailed": "Could not delete feedback."
+        }
+    },
+    "plusvibe": {
+        "setup": {
+            "title": "PlusVibe API",
+            "statusConnected": "Connected",
+            "statusDisconnected": "Disconnected",
+            "configuredViaEnv": "PlusVibe API is configured via server environment variables.",
+            "notConfigured": "PlusVibe API is not configured. Set PLUSVIBE_API_KEY and PLUSVIBE_WORKSPACE_ID env vars."
+        }
     }
 }

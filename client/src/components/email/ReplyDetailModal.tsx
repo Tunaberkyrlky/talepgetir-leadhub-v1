@@ -6,11 +6,13 @@ import {
     SimpleGrid, Anchor,
 } from '@mantine/core';
 import {
-    IconMail, IconMailOpened, IconSparkles,
+    IconMail, IconMailOpened, IconSparkles, IconTrash,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showSuccess, showErrorFromApi } from '../../lib/notifications';
+import { useAuth } from '../../contexts/AuthContext';
+import { isInternal } from '../../lib/permissions';
 import { useStages } from '../../contexts/StagesContext';
 import AssignCompanyForm from './AssignCompanyForm';
 import type { EmailReply } from '../../types/emailReply';
@@ -25,7 +27,9 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const { t, i18n } = useTranslation();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
+    const { user } = useAuth();
     const { stageOptions } = useStages();
+    const canDeleteReply = isInternal(user?.role || '');
 
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
 
@@ -54,6 +58,25 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         },
         onError: (err) => {
             showErrorFromApi(err, t('emailReplies.errors.stageUpdateFailed'));
+        },
+    });
+
+    // ── Delete mutation ──
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const deleteMutation = useMutation({
+        mutationFn: async () => {
+            await api.delete(`/email-replies/${localReply!.id}`);
+        },
+        onSuccess: () => {
+            showSuccess(t('emailReplies.deleted'));
+            queryClient.invalidateQueries({ queryKey: ['email-replies'] });
+            queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+            setConfirmDelete(false);
+            onClose();
+        },
+        onError: (err) => {
+            showErrorFromApi(err, t('emailReplies.errors.deleteFailed'));
+            setConfirmDelete(false);
         },
     });
 
@@ -240,13 +263,90 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                         >
                             {t('emailReplies.aiCategory.title')} — {t('emailReplies.aiCategory.comingSoon')}
                         </Button>
+
+                        {/* Delete */}
+                        {canDeleteReply && (
+                            confirmDelete ? (
+                                <Group gap="sm">
+                                    <Text size="sm" c="red" fw={500}>{t('emailReplies.actions.deleteConfirm')}</Text>
+                                    <Button
+                                        color="red"
+                                        size="xs"
+                                        loading={deleteMutation.isPending}
+                                        onClick={() => deleteMutation.mutate()}
+                                        radius="md"
+                                    >
+                                        {t('emailReplies.actions.confirmYes')}
+                                    </Button>
+                                    <Button
+                                        variant="subtle"
+                                        color="gray"
+                                        size="xs"
+                                        onClick={() => setConfirmDelete(false)}
+                                        radius="md"
+                                    >
+                                        {t('emailReplies.actions.confirmNo')}
+                                    </Button>
+                                </Group>
+                            ) : (
+                                <Button
+                                    variant="light"
+                                    color="red"
+                                    leftSection={<IconTrash size={16} />}
+                                    onClick={() => setConfirmDelete(true)}
+                                    radius="md"
+                                >
+                                    {t('emailReplies.actions.delete')}
+                                </Button>
+                            )
+                        )}
                     </Stack>
                 ) : (
-                    /* Unmatched: show assign form */
-                    <AssignCompanyForm
-                        replyId={localReply.id}
-                        onAssigned={onClose}
-                    />
+                    /* Unmatched: show assign form + delete */
+                    <Stack gap="sm">
+                        <AssignCompanyForm
+                            replyId={localReply.id}
+                            onAssigned={onClose}
+                        />
+                        {canDeleteReply && (
+                            <Divider />
+                        )}
+                        {canDeleteReply && (
+                            confirmDelete ? (
+                                <Group gap="sm">
+                                    <Text size="sm" c="red" fw={500}>{t('emailReplies.actions.deleteConfirm')}</Text>
+                                    <Button
+                                        color="red"
+                                        size="xs"
+                                        loading={deleteMutation.isPending}
+                                        onClick={() => deleteMutation.mutate()}
+                                        radius="md"
+                                    >
+                                        {t('emailReplies.actions.confirmYes')}
+                                    </Button>
+                                    <Button
+                                        variant="subtle"
+                                        color="gray"
+                                        size="xs"
+                                        onClick={() => setConfirmDelete(false)}
+                                        radius="md"
+                                    >
+                                        {t('emailReplies.actions.confirmNo')}
+                                    </Button>
+                                </Group>
+                            ) : (
+                                <Button
+                                    variant="light"
+                                    color="red"
+                                    leftSection={<IconTrash size={16} />}
+                                    onClick={() => setConfirmDelete(true)}
+                                    radius="md"
+                                >
+                                    {t('emailReplies.actions.delete')}
+                                </Button>
+                            )
+                        )}
+                    </Stack>
                 )}
             </Stack>
         </Modal>

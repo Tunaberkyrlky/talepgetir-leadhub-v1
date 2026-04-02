@@ -293,6 +293,7 @@
         "pipeline": "Pipeline",
         "activities": "Aktiviteler",
         "emailReplies": "Email Yanıtları",
+        "campaigns": "Kampanyalar",
         "import": "İçe Aktar",
         "admin": "Yönetim Paneli"
     },
@@ -386,6 +387,8 @@
         "users": "Kullanıcılar",
         "tenants": "Müşteriler",
         "memberships": "Atamalar",
+        "campaigns": "Kampanyalar",
+        "feedback": "Geri Bildirim",
         "searchUsers": "E-posta ile ara...",
         "searchTenants": "İsme göre ara...",
         "filterByRole": "Role göre filtrele...",
@@ -556,7 +559,11 @@
             "update": "Güncelle",
             "markRead": "Okundu İşaretle",
             "markUnread": "Okunmadı İşaretle",
-            "currentStage": "Mevcut"
+            "currentStage": "Mevcut",
+            "delete": "Yanıtı Sil",
+            "deleteConfirm": "Bu yanıtı silmek istediğinize emin misiniz?",
+            "confirmYes": "Evet, Sil",
+            "confirmNo": "Vazgeç"
         },
         "assign": {
             "title": "Şirkete Ata",
@@ -569,18 +576,24 @@
             "title": "AI Kategori",
             "comingSoon": "Yakında — otomatik segmentasyon"
         },
+        "importReplies": "Geçmiş Mailleri Çek",
+        "importSuccess": "{{count}} yeni yanıt içe aktarıldı",
+        "importUpToDate": "Tüm yanıtlar zaten güncel",
+        "activeCampaigns": "Aktif Kampanyalar",
         "noData": "Henüz email yanıtı yok",
         "noDataDescription": "PlusVibe kampanyalarından gelen yanıtlar burada görünecek.",
         "loadMore": "Daha Fazla",
         "assigned": "Yanıt başarıyla atandı",
         "stageUpdated": "Stage başarıyla güncellendi",
         "readStatusUpdated": "Okunma durumu güncellendi",
+        "deleted": "Yanıt başarıyla silindi",
         "errors": {
             "loadFailed": "Email yanıtları yüklenemedi",
             "loadFailedDescription": "Veriler getirilirken bir sorun oluştu. Sayfayı yenileyin veya daha sonra tekrar deneyin.",
             "readToggleFailed": "Okunma durumu güncellenemedi. Lütfen tekrar deneyin.",
             "stageUpdateFailed": "Stage güncellenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
-            "assignFailed": "Şirket ataması yapılamadı. Lütfen tekrar deneyin."
+            "assignFailed": "Şirket ataması yapılamadı. Lütfen tekrar deneyin.",
+            "deleteFailed": "Yanıt silinemedi. Lütfen tekrar deneyin."
         }
     },
     "validation": {
@@ -595,5 +608,95 @@
         "conflict": "Bu kayıt zaten mevcut",
         "validationFailed": "Lütfen formu kontrol edin",
         "generic": "Bir sorun oluştu, lütfen tekrar deneyin"
+    },
+    "campaigns": {
+        "pageTitle": "Kampanyalar",
+        "sync": "Senkronize Et",
+        "synced": "Kampanyalar senkronize edildi",
+        "searchPlaceholder": "Kampanya ara...",
+        "filters": {
+            "allStatuses": "Tüm Durumlar",
+            "active": "Aktif",
+            "paused": "Duraklatılmış",
+            "completed": "Tamamlanmış",
+            "draft": "Taslak"
+        },
+        "notConfigured": "PlusVibe Yapılandırılmadı",
+        "notConfiguredDesc": "Kampanyaları görüntülemek için Ayarlar > Entegrasyonlar bölümünden PlusVibe API anahtarınızı ve Workspace ID'nizi girin.",
+        "connectionError": "PlusVibe bağlantısı kurulamadı. Lütfen API anahtarınızı kontrol edin.",
+        "noData": "Henüz kampanya yok",
+        "noAssignedDesc": "Size henüz kampanya atanmamış. Yöneticinizle iletişime geçin.",
+        "lastSync": "Son senkronizasyon",
+        "stats": {
+            "sent": "Gönderilen",
+            "opens": "Açılma",
+            "clicks": "Tıklama",
+            "replies": "Yanıt"
+        },
+        "table": {
+            "name": "Kampanya Adı",
+            "status": "Durum",
+            "assignedTo": "Atanan Müşteri",
+            "unassigned": "Atanmamış",
+            "leads": "Lead",
+            "sent": "Gönderilen",
+            "openRate": "Açılma Oranı",
+            "clickRate": "Tıklama Oranı",
+            "replyRate": "Yanıt Oranı"
+        }
+    },
+    "feedback": {
+        "title": "Geri Bildirim",
+        "typeLabel": "Tür",
+        "titleLabel": "Başlık",
+        "descriptionLabel": "Açıklama",
+        "submit": "Gönder",
+        "submitted": "Geri bildiriminiz alındı. Teşekkürler!",
+        "types": {
+            "featureRequest": "Özellik İsteği",
+            "bugReport": "Hata Bildirimi"
+        },
+        "placeholders": {
+            "featureTitle": "Hangi özelliği görmek istersiniz?",
+            "featureDescription": "Bu özelliğin nasıl çalışmasını bekliyorsunuz?",
+            "bugTitle": "Sorunu kısaca açıklayın",
+            "bugDescription": "Hatayı nasıl tekrarlayabiliriz? Ne bekliyordunuz, ne oldu?"
+        },
+        "statuses": {
+            "open": "Açık",
+            "inProgress": "İşlemde",
+            "resolved": "Çözüldü",
+            "closed": "Kapatıldı"
+        },
+        "admin": {
+            "search": "Başlık, açıklama veya email ara...",
+            "allTypes": "Tüm Türler",
+            "allStatuses": "Tüm Durumlar",
+            "noData": "Henüz geri bildirim yok",
+            "statusUpdated": "Durum güncellendi",
+            "deleted": "Geri bildirim silindi",
+            "delete": "Sil",
+            "table": {
+                "type": "Tür",
+                "title": "Başlık",
+                "user": "Kullanıcı",
+                "status": "Durum",
+                "date": "Tarih"
+            }
+        },
+        "errors": {
+            "submitFailed": "Geri bildirim gönderilemedi. Lütfen tekrar deneyin.",
+            "updateFailed": "Durum güncellenemedi.",
+            "deleteFailed": "Geri bildirim silinemedi."
+        }
+    },
+    "plusvibe": {
+        "setup": {
+            "title": "PlusVibe API",
+            "statusConnected": "Bağlı",
+            "statusDisconnected": "Bağlantı Yok",
+            "configuredViaEnv": "PlusVibe API bağlantısı sunucu ortam değişkenleri ile yapılandırılmıştır.",
+            "notConfigured": "PlusVibe API yapılandırılmamış. PLUSVIBE_API_KEY ve PLUSVIBE_WORKSPACE_ID ortam değişkenlerini ayarlayın."
+        }
     }
 }

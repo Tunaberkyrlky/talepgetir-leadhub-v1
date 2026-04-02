@@ -1,23 +1,26 @@
 import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table,
     Loader, Center, Button, SimpleGrid, Select, TextInput,
-    Skeleton, Tooltip, Alert, Anchor,
+    Skeleton, Tooltip, Alert, Anchor, Pagination,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
 import {
     IconMail, IconMailOpened, IconSearch,
     IconCircleFilled, IconLink, IconLinkOff, IconAlertCircle,
+    IconSpeakerphone, IconDownload,
 } from '@tabler/icons-react';
 
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
+import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import StatCard from '../components/StatCard';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import type { EmailReply, EmailReplyStats, Campaign } from '../types/emailReply';
+import type { CampaignsResponse } from '../types/plusvibe';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -26,7 +29,9 @@ interface EmailRepliesResponse {
     pagination: {
         hasNext: boolean;
         total: number;
+        totalPages: number;
         page: number;
+        limit: number;
     };
 }
 
@@ -75,6 +80,7 @@ function truncate(text: string | null, maxLen: number): string {
 export default function EmailRepliesPage() {
     const { t, i18n } = useTranslation();
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
 
     // Filters
@@ -135,6 +141,38 @@ export default function EmailRepliesPage() {
         queryFn: async () => (await api.get('/email-replies/campaigns')).data,
     });
 
+    // PlusVibe campaign stats (active campaigns assigned to this tenant)
+    const { data: pvCampaigns } = useQuery<CampaignsResponse>({
+        queryKey: ['plusvibe', 'campaigns', 'active'],
+        queryFn: async () => (await api.get('/plusvibe/campaigns', { params: { status: 'ACTIVE' } })).data,
+    });
+
+    const activeCampaigns = useMemo(() => pvCampaigns?.data || [], [pvCampaigns]);
+
+    // Assign short codes (#1, #2, ...) to campaigns for compact table display
+    const campaignCodeMap = useMemo(() => {
+        const map = new Map<string, number>();
+        activeCampaigns.forEach((c, i) => {
+            if (c.pv_campaign_id) map.set(c.pv_campaign_id, i + 1);
+        });
+        return map;
+    }, [activeCampaigns]);
+
+    // Import historical replies from PlusVibe
+    const importMutation = useMutation({
+        mutationFn: async () => (await api.post('/plusvibe/import-replies')).data,
+        onSuccess: (data: { imported: number; skipped: number }) => {
+            if (data.imported === 0 && data.skipped > 0) {
+                showSuccess(t('emailReplies.importUpToDate'));
+            } else {
+                showSuccess(t('emailReplies.importSuccess', { count: data.imported }));
+            }
+            queryClient.invalidateQueries({ queryKey: ['email-replies'] });
+            queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+
     // ── Filter change helpers (reset page) ──
 
     const resetPage = () => setPage(1);
@@ -152,8 +190,9 @@ export default function EmailRepliesPage() {
 
     const displayedReplies = useMemo(() => data?.data ?? [], [data]);
 
-    const hasMore = data?.pagination?.hasNext ?? false;
     const total = data?.pagination?.total ?? 0;
+    const totalPages = data?.pagination?.totalPages ?? 1;
+    const limit = data?.pagination?.limit ?? 20;
 
     // ── Select Data ──
 
@@ -186,6 +225,17 @@ export default function EmailRepliesPage() {
                         {total}
                     </Badge>
                 </Group>
+                {activeCampaigns.length > 0 && (
+                    <Button
+                        variant="light"
+                        size="sm"
+                        leftSection={<IconDownload size={16} />}
+                        onClick={() => importMutation.mutate()}
+                        loading={importMutation.isPending}
+                    >
+                        {t('emailReplies.importReplies')}
+                    </Button>
+                )}
             </Group>
 
             {/* Error state */}
@@ -239,6 +289,32 @@ export default function EmailRepliesPage() {
                     </>
                 )}
             </SimpleGrid>
+
+            {/* Active Campaigns Summary */}
+            {activeCampaigns.length > 0 && (
+                <Paper p="sm" radius="md" withBorder mb="md" bg="var(--mantine-color-violet-0)">
+                    <Group gap="xs" mb={6}>
+                        <IconSpeakerphone size={14} style={{ opacity: 0.6 }} />
+                        <Text size="xs" fw={600} c="dimmed" tt="uppercase">
+                            {t('emailReplies.activeCampaigns')}
+                        </Text>
+                    </Group>
+                    <Group gap="lg" wrap="wrap">
+                        {activeCampaigns.map((c, i) => (
+                            <Group key={c.id} gap={6}>
+                                <Badge size="xs" variant="filled" color="violet" circle>{i + 1}</Badge>
+                                <Text size="xs" fw={500}>{c.name}</Text>
+                                <Badge size="xs" variant="light" color="violet">
+                                    {c.emails_sent} {t('campaigns.stats.sent').toLowerCase()}
+                                </Badge>
+                                <Badge size="xs" variant="light" color="orange">
+                                    {c.replies} {t('campaigns.stats.replies').toLowerCase()}
+                                </Badge>
+                            </Group>
+                        ))}
+                    </Group>
+                </Paper>
+            )}
 
             {/* Filter Bar */}
             <Paper p="md" radius="md" withBorder mb="md">
@@ -352,12 +428,18 @@ export default function EmailRepliesPage() {
                                                 )}
                                             </Table.Td>
 
-                                            {/* Campaign */}
+                                            {/* Campaign code */}
                                             <Table.Td>
-                                                {reply.campaign_name ? (
-                                                    <Badge size="sm" variant="light" color="violet">
-                                                        {reply.campaign_name}
-                                                    </Badge>
+                                                {reply.campaign_id && campaignCodeMap.has(reply.campaign_id) ? (
+                                                    <Tooltip label={reply.campaign_name || reply.campaign_id} withArrow>
+                                                        <Badge size="sm" variant="filled" color="violet" circle>
+                                                            {campaignCodeMap.get(reply.campaign_id)}
+                                                        </Badge>
+                                                    </Tooltip>
+                                                ) : reply.campaign_name ? (
+                                                    <Tooltip label={reply.campaign_name} withArrow>
+                                                        <Badge size="sm" variant="light" color="gray" circle>?</Badge>
+                                                    </Tooltip>
                                                 ) : (
                                                     <Text size="xs" c="dimmed">-</Text>
                                                 )}
@@ -421,18 +503,19 @@ export default function EmailRepliesPage() {
                         </Table>
                     </Paper>
 
-                    {/* Load More */}
-                    {hasMore && (
-                        <Center>
-                            <Button
-                                variant="subtle"
-                                color="gray"
-                                loading={isLoading}
-                                onClick={() => setPage((p) => p + 1)}
-                            >
-                                {t('emailReplies.loadMore')}
-                            </Button>
-                        </Center>
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                        <Group justify="space-between" mt="xs">
+                            <Text size="xs" c="dimmed">
+                                {((page - 1) * limit) + 1}–{Math.min(page * limit, total)} / {total}
+                            </Text>
+                            <Pagination
+                                total={totalPages}
+                                value={page}
+                                onChange={setPage}
+                                size="sm"
+                            />
+                        </Group>
                     )}
                 </Stack>
             )}

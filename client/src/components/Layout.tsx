@@ -30,8 +30,11 @@ import {
     IconShieldCog,
     IconActivity,
     IconMail,
+    IconMessageReport,
+    IconSpeakerphone,
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
+import FeedbackModal from './FeedbackModal';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import { hasRolePermission } from '../lib/permissions';
@@ -51,6 +54,7 @@ export default function Layout() {
     const { t } = useTranslation();
     const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
     const [navbarOpened, { toggle: toggleNavbar, close: closeNavbar }] = useDisclosure(false);
+    const [feedbackOpened, { open: openFeedback, close: closeFeedback }] = useDisclosure(false);
     const [settingsDefaultTab, setSettingsDefaultTab] = useState('general');
 
     const openSettingsTab = useCallback((tab: string) => {
@@ -90,6 +94,7 @@ export default function Layout() {
         { path: '/pipeline', label: t('nav.pipeline'), icon: <IconColumns size={20} /> },
         { path: '/activities', label: t('nav.activities'), icon: <IconActivity size={20} /> },
         { path: '/email-replies', label: t('nav.emailReplies'), icon: <IconMail size={20} /> },
+        { path: '/campaigns', label: t('nav.campaigns'), icon: <IconSpeakerphone size={20} /> },
         ...(hasRolePermission(user?.role || '', 'import')
             ? [{ path: '/import', label: t('nav.import'), icon: <IconFileImport size={20} /> }]
             : []),
@@ -151,6 +156,13 @@ export default function Layout() {
 
                     {/* Right side */}
                     <Group gap="md">
+                        {/* Feedback button */}
+                        <Tooltip label={t('feedback.title')}>
+                            <UnstyledButton onClick={openFeedback}>
+                                <IconMessageReport size={20} color="rgba(255,255,255,0.7)" />
+                            </UnstyledButton>
+                        </Tooltip>
+
                         {/* Tenant switcher — only for superadmin & ops_agent with multiple tenants */}
                         {isOpsOrAdmin && canSwitchTenants ? (
                             <Select
@@ -275,6 +287,7 @@ export default function Layout() {
             </AppShell.Main>
 
             <SettingsModal opened={settingsOpened} onClose={closeSettings} defaultTab={settingsDefaultTab} />
+            <FeedbackModal opened={feedbackOpened} onClose={closeFeedback} />
         </AppShell>
     );
 }
