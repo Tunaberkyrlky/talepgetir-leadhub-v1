@@ -38,7 +38,9 @@ const PORT = process.env.PORT || process.env.API_PORT || 3001;
 app.use(compression());
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+    contentSecurityPolicy: false,
+}));
 app.use(pinoHttp({
     logger,
     customSuccessMessage: (req: any, res: any, responseTime: any) =>
