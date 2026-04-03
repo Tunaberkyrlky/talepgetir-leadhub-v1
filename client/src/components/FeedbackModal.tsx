@@ -15,7 +15,7 @@ interface FeedbackModalProps {
 
 export default function FeedbackModal({ opened, onClose }: FeedbackModalProps) {
     const { t } = useTranslation();
-    const [type, setType] = useState<string>('feature_request');
+    const [type, setType] = useState<string>('bug_report');
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
 
@@ -74,20 +74,20 @@ export default function FeedbackModal({ opened, onClose }: FeedbackModalProps) {
                         onChange={setType}
                         data={[
                             {
-                                value: 'feature_request',
-                                label: (
-                                    <Group gap={6} justify="center">
-                                        <IconBulb size={16} />
-                                        <span>{t('feedback.types.featureRequest')}</span>
-                                    </Group>
-                                ),
-                            },
-                            {
                                 value: 'bug_report',
                                 label: (
                                     <Group gap={6} justify="center">
                                         <IconBug size={16} />
                                         <span>{t('feedback.types.bugReport')}</span>
+                                    </Group>
+                                ),
+                            },
+                            {
+                                value: 'feature_request',
+                                label: (
+                                    <Group gap={6} justify="center">
+                                        <IconBulb size={16} />
+                                        <span>{t('feedback.types.featureRequest')}</span>
                                     </Group>
                                 ),
                             },

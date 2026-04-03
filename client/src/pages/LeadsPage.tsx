@@ -27,6 +27,7 @@ import {
     Divider,
     Modal,
     Alert,
+    SegmentedControl,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure, useHotkeys } from '@mantine/hooks';
 import { showSuccess, showInfo, showErrorFromApi } from '../lib/notifications';
@@ -50,10 +51,11 @@ import {
     IconMap,
     IconAlertCircle,
     IconCalendar,
+    IconChevronLeft,
+    IconChevronRight,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { DatePickerInput } from '@mantine/dates';
-import { type DatePeriod, getDateRange, getCustomDateRange } from '../lib/dateUtils';
 import {
     DndContext,
     closestCenter,
@@ -238,8 +240,69 @@ function SortableColumnItem({
     );
 }
 
+// ─── Period Filter Helpers ────────────────────────────────────────────────────
+
+type PeriodType = 'day' | 'week' | 'month' | 'custom';
+
+function toLocalDateStr(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function getDateRangeForPeriod(type: PeriodType, anchor: Date): { from: string; to: string } {
+    if (type === 'day') {
+        const from = toLocalDateStr(anchor);
+        return { from, to: `${from}T23:59:59` };
+    }
+    if (type === 'week') {
+        const d = new Date(anchor);
+        const day = d.getDay();
+        const diff = day === 0 ? -6 : 1 - day;
+        const monday = new Date(d);
+        monday.setDate(d.getDate() + diff);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        return { from: toLocalDateStr(monday), to: `${toLocalDateStr(sunday)}T23:59:59` };
+    }
+    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const last = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+    return { from: toLocalDateStr(first), to: `${toLocalDateStr(last)}T23:59:59` };
+}
+
+function shiftPeriod(type: PeriodType, anchor: Date, direction: 1 | -1): Date {
+    const d = new Date(anchor);
+    if (type === 'day') d.setDate(d.getDate() + direction);
+    else if (type === 'week') d.setDate(d.getDate() + direction * 7);
+    else if (type === 'month') d.setMonth(d.getMonth() + direction);
+    return d;
+}
+
+function formatPeriodLabel(type: PeriodType, anchor: Date, locale: string): string {
+    if (type === 'day') return anchor.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+    if (type === 'week') {
+        const day = anchor.getDay();
+        const diff = day === 0 ? -6 : 1 - day;
+        const monday = new Date(anchor);
+        monday.setDate(anchor.getDate() + diff);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        const monthStr = sunday.toLocaleDateString(locale, { month: 'short' });
+        return `${monday.getDate()} — ${sunday.getDate()} ${monthStr} ${sunday.getFullYear()}`;
+    }
+    return anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+}
+
+function isCurrentPeriod(type: PeriodType, anchor: Date): boolean {
+    if (type === 'custom') return false;
+    const today = new Date();
+    return getDateRangeForPeriod(type, today).from === getDateRangeForPeriod(type, anchor).from;
+}
+
 export default function LeadsPage() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
     const { user } = useAuth();
     const { allStages, getStageColor, getStageLabel } = useStages();
     const queryClient = useQueryClient();
@@ -260,8 +323,9 @@ export default function LeadsPage() {
         return loc ? loc.split(',').filter(Boolean) : [];
     });
     const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
-    const [datePeriod, setDatePeriod] = useState<DatePeriod | null>(null);
-    const [customDateRange, setCustomDateRange] = useState<[Date | string | null, Date | string | null]>([null, null]);
+    const [periodType, setPeriodType] = useState<PeriodType>('month');
+    const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date());
+    const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null]);
 
     // Sort state
     const [sortBy, setSortBy] = useState<SortKey>('updated_at');
@@ -285,13 +349,20 @@ export default function LeadsPage() {
 
     const canEdit = canWrite(user?.role || '');
 
+    const periodLabel = formatPeriodLabel(periodType, periodAnchor, locale);
+    const isCurrent = isCurrentPeriod(periodType, periodAnchor);
+
     const dateParams = useMemo(() => {
-        if (datePeriod) return getDateRange(datePeriod);
-        if (customDateRange[0] && customDateRange[1]) {
-            return getCustomDateRange(customDateRange[0], customDateRange[1]);
+        if (periodType === 'custom') {
+            if (!customRange[0] || !customRange[1]) return null;
+            return {
+                dateFrom: `${toLocalDateStr(customRange[0])}T00:00:00`,
+                dateTo: `${toLocalDateStr(customRange[1])}T23:59:59`,
+            };
         }
-        return null;
-    }, [datePeriod, customDateRange]);
+        const r = getDateRangeForPeriod(periodType, periodAnchor);
+        return { dateFrom: r.from, dateTo: r.to };
+    }, [periodType, periodAnchor, customRange]);
 
     // Build query params (moved up so useQuery can be before handleRowSelect)
     const buildQueryParams = useCallback(() => {
@@ -559,7 +630,7 @@ export default function LeadsPage() {
         });
     };
 
-    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedProducts.length || !!datePeriod || !!(customDateRange[0] && customDateRange[1]));
+    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedProducts.length);
 
     const clearAllFilters = () => {
         setSearch('');
@@ -567,24 +638,9 @@ export default function LeadsPage() {
         setSelectedIndustries([]);
         setSelectedLocations([]);
         setSelectedProducts([]);
-        setDatePeriod(null);
-        setCustomDateRange([null, null]);
-    };
-
-    const handleDatePeriodToggle = (value: DatePeriod) => {
-        if (value === datePeriod) {
-            setDatePeriod(null); // toggle off
-        } else {
-            setDatePeriod(value);
-            setCustomDateRange([null, null]); // clear custom range
-        }
-    };
-
-    const handleCustomDateChange = (value: [Date | string | null, Date | string | null]) => {
-        setCustomDateRange(value);
-        if (value[0] && value[1]) {
-            setDatePeriod(null); // clear period when custom range selected
-        }
+        setPeriodType('month');
+        setPeriodAnchor(new Date());
+        setCustomRange([null, null]);
     };
 
     // Sort header component
@@ -976,30 +1032,70 @@ export default function LeadsPage() {
                         maxDropdownHeight={200}
                     />
                 </Group>
-                <Group mt="xs" gap="sm">
-                    <Button.Group>
-                        {(['day', 'week', 'month'] as DatePeriod[]).map((period) => (
-                            <Button
-                                key={period}
-                                variant={datePeriod === period ? 'filled' : 'default'}
-                                size="sm"
-                                onClick={() => handleDatePeriodToggle(period)}
-                            >
-                                {t(`filter.${period}`)}
-                            </Button>
-                        ))}
-                    </Button.Group>
-                    <DatePickerInput
-                        type="range"
-                        placeholder={t('filter.customRange')}
-                        value={customDateRange}
-                        onChange={handleCustomDateChange}
-                        leftSection={<IconCalendar size={16} />}
-                        clearable
-                        size="sm"
-                        maxDate={new Date()}
-                        w={220}
+                <Group mt="xs" gap="xs" wrap="nowrap">
+                    <SegmentedControl
+                        size="xs"
+                        value={periodType}
+                        onChange={(v) => {
+                            setPeriodType(v as PeriodType);
+                            setPeriodAnchor(new Date());
+                            setCustomRange([null, null]);
+                            setPage(1);
+                        }}
+                        data={[
+                            { label: t('activities.periodDay'), value: 'day' },
+                            { label: t('activities.periodWeek'), value: 'week' },
+                            { label: t('activities.periodMonth'), value: 'month' },
+                            { label: t('activities.periodCustom'), value: 'custom' },
+                        ]}
                     />
+
+                    {periodType !== 'custom' && (
+                        <Group gap={4} wrap="nowrap">
+                            <ActionIcon
+                                variant="subtle"
+                                color="gray"
+                                size="sm"
+                                onClick={() => { setPeriodAnchor((prev) => shiftPeriod(periodType, prev, -1)); setPage(1); }}
+                            >
+                                <IconChevronLeft size={14} />
+                            </ActionIcon>
+                            <Text size="xs" fw={600} miw={120} ta="center">
+                                {periodLabel}
+                            </Text>
+                            <ActionIcon
+                                variant="subtle"
+                                color="gray"
+                                size="sm"
+                                disabled={isCurrent}
+                                onClick={() => { setPeriodAnchor((prev) => shiftPeriod(periodType, prev, 1)); setPage(1); }}
+                            >
+                                <IconChevronRight size={14} />
+                            </ActionIcon>
+                            {!isCurrent && (
+                                <Button
+                                    size="compact-xs"
+                                    variant="light"
+                                    color="violet"
+                                    onClick={() => { setPeriodAnchor(new Date()); setPage(1); }}
+                                >
+                                    {t('activities.today')}
+                                </Button>
+                            )}
+                        </Group>
+                    )}
+
+                    {periodType === 'custom' && (
+                        <DatePickerInput
+                            type="range"
+                            placeholder={t('activities.dateRange')}
+                            value={customRange}
+                            onChange={(v) => { setCustomRange(v as [Date | null, Date | null]); setPage(1); }}
+                            leftSection={<IconCalendar size={16} />}
+                            clearable
+                            size="xs"
+                        />
+                    )}
                 </Group>
                 {hasActiveFilters && (
                     <Group mt="xs">

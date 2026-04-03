@@ -204,7 +204,7 @@ function ActivityCard({ activity, navigate, t, locale }: ActivityCardProps) {
                         )}
                         {activity.visibility === 'internal' && (
                             <Badge size="xs" variant="outline" color="gray">
-                                {t('activity.internal')}
+                                {t('activity.visibility_options.internal')}
                             </Badge>
                         )}
                         {activity.contact_name && (

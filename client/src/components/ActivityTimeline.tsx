@@ -27,7 +27,7 @@ import { useTranslation } from 'react-i18next';
 import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS } from '../lib/activityConstants';
 import { useAuth } from '../contexts/AuthContext';
 import { hasRolePermission } from '../lib/permissions';
-import { showSuccess, showError } from '../lib/notifications';
+import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import api from '../lib/api';
 import ActivityForm from './ActivityForm';
 import type { Activity } from '../types/activity';
@@ -125,8 +125,8 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
             setAllActivities([]);
             queryClient.invalidateQueries({ queryKey: ['activities', companyId] });
         },
-        onError: () => {
-            showError(t('errors.generic'));
+        onError: (err) => {
+            showErrorFromApi(err, t('errors.generic'));
         },
     });
 
@@ -240,6 +240,7 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
                                                             <Menu.Item
                                                                 color="red"
                                                                 leftSection={<IconTrash size={14} />}
+                                                                disabled={deleteMutation.isPending}
                                                                 onClick={() => deleteMutation.mutate(activity.id)}
                                                             >
                                                                 {t('company.delete')}

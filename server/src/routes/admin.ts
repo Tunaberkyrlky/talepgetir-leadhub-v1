@@ -14,6 +14,20 @@ import {
 const log = createLogger('route:admin');
 const router = Router();
 
+// Short-lived cache for user email lookups to reduce N+1 Supabase Auth API calls
+// in admin endpoints that enrich membership/tenant lists with user emails.
+const USER_EMAIL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const userEmailCache = new Map<string, { email: string; ts: number }>();
+
+async function getUserEmail(userId: string): Promise<string> {
+    const cached = userEmailCache.get(userId);
+    if (cached && Date.now() - cached.ts < USER_EMAIL_CACHE_TTL) return cached.email;
+    const { data } = await supabaseAdmin.auth.admin.getUserById(userId);
+    const email = data?.user?.email || '';
+    userEmailCache.set(userId, { email, ts: Date.now() });
+    return email;
+}
+
 export async function logAuditAction(
     actorId: string,
     action: string,
@@ -423,18 +437,15 @@ router.get('/tenants/:id', async (req: Request, res: Response, next: NextFunctio
             .select('id, user_id, role, is_active')
             .eq('tenant_id', id);
 
-        // Enrich with user emails — batch fetch in parallel
+        // Enrich with user emails — cached to avoid N×1 Auth API calls per tenant load
         const members = await Promise.all(
-            (memberships || []).map(async (m) => {
-                const { data: userData } = await supabaseAdmin.auth.admin.getUserById(m.user_id);
-                return {
-                    membership_id: m.id,
-                    user_id: m.user_id,
-                    email: userData?.user?.email || '',
-                    role: m.role,
-                    is_active: m.is_active,
-                };
-            })
+            (memberships || []).map(async (m) => ({
+                membership_id: m.id,
+                user_id: m.user_id,
+                email: await getUserEmail(m.user_id),
+                role: m.role,
+                is_active: m.is_active,
+            }))
         );
 
         res.json({
@@ -626,22 +637,19 @@ router.get('/memberships', async (req: Request, res: Response, next: NextFunctio
 
         if (error) throw new AppError('Failed to fetch memberships', 500);
 
-        // Enrich with user emails — batch fetch in parallel
+        // Enrich with user emails — cached to avoid N×1 Auth API calls per page load
         const enriched = await Promise.all(
-            (data || []).map(async (m) => {
-                const { data: userData } = await supabaseAdmin.auth.admin.getUserById(m.user_id);
-                return {
-                    id: m.id,
-                    user_id: m.user_id,
-                    user_email: userData?.user?.email || '',
-                    tenant_id: m.tenant_id,
-                    tenant_name: (m as any).tenants?.name || '',
-                    tenant_slug: (m as any).tenants?.slug || '',
-                    role: m.role,
-                    is_active: m.is_active,
-                    created_at: m.created_at,
-                };
-            })
+            (data || []).map(async (m) => ({
+                id: m.id,
+                user_id: m.user_id,
+                user_email: await getUserEmail(m.user_id),
+                tenant_id: m.tenant_id,
+                tenant_name: (m as any).tenants?.name || '',
+                tenant_slug: (m as any).tenants?.slug || '',
+                role: m.role,
+                is_active: m.is_active,
+                created_at: m.created_at,
+            }))
         );
 
         const totalPages = Math.ceil((count || 0) / limit);

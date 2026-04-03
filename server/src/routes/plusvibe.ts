@@ -369,6 +369,121 @@ router.post(
     }
 );
 
+// ── POST /api/plusvibe/import-campaign — import replies for a single campaign ──
+// Used by the frontend step-by-step import flow. Accepts { pv_campaign_id }.
+router.post(
+    '/import-campaign',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const pvCampaignId = req.body.pv_campaign_id as string;
+
+            if (!pvCampaignId || typeof pvCampaignId !== 'string') {
+                res.status(400).json({ error: 'pv_campaign_id is required' });
+                return;
+            }
+
+            // Verify campaign is assigned to this tenant
+            const { data: campaign } = await supabaseAdmin
+                .from('plusvibe_campaigns')
+                .select('pv_campaign_id, name, tenant_id')
+                .eq('pv_campaign_id', pvCampaignId)
+                .eq('tenant_id', tenantId)
+                .single();
+
+            if (!campaign || campaign.tenant_id !== tenantId) {
+                res.status(403).json({ error: 'Campaign not assigned to this tenant' });
+                return;
+            }
+
+            // Pre-fetch contacts + companies for matching
+            const { data: tenantContacts } = await supabaseAdmin
+                .from('contacts')
+                .select('id, email, company_id, is_primary')
+                .eq('tenant_id', tenantId)
+                .not('email', 'is', null);
+
+            const { data: tenantCompanies } = await supabaseAdmin
+                .from('companies')
+                .select('id, company_email')
+                .eq('tenant_id', tenantId)
+                .not('company_email', 'is', null);
+
+            const contactsByEmail = new Map<string, { id: string; company_id: string }>();
+            for (const c of tenantContacts || []) {
+                const e = (c.email as string).toLowerCase().trim();
+                if (!contactsByEmail.has(e) || c.is_primary) {
+                    contactsByEmail.set(e, { id: c.id, company_id: c.company_id });
+                }
+            }
+            const companyByEmail = new Map<string, string>();
+            for (const c of tenantCompanies || []) {
+                companyByEmail.set((c.company_email as string).toLowerCase().trim(), c.id);
+            }
+
+            function matchEmail(email: string) {
+                const e = email.toLowerCase().trim();
+                const contact = contactsByEmail.get(e);
+                if (contact) return { company_id: contact.company_id, contact_id: contact.id, match_status: 'matched' as const };
+                const companyId = companyByEmail.get(e);
+                if (companyId) return { company_id: companyId, contact_id: null, match_status: 'matched' as const };
+                return { company_id: null, contact_id: null, match_status: 'unmatched' as const };
+            }
+
+            const replies = await fetchAllReplies(pvCampaignId);
+
+            const { data: existing } = await supabaseAdmin
+                .from('email_replies')
+                .select('sender_email, replied_at')
+                .eq('tenant_id', tenantId)
+                .eq('campaign_id', pvCampaignId);
+
+            const existingKeys = new Set(
+                (existing || []).map((r: { sender_email: string; replied_at: string }) =>
+                    `${r.sender_email}|${r.replied_at}`
+                )
+            );
+
+            const newRows = [];
+            let skipped = 0;
+            for (const reply of replies) {
+                const senderEmail = reply.from_address_email.toLowerCase().trim();
+                const repliedAt = reply.timestamp_created || new Date().toISOString();
+                const key = `${senderEmail}|${repliedAt}`;
+                if (existingKeys.has(key)) { skipped++; continue; }
+                const match = matchEmail(reply.from_address_email);
+                newRows.push({
+                    tenant_id: tenantId,
+                    campaign_id: pvCampaignId,
+                    campaign_name: campaign.name,
+                    sender_email: senderEmail,
+                    reply_body: reply.content_preview || reply.body || null,
+                    replied_at: repliedAt,
+                    company_id: match.company_id,
+                    contact_id: match.contact_id,
+                    match_status: match.match_status,
+                    read_status: reply.is_unread ? 'unread' : 'read',
+                    raw_payload: { source: 'plusvibe_api_import', plusvibe_email_id: reply.id, label: reply.label },
+                });
+                existingKeys.add(key);
+            }
+
+            let imported = 0;
+            for (let i = 0; i < newRows.length; i += 500) {
+                const { error } = await supabaseAdmin.from('email_replies').insert(newRows.slice(i, i + 500));
+                if (!error) imported += Math.min(500, newRows.length - i);
+            }
+
+            res.json({ imported, skipped, fetched: replies.length });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Import campaign error');
+            next(new AppError('Failed to import campaign replies', 500));
+        }
+    }
+);
+
 // ── Helper: sync campaigns from PlusVibe API to local cache ──
 
 async function syncCampaigns(): Promise<number> {

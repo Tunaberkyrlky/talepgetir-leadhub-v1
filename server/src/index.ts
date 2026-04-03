@@ -15,6 +15,7 @@ if (!process.env.VERCEL) {
 }
 
 import logger from './lib/logger.js';
+import { supabaseAdmin } from './lib/supabase.js';
 import { authMiddleware, requireRole } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { dataFilter } from './middleware/dataFilter.js';
@@ -37,7 +38,13 @@ const app = express();
 const PORT = process.env.PORT || process.env.API_PORT || 3001;
 
 // Compression (before all routes for smaller responses)
-app.use(compression());
+// Skip compression for SSE endpoints — buffering breaks streaming
+app.use(compression({
+    filter: (req, res) => {
+        if (req.url.includes('/geocode')) return false;
+        return compression.filter(req, res);
+    },
+}));
 
 // Security middleware
 app.use(helmet({
@@ -118,9 +125,21 @@ const plusvibeImportLimiter = rateLimit({
 // Apply general rate limit to all API routes
 app.use('/api', generalLimiter);
 
-// Health check (no auth)
-app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check (no auth) — tests HTTP liveness and Supabase connectivity
+app.get('/api/health', async (_req, res) => {
+    try {
+        // Lightweight Supabase ping: count one row from tenants (0 rows is fine, error is not)
+        const { error } = await supabaseAdmin
+            .from('tenants')
+            .select('id', { count: 'exact', head: true });
+        if (error) {
+            res.status(503).json({ status: 'degraded', database: 'unreachable', timestamp: new Date().toISOString() });
+            return;
+        }
+        res.json({ status: 'ok', database: 'connected', timestamp: new Date().toISOString() });
+    } catch {
+        res.status(503).json({ status: 'degraded', database: 'unreachable', timestamp: new Date().toISOString() });
+    }
 });
 
 // Auth routes — strict rate limit on login/refresh

@@ -16,6 +16,10 @@ export function showInfo(message: string) {
     notifications.show({ message, color: 'blue' });
 }
 
+export function showWarning(message: string) {
+    notifications.show({ message, color: 'yellow' });
+}
+
 /** Show a red error notification with a user-friendly message */
 export function showError(message: string) {
     notifications.show({ message, color: 'red' });

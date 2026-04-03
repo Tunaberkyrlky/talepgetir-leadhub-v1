@@ -103,6 +103,13 @@ const COUNTRIES: Record<string, [number, number]> = {
     'uzbekistan': [41.3775, 64.5853], 'venezuela': [6.4238, -66.5897],
     'vietnam': [14.0583, 108.2772], 'yemen': [15.5527, 48.5164],
     'zambia': [-13.1339, 27.8493], 'zimbabwe': [-19.0154, 29.1549],
+    // Additional entries missing from original list
+    'iceland': [64.9631, -19.0208],
+    'cyprus': [35.1264, 33.4299],
+    'liechtenstein': [47.1660, 9.5554],
+    'bosnia and herzegovina': [43.9159, 17.6791],
+    'makedonya': [41.6086, 21.7453], // Turkish name for North Macedonia
+    'kuzey makedonya': [41.6086, 21.7453], // Turkish: North Macedonia
 };
 
 /**

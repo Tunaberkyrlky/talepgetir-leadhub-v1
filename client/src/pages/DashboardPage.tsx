@@ -1,5 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Container,
@@ -24,7 +24,7 @@ import {
     IconChartBar,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { showSuccess } from '../lib/notifications';
+import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -86,7 +86,7 @@ export default function DashboardPage() {
 
     // Company locations — for globe map (pro tier only)
     const queryClient = useQueryClient();
-    const { data: companyLocations, isLoading: locationsLoading } = useQuery<{ data: CompanyLocation[], missingCount: number }>({
+    const { data: companyLocations, isLoading: locationsLoading, error: locationsError } = useQuery<{ data: CompanyLocation[], missingCount: number }>({
         queryKey: ['statistics', 'company-locations', dateParams],
         queryFn: async () => {
             const params = new URLSearchParams();
@@ -100,23 +100,98 @@ export default function DashboardPage() {
         refetchOnWindowFocus: false,
     });
 
-    const geocodeMutation = useMutation({
-        mutationFn: async () => (await api.post('/companies/geocode')).data,
-        onSuccess: (data: { total: number; geocoded: number; skipped?: number }) => {
-            queryClient.invalidateQueries({ queryKey: ['statistics', 'company-locations'] });
-            if (data.geocoded > 0) {
-                const skippedNote = data.skipped ? ` (${data.skipped} konum tanınamadı)` : '';
-                showSuccess(`${data.geocoded}/${data.total} şirket haritaya eklendi${skippedNote}`);
-            } else if (data.total === 0) {
-                notifications.show({ message: 'Pipeline\'da koordinatsız şirket bulunamadı', color: 'blue' });
-            } else {
-                notifications.show({ message: `${data.total} şirket işlendi, konum tanınamadı`, color: 'yellow' });
+    const [geocodeLoading, setGeocodeLoading] = useState(false);
+    const [geocodeStages, setGeocodeStages] = useState<{ message: string; status: 'active' | 'done' | 'error' }[]>([]);
+
+    // Auto-clear stages 7s after completion
+    useEffect(() => {
+        if (!geocodeLoading && geocodeStages.length > 0) {
+            const timer = setTimeout(() => setGeocodeStages([]), 7000);
+            return () => clearTimeout(timer);
+        }
+    }, [geocodeLoading, geocodeStages.length]);
+
+    const handleGeocode = useCallback(async () => {
+        if (geocodeLoading) return;
+        setGeocodeLoading(true);
+        setGeocodeStages([]);
+
+        const API_URL = import.meta.env.VITE_API_URL || '/api';
+        const activeTenantId = localStorage.getItem('activeTenantId');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (activeTenantId && activeTenantId !== 'null') headers['X-Tenant-Id'] = activeTenantId;
+
+        try {
+            const response = await fetch(`${API_URL}/companies/geocode`, {
+                method: 'POST',
+                credentials: 'include',
+                headers,
+            });
+
+            if (!response.body) throw new Error('No response body');
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        if (data.type === 'progress') {
+                            setGeocodeStages(prev => [
+                                ...prev.map(s => ({ ...s, status: 'done' as const })),
+                                { message: data.message, status: 'active' as const },
+                            ]);
+                        } else if (data.type === 'result') {
+                            setGeocodeStages(prev => prev.map(s => ({ ...s, status: 'done' as const })));
+                            queryClient.invalidateQueries({ queryKey: ['statistics', 'company-locations'] });
+                            if (data.geocoded > 0) {
+                                const msg = data.skipped
+                                    ? t('dashboard.geocodeSuccessWithSkipped', { geocoded: data.geocoded, total: data.total, skipped: data.skipped })
+                                    : t('dashboard.geocodeSuccess', { geocoded: data.geocoded, total: data.total });
+                                showSuccess(msg);
+                            } else if (data.total === 0) {
+                                notifications.show({ message: t('dashboard.geocodeNoneFound'), color: 'blue' });
+                            } else {
+                                notifications.show({ message: t('dashboard.geocodeNoneResolved', { total: data.total }), color: 'yellow' });
+                            }
+                        } else if (data.type === 'error') {
+                            setGeocodeStages(prev => [
+                                ...prev.map(s => ({ ...s, status: 'done' as const })),
+                                { message: data.message, status: 'error' as const },
+                            ]);
+                        }
+                    } catch {
+                        // ignore malformed SSE lines
+                    }
+                }
             }
-        },
-    });
+        } catch (err) {
+            showErrorFromApi(err, t('dashboard.geocodeError'));
+            setGeocodeStages(prev => [
+                ...prev.map(s => ({ ...s, status: 'done' as const })),
+                { message: t('dashboard.geocodeError'), status: 'error' as const },
+            ]);
+        } finally {
+            setGeocodeLoading(false);
+        }
+    }, [geocodeLoading, queryClient, t]);
+
+    useEffect(() => {
+        if (locationsError) showErrorFromApi(locationsError, t('dashboard.locationsError'));
+    }, [locationsError, t]);
 
     // Pipeline — Pro tier or internal
-    const { data: pipeline } = useQuery<PipelineData>({
+    const { data: pipeline, error: pipelineError } = useQuery<PipelineData>({
         queryKey: ['statistics', 'pipeline', dateParams],
         queryFn: async () => {
             const params = new URLSearchParams();
@@ -130,6 +205,10 @@ export default function DashboardPage() {
         refetchOnWindowFocus: true,
         refetchInterval: isAdvanced ? 5 * 60_000 : false,
     });
+
+    useEffect(() => {
+        if (pipelineError) showErrorFromApi(pipelineError, t('dashboard.pipelineError'));
+    }, [pipelineError, t]);
 
     if (overviewError) {
         return (
@@ -240,8 +319,9 @@ export default function DashboardPage() {
                             data={companyLocations?.data || []}
                             missingCount={companyLocations?.missingCount || 0}
                             isLoading={locationsLoading}
-                            onGeocode={() => geocodeMutation.mutate()}
-                            geocodeLoading={geocodeMutation.isPending}
+                            onGeocode={handleGeocode}
+                            geocodeLoading={geocodeLoading}
+                            geocodeStages={geocodeStages}
                             canGeocode={['superadmin', 'ops_agent', 'client_admin'].includes(role)}
                         />
                     </Suspense>

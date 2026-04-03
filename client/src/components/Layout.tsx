@@ -157,11 +157,29 @@ export default function Layout() {
                     {/* Right side */}
                     <Group gap="md">
                         {/* Feedback button */}
-                        <Tooltip label={t('feedback.title')}>
-                            <UnstyledButton onClick={openFeedback}>
-                                <IconMessageReport size={20} color="rgba(255,255,255,0.7)" />
-                            </UnstyledButton>
-                        </Tooltip>
+                        <UnstyledButton
+                            onClick={openFeedback}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '5px 10px',
+                                borderRadius: 8,
+                                border: '1px solid rgba(255,255,255,0.18)',
+                                background: 'rgba(255,255,255,0.06)',
+                                color: 'rgba(255,255,255,0.85)',
+                                fontSize: '0.8rem',
+                                fontWeight: 500,
+                                transition: 'background 0.15s',
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.12)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+                        >
+                            <IconMessageReport size={16} />
+                            <Text size="xs" fw={500} c="rgba(255,255,255,0.85)" visibleFrom="sm">
+                                {t('feedback.title')}
+                            </Text>
+                        </UnstyledButton>
 
                         {/* Tenant switcher — only for superadmin & ops_agent with multiple tenants */}
                         {isOpsOrAdmin && canSwitchTenants ? (

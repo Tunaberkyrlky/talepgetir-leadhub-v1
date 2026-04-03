@@ -309,7 +309,8 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
             .from('activities')
             .select('created_by')
             .eq('tenant_id', tenantId)
-            .not('created_by', 'is', null);
+            .not('created_by', 'is', null)
+            .limit(5000);
 
         if (error) {
             log.error({ err: error }, 'Activity users error');

@@ -385,7 +385,7 @@ router.post(
                 email_status: email_status || null,
                 stage: stage || 'cold',
                 company_summary: company_summary || null,
-                internal_notes: internal_notes || null,
+                internal_notes: isInternalRole(req.user!.role) ? (internal_notes || null) : null,
                 next_step: next_step || null,
                 custom_fields: custom_fields || {},
                 fit_score: fit_score || null,
@@ -511,9 +511,12 @@ router.put(
             if (company_phone !== undefined) updateData.company_phone = company_phone;
             if (company_email !== undefined) updateData.company_email = company_email;
             if (email_status !== undefined) updateData.email_status = email_status;
-            if (stage !== undefined) updateData.stage = stage;
+            if (stage !== undefined) {
+                updateData.stage = stage;
+                updateData.stage_changed_at = new Date().toISOString();
+            }
             if (company_summary !== undefined) updateData.company_summary = company_summary;
-            if (internal_notes !== undefined) updateData.internal_notes = internal_notes;
+            if (internal_notes !== undefined && isInternalRole(req.user!.role)) updateData.internal_notes = internal_notes;
             if (fit_score !== undefined) updateData.fit_score = fit_score;
             if (custom_field_1 !== undefined) updateData.custom_field_1 = custom_field_1;
             if (custom_field_2 !== undefined) updateData.custom_field_2 = custom_field_2;
@@ -556,24 +559,41 @@ router.put(
 );
 
 // POST /api/companies/geocode — Batch geocode pipeline companies missing coordinates
+// Streams progress via SSE (text/event-stream); each event is a JSON line prefixed with "data: "
 router.post(
     '/geocode',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    async (req: Request, res: Response): Promise<void> => {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no'); // disable nginx/Railway buffering
+        res.flushHeaders();
+
+        const send = (data: object) => {
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
+            // compression middleware adds flush(); call it to push bytes immediately
+            if (typeof (res as any).flush === 'function') (res as any).flush();
+        };
+
         try {
             const tenantId = req.tenantId!;
 
-            // Only geocode companies that are visible on the map:
-            // initial + pipeline-type stages — terminal stages are excluded
+            send({ type: 'progress', message: 'Hazırlanıyor...' });
+
+            // Only geocode companies visible on the map: initial + pipeline stages
             const allStages = await getTenantStages(tenantId);
             const targetStages = allStages
                 .filter((s) => s.stage_type === 'initial' || s.stage_type === 'pipeline')
                 .map((s) => s.slug);
 
             if (targetStages.length === 0) {
-                res.json({ total: 0, geocoded: 0 });
+                send({ type: 'result', total: 0, geocoded: 0, skipped: 0 });
+                res.end();
                 return;
             }
+
+            send({ type: 'progress', message: 'Konumları eksik şirketler aranıyor...' });
 
             // Fetch pipeline companies that have a location but no coordinates
             const { data: companies, error } = await supabaseAdmin
@@ -585,8 +605,20 @@ router.post(
                 .is('latitude', null);
 
             if (error) {
-                throw new AppError('Failed to fetch companies', 500);
+                send({ type: 'error', message: 'Şirketler yüklenemedi' });
+                res.end();
+                return;
             }
+
+            const total = companies?.length || 0;
+
+            if (total === 0) {
+                send({ type: 'result', total: 0, geocoded: 0, skipped: 0 });
+                res.end();
+                return;
+            }
+
+            send({ type: 'progress', message: `${total} şirket bulundu, koordinatlar çözümleniyor...` });
 
             // Resolve coordinates for each company and batch by coordinate value
             const updates = new Map<string, string[]>(); // "lat,lng" → [company_id, ...]
@@ -604,6 +636,22 @@ router.post(
                 }
             }
 
+            const resolvable = total - skipped;
+            send({
+                type: 'progress',
+                message: skipped > 0
+                    ? `${resolvable} koordinat çözümlendi, ${skipped} konum tanınamadı`
+                    : `${resolvable} koordinat çözümlendi`,
+            });
+
+            if (resolvable === 0) {
+                send({ type: 'result', total, geocoded: 0, skipped });
+                res.end();
+                return;
+            }
+
+            send({ type: 'progress', message: 'Veritabanı güncelleniyor...' });
+
             // Write coordinates — one UPDATE per unique coordinate pair (bulk by id list)
             let geocoded = 0;
             for (const [coordKey, ids] of updates) {
@@ -616,13 +664,13 @@ router.post(
                 if (!updateError) geocoded += ids.length;
             }
 
-            const total = companies?.length || 0;
             log.info({ tenantId, targetStages, total, geocoded, skipped }, 'Batch geocode complete');
-            res.json({ total, geocoded, skipped });
+            send({ type: 'result', total, geocoded, skipped });
+            res.end();
         } catch (err) {
-            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Batch geocode error');
-            res.status(500).json({ error: 'Failed to geocode companies' });
+            send({ type: 'error', message: 'Geocoding sırasında bir hata oluştu' });
+            res.end();
         }
     }
 );
@@ -703,9 +751,10 @@ router.patch(
                 return;
             }
 
+            const now = new Date().toISOString();
             const { data, error } = await supabaseAdmin
                 .from('companies')
-                .update({ stage, updated_at: new Date().toISOString() })
+                .update({ stage, updated_at: now, stage_changed_at: now })
                 .eq('id', id)
                 .eq('tenant_id', tenantId)
                 .select('id, name, stage, updated_at')

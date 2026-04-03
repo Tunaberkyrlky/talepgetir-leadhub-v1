@@ -5,6 +5,7 @@ import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table,
     Loader, Center, Button, SimpleGrid, Select, TextInput,
     Skeleton, Tooltip, Alert, Anchor, Pagination, ActionIcon,
+    SegmentedControl, ThemeIcon,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
@@ -12,6 +13,7 @@ import {
     IconMail, IconMailOpened, IconSearch,
     IconCircleFilled, IconLink, IconLinkOff, IconAlertCircle,
     IconSpeakerphone, IconDownload, IconChevronDown, IconChevronRight,
+    IconChevronLeft, IconRefresh,
 } from '@tabler/icons-react';
 import ThreadHistoryRows from '../components/email/ThreadHistoryRows';
 
@@ -76,6 +78,53 @@ function truncate(text: string | null, maxLen: number): string {
     return text.length > maxLen ? text.slice(0, maxLen) + '...' : text;
 }
 
+// ─── Period Filter Helpers ────────────────────────────────────────────────────
+
+type PeriodType = 'day' | 'week' | 'month' | 'custom';
+
+function getPeriodDates(type: PeriodType, anchor: Date): { start: Date; end: Date } {
+    if (type === 'day') return { start: anchor, end: anchor };
+    if (type === 'week') {
+        const d = new Date(anchor);
+        const day = d.getDay();
+        const diff = day === 0 ? -6 : 1 - day;
+        const monday = new Date(d);
+        monday.setDate(d.getDate() + diff);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        return { start: monday, end: sunday };
+    }
+    return {
+        start: new Date(anchor.getFullYear(), anchor.getMonth(), 1),
+        end: new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0),
+    };
+}
+
+function shiftPeriod(type: PeriodType, anchor: Date, direction: 1 | -1): Date {
+    const d = new Date(anchor);
+    if (type === 'day') d.setDate(d.getDate() + direction);
+    else if (type === 'week') d.setDate(d.getDate() + direction * 7);
+    else if (type === 'month') d.setMonth(d.getMonth() + direction);
+    return d;
+}
+
+function formatPeriodLabel(type: PeriodType, anchor: Date, locale: string): string {
+    if (type === 'day') return anchor.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+    if (type === 'week') {
+        const { start, end } = getPeriodDates(type, anchor);
+        const monthStr = end.toLocaleDateString(locale, { month: 'short' });
+        return `${start.getDate()} — ${end.getDate()} ${monthStr} ${end.getFullYear()}`;
+    }
+    return anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+}
+
+function isCurrentPeriod(type: PeriodType, anchor: Date): boolean {
+    if (type === 'custom') return false;
+    const today = getPeriodDates(type, new Date());
+    const anchorRange = getPeriodDates(type, anchor);
+    return today.start.toDateString() === anchorRange.start.toDateString();
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function EmailRepliesPage() {
@@ -90,7 +139,9 @@ export default function EmailRepliesPage() {
     const [readStatusFilter, setReadStatusFilter] = useState('');
     const [search, setSearch] = useState('');
     const [debouncedSearch] = useDebouncedValue(search, 300);
-    const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null]);
+    const [periodType, setPeriodType] = useState<PeriodType>('month');
+    const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date());
+    const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null]);
 
     // Pagination
     const [page, setPage] = useState(1);
@@ -111,8 +162,19 @@ export default function EmailRepliesPage() {
 
     // ── Derived ──
 
-    const dateFrom = dateRange[0] ? toLocalISOStart(dateRange[0]) : '';
-    const dateTo = dateRange[1] ? toLocalISOEnd(dateRange[1]) : '';
+    const periodLabel = formatPeriodLabel(periodType, periodAnchor, locale);
+    const isCurrent = isCurrentPeriod(periodType, periodAnchor);
+
+    const { dateFrom, dateTo } = useMemo(() => {
+        if (periodType === 'custom') {
+            return {
+                dateFrom: customRange[0] ? toLocalISOStart(customRange[0]) : '',
+                dateTo: customRange[1] ? toLocalISOEnd(customRange[1]) : '',
+            };
+        }
+        const { start, end } = getPeriodDates(periodType, periodAnchor);
+        return { dateFrom: toLocalISOStart(start), dateTo: toLocalISOEnd(end) };
+    }, [periodType, periodAnchor, customRange]);
 
     // ── Queries ──
 
@@ -170,20 +232,99 @@ export default function EmailRepliesPage() {
         return map;
     }, [activeCampaigns]);
 
-    // Import historical replies from PlusVibe
-    const importMutation = useMutation({
-        mutationFn: async () => (await api.post('/plusvibe/import-replies')).data,
-        onSuccess: (data: { imported: number; skipped: number }) => {
-            if (data.imported === 0 && data.skipped > 0) {
-                showSuccess(t('emailReplies.importUpToDate'));
-            } else {
-                showSuccess(t('emailReplies.importSuccess', { count: data.imported }));
+    // Bulk rematch — step-by-step progress state
+    type RematchPhase =
+        | { phase: 'idle' }
+        | { phase: 'fetching' }
+        | { phase: 'matching'; done: number; total: number }
+        | { phase: 'done'; matched: number; total: number };
+
+    const [rematchState, setRematchState] = useState<RematchPhase>({ phase: 'idle' });
+
+    const runRematchAll = useCallback(async () => {
+        setRematchState({ phase: 'fetching' });
+        try {
+            // Step 1: fetch all unmatched IDs (paginate through all pages, max 50/page)
+            const PAGE_LIMIT = 50;
+            const ids: string[] = [];
+            let currentPage = 1;
+            let hasMore = true;
+            while (hasMore) {
+                const resp = await api.get<{ data: { id: string }[]; pagination: { hasNext: boolean } }>('/email-replies', {
+                    params: { match_status: 'unmatched', limit: String(PAGE_LIMIT), page: String(currentPage) },
+                });
+                ids.push(...resp.data.data.map((r) => r.id));
+                hasMore = resp.data.pagination.hasNext;
+                currentPage++;
             }
+
+            if (ids.length === 0) {
+                setRematchState({ phase: 'done', matched: 0, total: 0 });
+                queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+                return;
+            }
+
+            // Step 2: process in batches of 20
+            const BATCH = 20;
+            let totalMatched = 0;
+            for (let i = 0; i < ids.length; i += BATCH) {
+                setRematchState({ phase: 'matching', done: i, total: ids.length });
+                const batch = ids.slice(i, i + BATCH);
+                const { data } = await api.post<{ matched: number }>('/email-replies/rematch-batch', { ids: batch });
+                totalMatched += data.matched;
+            }
+
+            setRematchState({ phase: 'done', matched: totalMatched, total: ids.length });
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
-        },
-        onError: (err) => showErrorFromApi(err),
-    });
+        } catch (err) {
+            showErrorFromApi(err);
+            setRematchState({ phase: 'idle' });
+        }
+    }, [queryClient]);
+
+    // Import historical replies — step-by-step progress state
+    type ImportPhase =
+        | { phase: 'idle' }
+        | { phase: 'fetching' }
+        | { phase: 'importing'; done: number; total: number; campaignName: string }
+        | { phase: 'done'; imported: number };
+
+    const [importState, setImportState] = useState<ImportPhase>({ phase: 'idle' });
+
+    const runImport = useCallback(async () => {
+        setImportState({ phase: 'fetching' });
+        try {
+            // Step 1: get campaigns assigned to this tenant
+            const resp = await api.get<{ data: { pv_campaign_id: string; name: string }[] }>(
+                '/plusvibe/campaigns'
+            );
+            const campaigns = resp.data.data.filter((c) => c.pv_campaign_id);
+
+            if (campaigns.length === 0) {
+                setImportState({ phase: 'done', imported: 0 });
+                return;
+            }
+
+            // Step 2: import each campaign one by one
+            let totalImported = 0;
+            for (let i = 0; i < campaigns.length; i++) {
+                const campaign = campaigns[i];
+                setImportState({ phase: 'importing', done: i, total: campaigns.length, campaignName: campaign.name });
+                const { data } = await api.post<{ imported: number }>('/plusvibe/import-campaign', {
+                    pv_campaign_id: campaign.pv_campaign_id,
+                });
+                totalImported += data.imported;
+            }
+
+            setImportState({ phase: 'done', imported: totalImported });
+            queryClient.invalidateQueries({ queryKey: ['email-replies'] });
+            queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+        } catch (err) {
+            showErrorFromApi(err);
+            setImportState({ phase: 'idle' });
+        }
+    }, [queryClient]);
 
     // ── Filter change helpers (reset page) ──
 
@@ -238,17 +379,54 @@ export default function EmailRepliesPage() {
                         {total}
                     </Badge>
                 </Group>
-                {activeCampaigns.length > 0 && (
-                    <Button
-                        variant="light"
-                        size="sm"
-                        leftSection={<IconDownload size={16} />}
-                        onClick={() => importMutation.mutate()}
-                        loading={importMutation.isPending}
-                    >
-                        {t('emailReplies.importReplies')}
-                    </Button>
-                )}
+                <Group gap="xs">
+                    {((stats?.unmatched ?? 0) > 0 || rematchState.phase !== 'idle') && (() => {
+                        const isBusy = rematchState.phase === 'fetching' || rematchState.phase === 'matching';
+                        const label = rematchState.phase === 'idle'
+                            ? t('emailReplies.rematch.bulkButton', { count: stats?.unmatched ?? 0 })
+                            : rematchState.phase === 'fetching'
+                                ? t('emailReplies.rematch.stepFetching')
+                                : rematchState.phase === 'matching'
+                                    ? t('emailReplies.rematch.stepMatching', { done: rematchState.done, total: rematchState.total })
+                                    : t('emailReplies.rematch.stepDone', { matched: rematchState.matched, total: rematchState.total });
+                        return (
+                            <Button
+                                variant="light"
+                                size="sm"
+                                color={rematchState.phase === 'done' ? 'green' : 'violet'}
+                                leftSection={isBusy ? <Loader size={14} color="violet" /> : <IconRefresh size={16} />}
+                                disabled={isBusy}
+                                onClick={() => {
+                                    if (!isBusy) runRematchAll();
+                                }}
+                            >
+                                {label}
+                            </Button>
+                        );
+                    })()}
+                    {(activeCampaigns.length > 0 || importState.phase !== 'idle') && (() => {
+                        const isBusy = importState.phase === 'fetching' || importState.phase === 'importing';
+                        const label = importState.phase === 'idle'
+                            ? t('emailReplies.importReplies')
+                            : importState.phase === 'fetching'
+                                ? t('emailReplies.import.stepFetching')
+                                : importState.phase === 'importing'
+                                    ? t('emailReplies.import.stepImporting', { done: importState.done + 1, total: importState.total, name: importState.campaignName })
+                                    : t('emailReplies.import.stepDone', { count: importState.imported });
+                        return (
+                            <Button
+                                variant="light"
+                                size="sm"
+                                color={importState.phase === 'done' ? 'green' : 'blue'}
+                                leftSection={isBusy ? <Loader size={14} color="blue" /> : <IconDownload size={16} />}
+                                disabled={isBusy}
+                                onClick={() => { if (!isBusy) runImport(); }}
+                            >
+                                {label}
+                            </Button>
+                        );
+                    })()}
+                </Group>
             </Group>
 
             {/* Error state */}
@@ -369,15 +547,70 @@ export default function EmailRepliesPage() {
                             data={readStatusData}
                             style={{ minWidth: 160 }}
                         />
-                        <DatePickerInput
-                            type="range"
-                            placeholder={t('emailReplies.filters.dateRange')}
-                            value={dateRange}
-                            onChange={(v) => { setDateRange(v as [Date | null, Date | null]); resetPage(); }}
-                            clearable
-                            size="sm"
-                            style={{ minWidth: 220 }}
+                    </Group>
+                    <Group gap="xs" wrap="nowrap">
+                        <SegmentedControl
+                            size="xs"
+                            value={periodType}
+                            onChange={(v) => {
+                                setPeriodType(v as PeriodType);
+                                setPeriodAnchor(new Date());
+                                setCustomRange([null, null]);
+                                resetPage();
+                            }}
+                            data={[
+                                { label: t('activities.periodDay'), value: 'day' },
+                                { label: t('activities.periodWeek'), value: 'week' },
+                                { label: t('activities.periodMonth'), value: 'month' },
+                                { label: t('activities.periodCustom'), value: 'custom' },
+                            ]}
                         />
+
+                        {periodType !== 'custom' && (
+                            <Group gap={4} wrap="nowrap">
+                                <ActionIcon
+                                    variant="subtle"
+                                    color="gray"
+                                    size="sm"
+                                    onClick={() => { setPeriodAnchor((prev) => shiftPeriod(periodType, prev, -1)); resetPage(); }}
+                                >
+                                    <IconChevronLeft size={14} />
+                                </ActionIcon>
+                                <Text size="xs" fw={600} miw={120} ta="center">
+                                    {periodLabel}
+                                </Text>
+                                <ActionIcon
+                                    variant="subtle"
+                                    color="gray"
+                                    size="sm"
+                                    disabled={isCurrent}
+                                    onClick={() => { setPeriodAnchor((prev) => shiftPeriod(periodType, prev, 1)); resetPage(); }}
+                                >
+                                    <IconChevronRight size={14} />
+                                </ActionIcon>
+                                {!isCurrent && (
+                                    <Button
+                                        size="compact-xs"
+                                        variant="light"
+                                        color="violet"
+                                        onClick={() => { setPeriodAnchor(new Date()); resetPage(); }}
+                                    >
+                                        {t('activities.today')}
+                                    </Button>
+                                )}
+                            </Group>
+                        )}
+
+                        {periodType === 'custom' && (
+                            <DatePickerInput
+                                type="range"
+                                placeholder={t('activities.dateRange')}
+                                value={customRange}
+                                onChange={(v) => { setCustomRange(v as [Date | null, Date | null]); resetPage(); }}
+                                clearable
+                                size="xs"
+                            />
+                        )}
                     </Group>
                 </Stack>
             </Paper>

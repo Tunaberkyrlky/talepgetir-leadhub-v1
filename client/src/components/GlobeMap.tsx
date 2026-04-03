@@ -1,9 +1,9 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
     Paper, Text, Loader, Center, Box, ActionIcon, Modal, Table, Badge,
-    ScrollArea, Group, Button, Menu,
+    ScrollArea, Group, Button, Stack,
 } from '@mantine/core';
-import { IconMaximize, IconMinimize, IconExternalLink, IconDotsVertical, IconMapPin } from '@tabler/icons-react';
+import { IconMaximize, IconMinimize, IconExternalLink, IconMapPin, IconCheck, IconX } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -35,6 +35,11 @@ export interface CompanyLocation {
     stage: string;
 }
 
+export interface GeocodeStageItem {
+    message: string;
+    status: 'active' | 'done' | 'error';
+}
+
 interface GlobeMapProps {
     data: CompanyLocation[];
     isLoading?: boolean;
@@ -46,6 +51,8 @@ interface GlobeMapProps {
     canGeocode?: boolean;
     /** Number of pipeline companies lacking coordinates */
     missingCount?: number;
+    /** Live stage messages from the geocode stream */
+    geocodeStages?: GeocodeStageItem[];
 }
 
 // Stage group definitions
@@ -166,7 +173,7 @@ function CountryCompaniesModal({
     );
 }
 
-export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, canGeocode, missingCount = 0 }: GlobeMapProps) {
+export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, canGeocode, missingCount = 0, geocodeStages = [] }: GlobeMapProps) {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
     const [dimensions, setDimensions] = useState({ width: 600, height: 320 });
@@ -214,49 +221,103 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
     // Filter out cold companies
     const activeData = useMemo(() => data.filter(c => c.stage !== 'cold'), [data]);
 
-    // Pre-compute: country feature id → stage group counts + centroid
+    // Pre-compute: country feature id → stage group counts + markers
+    //
+    // Strategy: group companies by coordinate pair first (companies in the same country
+    // share identical centroids), then try booleanPointInPolygon per unique coordinate to
+    // get the feature ID for country fill color. Markers are emitted regardless of whether
+    // the polygon lookup succeeds — this fixes rendering for small/simplified countries at
+    // 110m atlas resolution where the centroid can fall outside the simplified polygon.
     const { countryCompanyCounts, countryMarkers } = useMemo(() => {
         const countMap = new Map<number, CountryStats>();
         if (!activeData.length) return { countryCompanyCounts: countMap, countryMarkers: [] };
 
+        const addStage = (stats: CountryStats, stage: string) => {
+            stats.total += 1;
+            if ((STAGE_GROUPS.ilkTemas as readonly string[]).includes(stage))           stats.ilkTemas += 1;
+            else if ((STAGE_GROUPS.kalifikasyon as readonly string[]).includes(stage))  stats.kalifikasyon += 1;
+            else if ((STAGE_GROUPS.degerlendirme as readonly string[]).includes(stage)) stats.degerlendirme += 1;
+            else if ((STAGE_GROUPS.karar as readonly string[]).includes(stage))         stats.karar += 1;
+        };
+
+        // Step 1: group by coordinate pair — each unique (lat,lng) = one country centroid.
+        // PostgreSQL numeric columns are returned as strings by Supabase JSON serialization,
+        // so we must parse to float explicitly before any arithmetic or projection.
+        type CoordGroup = { lat: number; lng: number; location: string; stats: CountryStats };
+        const coordGroups = new Map<string, CoordGroup>();
+        for (const company of activeData) {
+            const lat = parseFloat(String(company.latitude));
+            const lng = parseFloat(String(company.longitude));
+            if (!isFinite(lat) || !isFinite(lng)) continue;
+            const key = `${lat},${lng}`;
+            let g = coordGroups.get(key);
+            if (!g) {
+                g = { lat, lng, location: company.location || '', stats: { total: 0, ilkTemas: 0, kalifikasyon: 0, degerlendirme: 0, karar: 0 } };
+                coordGroups.set(key, g);
+            }
+            addStage(g.stats, company.stage);
+        }
+
+        // Step 2: for each unique coordinate, try to find the matching country feature
+        // (used only for polygon fill color). Fallback synthetic IDs start above real
+        // ISO numeric codes (max ~900) to avoid collisions.
         const pt = (lng: number, lat: number) => ({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [lng, lat] },
             properties: {},
         });
 
-        for (const company of activeData) {
-            const point = pt(company.longitude, company.latitude);
-            for (const feature of GEO_FEATURES) {
-                if (booleanPointInPolygon(point, feature as any)) {
-                    const id = Number(feature.id);
-                    const cur = countMap.get(id) ?? { total: 0, ilkTemas: 0, kalifikasyon: 0, degerlendirme: 0, karar: 0 };
-                    cur.total += 1;
-                    if ((STAGE_GROUPS.ilkTemas as readonly string[]).includes(company.stage))      cur.ilkTemas += 1;
-                    else if ((STAGE_GROUPS.kalifikasyon as readonly string[]).includes(company.stage))  cur.kalifikasyon += 1;
-                    else if ((STAGE_GROUPS.degerlendirme as readonly string[]).includes(company.stage)) cur.degerlendirme += 1;
-                    else if ((STAGE_GROUPS.karar as readonly string[]).includes(company.stage))    cur.karar += 1;
-                    countMap.set(id, cur);
-                    break;
+        // featureId → marker (for merging multiple coord groups that land in the same polygon)
+        const mergedMarkers = new Map<number, CountryMarker>();
+        const fallbackMarkers: CountryMarker[] = [];
+        let syntheticId = 100_000;
+
+        const mergeStats = (target: CountryStats, src: CountryStats) => {
+            target.total        += src.total;
+            target.ilkTemas     += src.ilkTemas;
+            target.kalifikasyon += src.kalifikasyon;
+            target.degerlendirme += src.degerlendirme;
+            target.karar        += src.karar;
+        };
+
+        for (const group of coordGroups.values()) {
+            const point = pt(group.lng, group.lat);
+            let featureId: number | null = null;
+
+            try {
+                for (const feature of GEO_FEATURES) {
+                    if (booleanPointInPolygon(point, feature as any)) {
+                        featureId = Number(feature.id);
+                        break;
+                    }
                 }
+            } catch {
+                // booleanPointInPolygon can throw for degenerate geometries in the atlas
+            }
+
+            if (featureId !== null) {
+                const existing = mergedMarkers.get(featureId);
+                if (existing) {
+                    // Another coord group already matched this country polygon — merge stats.
+                    // This happens when a neighbouring country's centroid falls inside a
+                    // simplified 110m polygon (e.g. North Macedonia inside Bulgaria).
+                    mergeStats(existing.stats, group.stats);
+                    countMap.set(featureId, existing.stats);
+                } else {
+                    const stats = { ...group.stats };
+                    countMap.set(featureId, stats);
+                    const name = COUNTRY_NAMES[featureId] ?? group.location;
+                    const marker: CountryMarker = { id: featureId, name, lat: group.lat, lng: group.lng, stats };
+                    mergedMarkers.set(featureId, marker);
+                }
+            } else {
+                // Polygon lookup failed (centroid outside simplified 110m border) —
+                // still emit the marker so the company count is visible on the map.
+                fallbackMarkers.push({ id: syntheticId++, name: group.location, lat: group.lat, lng: group.lng, stats: { ...group.stats } });
             }
         }
 
-        // Build marker list from country centroids
-        const markers: CountryMarker[] = [];
-        for (const feature of GEO_FEATURES) {
-            const id = Number(feature.id);
-            const stats = countMap.get(id);
-            if (!stats) continue;
-            try {
-                const c = centroid(feature as any);
-                const [lng, lat] = c.geometry.coordinates;
-                const name = COUNTRY_NAMES[id] ?? '';
-                markers.push({ id, name, lat, lng, stats });
-            } catch {
-                // skip unparseable geometry
-            }
-        }
+        const markers = [...mergedMarkers.values(), ...fallbackMarkers];
 
         // Sort ascending so highest count renders last (on top in SVG)
         markers.sort((a, b) => a.stats.total - b.stats.total);
@@ -303,49 +364,60 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
 
     return (
         <Paper shadow="sm" radius="lg" p="lg" mb="lg" withBorder>
-            <Group justify="space-between" mb="xs" align="center">
-                <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+            <Group justify="space-between" mb={geocodeStages.length > 0 ? 'xs' : 'xs'} align="flex-start">
+                <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px', marginTop: 2 }}>
                     {t('dashboard.companyLocations')}
                 </Text>
                 <Group gap="xs" align="center">
-                    {geocodeLoading && (
-                        <Group gap={6} align="center">
-                            <Loader size={12} color="blue" />
-                            <Text size="xs" c="dimmed">
-                                {t('dashboard.geocoding', 'Konumlar güncelleniyor...')}
-                            </Text>
-                        </Group>
-                    )}
                     {canGeocode && onGeocode && (
-                        <Menu shadow="md" width={220} position="bottom-end">
-                            <Menu.Target>
-                                <ActionIcon variant="subtle" color="gray" size="sm" title={t('common.settings', 'Ayarlar')}>
-                                    <IconDotsVertical size={16} />
-                                </ActionIcon>
-                            </Menu.Target>
-                            <Menu.Dropdown>
-                                <Menu.Label>{t('dashboard.mapActions', 'Harita İşlemleri')}</Menu.Label>
-                                <Menu.Item
-                                    leftSection={geocodeLoading ? <Loader size={14} /> : <IconMapPin size={14} />}
-                                    onClick={onGeocode}
-                                    disabled={geocodeLoading}
-                                >
-                                    <Group justify="space-between" style={{ flex: 1 }} gap="md">
-                                        <Text size="sm">
-                                            {geocodeLoading
-                                                ? t('dashboard.geocoding', 'Konumlar güncelleniyor...')
-                                                : t('dashboard.geocodeBtn', 'Konumları Güncelle')}
-                                        </Text>
-                                        {!geocodeLoading && missingCount > 0 && (
-                                            <Badge size="xs" color="yellow" variant="light">{missingCount}</Badge>
-                                        )}
-                                    </Group>
-                                </Menu.Item>
-                            </Menu.Dropdown>
-                        </Menu>
+                        <Button
+                            size="compact-xs"
+                            variant="light"
+                            color="blue"
+                            leftSection={geocodeLoading ? <Loader size={10} color="blue" /> : <IconMapPin size={12} />}
+                            onClick={onGeocode}
+                            disabled={geocodeLoading}
+                            rightSection={!geocodeLoading && missingCount > 0
+                                ? <Badge size="xs" color="yellow" variant="filled">{missingCount}</Badge>
+                                : undefined
+                            }
+                        >
+                            {t('dashboard.geocodeBtn', 'Konumları Güncelle')}
+                        </Button>
                     )}
                 </Group>
             </Group>
+
+            {/* Geocode progress stages */}
+            {geocodeStages.length > 0 && (
+                <Stack
+                    gap={4}
+                    mb="sm"
+                    p="xs"
+                    style={{
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid rgba(100,160,255,0.15)',
+                        borderRadius: 8,
+                    }}
+                >
+                    {geocodeStages.map((stage, i) => (
+                        <Group key={i} gap={8} align="center" wrap="nowrap">
+                            <Box style={{ width: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                {stage.status === 'active' && <Loader size={10} color="blue" />}
+                                {stage.status === 'done' && <IconCheck size={12} color="var(--mantine-color-green-6)" />}
+                                {stage.status === 'error' && <IconX size={12} color="var(--mantine-color-red-6)" />}
+                            </Box>
+                            <Text
+                                size="xs"
+                                c={stage.status === 'error' ? 'red' : stage.status === 'active' ? 'blue' : 'dimmed'}
+                                style={{ fontFamily: 'monospace', letterSpacing: '0.2px' }}
+                            >
+                                {stage.message}
+                            </Text>
+                        </Group>
+                    ))}
+                </Stack>
+            )}
 
             <Box ref={containerRef} style={{ width: '100%' }}>
                 {isLoading ? (

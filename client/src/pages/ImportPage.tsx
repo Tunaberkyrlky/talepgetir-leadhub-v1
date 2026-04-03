@@ -37,6 +37,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
+import { showErrorFromApi, getErrorMessage } from '../lib/notifications';
 import DataMatchFlow from '../components/DataMatchFlow';
 import MappingEditor from '../components/MappingEditor';
 import { useImportProgress } from '../contexts/ImportProgressContext';
@@ -94,6 +95,9 @@ export default function ImportPage() {
             setMapping(initialMapping);
             setActive(1);
         },
+        onError: (err) => {
+            showErrorFromApi(err, t('import.uploadError'));
+        },
     });
 
     // Execute import mutation
@@ -129,7 +133,8 @@ export default function ImportPage() {
                 setActive(3);
             }
         },
-        onError: () => {
+        onError: (err) => {
+            showErrorFromApi(err, t('import.importError'));
             cancelImport();
         },
     });
@@ -272,7 +277,7 @@ export default function ImportPage() {
                         )}
                         {uploadMutation.isError && (
                             <Alert color="red" mt="md" icon={<IconAlertCircle />}>
-                                {(() => { const e = (uploadMutation.error as any)?.response?.data?.error; return typeof e === 'object' && e !== null ? (e.message || JSON.stringify(e)) : e || t('common.error'); })()}
+                                {getErrorMessage(uploadMutation.error, t('import.uploadError'))}
                             </Alert>
                         )}
                     </Paper>
@@ -371,7 +376,7 @@ export default function ImportPage() {
 
                         {executeMutation.isError && (
                             <Alert color="red" mt="md" icon={<IconAlertCircle />}>
-                                {(() => { const e = (executeMutation.error as any)?.response?.data?.error; return typeof e === 'object' && e !== null ? (e.message || JSON.stringify(e)) : e || t('common.error'); })()}
+                                {getErrorMessage(executeMutation.error, t('import.importError'))}
                             </Alert>
                         )}
                     </Paper>

@@ -180,7 +180,13 @@ export async function authMiddleware(
         req.tenantId = effectiveTenantId;
 
         // Cache for subsequent requests
-        if (authCache.size >= MAX_AUTH_CACHE_SIZE) authCache.clear();
+        if (authCache.size >= MAX_AUTH_CACHE_SIZE) {
+            // Evict the oldest 20% of entries instead of clearing all
+            // to avoid thundering-herd re-authentication on every 1001st user
+            const evictCount = Math.floor(MAX_AUTH_CACHE_SIZE * 0.2);
+            const sorted = [...authCache.entries()].sort((a, b) => a[1].ts - b[1].ts);
+            for (let i = 0; i < evictCount; i++) authCache.delete(sorted[i][0]);
+        }
         authCache.set(cacheKey, { user: authUser, ts: Date.now() });
 
         next();

@@ -170,7 +170,12 @@
         "progressMinimize": "Küçült",
         "progressClose": "Kapat",
         "progressHide": "Gizle",
-        "matchZeroRows": "Eşleşen satır bulunamadı. Lütfen dosyalarınızı kontrol edin."
+        "matchZeroRows": "Eşleşen satır bulunamadı. Lütfen dosyalarınızı kontrol edin.",
+        "fileTooLarge": "Dosya boyutu 10 MB sınırını aşıyor. Lütfen daha küçük bir dosya seçin.",
+        "fileInvalidType": "Geçersiz dosya türü. Yalnızca .csv ve .xlsx dosyaları desteklenmektedir.",
+        "fileRejected": "Dosya kabul edilmedi. Boyutunu ve formatını kontrol edin.",
+        "uploadError": "Dosya yüklenemedi.",
+        "importError": "İçe aktarma başarısız oldu."
     },
     "stages": {
         "cold": "Soğuk",
@@ -220,6 +225,7 @@
         "location": "Konuma göre filtrele...",
         "product": "Ürüne göre filtrele...",
         "clearAll": "Filtreleri temizle",
+        "clearSearch": "Aramayı Temizle",
         "results": "sonuç",
         "noResults": "Sonuç bulunamadı",
         "tryDifferent": "Farklı arama terimleri veya filtreler deneyin.",
@@ -334,7 +340,14 @@
         "upgradeDesc": "Pipeline huni grafikleri ve daha detaylı analizler için Pro'ya yükseltin.",
         "companyLocations": "Şirket Konumları",
         "noLocations": "Henüz konum eklenmemiş. Bir şirketi açıp \"Konumu Bul\" butonuna tıklayarak haritaya ekleyebilirsiniz.",
-        "noStageData": "Henüz aşama verisi bulunmuyor. Şirketleri bir aşamaya taşıdığınızda burada görünecektir."
+        "noStageData": "Henüz aşama verisi bulunmuyor. Şirketleri bir aşamaya taşıdığınızda burada görünecektir.",
+        "geocodeSuccess": "{{geocoded}}/{{total}} şirket haritaya eklendi",
+        "geocodeSuccessWithSkipped": "{{geocoded}}/{{total}} şirket haritaya eklendi ({{skipped}} konum tanınamadı)",
+        "geocodeNoneFound": "Pipeline'da koordinatsız şirket bulunamadı",
+        "geocodeNoneResolved": "{{total}} şirket işlendi, konum tanınamadı",
+        "geocodeError": "Coğrafi kodlama başarısız",
+        "locationsError": "Şirket konumları yüklenemedi",
+        "pipelineError": "Pipeline verisi yüklenemedi"
     },
     "stageGroups": {
         "firstContact": "İlk Temas",
@@ -362,6 +375,9 @@
         "emptyColumn": "Şirket yok",
         "stageMoved": "Aşama güncellendi",
         "moveError": "Şirket taşınamadı",
+        "loadError": "Pipeline yüklenemedi",
+        "noSearchResults": "için sonuç bulunamadı",
+        "noOutcomes": "Henüz sonuçlanan şirket yok",
         "upgradeTitle": "Pipeline Board'u Açın",
         "upgradeDesc": "Kanban pipeline board'a erişmek ve anlaşmaları görsel olarak takip etmek için Pro'ya yükseltin.",
         "spotlight": {
@@ -479,6 +495,12 @@
             "on_hold": "Beklemede",
             "cancelled": "İptal Edildi"
         },
+        "outcomes": {
+            "won": "Kazanıldı",
+            "lost": "Kaybedildi",
+            "on_hold": "Beklemede",
+            "cancelled": "İptal Edildi"
+        },
         "dateTime": "Tarih ve Saat",
         "dateRequired": "Lütfen geçerli bir tarih ve saat seçin",
         "invalidDate": "Geçersiz tarih formatı, lütfen tekrar seçin",
@@ -514,6 +536,8 @@
     },
     "emailReplies": {
         "pageTitle": "Email Yanıtları",
+        "noEmailsForCompany": "Bu şirkete ait henüz mail yok",
+        "companyEmailsTab": "E-postalar",
         "stats": {
             "total": "Toplam Yanıt",
             "unread": "Okunmamış",
@@ -565,12 +589,23 @@
             "confirmYes": "Evet, Sil",
             "confirmNo": "Vazgeç"
         },
+        "rematch": {
+            "button": "Otomatik Eşleştir",
+            "bulkButton": "{{count}} Eşleşmemiş Maili Eşleştir",
+            "stepFetching": "Eşleşmemiş mailler alınıyor...",
+            "stepMatching": "Şirketler karşılaştırılıyor... {{done}} / {{total}}",
+            "stepDone": "Tamamlandı: {{matched}} / {{total}} eşleştirildi",
+            "success": "Şirket otomatik olarak eşleştirildi.",
+            "noMatch": "Otomatik eşleşme bulunamadı. Manuel olarak atayabilirsiniz.",
+            "failed": "Otomatik eşleştirme başarısız oldu."
+        },
         "assign": {
             "title": "Şirkete Ata",
             "warning": "Bu yanıt henüz bir şirketle eşleşmedi. Lütfen manuel olarak atayın.",
             "searchCompany": "Şirket ara...",
             "searchContact": "Kişi ara (opsiyonel)...",
-            "assignButton": "Ata"
+            "assignButton": "Ata",
+            "manualMatch": "Manuel Eşle"
         },
         "aiCategory": {
             "title": "AI Kategori",
@@ -579,6 +614,11 @@
         "importReplies": "Geçmiş Mailleri Çek",
         "importSuccess": "{{count}} yeni yanıt içe aktarıldı",
         "importUpToDate": "Tüm yanıtlar zaten güncel",
+        "import": {
+            "stepFetching": "Kampanyalar alınıyor...",
+            "stepImporting": "İçe aktarılıyor... {{done}} / {{total}}: {{name}}",
+            "stepDone": "Tamamlandı: {{count}} yeni mail aktarıldı"
+        },
         "activeCampaigns": "Aktif Kampanyalar",
         "noData": "Henüz email yanıtı yok",
         "noDataDescription": "PlusVibe kampanyalarından gelen yanıtlar burada görünecek.",
@@ -598,6 +638,15 @@
         "thread": {
             "expand": "{{count}} önceki mesajı göster",
             "collapse": "Önceki mesajları gizle"
+        },
+        "quickActivity": {
+            "title": "Hızlı Aktivite Ekle",
+            "button": "Aktivite",
+            "placeholder": "Aktivite notunu buraya yazın...",
+            "save": "Kaydet",
+            "cancel": "İptal",
+            "added": "Aktivite eklendi",
+            "failed": "Aktivite eklenemedi"
         }
     },
     "validation": {
@@ -702,5 +751,8 @@
             "configuredViaEnv": "PlusVibe API bağlantısı sunucu ortam değişkenleri ile yapılandırılmıştır.",
             "notConfigured": "PlusVibe API yapılandırılmamış. PLUSVIBE_API_KEY ve PLUSVIBE_WORKSPACE_ID ortam değişkenlerini ayarlayın."
         }
+    },
+    "shortcuts": {
+        "undone": "Geri alındı"
     }
 }

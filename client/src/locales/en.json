@@ -170,7 +170,12 @@
         "progressMinimize": "Minimize",
         "progressClose": "Close",
         "progressHide": "Hide",
-        "matchZeroRows": "No rows matched. Please check your files."
+        "matchZeroRows": "No rows matched. Please check your files.",
+        "fileTooLarge": "File size exceeds the 10 MB limit. Please select a smaller file.",
+        "fileInvalidType": "Invalid file type. Only .csv and .xlsx files are supported.",
+        "fileRejected": "File was rejected. Check its size and format.",
+        "uploadError": "File could not be uploaded.",
+        "importError": "Import failed."
     },
     "stages": {
         "cold": "Cold",
@@ -220,6 +225,7 @@
         "location": "Filter by location...",
         "product": "Filter by product...",
         "clearAll": "Clear filters",
+        "clearSearch": "Clear search",
         "results": "results",
         "noResults": "No results found",
         "tryDifferent": "Try different search terms or filters.",
@@ -334,7 +340,14 @@
         "upgradeDesc": "Upgrade to Pro to access pipeline funnel charts and more detailed analytics.",
         "companyLocations": "Company Locations",
         "noLocations": "No geocoded locations yet. Open a company and click \"Geocode Location\" to add it to the map.",
-        "noStageData": "No stage data yet. Move companies to a stage and they will appear here."
+        "noStageData": "No stage data yet. Move companies to a stage and they will appear here.",
+        "geocodeSuccess": "{{geocoded}}/{{total}} companies added to map",
+        "geocodeSuccessWithSkipped": "{{geocoded}}/{{total}} companies added to map ({{skipped}} could not be resolved)",
+        "geocodeNoneFound": "No ungeocoded companies found in pipeline",
+        "geocodeNoneResolved": "{{total}} companies processed, no locations resolved",
+        "geocodeError": "Geocoding failed",
+        "locationsError": "Could not load company locations",
+        "pipelineError": "Could not load pipeline data"
     },
     "stageGroups": {
         "firstContact": "First Contact",
@@ -362,6 +375,9 @@
         "emptyColumn": "No companies",
         "stageMoved": "Stage updated",
         "moveError": "Failed to move company",
+        "loadError": "Could not load pipeline",
+        "noSearchResults": "no results found",
+        "noOutcomes": "No concluded companies yet",
         "upgradeTitle": "Unlock Pipeline Board",
         "upgradeDesc": "Upgrade to Pro to access the Kanban pipeline board and track deals visually.",
         "spotlight": {
@@ -479,6 +495,12 @@
             "on_hold": "On Hold",
             "cancelled": "Cancelled"
         },
+        "outcomes": {
+            "won": "Won",
+            "lost": "Lost",
+            "on_hold": "On Hold",
+            "cancelled": "Cancelled"
+        },
         "dateTime": "Date & Time",
         "dateRequired": "Please select a valid date and time",
         "invalidDate": "Invalid date format, please select again",
@@ -514,6 +536,8 @@
     },
     "emailReplies": {
         "pageTitle": "Email Replies",
+        "noEmailsForCompany": "No emails linked to this company yet",
+        "companyEmailsTab": "Emails",
         "stats": {
             "total": "Total Replies",
             "unread": "Unread",
@@ -565,12 +589,23 @@
             "confirmYes": "Yes, Delete",
             "confirmNo": "Cancel"
         },
+        "rematch": {
+            "button": "Auto Match",
+            "bulkButton": "Match {{count}} Unmatched",
+            "stepFetching": "Fetching unmatched emails...",
+            "stepMatching": "Comparing companies... {{done}} / {{total}}",
+            "stepDone": "Done: {{matched}} / {{total}} matched",
+            "success": "Company matched automatically.",
+            "noMatch": "No automatic match found. You can assign manually.",
+            "failed": "Auto matching failed."
+        },
         "assign": {
             "title": "Assign to Company",
             "warning": "This reply has not been matched to any company yet. Please assign manually.",
             "searchCompany": "Search company...",
             "searchContact": "Search contact (optional)...",
-            "assignButton": "Assign"
+            "assignButton": "Assign",
+            "manualMatch": "Manual Match"
         },
         "aiCategory": {
             "title": "AI Category",
@@ -579,6 +614,11 @@
         "importReplies": "Import Past Emails",
         "importSuccess": "{{count}} new replies imported",
         "importUpToDate": "All replies are up to date",
+        "import": {
+            "stepFetching": "Fetching campaigns...",
+            "stepImporting": "Importing... {{done}} / {{total}}: {{name}}",
+            "stepDone": "Done: {{count}} new emails imported"
+        },
         "activeCampaigns": "Active Campaigns",
         "noData": "No email replies yet",
         "noDataDescription": "Replies from PlusVibe campaigns will appear here.",
@@ -598,6 +638,15 @@
         "thread": {
             "expand": "Show {{count}} previous messages",
             "collapse": "Hide previous messages"
+        },
+        "quickActivity": {
+            "title": "Quick Activity",
+            "button": "Activity",
+            "placeholder": "Activity note...",
+            "save": "Save",
+            "cancel": "Cancel",
+            "added": "Activity added",
+            "failed": "Could not add activity"
         }
     },
     "validation": {
@@ -702,5 +751,8 @@
             "configuredViaEnv": "PlusVibe API is configured via server environment variables.",
             "notConfigured": "PlusVibe API is not configured. Set PLUSVIBE_API_KEY and PLUSVIBE_WORKSPACE_ID env vars."
         }
+    },
+    "shortcuts": {
+        "undone": "Undone"
     }
 }
