@@ -18,7 +18,6 @@ import {
 import { type DatePeriod, getDateRange } from '../lib/dateUtils';
 import {
     IconBuilding,
-    IconUsers,
     IconTrendingUp,
     IconTrophy,
     IconPercentage,

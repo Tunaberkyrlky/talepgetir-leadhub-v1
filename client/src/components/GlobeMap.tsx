@@ -375,10 +375,6 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
         if (name) setSelectedCountry(name);
     }, [countryCompanyCounts]);
 
-    const handleMarkerClick = useCallback((name: string) => {
-        if (name) setSelectedCountry(name);
-    }, []);
-
     const handleMarkerHover = useCallback((marker: CountryMarker | null, e?: React.MouseEvent) => {
         setHoveredMarker(marker);
         if (e && marker) {
@@ -595,7 +591,6 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                                         strokeWidth={0.5}
                                                         onClick={() => handleCountryClick(geo)}
                                                         onMouseEnter={(e: React.MouseEvent) => marker && handleMarkerHover(marker, e)}
-                                                        onMouseMove={(e: React.MouseEvent) => handleMarkerMove(e)}
                                                         onMouseLeave={() => handleMarkerHover(null)}
                                                         style={{
                                                             default: { outline: 'none', filter: hoveredMarker?.id === id ? 'drop-shadow(0 0 6px rgba(59,130,246,0.7))' : 'none' },

@@ -1,11 +1,11 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table,
     Loader, Center, Button, SimpleGrid, Select, TextInput,
     Skeleton, Tooltip, Alert, Anchor, Pagination, ActionIcon,
-    SegmentedControl, ThemeIcon,
+    SegmentedControl,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
@@ -19,7 +19,7 @@ import ThreadHistoryRows from '../components/email/ThreadHistoryRows';
 
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
-import { showSuccess, showErrorFromApi } from '../lib/notifications';
+import { showErrorFromApi } from '../lib/notifications';
 import StatCard from '../components/StatCard';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import type { EmailReply, EmailReplyStats, Campaign } from '../types/emailReply';
