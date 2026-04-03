@@ -359,6 +359,9 @@ router.patch(
                 throw new AppError('Email reply not found', 404);
             }
 
+            const { advanceCompanyStageOnMatch } = await import('../lib/emailMatcher.js');
+            await advanceCompanyStageOnMatch(company_id);
+
             res.json(data);
         } catch (err) {
             if (err instanceof AppError) return next(err);
@@ -404,7 +407,7 @@ router.post(
                 bySender.set(r.sender_email, arr);
             }
 
-            const { matchSenderEmail } = await import('../lib/emailMatcher.js');
+            const { matchSenderEmail, advanceCompanyStageOnMatch } = await import('../lib/emailMatcher.js');
             let matched = 0;
 
             for (const [senderEmail, senderIds] of bySender) {
@@ -422,7 +425,10 @@ router.post(
                     .in('id', senderIds)
                     .eq('tenant_id', tenantId);
 
-                if (!updateErr) matched += senderIds.length;
+                if (!updateErr) {
+                    matched += senderIds.length;
+                    if (match.company_id) await advanceCompanyStageOnMatch(match.company_id);
+                }
             }
 
             res.json({ matched, processed: validIds.length });
@@ -468,7 +474,7 @@ router.post(
                 bySender.set(r.sender_email, ids);
             }
 
-            const { matchSenderEmail } = await import('../lib/emailMatcher.js');
+            const { matchSenderEmail, advanceCompanyStageOnMatch } = await import('../lib/emailMatcher.js');
 
             let matchedCount = 0;
             let stillUnmatched = 0;
@@ -500,6 +506,7 @@ router.post(
                         stillUnmatched += ids.length;
                     } else {
                         matchedCount += ids.length;
+                        if (match.company_id) await advanceCompanyStageOnMatch(match.company_id);
                     }
                 } else {
                     stillUnmatched += ids.length;
@@ -544,7 +551,7 @@ router.post(
             }
 
             // Re-run matching
-            const { matchSenderEmail } = await import('../lib/emailMatcher.js');
+            const { matchSenderEmail, advanceCompanyStageOnMatch } = await import('../lib/emailMatcher.js');
             const match = await matchSenderEmail(existing.sender_email, tenantId);
 
             const { data, error } = await db
@@ -562,6 +569,10 @@ router.post(
             if (error) {
                 log.error({ err: error }, 'Rematch update error');
                 throw new AppError('Failed to update match', 500);
+            }
+
+            if (match.company_id && match.match_status === 'matched') {
+                await advanceCompanyStageOnMatch(match.company_id);
             }
 
             res.json(data);

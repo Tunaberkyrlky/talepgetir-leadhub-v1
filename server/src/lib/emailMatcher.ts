@@ -169,3 +169,30 @@ export async function matchSenderEmail(
         match_status: 'unmatched',
     };
 }
+
+const EARLY_STAGES = ['cold', 'in_queue', 'first_contact'];
+
+/**
+ * If the company is still in an early stage, advance it to 'connected'.
+ * Call this whenever an email reply is successfully matched to a company.
+ */
+export async function advanceCompanyStageOnMatch(companyId: string): Promise<void> {
+    const { data: company } = await supabaseAdmin
+        .from('companies')
+        .select('stage')
+        .eq('id', companyId)
+        .single();
+
+    if (!company || !EARLY_STAGES.includes(company.stage)) return;
+
+    const { error } = await supabaseAdmin
+        .from('companies')
+        .update({ stage: 'connected', stage_changed_at: new Date().toISOString() })
+        .eq('id', companyId);
+
+    if (error) {
+        log.warn({ err: error, companyId }, 'Failed to auto-advance company stage');
+    } else {
+        log.info({ companyId, from: company.stage, to: 'connected' }, 'Company stage auto-advanced via email reply match');
+    }
+}

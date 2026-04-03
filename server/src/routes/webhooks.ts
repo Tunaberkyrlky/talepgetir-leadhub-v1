@@ -4,7 +4,7 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { createLogger } from '../lib/logger.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { validateBody, webhookPayloadSchema } from '../lib/validation.js';
-import { matchSenderEmail } from '../lib/emailMatcher.js';
+import { matchSenderEmail, advanceCompanyStageOnMatch } from '../lib/emailMatcher.js';
 
 const log = createLogger('route:webhooks');
 const router = Router();
@@ -121,6 +121,10 @@ router.post(
                     hint: 'Database write failed. Retry the webhook. If this persists, check Supabase logs.',
                 });
                 return;
+            }
+
+            if (match.company_id && match.match_status === 'matched') {
+                await advanceCompanyStageOnMatch(match.company_id);
             }
 
             log.info({ camp_id, sender: from_email, match_status: match.match_status }, 'Webhook processed successfully');
