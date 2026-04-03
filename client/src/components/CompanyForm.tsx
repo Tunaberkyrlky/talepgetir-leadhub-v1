@@ -21,7 +21,6 @@ import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { useStages } from '../contexts/StagesContext';
 import EmailStatusIcon from './EmailStatusIcon';
 import { useAuth } from '../contexts/AuthContext';
-import { TERMINAL_STAGES } from '../lib/stages';
 
 interface Company {
     id: string;
@@ -162,7 +161,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
 
     const handleSubmit = form.onSubmit((values: typeof form.values) => {
         // If editing and a terminal stage is selected, delegate to parent instead of submitting
-        if (isEdit && onTerminalStageSelected && TERMINAL_STAGES.includes(values.stage as any) && values.stage !== company?.stage) {
+        if (isEdit && onTerminalStageSelected && terminalStageSlugs.includes(values.stage) && values.stage !== company?.stage) {
             onTerminalStageSelected(company!.id, company!.name, values.stage);
             return;
         }
@@ -175,7 +174,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
 
     const isSaving = createMutation.isPending || updateMutation.isPending;
 
-    const { stageOptions } = useStages();
+    const { stageOptions, terminalStageSlugs } = useStages();
 
     return (
         <Modal
@@ -280,7 +279,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                                 {...form.getInputProps('stage')}
                                 onChange={(val) => {
                                     form.setFieldValue('stage', val || 'cold');
-                                    if (isEdit && val && TERMINAL_STAGES.includes(val as any) && val !== company?.stage) {
+                                    if (isEdit && val && terminalStageSlugs.includes(val) && val !== company?.stage) {
                                         setPendingTerminalStage(val);
                                     } else {
                                         setPendingTerminalStage(null);

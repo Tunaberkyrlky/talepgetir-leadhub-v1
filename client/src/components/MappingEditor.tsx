@@ -3,7 +3,7 @@ import { Table, Text, Select, Badge, Divider, Group, Popover, ScrollArea, Stack,
 import { IconArrowRight, IconLink, IconLinkOff, IconBuildingSkyscraper, IconUsers } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
-import type { MappingSuggestion, AvailableField } from '../lib/types';
+import type { MappingSuggestion, AvailableField } from '../types/import';
 
 interface MappingEditorProps {
     suggestions: MappingSuggestion[];

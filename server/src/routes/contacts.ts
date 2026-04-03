@@ -263,9 +263,10 @@ router.put(
             const tenantId = req.tenantId!;
             const { id } = req.params;
 
-            const { first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary } = req.body;
+            const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary } = req.body;
 
             const updateData: Record<string, unknown> = {};
+            if (company_id !== undefined) updateData.company_id = company_id;
             if (first_name !== undefined) updateData.first_name = first_name;
             if (last_name !== undefined) updateData.last_name = last_name;
             if (title !== undefined) updateData.title = title;
@@ -383,10 +384,10 @@ router.post(
     }
 );
 
-// DELETE /api/contacts/:id — Delete contact (superadmin only)
+// DELETE /api/contacts/:id — Delete contact
 router.delete(
     '/:id',
-    requireRole('superadmin'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { error } = await supabaseAdmin

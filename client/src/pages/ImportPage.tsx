@@ -41,7 +41,7 @@ import { showErrorFromApi, getErrorMessage } from '../lib/notifications';
 import DataMatchFlow from '../components/DataMatchFlow';
 import MappingEditor from '../components/MappingEditor';
 import { useImportProgress } from '../contexts/ImportProgressContext';
-import type { MappingSuggestion, AvailableField, ImportResult } from '../lib/types';
+import type { MappingSuggestion, AvailableField, ImportResult } from '../types/import';
 
 interface PreviewData {
     fileName: string;

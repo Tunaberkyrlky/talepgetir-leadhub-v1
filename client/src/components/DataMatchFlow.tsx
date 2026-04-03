@@ -37,7 +37,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useImportProgress } from '../contexts/ImportProgressContext';
 import MappingEditor from './MappingEditor';
-import type { MappingSuggestion, AvailableField, ImportResult } from '../lib/types';
+import type { MappingSuggestion, AvailableField, ImportResult } from '../types/import';
 
 interface MatchStrategy {
     type: 'id_key' | 'website' | 'none';

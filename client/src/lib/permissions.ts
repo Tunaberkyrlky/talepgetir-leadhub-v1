@@ -53,9 +53,9 @@ export function isInternal(role: string): boolean {
     return INTERNAL_ROLES.includes(role as Role);
 }
 
-/** Check if a role can delete records (superadmin only) */
+/** Check if a role can delete records */
 export function canDelete(role: string): boolean {
-    return role === 'superadmin';
+    return ['superadmin', 'ops_agent', 'client_admin'].includes(role);
 }
 
 /** Check if a role can create/edit data */

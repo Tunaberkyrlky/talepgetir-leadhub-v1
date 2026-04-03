@@ -4,7 +4,7 @@ import {
     Loader, Center, SimpleGrid,
 } from '@mantine/core';
 import {
-    IconSpeakerphone, IconMail, IconEye, IconMessageReply,
+    IconSpeakerphone, IconMail, IconEye, IconMessageReply, IconCheck,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -18,10 +18,9 @@ function pct(val: number): string {
 export default function CampaignsPage() {
     const { t } = useTranslation();
 
-    // Only fetch ACTIVE campaigns assigned to this tenant
     const { data: campaignsData, isLoading } = useQuery<CampaignsResponse>({
-        queryKey: ['plusvibe', 'campaigns', 'active'],
-        queryFn: async () => (await api.get('/plusvibe/campaigns', { params: { status: 'ACTIVE' } })).data,
+        queryKey: ['plusvibe', 'campaigns', 'all'],
+        queryFn: async () => (await api.get('/plusvibe/campaigns')).data,
     });
 
     const campaigns = campaignsData?.data || [];
@@ -70,6 +69,7 @@ export default function CampaignsPage() {
                     <Table.Thead>
                         <Table.Tr>
                             <Table.Th>{t('campaigns.table.name')}</Table.Th>
+                            <Table.Th>{t('campaigns.table.status')}</Table.Th>
                             <Table.Th ta="right">{t('campaigns.table.leads')}</Table.Th>
                             <Table.Th ta="right">{t('campaigns.table.sent')}</Table.Th>
                             <Table.Th ta="right">{t('campaigns.table.openRate')}</Table.Th>
@@ -80,6 +80,12 @@ export default function CampaignsPage() {
                         {campaigns.map((c: PlusVibeCampaign) => (
                             <Table.Tr key={c.id}>
                                 <Table.Td><Text size="sm" fw={500}>{c.name}</Text></Table.Td>
+                                <Table.Td>
+                                    {c.status === 'COMPLETED'
+                                        ? <Badge size="sm" variant="light" color="gray" leftSection={<IconCheck size={10} />}>{t('campaigns.filters.completed')}</Badge>
+                                        : <Badge size="sm" variant="light" color="green">{t('campaigns.filters.active')}</Badge>
+                                    }
+                                </Table.Td>
                                 <Table.Td ta="right"><Text size="sm">{c.total_leads}</Text></Table.Td>
                                 <Table.Td ta="right"><Text size="sm">{c.emails_sent}</Text></Table.Td>
                                 <Table.Td ta="right"><Text size="sm" c="blue">{pct(c.open_rate)}</Text></Table.Td>

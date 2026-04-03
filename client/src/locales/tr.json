@@ -492,13 +492,13 @@
             "required": "Bu aşama için sonlandırma raporu zorunludur",
             "won": "Kazanıldı",
             "lost": "Kaybedildi",
-            "on_hold": "Beklemede",
+            "on_hold": "Askıda",
             "cancelled": "İptal Edildi"
         },
         "outcomes": {
             "won": "Kazanıldı",
             "lost": "Kaybedildi",
-            "on_hold": "Beklemede",
+            "on_hold": "Askıda",
             "cancelled": "İptal Edildi"
         },
         "dateTime": "Tarih ve Saat",

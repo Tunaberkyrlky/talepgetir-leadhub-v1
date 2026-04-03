@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
 import api from '../lib/api';
-import type { ImportResult } from '../lib/types';
+import type { ImportResult } from '../types/import';
 
 const STORAGE_KEY = 'leadhub_import_active';
 

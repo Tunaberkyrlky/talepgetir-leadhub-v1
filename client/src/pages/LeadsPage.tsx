@@ -82,7 +82,6 @@ import ClosingReportModal from '../components/ClosingReportModal';
 import TruncatedText from '../components/TruncatedText';
 import EmailStatusIcon from '../components/EmailStatusIcon';
 import { useUndoStack } from '../hooks/useUndoStack';
-import { TERMINAL_STAGES } from '../lib/stages';
 import type { ClosingOutcome } from '../types/activity';
 
 interface Company {
@@ -304,7 +303,7 @@ export default function LeadsPage() {
     const { t, i18n } = useTranslation();
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
     const { user } = useAuth();
-    const { allStages, getStageColor, getStageLabel } = useStages();
+    const { allStages, getStageColor, getStageLabel, terminalStageSlugs } = useStages();
     const queryClient = useQueryClient();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
@@ -486,7 +485,7 @@ export default function LeadsPage() {
     });
 
     const handleBulkStageChange = useCallback((newStage: string) => {
-        if (TERMINAL_STAGES.includes(newStage as any)) {
+        if (terminalStageSlugs.includes(newStage)) {
             showInfo(t('bulk.terminalNotBulk', 'Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir.'));
             return;
         }
@@ -736,7 +735,7 @@ export default function LeadsPage() {
                                         key={s.slug}
                                         onClick={() => {
                                             const isBulk = selectedIds.has(company.id) && selectedIds.size > 1;
-                                            if (TERMINAL_STAGES.includes(s.slug as any)) {
+                                            if (terminalStageSlugs.includes(s.slug)) {
                                                 if (isBulk) {
                                                     showInfo(t('bulk.terminalNotBulk', 'Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir.'));
                                                 } else {
@@ -1130,22 +1129,6 @@ export default function LeadsPage() {
                             <Button variant="subtle" color="gray" size="xs" onClick={() => setSelectedIds(new Set())}>
                                 {t('bulk.clearSelection')}
                             </Button>
-                        </Group>
-                        <Group gap="xs">
-                            <Text size="sm" fw={500} c="dimmed">{t('bulk.moveTo')}</Text>
-                            {allStages.map((s) => (
-                                <Button
-                                    key={s.slug}
-                                    size="compact-xs"
-                                    variant="light"
-                                    color={s.color}
-                                    onClick={() => handleBulkStageChange(s.slug)}
-                                    loading={bulkStageMutation.isPending}
-                                    radius="sm"
-                                >
-                                    {getStageLabel(s.slug)}
-                                </Button>
-                            ))}
                         </Group>
                     </Group>
                 </Paper>

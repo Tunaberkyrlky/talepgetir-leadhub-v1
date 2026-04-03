@@ -2,6 +2,9 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../lib/api';
+import { createLogger } from '../lib/logger';
+
+const log = createLogger('auth');
 
 interface Tenant {
     id: string;
@@ -48,7 +51,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Derive accessible tenants + active tenant name/tier from user
     const accessibleTenants = user?.accessibleTenants || [];
-    const activeTenant = accessibleTenants.find((t) => t.id === activeTenantId);
+    const activeTenant = accessibleTenants.find((t) => t.id === activeTenantId)
+        ?? (accessibleTenants.length === 1 ? accessibleTenants[0] : undefined);
     const activeTenantName = activeTenant?.name || user?.tenantName || null;
     const activeTenantTier = activeTenant?.tier || 'basic';
     const canSwitchTenants = accessibleTenants.length > 1;
@@ -66,8 +70,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     setActiveTenantId(data.user.tenantId);
                     localStorage.setItem('activeTenantId', data.user.tenantId);
                 }
-            } catch {
+            } catch (err) {
                 // Token invalid — cookies will be cleared by server on next refresh attempt
+                log.warn('Auth check failed, clearing session', { err });
                 localStorage.removeItem('activeTenantId');
                 setUser(null);
                 setActiveTenantId(null);
@@ -84,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // and destroy unsaved React state (forms, import progress, etc.).
     useEffect(() => {
         const handleSessionExpired = () => {
+            log.warn('Session expired, redirecting to login');
             setUser(null);
             setActiveTenantId(null);
             queryClient.clear();
@@ -95,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const login = useCallback(async (email: string, password: string) => {
         const { data } = await api.post('/auth/login', { email, password });
+        log.info('Login successful', { userId: data.user?.id, role: data.user?.role });
         // Tokens are now stored in httpOnly cookies by the server
         setUser(data.user);
 
@@ -109,9 +116,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const logout = useCallback(async () => {
         try {
             await api.post('/auth/logout');
-        } catch {
-            // Best-effort logout
+        } catch (err) {
+            log.warn('Logout request failed (best-effort)', { err });
         }
+        log.info('User logged out');
         localStorage.removeItem('activeTenantId');
         setUser(null);
         setActiveTenantId(null);

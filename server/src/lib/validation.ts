@@ -67,6 +67,7 @@ export const createContactSchema = z.object({
 });
 
 export const updateContactSchema = z.object({
+    company_id: uuidField('Invalid company_id').optional(),
     first_name: z.string().min(1).max(255).optional(),
     last_name: z.string().max(255).optional().nullable(),
     title: z.string().max(500).optional().nullable(),
@@ -168,16 +169,15 @@ export const updateMembershipSchema = z.object({
 // ── Activity schemas ──
 
 // DB CHECK: type = ANY (ARRAY['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change'])
-// 'not' and 'sonlandirma_raporu' / 'status_change' are system-generated; users may only submit these three:
+// KASITLI AYRIŞMA: client/src/types/activity.ts 5 tip tanımlar (render için gerekli).
+// Kullanıcı sadece aşağıdaki 3 tipi submit edebilir. DB CHECK constraint 5'e izin verir.
+// 'sonlandirma_raporu' closing-report endpoint'i tarafından, 'status_change' aşama geçişlerinde üretilir.
 export const ALLOWED_ACTIVITY_TYPES = ['not', 'meeting', 'follow_up'] as const;
 export type ActivityType = typeof ALLOWED_ACTIVITY_TYPES[number];
 
 // DB CHECK: visibility = ANY (ARRAY['internal', 'client'])
 export const ALLOWED_VISIBILITY = ['internal', 'client'] as const;
 
-// DB CHECK: stage / outcome = ANY (ARRAY['won', 'lost', 'on_hold', 'cancelled'])
-export const TERMINAL_STAGES = ['won', 'lost', 'on_hold', 'cancelled'] as const;
-export type TerminalStage = typeof TERMINAL_STAGES[number];
 
 export const createActivitySchema = z.object({
     company_id: uuidField('Invalid company_id'),
@@ -200,7 +200,7 @@ export const updateActivitySchema = z.object({
 
 export const closingReportSchema = z.object({
     company_id: uuidField('Invalid company_id'),
-    outcome: z.enum(TERMINAL_STAGES, { message: `Must be one of: ${TERMINAL_STAGES.join(', ')}` }),
+    outcome: z.string().min(1, 'Outcome is required'),
     summary: z.string().min(1, 'Summary is required').max(1000).trim(),
     detail: z.string().max(5000).optional().nullable(),
     visibility: z.enum(ALLOWED_VISIBILITY).default('client'),

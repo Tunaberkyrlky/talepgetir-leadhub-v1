@@ -148,7 +148,7 @@ export default function Layout() {
                                 size="sm"
                             />
                         )}
-                        <Group gap="xs" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+                        <Group gap="xs" style={{ cursor: 'pointer' }} onClick={() => navigate('/dashboard')}>
                             <img src="/logo.svg" alt="TG Core" height={32} width={32} />
                             <Title order={3} c="white" fw={700}>
                                 {t('app.title')}
