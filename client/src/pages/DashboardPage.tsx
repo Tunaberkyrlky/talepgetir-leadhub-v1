@@ -13,6 +13,7 @@ import {
     Paper,
     Group,
     SegmentedControl,
+    ThemeIcon,
 } from '@mantine/core';
 import { type DatePeriod, getDateRange } from '../lib/dateUtils';
 import {
@@ -256,18 +257,27 @@ export default function DashboardPage() {
 
             {/* Stat Cards — always visible */}
             <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} mb="lg">
-                <StatCard
-                    title={t('dashboard.totalCompanies')}
-                    value={overview?.totalCompanies ?? 0}
-                    icon={<IconBuilding size={22} />}
-                    color="violet"
-                />
-                <StatCard
-                    title={t('dashboard.totalContacts')}
-                    value={overview?.totalContacts ?? 0}
-                    icon={<IconUsers size={22} />}
-                    color="blue"
-                />
+                {/* Combined companies + contacts card */}
+                <Paper shadow="sm" radius="lg" p="lg" withBorder>
+                    <Group justify="space-between" align="flex-start" wrap="nowrap">
+                        <Stack gap={4}>
+                            <Text size="xs" tt="uppercase" fw={700} c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                                {t('dashboard.totalCompanies')}
+                            </Text>
+                            <Group gap={6} align="baseline" wrap="nowrap">
+                                <Text fw={800} style={{ fontSize: '2rem', lineHeight: 1.1 }}>
+                                    {overview?.totalCompanies ?? 0}
+                                </Text>
+                                <Text size="sm" c="dimmed" fw={500} style={{ whiteSpace: 'nowrap' }}>
+                                    / {overview?.totalContacts ?? 0} {t('dashboard.contacts', 'kişi')}
+                                </Text>
+                            </Group>
+                        </Stack>
+                        <ThemeIcon color="violet" variant="light" size="xl" radius="md" style={{ flexShrink: 0 }}>
+                            <IconBuilding size={22} />
+                        </ThemeIcon>
+                    </Group>
+                </Paper>
                 <StatCard
                     title={t('dashboard.activeDeals')}
                     value={overview?.activeDeals ?? 0}
@@ -279,6 +289,13 @@ export default function DashboardPage() {
                     value={overview?.wonDeals ?? 0}
                     icon={<IconTrophy size={22} />}
                     color="green"
+                />
+                <StatCard
+                    title={t('dashboard.conversionRate')}
+                    value={`${overview?.conversionRate ?? 0}%`}
+                    icon={<IconPercentage size={22} />}
+                    color="teal"
+                    description={t('dashboard.conversionDesc')}
                 />
             </SimpleGrid>
 
@@ -298,20 +315,7 @@ export default function DashboardPage() {
                 )}
             </Paper>
 
-            {/* Conversion Rate — always visible */}
-            {overview && overview.conversionRate > 0 && (
-                <SimpleGrid cols={{ base: 1, md: 2 }} mb="lg">
-                    <StatCard
-                        title={t('dashboard.conversionRate')}
-                        value={`${overview.conversionRate}%`}
-                        icon={<IconPercentage size={22} />}
-                        color="teal"
-                        description={t('dashboard.conversionDesc')}
-                    />
-                </SimpleGrid>
-            )}
-
-            {/* World Map — Pro tier / Internal only */}
+{/* World Map — Pro tier / Internal only */}
             {isAdvanced ? (
                 <>
                     <Suspense fallback={<Center style={{ height: 320 }}><Loader color="violet" /></Center>}>

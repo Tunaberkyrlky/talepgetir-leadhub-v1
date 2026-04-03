@@ -22,6 +22,8 @@ import {
     IconWifi,
     IconLock,
     IconInfoCircle,
+    IconCopy,
+    IconCheck,
 } from '@tabler/icons-react';
 
 interface Props {
@@ -32,6 +34,7 @@ interface State {
     hasError: boolean;
     error: Error | null;
     showDetails: boolean;
+    copied: boolean;
 }
 
 interface ErrorHint {
@@ -121,7 +124,7 @@ function getErrorHint(error: Error | null): ErrorHint | null {
 export default class ErrorBoundary extends Component<Props, State> {
     constructor(props: Props) {
         super(props);
-        this.state = { hasError: false, error: null, showDetails: false };
+        this.state = { hasError: false, error: null, showDetails: false, copied: false };
     }
 
     static getDerivedStateFromError(error: Error): Partial<State> {
@@ -144,12 +147,21 @@ export default class ErrorBoundary extends Component<Props, State> {
         this.setState((prev) => ({ showDetails: !prev.showDetails }));
     };
 
+    handleCopy = () => {
+        const { error } = this.state;
+        const text = `${error?.name}: ${error?.message}\n\n${error?.stack ?? ''}`;
+        navigator.clipboard.writeText(text).then(() => {
+            this.setState({ copied: true });
+            setTimeout(() => this.setState({ copied: false }), 2000);
+        });
+    };
+
     render() {
         if (!this.state.hasError) {
             return this.props.children;
         }
 
-        const { error, showDetails } = this.state;
+        const { error, showDetails, copied } = this.state;
         const hint = getErrorHint(error);
 
         return (
@@ -234,9 +246,20 @@ export default class ErrorBoundary extends Component<Props, State> {
                     <Collapse in={showDetails} w="100%">
                         <Paper p="md" bg="gray.0" radius="md" w="100%">
                             <Stack gap="xs">
-                                <Text size="xs" fw={600} c="red">
-                                    {error?.name}: {error?.message}
-                                </Text>
+                                <Group justify="space-between" align="center">
+                                    <Text size="xs" fw={600} c="red">
+                                        {error?.name}: {error?.message}
+                                    </Text>
+                                    <Button
+                                        size="xs"
+                                        variant="subtle"
+                                        color={copied ? 'green' : 'gray'}
+                                        leftSection={copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+                                        onClick={this.handleCopy}
+                                    >
+                                        {copied ? 'Kopyalandı' : 'Kopyala'}
+                                    </Button>
+                                </Group>
                                 {error?.stack && (
                                     <Code
                                         block

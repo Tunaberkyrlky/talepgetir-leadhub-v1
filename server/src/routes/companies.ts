@@ -462,10 +462,10 @@ router.put(
             const tenantId = req.tenantId!;
             const { id } = req.params;
 
-            // Verify company belongs to tenant
+            // Verify company belongs to tenant (also fetch fields needed for auto-geocoding)
             const { data: existing } = await supabaseAdmin
                 .from('companies')
-                .select('id')
+                .select('id, location, latitude')
                 .eq('id', id)
                 .eq('tenant_id', tenantId)
                 .single();
@@ -524,11 +524,26 @@ router.put(
             if (next_step !== undefined) updateData.next_step = next_step;
             if (custom_fields !== undefined) updateData.custom_fields = custom_fields;
 
-            // Re-geocode when location changes
+            // Re-geocode when location field is explicitly changed
             if (location !== undefined) {
                 const coords = location ? lookupCoordinates(location) : null;
                 updateData.latitude  = coords?.lat ?? null;
                 updateData.longitude = coords?.lng ?? null;
+            }
+
+            // Auto-geocode when stage moves into pipeline/terminal and location exists but no coords yet
+            if (stage !== undefined && location === undefined && existing.location && existing.latitude == null) {
+                const allStages = await getTenantStages(tenantId);
+                const isPipelineOrTerminal = allStages.some(
+                    (s) => s.slug === stage && (s.stage_type === 'pipeline' || s.stage_type === 'terminal')
+                );
+                if (isPipelineOrTerminal) {
+                    const coords = lookupCoordinates(existing.location);
+                    if (coords) {
+                        updateData.latitude  = coords.lat;
+                        updateData.longitude = coords.lng;
+                    }
+                }
             }
 
             const { data, error } = await supabaseAdmin
@@ -581,10 +596,10 @@ router.post(
 
             send({ type: 'progress', message: 'Hazırlanıyor...' });
 
-            // Only geocode companies visible on the map: initial + pipeline stages
+            // Only geocode companies visible on the map: pipeline + terminal stages
             const allStages = await getTenantStages(tenantId);
             const targetStages = allStages
-                .filter((s) => s.stage_type === 'initial' || s.stage_type === 'pipeline')
+                .filter((s) => s.stage_type === 'pipeline' || s.stage_type === 'terminal')
                 .map((s) => s.slug);
 
             if (targetStages.length === 0) {
@@ -745,16 +760,38 @@ router.patch(
             const { id } = req.params;
             const { stage } = req.body;
 
-            const validSlugs = await getValidStageSlugs(tenantId);
+            const [validSlugs, pipelineSlugs, terminalSlugs] = await Promise.all([
+                getValidStageSlugs(tenantId),
+                getPipelineStageSlugs(tenantId),
+                getTerminalStageSlugs(tenantId),
+            ]);
             if (!stage || !validSlugs.includes(stage)) {
                 res.status(400).json({ error: 'The selected pipeline stage is not valid' });
                 return;
             }
 
+            // Auto-geocode when entering pipeline/terminal and location exists but no coords yet
+            const geocodeData: { latitude?: number; longitude?: number } = {};
+            if (pipelineSlugs.includes(stage) || terminalSlugs.includes(stage)) {
+                const { data: companyData } = await supabaseAdmin
+                    .from('companies')
+                    .select('location, latitude')
+                    .eq('id', id)
+                    .eq('tenant_id', tenantId)
+                    .single();
+                if (companyData?.location && companyData.latitude == null) {
+                    const coords = lookupCoordinates(companyData.location);
+                    if (coords) {
+                        geocodeData.latitude = coords.lat;
+                        geocodeData.longitude = coords.lng;
+                    }
+                }
+            }
+
             const now = new Date().toISOString();
             const { data, error } = await supabaseAdmin
                 .from('companies')
-                .update({ stage, updated_at: now, stage_changed_at: now })
+                .update({ stage, updated_at: now, stage_changed_at: now, ...geocodeData })
                 .eq('id', id)
                 .eq('tenant_id', tenantId)
                 .select('id, name, stage, updated_at')

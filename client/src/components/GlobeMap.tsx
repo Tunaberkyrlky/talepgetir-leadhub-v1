@@ -1,17 +1,16 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
     Paper, Text, Loader, Center, Box, ActionIcon, Modal, Table, Badge,
-    ScrollArea, Group, Button, Stack,
+    ScrollArea, Group, Button, Stack, Menu,
 } from '@mantine/core';
-import { IconMaximize, IconMinimize, IconExternalLink, IconMapPin, IconCheck, IconX } from '@tabler/icons-react';
+import { IconMaximize, IconMinimize, IconExternalLink, IconMapPin, IconCheck, IconX, IconWorld, IconChevronDown, IconRefresh, IconPlus, IconMinus } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from 'react-simple-maps';
+import { ComposableMap, Geographies, Geography, ZoomableGroup } from 'react-simple-maps';
 import * as topojson from 'topojson-client';
 import topoData from 'world-atlas/countries-110m.json';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
-import centroid from '@turf/centroid';
 import { COUNTRY_NAMES } from '../lib/countryNames';
 import { useStages } from '../contexts/StagesContext';
 import api from '../lib/api';
@@ -179,11 +178,42 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
     const [dimensions, setDimensions] = useState({ width: 600, height: 320 });
     const [hoveredMarker, setHoveredMarker] = useState<CountryMarker | null>(null);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
-    const zoomRef = useRef(1);
-    const markerGroupRefs = useRef<Map<number, SVGGElement>>(new Map());
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
     const mapContainerRef = useRef<HTMLDivElement>(null);
+    const [mapKey, setMapKey] = useState(0);
+    const [projCenter, setProjCenter] = useState<[number, number]>([20, 15]);
+    const [projScale, setProjScale] = useState(140);
+    // Track current pan center so zoom buttons don't reset it
+    const currentCenterRef = useRef<[number, number]>([20, 15]);
+
+    const goToRegion = useCallback((center: [number, number], scale: number) => {
+        currentCenterRef.current = center;
+        setProjCenter(center);
+        setProjScale(scale);
+        setMapKey(k => k + 1);
+    }, []);
+
+    const handleZoomIn = useCallback(() => {
+        setProjCenter(currentCenterRef.current);
+        setProjScale(s => Math.min(Math.round(s * 1.6), 4000));
+        setMapKey(k => k + 1);
+    }, []);
+
+    const handleZoomOut = useCallback(() => {
+        setProjCenter(currentCenterRef.current);
+        setProjScale(s => Math.max(Math.round(s / 1.6), 80));
+        setMapKey(k => k + 1);
+    }, []);
+
+    const OTHER_REGIONS = useMemo(() => [
+        { label: t('map.regionNorthAmerica', 'Kuzey Amerika'), center: [-95, 45]  as [number, number], scale: 320 },
+        { label: t('map.regionSouthAmerica', 'Güney Amerika'), center: [-60, -15] as [number, number], scale: 320 },
+        { label: t('map.regionAsia', 'Asya'),                  center: [90, 35]   as [number, number], scale: 320 },
+        { label: t('map.regionAfrica', 'Afrika'),              center: [20, 5]    as [number, number], scale: 320 },
+        { label: t('map.regionMiddleEast', 'Orta Doğu'),       center: [45, 28]   as [number, number], scale: 600 },
+        { label: t('map.regionOceania', 'Okyanusya'),          center: [140, -25] as [number, number], scale: 450 },
+    ], [t]);
 
     // Toggle fullscreen
     const toggleFullscreen = useCallback(() => {
@@ -328,12 +358,12 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
     const getCountryFill = useCallback((geo: any) => {
         const stats = countryCompanyCounts.get(Number(geo.id));
         const count = stats?.total ?? 0;
-        if (count === 0) return 'rgba(22, 58, 105, 0.95)';
-        // 1 company = already bright, scales up with more
-        const t = Math.min(1, 0.15 + count * 0.08);
-        const r = Math.round(60 + t * 80);
-        const g = Math.round(120 + t * 100);
-        const b = Math.round(200 + t * 55);
+        if (count === 0) return '#d9e2ec';
+        // Light → dark blue scale
+        const t = Math.min(1, 0.2 + count * 0.12);
+        const r = Math.round(180 - t * 150);
+        const g = Math.round(210 - t * 110);
+        const b = Math.round(255 - t * 40);
         return `rgb(${r}, ${g}, ${b})`;
     }, [countryCompanyCounts]);
 
@@ -429,33 +459,115 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                         <Box
                             ref={mapContainerRef}
                             style={{
-                                background: '#0d1b2a',
+                                background: '#f4f6f8',
                                 borderRadius: isFullscreen ? 0 : 12,
                                 overflow: 'hidden',
                                 position: 'relative',
+                                border: '1px solid #e2e8f0',
                             }}
                         >
-                            <ActionIcon
-                                variant="subtle"
-                                color="gray"
-                                size="md"
-                                onClick={toggleFullscreen}
+                            <Group
+                                gap={6}
                                 style={{
                                     position: 'absolute',
                                     top: 10,
                                     right: 10,
                                     zIndex: 10,
-                                    background: 'rgba(10, 20, 40, 0.7)',
-                                    border: '1px solid rgba(100, 160, 255, 0.3)',
-                                    color: '#7eb8ff',
                                 }}
-                                title={isFullscreen ? t('common.exitFullscreen') : t('common.fullscreen')}
                             >
-                                {isFullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
-                            </ActionIcon>
+                                {/* Region selector */}
+                                <Menu shadow="md" width={180} position="bottom-end">
+                                    <Menu.Target>
+                                        <Button
+                                            size="compact-sm"
+                                            variant="default"
+                                            rightSection={<IconChevronDown size={12} />}
+                                            leftSection={<IconWorld size={13} />}
+                                            style={{
+                                                background: 'rgba(255,255,255,0.85)',
+                                                border: '1px solid #d1d5db',
+                                                color: '#374151',
+                                                fontSize: 12,
+                                            }}
+                                        >
+                                            {t('map.regions', 'Bölgeler')}
+                                        </Button>
+                                    </Menu.Target>
+                                    <Menu.Dropdown>
+                                        <Menu.Item
+                                            leftSection={<IconRefresh size={14} />}
+                                            onClick={() => goToRegion([20, 15], 140)}
+                                        >
+                                            {t('map.reset', 'Sıfırla')}
+                                        </Menu.Item>
+                                        <Menu.Divider />
+                                        <Menu.Item
+                                            leftSection={<IconWorld size={14} />}
+                                            onClick={() => goToRegion([15, 54], 500)}
+                                        >
+                                            {t('map.regionEurope', 'Avrupa')}
+                                        </Menu.Item>
+                                        <Menu.Divider />
+                                        <Menu.Label>{t('map.otherRegions', 'Diğer Bölgeler')}</Menu.Label>
+                                        {OTHER_REGIONS.map(r => (
+                                            <Menu.Item
+                                                key={r.label}
+                                                onClick={() => goToRegion(r.center, r.scale)}
+                                            >
+                                                {r.label}
+                                            </Menu.Item>
+                                        ))}
+                                    </Menu.Dropdown>
+                                </Menu>
+
+                                {/* Fullscreen toggle */}
+                                <ActionIcon
+                                    variant="default"
+                                    size="md"
+                                    onClick={toggleFullscreen}
+                                    style={{
+                                        background: 'rgba(255,255,255,0.85)',
+                                        color: '#6b7280',
+                                    }}
+                                    title={isFullscreen ? t('common.exitFullscreen') : t('common.fullscreen')}
+                                >
+                                    {isFullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
+                                </ActionIcon>
+                            </Group>
+                            {/* Zoom controls — bottom right */}
+                            <Stack
+                                gap={2}
+                                style={{
+                                    position: 'absolute',
+                                    bottom: 10,
+                                    right: 10,
+                                    zIndex: 10,
+                                }}
+                            >
+                                <ActionIcon
+                                    variant="default"
+                                    size="md"
+                                    onClick={handleZoomIn}
+                                    title={t('map.zoomIn', 'Yakınlaştır')}
+                                    style={{ background: 'rgba(255,255,255,0.85)', color: '#374151' }}
+                                >
+                                    <IconPlus size={14} />
+                                </ActionIcon>
+                                <ActionIcon
+                                    variant="default"
+                                    size="md"
+                                    onClick={handleZoomOut}
+                                    title={t('map.zoomOut', 'Uzaklaştır')}
+                                    style={{ background: 'rgba(255,255,255,0.85)', color: '#374151' }}
+                                >
+                                    <IconMinus size={14} />
+                                </ActionIcon>
+                            </Stack>
+
                             <ComposableMap
+                                key={mapKey}
                                 projection="geoNaturalEarth1"
-                                projectionConfig={{ scale: 140, center: [20, 15] }}
+                                projectionConfig={{ scale: projScale, center: projCenter }}
                                 width={800}
                                 height={340}
                                 style={{ width: '100%', height: isFullscreen ? '100vh' : 'auto', display: 'block' }}
@@ -463,11 +575,8 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                 <ZoomableGroup
                                     minZoom={1}
                                     maxZoom={8}
-                                    onMove={({ zoom: z }: { zoom: number }) => {
-                                        zoomRef.current = z;
-                                        markerGroupRefs.current.forEach((el) => {
-                                            el.setAttribute('transform', `scale(${1 / z})`);
-                                        });
+                                    onMoveEnd={({ coordinates }) => {
+                                        currentCenterRef.current = coordinates as [number, number];
                                     }}
                                 >
                                     <Geographies geography={topoData as any}>
@@ -476,21 +585,21 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                                 const fill = getCountryFill(geo);
                                                 const id = Number(geo.id);
                                                 const hasCompanies = (countryCompanyCounts.get(id)?.total ?? 0) > 0;
+                                                const marker = hasCompanies ? countryMarkers.find(m => m.id === id) : undefined;
                                                 return (
                                                     <Geography
                                                         key={geo.rsmKey}
                                                         geography={geo}
-                                                        fill={fill}
-                                                        stroke="rgba(115, 170, 230, 0.7)"
-                                                        strokeWidth={0.4}
+                                                        fill={hoveredMarker?.id === id ? '#bfdbfe' : fill}
+                                                        stroke="#ffffff"
+                                                        strokeWidth={0.5}
                                                         onClick={() => handleCountryClick(geo)}
+                                                        onMouseEnter={(e: React.MouseEvent) => marker && handleMarkerHover(marker, e)}
+                                                        onMouseMove={(e: React.MouseEvent) => handleMarkerMove(e)}
+                                                        onMouseLeave={() => handleMarkerHover(null)}
                                                         style={{
-                                                            default: { outline: 'none' },
-                                                            hover: {
-                                                                fill: hasCompanies ? '#5a9fd4' : fill,
-                                                                outline: 'none',
-                                                                cursor: hasCompanies ? 'pointer' : 'default',
-                                                            },
+                                                            default: { outline: 'none', filter: hoveredMarker?.id === id ? 'drop-shadow(0 0 6px rgba(59,130,246,0.7))' : 'none' },
+                                                            hover: { outline: 'none' },
                                                             pressed: { outline: 'none' },
                                                         }}
                                                     />
@@ -498,77 +607,6 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                             })
                                         }
                                     </Geographies>
-
-                                    {countryMarkers.map((marker) => {
-                                        const isHovered = hoveredMarker?.id === marker.id;
-                                        return (
-                                            <Marker
-                                                key={marker.id}
-                                                coordinates={[marker.lng, marker.lat]}
-                                            >
-                                                <g
-                                                    ref={(el) => {
-                                                        if (el) markerGroupRefs.current.set(marker.id, el);
-                                                        else markerGroupRefs.current.delete(marker.id);
-                                                    }}
-                                                    style={{ cursor: 'pointer' }}
-                                                    transform={`scale(${1 / zoomRef.current})`}
-                                                    onMouseEnter={(e) => handleMarkerHover(marker, e)}
-                                                    onMouseMove={handleMarkerMove}
-                                                    onMouseLeave={() => handleMarkerHover(null)}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleMarkerClick(marker.name);
-                                                    }}
-                                                >
-                                                  <g transform={isHovered ? 'scale(1.12)' : undefined} style={{ transition: 'transform 150ms ease' }}>
-                                                    {/* Glow ring on hover */}
-                                                    {isHovered && (
-                                                        <circle
-                                                            cx={0}
-                                                            cy={0}
-                                                            r={18}
-                                                            fill="none"
-                                                            stroke="rgba(100, 160, 255, 0.35)"
-                                                            strokeWidth={1.5}
-                                                        />
-                                                    )}
-                                                    <rect
-                                                        x={-22}
-                                                        y={-10}
-                                                        width={44}
-                                                        height={20}
-                                                        rx={10}
-                                                        fill={isHovered ? 'rgba(40, 80, 160, 0.95)' : 'rgba(10, 20, 40, 0.88)'}
-                                                        stroke={isHovered ? 'rgba(120, 180, 255, 0.9)' : 'rgba(100, 160, 255, 0.5)'}
-                                                        strokeWidth={isHovered ? 1.5 : 1}
-                                                    />
-                                                    {/* Building icon */}
-                                                    <g transform="translate(-14, -6) scale(0.5)" fill="none" stroke={isHovered ? '#b8d8ff' : '#7eb8ff'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                        <path d="M3 21h18" />
-                                                        <path d="M5 21V7l8-4v18" />
-                                                        <path d="M19 21V11l-6-4" />
-                                                        <path d="M9 9v.01" />
-                                                        <path d="M9 12v.01" />
-                                                        <path d="M9 15v.01" />
-                                                        <path d="M9 18v.01" />
-                                                    </g>
-                                                    <text
-                                                        x={6}
-                                                        y={4}
-                                                        textAnchor="middle"
-                                                        fill={isHovered ? '#fff' : '#e8f0ff'}
-                                                        fontSize={isHovered ? 12 : 11}
-                                                        fontWeight={isHovered ? 700 : 600}
-                                                        fontFamily="sans-serif"
-                                                    >
-                                                        {marker.stats.total}
-                                                    </text>
-                                                  </g>
-                                                </g>
-                                            </Marker>
-                                        );
-                                    })}
                                 </ZoomableGroup>
                             </ComposableMap>
                         </Box>
@@ -580,33 +618,33 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                     position: 'fixed',
                                     top: tooltipPos.y,
                                     left: tooltipPos.x,
-                                    background: 'rgba(0, 0, 0, 0.88)',
-                                    color: '#fff',
-                                    padding: '9px 13px',
+                                    background: '#1f2937',
+                                    color: '#f9fafb',
+                                    padding: '11px 16px',
                                     borderRadius: 8,
-                                    fontSize: 12,
+                                    fontSize: 14,
                                     fontFamily: 'sans-serif',
                                     whiteSpace: 'nowrap',
                                     lineHeight: 1.75,
                                     pointerEvents: 'none',
-                                    boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
-                                    border: '1px solid rgba(100,160,255,0.25)',
+                                    boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+                                    border: '1px solid #374151',
                                     zIndex: 99999,
                                     transform: 'translateY(-50%)',
                                 }}
                             >
-                                <div style={{ fontSize: 14, fontWeight: 700, color: '#7eb8ff', marginBottom: 6, paddingBottom: 5, borderBottom: '1px solid rgba(100,160,255,0.2)' }}>
+                                <div style={{ fontSize: 17, fontWeight: 700, color: '#f9fafb', marginBottom: 7, paddingBottom: 6, borderBottom: '1px solid #374151' }}>
                                     {hoveredMarker.name || String(hoveredMarker.id)}
                                 </div>
-                                <div style={{ color: '#adb5bd', marginBottom: 5 }}>
-                                    {t('dashboard.totalCompanies')}: <strong style={{ color: '#fff' }}>{hoveredMarker.stats.total}</strong> {t('dashboard.companies').toLowerCase()}
+                                <div style={{ color: '#9ca3af', marginBottom: 6, fontSize: 15 }}>
+                                    {t('dashboard.totalCompanies')}: <strong style={{ color: '#ffffff', fontSize: 16 }}>{hoveredMarker.stats.total}</strong> {t('dashboard.companies').toLowerCase()}
                                 </div>
-                                <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0 6px' }} />
+                                <div style={{ borderTop: '1px solid #374151', margin: '4px 0 7px' }} />
                                 {STAGE_COLORS.map(({ key, color, labelKey }) => (
                                     <div key={key} style={{ display: 'flex', alignItems: 'center' }}>
-                                        <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: color, marginRight: 6, flexShrink: 0 }} />
-                                        <span style={{ color: '#cdd5e0' }}>
-                                            {t(labelKey)}: <strong style={{ color: '#fff' }}>{hoveredMarker.stats[key]}</strong> {t('dashboard.companies').toLowerCase()}
+                                        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 7, flexShrink: 0 }} />
+                                        <span style={{ color: '#d1d5db' }}>
+                                            {t(labelKey)}: <strong style={{ color: '#f9fafb' }}>{hoveredMarker.stats[key]}</strong> {t('dashboard.companies').toLowerCase()}
                                         </span>
                                     </div>
                                 ))}
@@ -619,6 +657,51 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                     {t('dashboard.noLocations')}
                                 </Text>
                             </Center>
+                        )}
+
+                        {/* Country badge list below map */}
+                        {countryMarkers.length > 0 && (
+                            <Group gap={6} mt="sm" wrap="wrap">
+                                {[...countryMarkers]
+                                    .sort((a, b) => b.stats.total - a.stats.total)
+                                    .map((marker) => (
+                                        <div
+                                            key={marker.id}
+                                            onClick={() => {
+                                                const name = COUNTRY_NAMES[marker.id] ?? marker.name;
+                                                if (name) setSelectedCountry(name);
+                                            }}
+                                            onMouseEnter={(e) => handleMarkerHover(marker, e)}
+                                            onMouseMove={(e) => handleMarkerMove(e)}
+                                            onMouseLeave={() => handleMarkerHover(null)}
+                                            style={{ cursor: 'pointer' }}
+                                        >
+                                            <div style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 6,
+                                                padding: '4px 10px',
+                                                borderRadius: 6,
+                                                border: '1px solid #d1d5db',
+                                                background: '#ffffff',
+                                                fontSize: 13,
+                                                fontWeight: 500,
+                                                color: '#374151',
+                                                userSelect: 'none',
+                                            }}>
+                                                {marker.name || String(marker.id)}
+                                                <span style={{
+                                                    fontWeight: 700,
+                                                    color: '#111827',
+                                                    fontSize: 13,
+                                                }}>
+                                                    {marker.stats.total}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))
+                                }
+                            </Group>
                         )}
                     </>
                 )}

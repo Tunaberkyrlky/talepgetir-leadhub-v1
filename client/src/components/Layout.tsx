@@ -94,7 +94,9 @@ export default function Layout() {
         { path: '/pipeline', label: t('nav.pipeline'), icon: <IconColumns size={20} /> },
         { path: '/activities', label: t('nav.activities'), icon: <IconActivity size={20} /> },
         { path: '/email-replies', label: t('nav.emailReplies'), icon: <IconMail size={20} /> },
-        { path: '/campaigns', label: t('nav.campaigns'), icon: <IconSpeakerphone size={20} /> },
+        ...(['superadmin', 'ops_agent'].includes(user?.role || '')
+            ? [{ path: '/campaigns', label: t('nav.campaigns'), icon: <IconSpeakerphone size={20} /> }]
+            : []),
         ...(hasRolePermission(user?.role || '', 'import')
             ? [{ path: '/import', label: t('nav.import'), icon: <IconFileImport size={20} /> }]
             : []),
