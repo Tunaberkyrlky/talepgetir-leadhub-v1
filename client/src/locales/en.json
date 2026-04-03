@@ -189,8 +189,7 @@
         "negotiation": "Negotiation",
         "won": "Won",
         "lost": "Lost",
-        "on_hold": "On Hold",
-        "cancelled": "Cancelled"
+        "on_hold": "On Hold"
     },
     "pagination": {
         "showing": "Showing",
@@ -492,14 +491,12 @@
             "required": "Closing report is required for this stage",
             "won": "Won",
             "lost": "Lost",
-            "on_hold": "On Hold",
-            "cancelled": "Cancelled"
+            "on_hold": "On Hold"
         },
         "outcomes": {
             "won": "Won",
             "lost": "Lost",
-            "on_hold": "On Hold",
-            "cancelled": "Cancelled"
+            "on_hold": "On Hold"
         },
         "dateTime": "Date & Time",
         "dateRequired": "Please select a valid date and time",

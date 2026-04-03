@@ -189,8 +189,7 @@
         "negotiation": "Müzakere",
         "won": "Kazanıldı",
         "lost": "Kaybedildi",
-        "on_hold": "Askıda",
-        "cancelled": "İptal Edildi"
+        "on_hold": "Askıda"
     },
     "pagination": {
         "showing": "Gösterilen",
@@ -492,14 +491,12 @@
             "required": "Bu aşama için sonlandırma raporu zorunludur",
             "won": "Kazanıldı",
             "lost": "Kaybedildi",
-            "on_hold": "Askıda",
-            "cancelled": "İptal Edildi"
+            "on_hold": "Askıda"
         },
         "outcomes": {
             "won": "Kazanıldı",
             "lost": "Kaybedildi",
-            "on_hold": "Askıda",
-            "cancelled": "İptal Edildi"
+            "on_hold": "Askıda"
         },
         "dateTime": "Tarih ve Saat",
         "dateRequired": "Lütfen geçerli bir tarih ve saat seçin",
