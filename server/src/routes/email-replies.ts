@@ -580,7 +580,7 @@ router.get(
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
-            const { companyId } = req.params;
+            const companyId = String(req.params.companyId);
 
             if (!/^[0-9a-f-]{36}$/i.test(companyId)) {
                 res.status(400).json({ error: 'Invalid company ID' });
