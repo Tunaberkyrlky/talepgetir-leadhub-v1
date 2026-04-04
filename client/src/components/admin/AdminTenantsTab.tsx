@@ -3,9 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Table, TextInput, Select, Button, Group, Badge, Text,
     ActionIcon, Pagination, Flex, Stack, Center, Loader, Paper, Box, Menu,
+    Modal, Checkbox, Alert,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
-import { IconSearch, IconPlus, IconPencil, IconTrash, IconX, IconDotsVertical } from '@tabler/icons-react';
+import { IconSearch, IconPlus, IconPencil, IconTrash, IconX, IconDotsVertical, IconDatabaseOff, IconAlertTriangle } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showSuccess, showErrorFromApi } from '../../lib/notifications';
@@ -32,6 +33,10 @@ export default function AdminTenantsTab() {
     const [activeFilter, setActiveFilter] = useState<string | null>(null);
     const [modalOpened, { open: openModal, close: closeModal }] = useDisclosure(false);
     const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
+    const [bulkDeleteOpened, { open: openBulkDelete, close: closeBulkDelete }] = useDisclosure(false);
+    const [bulkDeleteTenant, setBulkDeleteTenant] = useState<Tenant | null>(null);
+    const [bulkDeleteTypes, setBulkDeleteTypes] = useState<string[]>([]);
+    const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState('');
 
     const { data, isLoading } = useQuery({
         queryKey: ['admin', 'tenants', page, debouncedSearch, tierFilter, activeFilter],
@@ -58,6 +63,22 @@ export default function AdminTenantsTab() {
         },
     });
 
+    const bulkDeleteMutation = useMutation({
+        mutationFn: async ({ id, types }: { id: string; types: string[] }) =>
+            api.delete(`/admin/tenants/${id}/bulk-data?confirm=true&types=${types.join(',')}`),
+        onSuccess: (res) => {
+            const { companies = 0, contacts = 0 } = res.data.deleted;
+            showSuccess(t('admin.bulkDeleteSuccess', { companies, contacts }));
+            closeBulkDelete();
+            setBulkDeleteTenant(null);
+            setBulkDeleteTypes([]);
+            setBulkDeleteConfirm('');
+        },
+        onError: (err) => {
+            showErrorFromApi(err);
+        },
+    });
+
     const toggleActiveMutation = useMutation({
         mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) =>
             api.put(`/admin/tenants/${id}`, { is_active }),
@@ -78,6 +99,13 @@ export default function AdminTenantsTab() {
     const handleCreate = () => {
         setEditingTenant(null);
         openModal();
+    };
+
+    const handleBulkDelete = (tenant: Tenant) => {
+        setBulkDeleteTenant(tenant);
+        setBulkDeleteTypes([]);
+        setBulkDeleteConfirm('');
+        openBulkDelete();
     };
 
     const formatDate = (dateStr: string) => {
@@ -199,6 +227,13 @@ export default function AdminTenantsTab() {
                                                     </Menu.Item>
                                                     <Menu.Divider />
                                                     <Menu.Item
+                                                        leftSection={<IconDatabaseOff size={14} />}
+                                                        color="orange"
+                                                        onClick={() => handleBulkDelete(tenant)}
+                                                    >
+                                                        {t('admin.bulkDelete')}
+                                                    </Menu.Item>
+                                                    <Menu.Item
                                                         leftSection={<IconTrash size={14} />}
                                                         color="red"
                                                         onClick={() => {
@@ -237,6 +272,68 @@ export default function AdminTenantsTab() {
                 onClose={() => { closeModal(); setEditingTenant(null); }}
                 tenant={editingTenant}
             />
+
+            <Modal
+                opened={bulkDeleteOpened}
+                onClose={() => { closeBulkDelete(); setBulkDeleteTenant(null); }}
+                title={t('admin.bulkDeleteTitle')}
+                size="md"
+            >
+                <Stack gap="md">
+                    <Alert icon={<IconAlertTriangle size={16} />} color="red" variant="light">
+                        {t('admin.bulkDeleteDesc')}
+                    </Alert>
+
+                    <Text size="sm" fw={500}>{bulkDeleteTenant?.name}</Text>
+
+                    <Stack gap="xs">
+                        <Checkbox
+                            label={t('admin.bulkDeleteCompanies')}
+                            checked={bulkDeleteTypes.includes('companies')}
+                            onChange={(e) => setBulkDeleteTypes(prev =>
+                                e.currentTarget.checked ? [...prev, 'companies'] : prev.filter(x => x !== 'companies')
+                            )}
+                        />
+                        <Checkbox
+                            label={t('admin.bulkDeleteContacts')}
+                            checked={bulkDeleteTypes.includes('contacts')}
+                            onChange={(e) => setBulkDeleteTypes(prev =>
+                                e.currentTarget.checked ? [...prev, 'contacts'] : prev.filter(x => x !== 'contacts')
+                            )}
+                        />
+                    </Stack>
+
+                    <TextInput
+                        label={t('admin.bulkDeleteConfirmLabel')}
+                        placeholder={t('admin.bulkDeleteConfirmPlaceholder')}
+                        value={bulkDeleteConfirm}
+                        onChange={(e) => setBulkDeleteConfirm(e.currentTarget.value)}
+                        error={bulkDeleteConfirm && bulkDeleteConfirm !== bulkDeleteTenant?.name ? t('admin.bulkDeleteConfirmMismatch') : undefined}
+                    />
+
+                    <Group justify="flex-end">
+                        <Button variant="default" onClick={() => { closeBulkDelete(); setBulkDeleteTenant(null); }}>
+                            {t('common.cancel')}
+                        </Button>
+                        <Button
+                            color="red"
+                            leftSection={<IconTrash size={16} />}
+                            loading={bulkDeleteMutation.isPending}
+                            disabled={
+                                bulkDeleteTypes.length === 0 ||
+                                bulkDeleteConfirm !== bulkDeleteTenant?.name
+                            }
+                            onClick={() => {
+                                if (bulkDeleteTenant) {
+                                    bulkDeleteMutation.mutate({ id: bulkDeleteTenant.id, types: bulkDeleteTypes });
+                                }
+                            }}
+                        >
+                            {t('admin.bulkDeleteExecute')}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
         </Stack>
     );
 }

@@ -64,11 +64,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const { data } = await api.get('/auth/me');
                 setUser(data.user);
 
-                // Set active tenant if not already set
+                // Validate saved tenant against accessible tenants — clears stale IDs
+                // (e.g. seed tenant deleted from DB but still in app_metadata / localStorage).
                 const savedTenantId = localStorage.getItem('activeTenantId');
-                if (!savedTenantId && data.user.tenantId) {
-                    setActiveTenantId(data.user.tenantId);
-                    localStorage.setItem('activeTenantId', data.user.tenantId);
+                const accessibleIds: string[] = (data.user.accessibleTenants || []).map((t: any) => t.id);
+                const savedIsValid = !!savedTenantId && accessibleIds.includes(savedTenantId);
+
+                if (!savedIsValid) {
+                    const fallback = data.user.tenantId || accessibleIds[0] || null;
+                    setActiveTenantId(fallback);
+                    if (fallback) localStorage.setItem('activeTenantId', fallback);
+                    else localStorage.removeItem('activeTenantId');
                 }
             } catch (err) {
                 // Token invalid — cookies will be cleared by server on next refresh attempt
@@ -105,8 +111,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Tokens are now stored in httpOnly cookies by the server
         setUser(data.user);
 
-        // Set the default active tenant
-        const defaultTenantId = data.user.tenantId;
+        // Set the default active tenant.
+        // Prefer the server-resolved tenantId; if it's null (e.g. superadmin with no
+        // default tenant due to a stale/deleted app_metadata value), fall back to the
+        // first accessible tenant so the UI always has a valid context to work with.
+        const defaultTenantId = data.user.tenantId
+            || data.user.accessibleTenants?.[0]?.id
+            || null;
         setActiveTenantId(defaultTenantId);
         if (defaultTenantId) {
             localStorage.setItem('activeTenantId', defaultTenantId);

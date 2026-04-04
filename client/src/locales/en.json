@@ -196,7 +196,8 @@
         "of": "of",
         "prev": "Previous",
         "next": "Next",
-        "page": "Page"
+        "page": "Page",
+        "goTo": "Go to page"
     },
     "common": {
         "loading": "Loading...",
@@ -222,6 +223,7 @@
         "stage": "Filter by stage...",
         "industry": "Filter by industry...",
         "location": "Filter by location...",
+        "emptyLocation": "(No location)",
         "product": "Filter by product...",
         "clearAll": "Clear filters",
         "clearSearch": "Clear search",
@@ -343,6 +345,8 @@
         "geocodeSuccess": "{{geocoded}}/{{total}} companies added to map",
         "geocodeSuccessWithSkipped": "{{geocoded}}/{{total}} companies added to map ({{skipped}} could not be resolved)",
         "geocodeNoneFound": "No ungeocoded companies found in pipeline",
+        "geocodeNoneFoundWithNoLocation": "{{totalPipeline}} companies scanned — {{noLocation}} missing city info and cannot be geocoded",
+        "geocodeNoLocation": "{{count}} companies are missing city info and cannot be added to the map",
         "geocodeNoneResolved": "{{total}} companies processed, no locations resolved",
         "geocodeError": "Geocoding failed",
         "locationsError": "Could not load company locations",
@@ -456,7 +460,18 @@
         "membershipCreated": "Membership created",
         "membershipUpdated": "Membership updated",
         "membershipRemoved": "Membership removed",
-        "membershipRemoveConfirm": "Remove this user from the tenant?"
+        "membershipRemoveConfirm": "Remove this user from the tenant?",
+        "bulkDelete": "Bulk Delete Data",
+        "bulkDeleteTitle": "Bulk Delete Tenant Data",
+        "bulkDeleteDesc": "Selected data types will be permanently deleted. This action cannot be undone.",
+        "bulkDeleteCompanies": "All Companies",
+        "bulkDeleteContacts": "All Contacts",
+        "bulkDeleteConfirmLabel": "Type the tenant name to confirm:",
+        "bulkDeleteConfirmPlaceholder": "Type tenant name here",
+        "bulkDeleteConfirmMismatch": "Tenant name does not match",
+        "bulkDeleteSelectType": "Select at least one data type",
+        "bulkDeleteSuccess": "Done: deleted {{companies}} companies and {{contacts}} contacts",
+        "bulkDeleteExecute": "Delete"
     },
     "activity": {
         "timeline": "Activity Timeline",

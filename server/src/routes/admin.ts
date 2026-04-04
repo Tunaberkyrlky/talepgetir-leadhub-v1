@@ -592,6 +592,92 @@ router.delete('/tenants/:id', async (req: Request, res: Response, next: NextFunc
     }
 });
 
+// DELETE /api/admin/tenants/:id/bulk-data — Bulk delete tenant data (companies, contacts)
+router.delete('/tenants/:id/bulk-data', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const id = req.params.id as string;
+
+        if (req.query.confirm !== 'true') {
+            res.status(400).json({ error: 'Please confirm the deletion to proceed' });
+            return;
+        }
+
+        const rawTypes = req.query.types as string || '';
+        const types = rawTypes.split(',').map(t => t.trim()).filter(Boolean);
+        const allowed = ['companies', 'contacts'];
+        const invalid = types.filter(t => !allowed.includes(t));
+        if (types.length === 0 || invalid.length > 0) {
+            res.status(400).json({ error: 'types must be a comma-separated list of: companies, contacts' });
+            return;
+        }
+
+        // Verify tenant exists
+        const { data: tenant, error: tenantError } = await supabaseAdmin
+            .from('tenants')
+            .select('id, name')
+            .eq('id', id)
+            .single();
+
+        if (tenantError || !tenant) {
+            res.status(404).json({ error: 'Tenant not found' });
+            return;
+        }
+
+        const deleted: Record<string, number> = {};
+
+        if (types.includes('companies')) {
+            // Count first for audit log
+            const { count } = await supabaseAdmin
+                .from('companies')
+                .select('*', { count: 'exact', head: true })
+                .eq('tenant_id', id);
+
+            const { error } = await supabaseAdmin
+                .from('companies')
+                .delete()
+                .eq('tenant_id', id);
+
+            if (error) {
+                log.error({ err: error }, 'Bulk delete companies error');
+                throw new AppError('Failed to delete companies', 500);
+            }
+            deleted.companies = count || 0;
+        }
+
+        if (types.includes('contacts')) {
+            const { count } = await supabaseAdmin
+                .from('contacts')
+                .select('*', { count: 'exact', head: true })
+                .eq('tenant_id', id);
+
+            const { error } = await supabaseAdmin
+                .from('contacts')
+                .delete()
+                .eq('tenant_id', id);
+
+            if (error) {
+                log.error({ err: error }, 'Bulk delete contacts error');
+                throw new AppError('Failed to delete contacts', 500);
+            }
+            deleted.contacts = count || 0;
+        }
+
+        await logAuditAction(req.user!.id, 'tenant.bulk_data_delete', 'tenant', id, {
+            tenant_name: tenant.name,
+            types,
+            deleted,
+        });
+
+        log.info({ tenantId: id, types, deleted }, 'Bulk data delete completed');
+
+        res.json({ deleted });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Bulk delete tenant data error');
+        res.status(500).json({ error: 'Failed to delete tenant data' });
+    }
+});
+
 // =====================
 // MEMBERSHIPS ENDPOINTS
 // =====================

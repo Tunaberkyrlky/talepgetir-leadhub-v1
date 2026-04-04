@@ -93,6 +93,16 @@ const DEFAULT_STAGES = [
 ];
 
 export async function ensureDefaultStages(tenantId: string): Promise<void> {
+    // Guard: verify tenant exists before inserting to avoid FK violations from stale IDs
+    const { data: tenant } = await supabaseAdmin
+        .from('tenants')
+        .select('id')
+        .eq('id', tenantId)
+        .single();
+    if (!tenant) {
+        log.warn({ tenantId }, 'ensureDefaultStages: tenant not found, skipping seed');
+        return;
+    }
     const { error } = await supabaseAdmin
         .from('pipeline_stages')
         .insert(DEFAULT_STAGES.map((s) => ({ ...s, tenant_id: tenantId })));

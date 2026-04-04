@@ -196,7 +196,8 @@
         "of": "/",
         "prev": "Önceki",
         "next": "Sonraki",
-        "page": "Sayfa"
+        "page": "Sayfa",
+        "goTo": "Sayfaya git"
     },
     "common": {
         "loading": "Yükleniyor...",
@@ -222,6 +223,7 @@
         "stage": "Aşamaya göre filtrele...",
         "industry": "Sektöre göre filtrele...",
         "location": "Konuma göre filtrele...",
+        "emptyLocation": "(Konum yok)",
         "product": "Ürüne göre filtrele...",
         "clearAll": "Filtreleri temizle",
         "clearSearch": "Aramayı Temizle",
@@ -343,6 +345,8 @@
         "geocodeSuccess": "{{geocoded}}/{{total}} şirket haritaya eklendi",
         "geocodeSuccessWithSkipped": "{{geocoded}}/{{total}} şirket haritaya eklendi ({{skipped}} konum tanınamadı)",
         "geocodeNoneFound": "Pipeline'da koordinatsız şirket bulunamadı",
+        "geocodeNoneFoundWithNoLocation": "{{totalPipeline}} şirket tarandı — {{noLocation}} şirketin şehir bilgisi eksik, geocode edilemiyor",
+        "geocodeNoLocation": "{{count}} şirketin şehir bilgisi eksik, haritaya eklenemiyor",
         "geocodeNoneResolved": "{{total}} şirket işlendi, konum tanınamadı",
         "geocodeError": "Coğrafi kodlama başarısız",
         "locationsError": "Şirket konumları yüklenemedi",
@@ -456,7 +460,18 @@
         "membershipCreated": "Atama oluşturuldu",
         "membershipUpdated": "Atama güncellendi",
         "membershipRemoved": "Atama kaldırıldı",
-        "membershipRemoveConfirm": "Bu kullanıcıyı müşteriden kaldırmak istiyor musunuz?"
+        "membershipRemoveConfirm": "Bu kullanıcıyı müşteriden kaldırmak istiyor musunuz?",
+        "bulkDelete": "Toplu Veri Sil",
+        "bulkDeleteTitle": "Müşteri Verilerini Toplu Sil",
+        "bulkDeleteDesc": "Seçili veri tipleri kalıcı olarak silinecek. Bu işlem geri alınamaz.",
+        "bulkDeleteCompanies": "Tüm Şirketler",
+        "bulkDeleteContacts": "Tüm Kişiler",
+        "bulkDeleteConfirmLabel": "Onaylamak için müşteri adını yazın:",
+        "bulkDeleteConfirmPlaceholder": "Müşteri adını buraya yazın",
+        "bulkDeleteConfirmMismatch": "Müşteri adı eşleşmiyor",
+        "bulkDeleteSelectType": "En az bir veri tipi seçin",
+        "bulkDeleteSuccess": "Silme tamamlandı: {{companies}} şirket, {{contacts}} kişi silindi",
+        "bulkDeleteExecute": "Sil"
     },
     "activity": {
         "timeline": "Aktivite Zaman Çizelgesi",
