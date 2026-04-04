@@ -265,6 +265,20 @@ router.put(
 
             const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary } = req.body;
 
+            // Validate company_id belongs to the same tenant
+            if (company_id !== undefined) {
+                const { data: targetCompany } = await supabaseAdmin
+                    .from('companies')
+                    .select('id')
+                    .eq('id', company_id)
+                    .eq('tenant_id', tenantId)
+                    .single();
+                if (!targetCompany) {
+                    res.status(404).json({ error: 'Company not found' });
+                    return;
+                }
+            }
+
             const updateData: Record<string, unknown> = {};
             if (company_id !== undefined) updateData.company_id = company_id;
             if (first_name !== undefined) updateData.first_name = first_name;

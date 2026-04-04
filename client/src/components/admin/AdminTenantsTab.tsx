@@ -67,8 +67,8 @@ export default function AdminTenantsTab() {
         mutationFn: async ({ id, types }: { id: string; types: string[] }) =>
             api.delete(`/admin/tenants/${id}/bulk-data?confirm=true&types=${types.join(',')}`),
         onSuccess: (res) => {
-            const { companies = 0, contacts = 0 } = res.data.deleted;
-            showSuccess(t('admin.bulkDeleteSuccess', { companies, contacts }));
+            const { companies = 0, contacts = 0, activities = 0, email_replies = 0 } = res.data.deleted;
+            showSuccess(t('admin.bulkDeleteSuccess', { companies, contacts, activities, email_replies }));
             closeBulkDelete();
             setBulkDeleteTenant(null);
             setBulkDeleteTypes([]);
@@ -304,6 +304,26 @@ export default function AdminTenantsTab() {
                                 const checked = e.currentTarget.checked;
                                 setBulkDeleteTypes(prev =>
                                     checked ? [...prev, 'contacts'] : prev.filter(x => x !== 'contacts')
+                                );
+                            }}
+                        />
+                        <Checkbox
+                            label={t('admin.bulkDeleteActivities')}
+                            checked={bulkDeleteTypes.includes('activities')}
+                            onChange={(e) => {
+                                const checked = e.currentTarget.checked;
+                                setBulkDeleteTypes(prev =>
+                                    checked ? [...prev, 'activities'] : prev.filter(x => x !== 'activities')
+                                );
+                            }}
+                        />
+                        <Checkbox
+                            label={t('admin.bulkDeleteEmailReplies')}
+                            checked={bulkDeleteTypes.includes('email_replies')}
+                            onChange={(e) => {
+                                const checked = e.currentTarget.checked;
+                                setBulkDeleteTypes(prev =>
+                                    checked ? [...prev, 'email_replies'] : prev.filter(x => x !== 'email_replies')
                                 );
                             }}
                         />

@@ -22,6 +22,15 @@ import { useStages } from '../contexts/StagesContext';
 import EmailStatusIcon from './EmailStatusIcon';
 import { useAuth } from '../contexts/AuthContext';
 
+/** Strip junk email placeholders (matches server-side sanitizeEmail) */
+function sanitizeEmail(value: string | null | undefined): string {
+    if (!value) return '';
+    const trimmed = value.trim();
+    if (!trimmed || /^[-–—_.\/\\()\s]+$/.test(trimmed) || /^n\/?a$/i.test(trimmed) || /^none$/i.test(trimmed) || /^yok$/i.test(trimmed)) return '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return '';
+    return trimmed;
+}
+
 interface Company {
     id: string;
     name: string;
@@ -103,7 +112,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                 product_portfolio: company.product_portfolio || '',
                 linkedin: company.linkedin || '',
                 company_phone: company.company_phone || '',
-                company_email: company.company_email || '',
+                company_email: sanitizeEmail(company.company_email),
                 email_status: company.email_status || null,
                 stage: company.stage || 'in_queue',
                 company_summary: company.company_summary || '',

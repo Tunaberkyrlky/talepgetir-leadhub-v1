@@ -10,6 +10,68 @@ export interface MatchResult {
     match_status: 'matched' | 'unmatched';
 }
 
+// ─── Company cache for domain matching (avoids refetching on every email) ───
+interface CachedCompanyRow {
+    id: string;
+    tenant_id: string;
+    name: string | null;
+    normalizedName: string | null;
+    websiteLabels: string[];
+}
+interface CompanyCacheEntry { data: CachedCompanyRow[]; ts: number }
+const companyCache = new Map<string, CompanyCacheEntry>();
+const COMPANY_CACHE_TTL = 60_000; // 60s — fresh enough for matching batches
+
+const PAGE_SIZE = 1000;
+
+/** Score bonus when email domain exactly matches a company website domain */
+const WEBSITE_MATCH_BONUS = 100;
+
+/** Fetch all companies for a tenant with pagination + short TTL cache.
+ *  Pre-computes normalizedName and websiteLabels to avoid per-email recalculation. */
+async function fetchAllCompanies(tenantId: string): Promise<CachedCompanyRow[]> {
+    const cached = companyCache.get(tenantId);
+    if (cached && Date.now() - cached.ts < COMPANY_CACHE_TTL) return cached.data;
+
+    const all: CachedCompanyRow[] = [];
+    let from = 0;
+    while (true) {
+        const { data, error } = await supabaseAdmin
+            .from('companies')
+            .select('id, tenant_id, name, website')
+            .eq('tenant_id', tenantId)
+            .range(from, from + PAGE_SIZE - 1);
+
+        if (error) {
+            log.warn({ err: error, tenantId, from }, 'Paginated company fetch failed');
+            break;
+        }
+        if (!data || data.length === 0) break;
+        for (const row of data) {
+            const normalizedName = row.name ? row.name.toLowerCase().replace(/[^a-z0-9]/g, '') : null;
+            all.push({
+                id: row.id,
+                tenant_id: row.tenant_id,
+                name: row.name,
+                normalizedName: normalizedName && normalizedName.length >= 4 ? normalizedName : null,
+                websiteLabels: row.website ? extractWebsiteLabels(row.website) : [],
+            });
+        }
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+    }
+
+    companyCache.set(tenantId, { data: all, ts: Date.now() });
+    log.info({ tenantId, count: all.length }, 'Company cache refreshed for domain matching');
+    return all;
+}
+
+/** Clear the company cache for a tenant (call after imports/deletes) */
+export function clearCompanyCache(tenantId?: string): void {
+    if (tenantId) companyCache.delete(tenantId);
+    else companyCache.clear();
+}
+
 /** Personal/free email providers — skip domain label matching for these */
 const PERSONAL_DOMAINS = new Set([
     'gmail', 'googlemail', 'hotmail', 'yahoo', 'ymail', 'outlook', 'live',
@@ -18,23 +80,49 @@ const PERSONAL_DOMAINS = new Set([
     'tutanota', 'tuta', 'startmail', 'hushmail', 'mailfence', 'runbox',
 ]);
 
+/** Known country-code and generic TLDs to strip when extracting domain labels */
+const TLDS = new Set([
+    'com', 'org', 'net', 'edu', 'gov', 'io', 'co', 'info', 'biz', 'me', 'tv', 'app', 'dev',
+    // Country codes (2-letter)
+    'nl', 'de', 'uk', 'fr', 'es', 'it', 'be', 'at', 'ch', 'se', 'no', 'dk', 'fi', 'pl',
+    'pt', 'cz', 'sk', 'ro', 'hu', 'bg', 'hr', 'si', 'rs', 'ba', 'mk', 'al', 'gr', 'tr',
+    'ru', 'ua', 'lt', 'lv', 'ee', 'ie', 'lu', 'mt', 'cy', 'is', 'li', 'mc', 'ad', 'sm',
+    'us', 'ca', 'mx', 'br', 'ar', 'cl', 'pe', 'ec', 'uy', 'py', 'bo', 've',
+    'au', 'nz', 'jp', 'cn', 'kr', 'in', 'sg', 'hk', 'tw', 'th', 'vn', 'id', 'my', 'ph',
+    'za', 'ng', 'ke', 'eg', 'ma', 'ae', 'sa', 'il', 'qa', 'kw', 'om', 'bh',
+]);
+
 /**
- * Extract the label part of a domain (between @ and first dot).
- * Returns null for personal providers and labels shorter than 3 chars.
- * Examples:
- *   john@acmecorp.com      → 'acmecorp'
- *   info@big-company.co.uk → 'big-company'
- *   user@gmail.com         → null  (personal provider)
+ * Extract all meaningful domain labels from an email address.
+ * Handles subdomains (e.g. klantenservice.trekpleister.nl → ['klantenservice', 'trekpleister'])
+ * and multi-part TLDs (e.g. thewildfoods.com.mx → ['thewildfoods']).
+ * Returns empty array for personal providers.
  */
-function extractDomainLabel(email: string): string | null {
+function extractDomainLabels(email: string): string[] {
     const atIdx = email.lastIndexOf('@');
-    if (atIdx === -1) return null;
-    const afterAt = email.slice(atIdx + 1).toLowerCase(); // e.g. 'acmecorp.com'
-    const dotIdx = afterAt.indexOf('.');
-    const label = dotIdx !== -1 ? afterAt.slice(0, dotIdx) : afterAt; // e.g. 'acmecorp'
-    if (label.length < 3) return null;
-    if (PERSONAL_DOMAINS.has(label)) return null;
-    return label;
+    if (atIdx === -1) return [];
+    const afterAt = email.slice(atIdx + 1).toLowerCase();
+    const parts = afterAt.split('.');
+
+    // Filter out TLDs and short segments, keep meaningful labels
+    const labels = parts.filter(p => p.length >= 3 && !TLDS.has(p));
+
+    // Check if any label is a personal provider
+    if (labels.some(l => PERSONAL_DOMAINS.has(l))) return [];
+
+    return labels;
+}
+
+/** Extract meaningful labels from a website URL for domain matching */
+function extractWebsiteLabels(website: string): string[] {
+    try {
+        const url = website.startsWith('http') ? website : `https://${website}`;
+        const hostname = new URL(url).hostname.toLowerCase();
+        const parts = hostname.replace(/^www\./, '').split('.');
+        return parts.filter(p => p.length >= 3 && !TLDS.has(p));
+    } catch {
+        return [];
+    }
 }
 
 
@@ -105,51 +193,54 @@ export async function matchSenderEmail(
         };
     }
 
-    // Step 3: Domain label bidirectional match against company names (best-effort)
+    // Step 3: Domain-based matching (best-effort)
     //
-    // Why bidirectional: the domain label may be longer than the company name
-    // (e.g. domain 'mestergruppenlogistikk', company 'Mestergruppen') OR shorter
-    // (e.g. domain 'acme', company 'Acme Corp A.Ş.'). Both directions are checked.
-    //
-    // Approach: fetch all tenant companies (≤500), normalize both sides to
-    // lowercase alphanumeric, then check containment. Prefer the longest
-    // matching company name to avoid false positives from short names.
-    const domainLabel = extractDomainLabel(email);
-    if (domainLabel) {
-        const normalizedDomain = domainLabel.replace(/[^a-z0-9]/g, '');
+    // Strategy:
+    // a) Extract all domain labels from email (supports subdomains)
+    //    e.g. vragen@klantenservice.trekpleister.nl → ['klantenservice', 'trekpleister']
+    // b) Try matching each label against company name (bidirectional substring)
+    // c) Also try matching against company website domain
+    // Prefer the longest matching company name to avoid false positives.
+    const domainLabels = extractDomainLabels(email);
+    if (domainLabels.length > 0) {
+        const normalizedLabels = domainLabels.map(l => l.replace(/[^a-z0-9]/g, ''));
 
-        const { data: allCompanies, error: companiesErr } = await supabaseAdmin
-            .from('companies')
-            .select('id, tenant_id, name, updated_at')
-            .eq('tenant_id', defaultTenantId)
-            .limit(500);
+        const allCompanies = await fetchAllCompanies(defaultTenantId);
 
-        if (companiesErr) {
-            // Non-fatal: log and fall through to unmatched
-            log.warn({ err: companiesErr, email, domainLabel }, 'Domain label company fetch failed — skipping');
-        } else if (allCompanies && allCompanies.length > 0) {
+        if (allCompanies.length > 0) {
             let bestMatch: typeof allCompanies[0] | null = null;
-            let bestLen = 0;
+            let bestScore = 0;
 
             for (const company of allCompanies) {
-                if (!company.name) continue;
-                // Normalize: lowercase, strip non-alphanumeric (removes spaces, dots, A.Ş., Ltd. etc.)
-                const normalizedName = company.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                // Require at least 4 chars to avoid spurious matches on very short names
-                if (normalizedName.length < 4) continue;
+                // a) Match against company name (pre-computed)
+                if (company.normalizedName) {
+                    for (const nd of normalizedLabels) {
+                        const matched =
+                            nd.includes(company.normalizedName) ||
+                            company.normalizedName.includes(nd);
+                        if (matched && company.normalizedName.length > bestScore) {
+                            bestScore = company.normalizedName.length;
+                            bestMatch = company;
+                        }
+                    }
+                }
 
-                const matched =
-                    normalizedDomain.includes(normalizedName) ||   // 'mestergruppenlogistikk' includes 'mestergruppen'
-                    normalizedName.includes(normalizedDomain);      // 'acmecorporation' includes 'acmecorp'
-
-                if (matched && normalizedName.length > bestLen) {
-                    bestLen = normalizedName.length;
-                    bestMatch = company;
+                // b) Match against website domain (pre-computed)
+                for (const wl of company.websiteLabels) {
+                    for (const nd of normalizedLabels) {
+                        if (nd === wl && wl.length >= 3) {
+                            const score = wl.length + WEBSITE_MATCH_BONUS;
+                            if (score > bestScore) {
+                                bestScore = score;
+                                bestMatch = company;
+                            }
+                        }
+                    }
                 }
             }
 
             if (bestMatch) {
-                log.info({ email, company_id: bestMatch.id, domainLabel, company_name: bestMatch.name }, 'Matched via domain label (bidirectional)');
+                log.info({ email, company_id: bestMatch.id, domainLabels, company_name: bestMatch.name }, 'Matched via domain label (bidirectional)');
                 return {
                     tenant_id: bestMatch.tenant_id,
                     company_id: bestMatch.id,

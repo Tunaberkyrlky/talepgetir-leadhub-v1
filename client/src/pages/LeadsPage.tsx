@@ -49,6 +49,7 @@ import {
     IconGripVertical,
     IconArrowLeft,
     IconMap,
+    IconMapPin,
     IconAlertCircle,
     IconCalendar,
     IconChevronLeft,
@@ -107,6 +108,7 @@ interface Company {
     assigned_to: string | null;
     created_at: string;
     updated_at: string;
+    latitude: number | null;
     contact_count: number;
 }
 
@@ -807,7 +809,18 @@ export default function LeadsPage() {
             case 'industry':
                 return <Table.Td key="industry"><TruncatedText size="sm">{company.industry}</TruncatedText></Table.Td>;
             case 'location':
-                return <Table.Td key="location"><TruncatedText size="sm">{company.location}</TruncatedText></Table.Td>;
+                return (
+                    <Table.Td key="location">
+                        <Group gap={4} wrap="nowrap">
+                            <TruncatedText size="sm">{company.location}</TruncatedText>
+                            {company.latitude != null && (
+                                <Tooltip label={t('company.geocoded')} withArrow>
+                                    <IconMapPin size={14} color="var(--mantine-color-teal-6)" style={{ flexShrink: 0 }} />
+                                </Tooltip>
+                            )}
+                        </Group>
+                    </Table.Td>
+                );
             case 'employee_size':
                 return <Table.Td key="employee_size"><TruncatedText size="sm">{company.employee_size}</TruncatedText></Table.Td>;
             case 'product_services':
@@ -911,6 +924,7 @@ export default function LeadsPage() {
     }));
     const locationOptions = [
         { value: '__empty__', label: t('filter.emptyLocation') },
+        { value: '__not_geocoded__', label: t('filter.notGeocoded') },
         ...(filterOptions?.locations || []).map((s) => ({ value: s, label: s })),
     ];
     const productOptions = (filterOptions?.products || []).map((s) => ({

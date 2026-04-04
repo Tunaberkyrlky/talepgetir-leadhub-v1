@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useState, useCallback, useMemo } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
     Container,
     Title,
@@ -20,8 +20,12 @@ import {
     Progress,
     LoadingOverlay,
     Loader,
+    Badge,
+    Tooltip,
+    Skeleton,
 } from '@mantine/core';
 import { Dropzone, MIME_TYPES } from '@mantine/dropzone';
+import { useDisclosure } from '@mantine/hooks';
 import {
     IconUpload,
     IconFileSpreadsheet,
@@ -33,6 +37,9 @@ import {
     IconBuildingSkyscraper,
     IconRefresh,
     IconUsers,
+    IconHistory,
+    IconChevronDown,
+    IconChevronRight,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -41,7 +48,20 @@ import { showErrorFromApi, getErrorMessage } from '../lib/notifications';
 import DataMatchFlow from '../components/DataMatchFlow';
 import MappingEditor from '../components/MappingEditor';
 import { useImportProgress } from '../contexts/ImportProgressContext';
+import { useAuth } from '../contexts/AuthContext';
 import type { MappingSuggestion, AvailableField, ImportResult } from '../types/import';
+
+interface ImportJob {
+    id: string;
+    file_name: string;
+    file_type: string;
+    status: string;
+    total_rows: number;
+    success_count: number;
+    error_count: number;
+    created_at: string;
+    completed_at: string | null;
+}
 
 interface PreviewData {
     fileName: string;
@@ -55,7 +75,7 @@ interface PreviewData {
 }
 
 export default function ImportPage() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const navigate = useNavigate();
     const [active, setActive] = useState(0);
     const [previewData, setPreviewData] = useState<PreviewData | null>(null);
@@ -65,6 +85,30 @@ export default function ImportPage() {
     const [dropRejectError, setDropRejectError] = useState<string | null>(null);
     const [uploadProgress, setUploadProgress] = useState(0);
     const { startImport, finishImport, cancelImport } = useImportProgress();
+    const { activeTenantId } = useAuth();
+    const [historyOpened, { toggle: toggleHistory }] = useDisclosure(false);
+
+    const { data: importJobs, isLoading: jobsLoading } = useQuery({
+        queryKey: ['import', 'jobs', activeTenantId],
+        queryFn: async () => {
+            const res = await api.get('/import/jobs');
+            return res.data.data as ImportJob[];
+        },
+    });
+
+    const missingRequired = useMemo(() =>
+        previewData?.availableFields
+            .filter((f) => f.required)
+            .filter((f) => !Object.values(mapping).includes(f.value)) || [],
+        [previewData, mapping]
+    );
+
+    const sortedPreviewHeaders = useMemo(() => {
+        const headers = previewData?.headers || [];
+        const mapped = headers.filter((h) => !!mapping[h]);
+        const unmapped = headers.filter((h) => !mapping[h]);
+        return [...mapped, ...unmapped];
+    }, [previewData, mapping]);
 
     // Upload mutation
     const uploadMutation = useMutation({
@@ -310,11 +354,22 @@ export default function ImportPage() {
                             leftSection={<IconBuildingSkyscraper size={16} />}
                         />
 
+                        {missingRequired.length > 0 && (
+                            <Alert color="orange" mt="md" icon={<IconAlertCircle size={16} />}>
+                                {t('import.requiredFieldsMissing')}: {missingRequired.map((f) => f.label).join(', ')}
+                            </Alert>
+                        )}
+
                         <Group justify="flex-end" mt="xl">
                             <Button variant="default" onClick={() => setActive(0)} leftSection={<IconArrowLeft size={16} />}>
                                 {t('common.cancel')}
                             </Button>
-                            <Button onClick={() => setActive(2)} rightSection={<IconArrowRight size={16} />} color="violet">
+                            <Button
+                                onClick={() => setActive(2)}
+                                rightSection={<IconArrowRight size={16} />}
+                                color="violet"
+                                disabled={missingRequired.length > 0}
+                            >
                                 {t('import.step3')}
                             </Button>
                         </Group>
@@ -332,12 +387,14 @@ export default function ImportPage() {
                             <Table striped highlightOnHover>
                                 <Table.Thead>
                                     <Table.Tr>
-                                        {previewData?.headers.map((h) => (
+                                        {sortedPreviewHeaders.map((h) => (
                                             <Table.Th key={h}>
                                                 <Stack gap={2}>
-                                                    <Text size="xs" c="dimmed">{h}</Text>
                                                     <Text size="xs" fw={600} c={mapping[h] ? 'violet' : 'gray'}>
-                                                        → {mapping[h] || t('import.unmapped')}
+                                                        {mapping[h] || t('import.unmapped')}
+                                                    </Text>
+                                                    <Text size="xs" c="dimmed">
+                                                        ← {h}
                                                     </Text>
                                                 </Stack>
                                             </Table.Th>
@@ -347,7 +404,7 @@ export default function ImportPage() {
                                 <Table.Tbody>
                                     {previewData?.previewRows.map((row, i) => (
                                         <Table.Tr key={i}>
-                                            {previewData.headers.map((h) => (
+                                            {sortedPreviewHeaders.map((h) => (
                                                 <Table.Td key={h}>
                                                     <Text size="sm" lineClamp={1} maw={200}>
                                                         {row[h] || '—'}
@@ -487,6 +544,85 @@ export default function ImportPage() {
                     <DataMatchFlow />
                 </Tabs.Panel>
             </Tabs>
+            {/* Import History — collapsible */}
+            <Paper shadow="sm" radius="lg" withBorder mt="xl" style={{ overflow: 'hidden' }}>
+                <Group
+                    gap="xs"
+                    p="md"
+                    onClick={toggleHistory}
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                >
+                    {historyOpened ? <IconChevronDown size={18} /> : <IconChevronRight size={18} />}
+                    <IconHistory size={18} color="var(--mantine-color-dimmed)" />
+                    <Text fw={600} size="sm">{t('import.historyTitle')}</Text>
+                    {!historyOpened && importJobs && importJobs.length > 0 && (
+                        <Text size="xs" c="dimmed" ml={4}>— {importJobs[0].file_name}</Text>
+                    )}
+                </Group>
+
+                {historyOpened && (
+                    <Box px="md" pb="md">
+                        {jobsLoading ? (
+                            <Stack gap="xs">
+                                {[...Array(3)].map((_, i) => <Skeleton key={i} height={36} radius="sm" />)}
+                            </Stack>
+                        ) : !importJobs || importJobs.length === 0 ? (
+                            <Text size="sm" c="dimmed" ta="center" py="lg">{t('import.historyEmpty')}</Text>
+                        ) : (
+                            <Table striped highlightOnHover>
+                                <Table.Thead>
+                                    <Table.Tr>
+                                        <Table.Th>{t('import.historyFileName')}</Table.Th>
+                                        <Table.Th>{t('import.historyType')}</Table.Th>
+                                        <Table.Th>{t('import.historyStatus')}</Table.Th>
+                                        <Table.Th>{t('import.historyRows')}</Table.Th>
+                                        <Table.Th>{t('import.historyDate')}</Table.Th>
+                                    </Table.Tr>
+                                </Table.Thead>
+                                <Table.Tbody>
+                                    {importJobs.map((job) => (
+                                        <Table.Tr key={job.id}>
+                                            <Table.Td>
+                                                <Tooltip label={job.file_name} openDelay={300}>
+                                                    <Text size="sm" fw={500} lineClamp={1} maw={300}>{job.file_name}</Text>
+                                                </Tooltip>
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <Badge size="sm" variant="light" color={job.file_type === 'csv' ? 'blue' : job.file_type === 'matched' ? 'grape' : 'orange'}>
+                                                    {job.file_type.toUpperCase()}
+                                                </Badge>
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <Badge size="sm" variant="light" color={
+                                                    job.status === 'completed' ? 'green' :
+                                                    job.status === 'failed' ? 'red' :
+                                                    job.status === 'cancelled' ? 'gray' :
+                                                    job.status === 'processing' ? 'yellow' : 'blue'
+                                                }>
+                                                    {t(`import.status_${job.status}`, job.status)}
+                                                </Badge>
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <Text size="sm">
+                                                    {job.success_count}/{job.total_rows}
+                                                    {job.error_count > 0 && (
+                                                        <Text span size="xs" c="red" ml={4}>({job.error_count} {t('import.historyErrors')})</Text>
+                                                    )}
+                                                </Text>
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <Text size="xs" c="dimmed">
+                                                    {new Date(job.created_at).toLocaleDateString(i18n.language === 'tr' ? 'tr-TR' : 'en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                </Text>
+                                            </Table.Td>
+                                        </Table.Tr>
+                                    ))}
+                                </Table.Tbody>
+                            </Table>
+                        )}
+                    </Box>
+                )}
+            </Paper>
         </Container>
     );
 }

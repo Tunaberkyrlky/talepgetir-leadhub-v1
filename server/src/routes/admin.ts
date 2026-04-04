@@ -604,10 +604,10 @@ router.delete('/tenants/:id/bulk-data', async (req: Request, res: Response, next
 
         const rawTypes = req.query.types as string || '';
         const types = rawTypes.split(',').map(t => t.trim()).filter(Boolean);
-        const allowed = ['companies', 'contacts'];
+        const allowed = ['companies', 'contacts', 'activities', 'email_replies'];
         const invalid = types.filter(t => !allowed.includes(t));
         if (types.length === 0 || invalid.length > 0) {
-            res.status(400).json({ error: 'types must be a comma-separated list of: companies, contacts' });
+            res.status(400).json({ error: 'types must be a comma-separated list of: companies, contacts, activities, email_replies' });
             return;
         }
 
@@ -625,23 +625,41 @@ router.delete('/tenants/:id/bulk-data', async (req: Request, res: Response, next
 
         const deleted: Record<string, number> = {};
 
-        if (types.includes('companies')) {
-            // Count first for audit log
+        // Delete in FK-safe order: children first (activities, email_replies), then contacts, then companies
+        if (types.includes('email_replies')) {
             const { count } = await supabaseAdmin
-                .from('companies')
+                .from('email_replies')
                 .select('*', { count: 'exact', head: true })
                 .eq('tenant_id', id);
 
             const { error } = await supabaseAdmin
-                .from('companies')
+                .from('email_replies')
                 .delete()
                 .eq('tenant_id', id);
 
             if (error) {
-                log.error({ err: error }, 'Bulk delete companies error');
-                throw new AppError('Failed to delete companies', 500);
+                log.error({ err: error }, 'Bulk delete email_replies error');
+                throw new AppError('Failed to delete email replies', 500);
             }
-            deleted.companies = count || 0;
+            deleted.email_replies = count || 0;
+        }
+
+        if (types.includes('activities')) {
+            const { count } = await supabaseAdmin
+                .from('activities')
+                .select('*', { count: 'exact', head: true })
+                .eq('tenant_id', id);
+
+            const { error } = await supabaseAdmin
+                .from('activities')
+                .delete()
+                .eq('tenant_id', id);
+
+            if (error) {
+                log.error({ err: error }, 'Bulk delete activities error');
+                throw new AppError('Failed to delete activities', 500);
+            }
+            deleted.activities = count || 0;
         }
 
         if (types.includes('contacts')) {
@@ -660,6 +678,24 @@ router.delete('/tenants/:id/bulk-data', async (req: Request, res: Response, next
                 throw new AppError('Failed to delete contacts', 500);
             }
             deleted.contacts = count || 0;
+        }
+
+        if (types.includes('companies')) {
+            const { count } = await supabaseAdmin
+                .from('companies')
+                .select('*', { count: 'exact', head: true })
+                .eq('tenant_id', id);
+
+            const { error } = await supabaseAdmin
+                .from('companies')
+                .delete()
+                .eq('tenant_id', id);
+
+            if (error) {
+                log.error({ err: error }, 'Bulk delete companies error');
+                throw new AppError('Failed to delete companies', 500);
+            }
+            deleted.companies = count || 0;
         }
 
         await logAuditAction(req.user!.id, 'tenant.bulk_data_delete', 'tenant', id, {

@@ -43,6 +43,21 @@ const urlField = (maxLen = 500) =>
             .nullable()
     );
 
+/** Strip placeholder/junk email values (-, n/a, none, yok) to null */
+export function sanitizeEmail(value: unknown): string | null {
+    if (!value || typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed || /^[-–—_.\/\\()\s]+$/.test(trimmed) || /^n\/?a$/i.test(trimmed) || /^none$/i.test(trimmed) || /^yok$/i.test(trimmed)) return null;
+    return trimmed;
+}
+
+/** Email field that coerces empty/junk strings to null before validation */
+const emailField = (maxLen = 255) =>
+    z.preprocess(
+        (val) => sanitizeEmail(val),
+        z.string().email().max(maxLen).optional().nullable()
+    );
+
 // ── Auth schemas ──
 
 export const loginSchema = z.object({
@@ -57,7 +72,7 @@ export const createContactSchema = z.object({
     first_name: z.string().min(1, 'First name is required').max(255),
     last_name: z.string().max(255).optional().nullable(),
     title: z.string().max(500).optional().nullable(),
-    email: z.string().email().max(255).optional().nullable(),
+    email: emailField(),
     phone_e164: z.string().max(30).optional().nullable(),
     linkedin: urlField(500),
     country: z.string().max(100).optional().nullable(),
@@ -71,7 +86,7 @@ export const updateContactSchema = z.object({
     first_name: z.string().min(1).max(255).optional(),
     last_name: z.string().max(255).optional().nullable(),
     title: z.string().max(500).optional().nullable(),
-    email: z.string().email().max(255).optional().nullable(),
+    email: emailField(),
     phone_e164: z.string().max(30).optional().nullable(),
     linkedin: urlField(500),
     country: z.string().max(100).optional().nullable(),
@@ -87,7 +102,7 @@ export const createCompanySchema = z.object({
     website: urlField(500),
     linkedin: urlField(500),
     company_phone: z.string().max(50).optional().nullable(),
-    company_email: z.string().email().max(255).optional().nullable(),
+    company_email: emailField(),
     email_status: z.enum(['valid', 'uncertain', 'invalid']).optional().nullable(),
     location: z.string().max(500).optional().nullable(),
     industry: z.string().max(255).optional().nullable(),
@@ -107,7 +122,7 @@ export const createCompanySchema = z.object({
     contact_first_name: z.string().max(255).optional().nullable(),
     contact_last_name: z.string().max(255).optional().nullable(),
     contact_title: z.string().max(500).optional().nullable(),
-    contact_email: z.string().email().max(255).optional().nullable(),
+    contact_email: emailField(),
     contact_phone_e164: z.string().max(30).optional().nullable(),
 });
 

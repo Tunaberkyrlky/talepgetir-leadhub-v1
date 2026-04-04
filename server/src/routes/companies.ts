@@ -5,7 +5,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
-import { validateBody, createCompanySchema, updateCompanySchema } from '../lib/validation.js';
+import { validateBody, createCompanySchema, updateCompanySchema, sanitizeEmail } from '../lib/validation.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
@@ -31,6 +31,7 @@ const VALID_EMAIL_STATUSES = ['valid', 'uncertain', 'invalid'] as const;
 function isValidEmail(email: string): boolean {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
+
 
 // Valid sort columns (whitelist to prevent injection)
 const SORT_COLUMNS: Record<string, string> = {
@@ -90,7 +91,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         let dataQuery = db
             .from('companies')
-            .select('id, name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at')
+            .select('id, name, website, location, latitude, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at')
             .eq('tenant_id', tenantId);
 
         // Apply search (ILIKE on multiple columns)
@@ -119,15 +120,24 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         // Apply location filter
         if (locations.length > 0) {
             const includesEmpty = locations.includes('__empty__');
-            const namedLocations = locations.filter(l => l !== '__empty__');
-            if (includesEmpty && namedLocations.length > 0) {
-                // NULL or empty string OR specific locations
-                const orFilter = `location.is.null,location.eq.,location.in.(${namedLocations.join(',')})`;
+            const includesNotGeocoded = locations.includes('__not_geocoded__');
+            const namedLocations = locations.filter(l => l !== '__empty__' && l !== '__not_geocoded__');
+
+            const orParts: string[] = [];
+            if (includesEmpty) orParts.push('location.is.null');
+            if (includesNotGeocoded) orParts.push('latitude.is.null');
+            if (namedLocations.length > 0) orParts.push(`location.in.(${namedLocations.join(',')})`);
+
+            if (orParts.length > 1) {
+                const orFilter = orParts.join(',');
                 countQuery = countQuery.or(orFilter);
                 dataQuery = dataQuery.or(orFilter);
             } else if (includesEmpty) {
-                countQuery = countQuery.or('location.is.null,location.eq.');
-                dataQuery = dataQuery.or('location.is.null,location.eq.');
+                countQuery = countQuery.is('location', null);
+                dataQuery = dataQuery.is('location', null);
+            } else if (includesNotGeocoded) {
+                countQuery = countQuery.is('latitude', null);
+                dataQuery = dataQuery.is('latitude', null);
             } else {
                 countQuery = countQuery.in('location', namedLocations);
                 dataQuery = dataQuery.in('location', namedLocations);
@@ -343,11 +353,14 @@ router.post(
             const tenantId = req.tenantId!;
             const {
                 name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone,
-                company_email, email_status,
+                company_email: rawCompanyEmail, email_status,
                 stage, company_summary, internal_notes, next_step, custom_fields,
                 fit_score, custom_field_1, custom_field_2, custom_field_3,
-                contact_first_name, contact_last_name, contact_title, contact_email, contact_phone_e164
+                contact_first_name, contact_last_name, contact_title, contact_email: rawContactEmail, contact_phone_e164
             } = req.body;
+
+            const company_email = sanitizeEmail(rawCompanyEmail);
+            const contact_email = sanitizeEmail(rawContactEmail);
 
             if (!name || typeof name !== 'string' || name.trim().length === 0) {
                 res.status(400).json({ error: 'Company name is required' });
@@ -487,7 +500,9 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3 } = req.body;
+            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email: rawCompanyEmail, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3 } = req.body;
+
+            const company_email = sanitizeEmail(rawCompanyEmail);
 
             // Validate stage if provided
             if (stage) {

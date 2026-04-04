@@ -130,7 +130,10 @@ export function lookupCoordinates(location: string): { lat: number; lng: number 
 
     const tryKey = (key: string): [number, number] | undefined => index[key];
 
-    const normalized = normalize(location);
+    // Split by comma/slash BEFORE normalizing (normalize strips commas)
+    const rawParts = location.split(/[,\/]/).map((p) => p.trim()).filter(Boolean);
+    const normalizedParts = rawParts.map(normalize).filter(Boolean);
+    const normalized = normalizedParts.join(' ');
 
     // 1. Full string: country names take priority over same-named cities
     //    e.g. "Albania" → Albania (not a small US town named Albania)
@@ -143,8 +146,7 @@ export function lookupCoordinates(location: string): { lat: number; lng: number 
 
     // 3. Each comma/slash-separated part
     //    Country check first per part, then city — so "Albania, Europe" → Albania
-    const parts = normalized.split(/[,\/]/).map((p) => p.trim()).filter(Boolean);
-    for (const part of parts) {
+    for (const part of normalizedParts) {
         const country = COUNTRIES[part];
         if (country) return { lat: country[0], lng: country[1] };
         const hit = tryKey(part);
@@ -152,7 +154,7 @@ export function lookupCoordinates(location: string): { lat: number; lng: number 
     }
 
     // 4. Progressive word-prefix reduction on the first part (cities index only)
-    const words = (parts[0] || normalized).split(' ').filter(Boolean);
+    const words = (normalizedParts[0] || normalized).split(' ').filter(Boolean);
     for (let len = words.length - 1; len >= 2; len--) {
         const candidate = words.slice(0, len).join(' ');
         const hit = tryKey(candidate);
