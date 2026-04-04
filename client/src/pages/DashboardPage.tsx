@@ -1,5 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Container,
@@ -13,18 +13,21 @@ import {
     Paper,
     Group,
     SegmentedControl,
+    ThemeIcon,
+    ActionIcon,
 } from '@mantine/core';
-import { type DatePeriod, getDateRange } from '../lib/dateUtils';
+import { DatePickerInput } from '@mantine/dates';
+import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
+import { type DatePeriod, getDateRange, shiftPeriod, formatPeriodLabel, getCustomDateRange } from '../lib/dateUtils';
 import {
     IconBuilding,
-    IconUsers,
     IconTrendingUp,
     IconTrophy,
     IconPercentage,
     IconChartBar,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { showSuccess } from '../lib/notifications';
+import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -50,20 +53,29 @@ interface PipelineData {
     terminal: { stage: string; count: number }[];
 }
 
+type DashboardPeriod = DatePeriod | 'all' | 'custom';
+
 export default function DashboardPage() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
     const navigate = useNavigate();
     const { user, activeTenantTier } = useAuth();
     const role = user?.role || '';
     const tier = (activeTenantTier || 'basic') as Tier;
     const isAdvanced = hasTierAccess(role, tier, 'advanced_stats');
 
-    const [datePeriod, setDatePeriod] = useState<DatePeriod | null>(null);
+    const [period, setPeriod] = useState<DashboardPeriod>('month');
+    const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date());
+    const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null]);
 
     const dateParams = useMemo(() => {
-        if (!datePeriod) return null;
-        return getDateRange(datePeriod);
-    }, [datePeriod]);
+        if (period === 'all') return null;
+        if (period === 'custom') {
+            if (!customRange[0] || !customRange[1]) return null;
+            return getCustomDateRange(customRange[0], customRange[1]);
+        }
+        return getDateRange(period, periodAnchor);
+    }, [period, periodAnchor, customRange]);
 
     const handleStageClick = useCallback((stage: string) => {
         navigate(`/pipeline?focus=${stage}`);
@@ -86,7 +98,7 @@ export default function DashboardPage() {
 
     // Company locations — for globe map (pro tier only)
     const queryClient = useQueryClient();
-    const { data: companyLocations, isLoading: locationsLoading } = useQuery<{ data: CompanyLocation[], missingCount: number }>({
+    const { data: companyLocations, isLoading: locationsLoading, error: locationsError } = useQuery<{ data: CompanyLocation[], missingCount: number }>({
         queryKey: ['statistics', 'company-locations', dateParams],
         queryFn: async () => {
             const params = new URLSearchParams();
@@ -100,23 +112,103 @@ export default function DashboardPage() {
         refetchOnWindowFocus: false,
     });
 
-    const geocodeMutation = useMutation({
-        mutationFn: async () => (await api.post('/companies/geocode')).data,
-        onSuccess: (data: { total: number; geocoded: number; skipped?: number }) => {
-            queryClient.invalidateQueries({ queryKey: ['statistics', 'company-locations'] });
-            if (data.geocoded > 0) {
-                const skippedNote = data.skipped ? ` (${data.skipped} konum tanınamadı)` : '';
-                showSuccess(`${data.geocoded}/${data.total} şirket haritaya eklendi${skippedNote}`);
-            } else if (data.total === 0) {
-                notifications.show({ message: 'Pipeline\'da koordinatsız şirket bulunamadı', color: 'blue' });
-            } else {
-                notifications.show({ message: `${data.total} şirket işlendi, konum tanınamadı`, color: 'yellow' });
+    const [geocodeLoading, setGeocodeLoading] = useState(false);
+    const [geocodeStages, setGeocodeStages] = useState<{ message: string; status: 'active' | 'done' | 'error' }[]>([]);
+
+    // Auto-clear stages 7s after completion
+    useEffect(() => {
+        if (!geocodeLoading && geocodeStages.length > 0) {
+            const timer = setTimeout(() => setGeocodeStages([]), 7000);
+            return () => clearTimeout(timer);
+        }
+    }, [geocodeLoading, geocodeStages.length]);
+
+    const handleGeocode = useCallback(async () => {
+        if (geocodeLoading) return;
+        setGeocodeLoading(true);
+        setGeocodeStages([]);
+
+        const API_URL = import.meta.env.VITE_API_URL || '/api';
+        const activeTenantId = localStorage.getItem('activeTenantId');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (activeTenantId && activeTenantId !== 'null') headers['X-Tenant-Id'] = activeTenantId;
+
+        try {
+            const response = await fetch(`${API_URL}/companies/geocode`, {
+                method: 'POST',
+                credentials: 'include',
+                headers,
+            });
+
+            if (!response.body) throw new Error('No response body');
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        if (data.type === 'progress') {
+                            setGeocodeStages(prev => [
+                                ...prev.map(s => ({ ...s, status: 'done' as const })),
+                                { message: data.message, status: 'active' as const },
+                            ]);
+                        } else if (data.type === 'result') {
+                            setGeocodeStages(prev => prev.map(s => ({ ...s, status: 'done' as const })));
+                            queryClient.invalidateQueries({ queryKey: ['statistics', 'company-locations'] });
+                            if (data.geocoded > 0) {
+                                const msg = data.skipped
+                                    ? t('dashboard.geocodeSuccessWithSkipped', { geocoded: data.geocoded, total: data.total, skipped: data.skipped })
+                                    : t('dashboard.geocodeSuccess', { geocoded: data.geocoded, total: data.total });
+                                showSuccess(msg);
+                                if (data.noLocation > 0) {
+                                    notifications.show({ message: t('dashboard.geocodeNoLocation', { count: data.noLocation }), color: 'yellow' });
+                                }
+                            } else if (data.total === 0 && data.noLocation > 0) {
+                                notifications.show({ message: t('dashboard.geocodeNoneFoundWithNoLocation', { totalPipeline: data.totalPipeline, noLocation: data.noLocation }), color: 'yellow' });
+                            } else if (data.total === 0) {
+                                notifications.show({ message: t('dashboard.geocodeNoneFound'), color: 'blue' });
+                            } else {
+                                notifications.show({ message: t('dashboard.geocodeNoneResolved', { total: data.total }), color: 'yellow' });
+                            }
+                        } else if (data.type === 'error') {
+                            setGeocodeStages(prev => [
+                                ...prev.map(s => ({ ...s, status: 'done' as const })),
+                                { message: data.message, status: 'error' as const },
+                            ]);
+                        }
+                    } catch {
+                        // ignore malformed SSE lines
+                    }
+                }
             }
-        },
-    });
+        } catch (err) {
+            showErrorFromApi(err, t('dashboard.geocodeError'));
+            setGeocodeStages(prev => [
+                ...prev.map(s => ({ ...s, status: 'done' as const })),
+                { message: t('dashboard.geocodeError'), status: 'error' as const },
+            ]);
+        } finally {
+            setGeocodeLoading(false);
+        }
+    }, [geocodeLoading, queryClient, t]);
+
+    useEffect(() => {
+        if (locationsError) showErrorFromApi(locationsError, t('dashboard.locationsError'));
+    }, [locationsError, t]);
 
     // Pipeline — Pro tier or internal
-    const { data: pipeline } = useQuery<PipelineData>({
+    const { data: pipeline, error: pipelineError } = useQuery<PipelineData>({
         queryKey: ['statistics', 'pipeline', dateParams],
         queryFn: async () => {
             const params = new URLSearchParams();
@@ -130,6 +222,10 @@ export default function DashboardPage() {
         refetchOnWindowFocus: true,
         refetchInterval: isAdvanced ? 5 * 60_000 : false,
     });
+
+    useEffect(() => {
+        if (pipelineError) showErrorFromApi(pipelineError, t('dashboard.pipelineError'));
+    }, [pipelineError, t]);
 
     if (overviewError) {
         return (
@@ -158,37 +254,93 @@ export default function DashboardPage() {
 
     return (
         <Container size="xl" py="lg">
-            <Group justify="space-between" align="center" mb="lg">
+            <Group justify="space-between" align="center" mb="lg" wrap="wrap" gap="sm">
                 <Title order={2} fw={700}>
                     {t('nav.dashboard')}
                 </Title>
-                <SegmentedControl
-                    value={datePeriod || 'all'}
-                    onChange={(value) => setDatePeriod(value === 'all' ? null : value as DatePeriod)}
-                    data={[
-                        { label: t('filter.all'), value: 'all' },
-                        { label: t('filter.month'), value: 'month' },
-                        { label: t('filter.week'), value: 'week' },
-                        { label: t('filter.day'), value: 'day' },
-                    ]}
-                    size="sm"
-                />
+                <Group gap="xs" wrap="nowrap" justify="flex-end">
+                    <SegmentedControl
+                        value={period}
+                        onChange={(v) => {
+                            setPeriod(v as DashboardPeriod);
+                            setPeriodAnchor(new Date());
+                        }}
+                        data={[
+                            { label: t('filter.all'), value: 'all' },
+                            { label: t('activities.periodDay'), value: 'day' },
+                            { label: t('activities.periodWeek'), value: 'week' },
+                            { label: t('activities.periodMonth'), value: 'month' },
+                            { label: t('activities.periodCustom'), value: 'custom' },
+                        ]}
+                        size="xs"
+                    />
+                    {period !== 'all' && period !== 'custom' && (
+                        <Group gap={4} wrap="nowrap">
+                            <ActionIcon
+                                variant="subtle"
+                                color="gray"
+                                size="sm"
+                                onClick={() => setPeriodAnchor((prev) => shiftPeriod(period, prev, -1))}
+                            >
+                                <IconChevronLeft size={14} />
+                            </ActionIcon>
+                            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap', minWidth: 120, textAlign: 'center' }}>
+                                {formatPeriodLabel(period, periodAnchor, locale)}
+                            </Text>
+                            <ActionIcon
+                                variant="subtle"
+                                color="gray"
+                                size="sm"
+                                onClick={() => setPeriodAnchor((prev) => shiftPeriod(period, prev, 1))}
+                            >
+                                <IconChevronRight size={14} />
+                            </ActionIcon>
+                            <Button
+                                size="compact-xs"
+                                variant="light"
+                                color="violet"
+                                onClick={() => setPeriodAnchor(new Date())}
+                            >
+                                {t('activities.today')}
+                            </Button>
+                        </Group>
+                    )}
+                    {period === 'custom' && (
+                        <DatePickerInput
+                            type="range"
+                            placeholder={t('activities.dateRange')}
+                            value={customRange}
+                            onChange={(v) => setCustomRange(v as [Date | null, Date | null])}
+                            clearable
+                            size="xs"
+                        />
+                    )}
+                </Group>
             </Group>
 
             {/* Stat Cards — always visible */}
             <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} mb="lg">
-                <StatCard
-                    title={t('dashboard.totalCompanies')}
-                    value={overview?.totalCompanies ?? 0}
-                    icon={<IconBuilding size={22} />}
-                    color="violet"
-                />
-                <StatCard
-                    title={t('dashboard.totalContacts')}
-                    value={overview?.totalContacts ?? 0}
-                    icon={<IconUsers size={22} />}
-                    color="blue"
-                />
+                {/* Combined companies + contacts card */}
+                <Paper shadow="sm" radius="lg" p="lg" withBorder>
+                    <Group justify="space-between" align="flex-start" wrap="nowrap">
+                        <Stack gap={4}>
+                            <Text size="xs" tt="uppercase" fw={700} c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                                {t('dashboard.totalCompanies')}
+                            </Text>
+                            <Group gap={6} align="baseline" wrap="nowrap">
+                                <Text fw={800} style={{ fontSize: '2rem', lineHeight: 1.1 }}>
+                                    {overview?.totalCompanies ?? 0}
+                                </Text>
+                                <Text size="sm" c="dimmed" fw={500} style={{ whiteSpace: 'nowrap' }}>
+                                    / {overview?.totalContacts ?? 0} {t('dashboard.contacts', 'kişi')}
+                                </Text>
+                            </Group>
+                        </Stack>
+                        <ThemeIcon color="violet" variant="light" size="xl" radius="md" style={{ flexShrink: 0 }}>
+                            <IconBuilding size={22} />
+                        </ThemeIcon>
+                    </Group>
+                </Paper>
                 <StatCard
                     title={t('dashboard.activeDeals')}
                     value={overview?.activeDeals ?? 0}
@@ -200,6 +352,13 @@ export default function DashboardPage() {
                     value={overview?.wonDeals ?? 0}
                     icon={<IconTrophy size={22} />}
                     color="green"
+                />
+                <StatCard
+                    title={t('dashboard.conversionRate')}
+                    value={`${overview?.conversionRate ?? 0}%`}
+                    icon={<IconPercentage size={22} />}
+                    color="teal"
+                    description={t('dashboard.conversionDesc')}
                 />
             </SimpleGrid>
 
@@ -219,20 +378,7 @@ export default function DashboardPage() {
                 )}
             </Paper>
 
-            {/* Conversion Rate — always visible */}
-            {overview && overview.conversionRate > 0 && (
-                <SimpleGrid cols={{ base: 1, md: 2 }} mb="lg">
-                    <StatCard
-                        title={t('dashboard.conversionRate')}
-                        value={`${overview.conversionRate}%`}
-                        icon={<IconPercentage size={22} />}
-                        color="teal"
-                        description={t('dashboard.conversionDesc')}
-                    />
-                </SimpleGrid>
-            )}
-
-            {/* World Map — Pro tier / Internal only */}
+{/* World Map — Pro tier / Internal only */}
             {isAdvanced ? (
                 <>
                     <Suspense fallback={<Center style={{ height: 320 }}><Loader color="violet" /></Center>}>
@@ -240,8 +386,9 @@ export default function DashboardPage() {
                             data={companyLocations?.data || []}
                             missingCount={companyLocations?.missingCount || 0}
                             isLoading={locationsLoading}
-                            onGeocode={() => geocodeMutation.mutate()}
-                            geocodeLoading={geocodeMutation.isPending}
+                            onGeocode={handleGeocode}
+                            geocodeLoading={geocodeLoading}
+                            geocodeStages={geocodeStages}
                             canGeocode={['superadmin', 'ops_agent', 'client_admin'].includes(role)}
                         />
                     </Suspense>

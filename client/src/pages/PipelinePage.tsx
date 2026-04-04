@@ -45,7 +45,6 @@ import KanbanBoard from '../components/pipeline/KanbanBoard';
 import type { PipelineCompany } from '../components/pipeline/PipelineCard';
 import { useUndoStack } from '../hooks/useUndoStack';
 import ClosingReportModal from '../components/ClosingReportModal';
-import { TERMINAL_STAGES } from '../lib/stages';
 import type { ClosingOutcome } from '../types/activity';
 
 interface PipelineData {
@@ -178,7 +177,7 @@ export default function PipelinePage() {
 
     const handleStageChange = useCallback(
         (companyId: string, newStage: string, oldStage: string) => {
-            if (TERMINAL_STAGES.includes(newStage as any)) {
+            if (terminalStageSlugs.includes(newStage)) {
                 // Terminal stage → open ClosingReportModal, do NOT call stageMutation
                 const company = Object.values(data?.columns || {}).flat().find((c) => c.id === companyId);
                 setClosingReportState({

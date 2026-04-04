@@ -30,8 +30,11 @@ import {
     IconShieldCog,
     IconActivity,
     IconMail,
+    IconMessageReport,
+    IconSpeakerphone,
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
+import FeedbackModal from './FeedbackModal';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import { hasRolePermission } from '../lib/permissions';
@@ -51,6 +54,7 @@ export default function Layout() {
     const { t } = useTranslation();
     const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
     const [navbarOpened, { toggle: toggleNavbar, close: closeNavbar }] = useDisclosure(false);
+    const [feedbackOpened, { open: openFeedback, close: closeFeedback }] = useDisclosure(false);
     const [settingsDefaultTab, setSettingsDefaultTab] = useState('general');
 
     const openSettingsTab = useCallback((tab: string) => {
@@ -90,6 +94,9 @@ export default function Layout() {
         { path: '/pipeline', label: t('nav.pipeline'), icon: <IconColumns size={20} /> },
         { path: '/activities', label: t('nav.activities'), icon: <IconActivity size={20} /> },
         { path: '/email-replies', label: t('nav.emailReplies'), icon: <IconMail size={20} /> },
+        ...(['superadmin', 'ops_agent'].includes(user?.role || '')
+            ? [{ path: '/campaigns', label: t('nav.campaigns'), icon: <IconSpeakerphone size={20} /> }]
+            : []),
         ...(hasRolePermission(user?.role || '', 'import')
             ? [{ path: '/import', label: t('nav.import'), icon: <IconFileImport size={20} /> }]
             : []),
@@ -141,7 +148,7 @@ export default function Layout() {
                                 size="sm"
                             />
                         )}
-                        <Group gap="xs" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+                        <Group gap="xs" style={{ cursor: 'pointer' }} onClick={() => navigate('/dashboard')}>
                             <img src="/logo.svg" alt="TG Core" height={32} width={32} />
                             <Title order={3} c="white" fw={700}>
                                 {t('app.title')}
@@ -151,6 +158,31 @@ export default function Layout() {
 
                     {/* Right side */}
                     <Group gap="md">
+                        {/* Feedback button */}
+                        <UnstyledButton
+                            onClick={openFeedback}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '5px 10px',
+                                borderRadius: 8,
+                                border: '1px solid rgba(255,255,255,0.18)',
+                                background: 'rgba(255,255,255,0.06)',
+                                color: 'rgba(255,255,255,0.85)',
+                                fontSize: '0.8rem',
+                                fontWeight: 500,
+                                transition: 'background 0.15s',
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.12)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+                        >
+                            <IconMessageReport size={16} />
+                            <Text size="xs" fw={500} c="rgba(255,255,255,0.85)" visibleFrom="sm">
+                                {t('feedback.title')}
+                            </Text>
+                        </UnstyledButton>
+
                         {/* Tenant switcher — only for superadmin & ops_agent with multiple tenants */}
                         {isOpsOrAdmin && canSwitchTenants ? (
                             <Select
@@ -239,8 +271,8 @@ export default function Layout() {
                 </Flex>
             </AppShell.Header>
 
-            <AppShell.Navbar p="xs">
-                <Stack gap={4}>
+            <AppShell.Navbar p="xs" style={{ display: 'flex', flexDirection: 'column' }}>
+                <Stack gap={4} style={{ flex: 1 }}>
                     {navItems.map((item) => {
                         const active = location.pathname === item.path ||
                             (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
@@ -268,6 +300,9 @@ export default function Layout() {
                         );
                     })}
                 </Stack>
+                <Text size="xs" c="dimmed" ta={isIconOnly ? 'center' : 'left'} py="xs" px="sm">
+                    {isIconOnly ? `v${__APP_VERSION__}` : `TG Core v${__APP_VERSION__}`}
+                </Text>
             </AppShell.Navbar>
 
             <AppShell.Main>
@@ -275,6 +310,7 @@ export default function Layout() {
             </AppShell.Main>
 
             <SettingsModal opened={settingsOpened} onClose={closeSettings} defaultTab={settingsDefaultTab} />
+            <FeedbackModal opened={feedbackOpened} onClose={closeFeedback} />
         </AppShell>
     );
 }

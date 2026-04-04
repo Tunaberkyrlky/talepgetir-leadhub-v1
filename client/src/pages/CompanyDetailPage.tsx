@@ -40,6 +40,7 @@ import {
     IconPlus,
     IconUser,
     IconMail,
+    IconMailOpened,
     IconPhone,
     IconStar,
     IconBrandLinkedin,
@@ -62,7 +63,9 @@ import EmailStatusIcon from '../components/EmailStatusIcon';
 import CompanyForm from '../components/CompanyForm';
 import ClosingReportModal from '../components/ClosingReportModal';
 import ActivityTimeline from '../components/ActivityTimeline';
+import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import type { ClosingOutcome } from '../types/activity';
+import type { EmailReply } from '../types/emailReply';
 
 interface Contact {
     id: string;
@@ -234,7 +237,16 @@ export default function CompanyDetailPage() {
         companyName: string;
         targetStage: ClosingOutcome;
     } | null>(null);
+    const [selectedEmailReply, setSelectedEmailReply] = useState<EmailReply | null>(null);
+    const [emailModalOpened, { open: openEmailModal, close: closeEmailModal }] = useDisclosure(false);
     const canEdit = canWrite(user?.role || '');
+
+    const { data: companyEmails = [], isLoading: emailsLoading, isError: emailsError } = useQuery<EmailReply[]>({
+        queryKey: ['company-emails', id],
+        queryFn: async () => (await api.get(`/email-replies/by-company/${id}`)).data,
+        enabled: !!id,
+        retry: false,
+    });
 
     const toggleField = (key: DetailFieldKey) => {
         const next = new Set(hiddenFields);
@@ -687,6 +699,19 @@ export default function CompanyDetailPage() {
                                 )}
                             </Group>
                         </Tabs.Tab>
+                        <Tabs.Tab value="emails">
+                            <Group gap={6} wrap="nowrap">
+                                {t('emailReplies.companyEmailsTab')}
+                                {companyEmails.length > 0 && (
+                                    <Badge size="xs" variant="light" color="blue" circle>{companyEmails.length}</Badge>
+                                )}
+                                {companyEmails.some((e) => e.read_status === 'unread') && (
+                                    <Badge size="xs" variant="filled" color="red" circle>
+                                        {companyEmails.filter((e) => e.read_status === 'unread').length}
+                                    </Badge>
+                                )}
+                            </Group>
+                        </Tabs.Tab>
                     </Tabs.List>
 
                     <Tabs.Panel value="activities">
@@ -734,8 +759,75 @@ export default function CompanyDetailPage() {
                             );
                         })()}
                     </Tabs.Panel>
+
+                    <Tabs.Panel value="emails">
+                        {emailsLoading ? (
+                            <Center py="xl"><Loader size="sm" color="violet" /></Center>
+                        ) : emailsError ? (
+                            <Center py="xl">
+                                <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light" radius="md">
+                                    {t('errors.generic', 'E-postalar yüklenemedi')}
+                                </Alert>
+                            </Center>
+                        ) : companyEmails.length === 0 ? (
+                            <Center py="xl">
+                                <Stack align="center" gap="xs">
+                                    <IconMail size={40} color="#ccc" />
+                                    <Text c="dimmed">{t('emailReplies.noEmailsForCompany')}</Text>
+                                </Stack>
+                            </Center>
+                        ) : (
+                            <Stack gap="xs">
+                                {companyEmails.map((reply) => (
+                                    <Card
+                                        key={reply.id}
+                                        withBorder
+                                        radius="md"
+                                        p="sm"
+                                        style={{ cursor: 'pointer', opacity: reply.read_status === 'read' ? 0.75 : 1 }}
+                                        onClick={() => { setSelectedEmailReply(reply); openEmailModal(); }}
+                                    >
+                                        <Group justify="space-between" wrap="nowrap" gap="xs">
+                                            <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
+                                                {reply.read_status === 'unread'
+                                                    ? <IconMail size={16} color="var(--mantine-color-blue-6)" style={{ flexShrink: 0 }} />
+                                                    : <IconMailOpened size={16} color="var(--mantine-color-gray-5)" style={{ flexShrink: 0 }} />
+                                                }
+                                                <div style={{ minWidth: 0 }}>
+                                                    <Group gap="xs" wrap="nowrap">
+                                                        <Text size="sm" fw={reply.read_status === 'unread' ? 700 : 400} truncate>
+                                                            {reply.sender_email}
+                                                        </Text>
+                                                        {reply.campaign_name && (
+                                                            <Badge size="xs" variant="light" color="gray" style={{ flexShrink: 0 }}>
+                                                                {reply.campaign_name}
+                                                            </Badge>
+                                                        )}
+                                                    </Group>
+                                                    {reply.reply_body && (
+                                                        <Text size="xs" c="dimmed" lineClamp={1}>
+                                                            {reply.reply_body}
+                                                        </Text>
+                                                    )}
+                                                </div>
+                                            </Group>
+                                            <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+                                                {new Date(reply.replied_at).toLocaleDateString()}
+                                            </Text>
+                                        </Group>
+                                    </Card>
+                                ))}
+                            </Stack>
+                        )}
+                    </Tabs.Panel>
                 </Tabs>
             </Paper>
+
+            <ReplyDetailModal
+                reply={selectedEmailReply}
+                opened={emailModalOpened}
+                onClose={() => { closeEmailModal(); queryClient.invalidateQueries({ queryKey: ['company-emails', id] }); }}
+            />
 
             {/* Company Edit Modal */}
             <CompanyForm

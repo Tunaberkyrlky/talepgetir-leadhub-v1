@@ -14,6 +14,20 @@ import {
 const log = createLogger('route:admin');
 const router = Router();
 
+// Short-lived cache for user email lookups to reduce N+1 Supabase Auth API calls
+// in admin endpoints that enrich membership/tenant lists with user emails.
+const USER_EMAIL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const userEmailCache = new Map<string, { email: string; ts: number }>();
+
+async function getUserEmail(userId: string): Promise<string> {
+    const cached = userEmailCache.get(userId);
+    if (cached && Date.now() - cached.ts < USER_EMAIL_CACHE_TTL) return cached.email;
+    const { data } = await supabaseAdmin.auth.admin.getUserById(userId);
+    const email = data?.user?.email || '';
+    userEmailCache.set(userId, { email, ts: Date.now() });
+    return email;
+}
+
 export async function logAuditAction(
     actorId: string,
     action: string,
@@ -423,18 +437,15 @@ router.get('/tenants/:id', async (req: Request, res: Response, next: NextFunctio
             .select('id, user_id, role, is_active')
             .eq('tenant_id', id);
 
-        // Enrich with user emails — batch fetch in parallel
+        // Enrich with user emails — cached to avoid N×1 Auth API calls per tenant load
         const members = await Promise.all(
-            (memberships || []).map(async (m) => {
-                const { data: userData } = await supabaseAdmin.auth.admin.getUserById(m.user_id);
-                return {
-                    membership_id: m.id,
-                    user_id: m.user_id,
-                    email: userData?.user?.email || '',
-                    role: m.role,
-                    is_active: m.is_active,
-                };
-            })
+            (memberships || []).map(async (m) => ({
+                membership_id: m.id,
+                user_id: m.user_id,
+                email: await getUserEmail(m.user_id),
+                role: m.role,
+                is_active: m.is_active,
+            }))
         );
 
         res.json({
@@ -581,6 +592,128 @@ router.delete('/tenants/:id', async (req: Request, res: Response, next: NextFunc
     }
 });
 
+// DELETE /api/admin/tenants/:id/bulk-data — Bulk delete tenant data (companies, contacts)
+router.delete('/tenants/:id/bulk-data', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const id = req.params.id as string;
+
+        if (req.query.confirm !== 'true') {
+            res.status(400).json({ error: 'Please confirm the deletion to proceed' });
+            return;
+        }
+
+        const rawTypes = req.query.types as string || '';
+        const types = rawTypes.split(',').map(t => t.trim()).filter(Boolean);
+        const allowed = ['companies', 'contacts', 'activities', 'email_replies'];
+        const invalid = types.filter(t => !allowed.includes(t));
+        if (types.length === 0 || invalid.length > 0) {
+            res.status(400).json({ error: 'types must be a comma-separated list of: companies, contacts, activities, email_replies' });
+            return;
+        }
+
+        // Verify tenant exists
+        const { data: tenant, error: tenantError } = await supabaseAdmin
+            .from('tenants')
+            .select('id, name')
+            .eq('id', id)
+            .single();
+
+        if (tenantError || !tenant) {
+            res.status(404).json({ error: 'Tenant not found' });
+            return;
+        }
+
+        const deleted: Record<string, number> = {};
+
+        // Delete in FK-safe order: children first (activities, email_replies), then contacts, then companies
+        if (types.includes('email_replies')) {
+            const { count } = await supabaseAdmin
+                .from('email_replies')
+                .select('*', { count: 'exact', head: true })
+                .eq('tenant_id', id);
+
+            const { error } = await supabaseAdmin
+                .from('email_replies')
+                .delete()
+                .eq('tenant_id', id);
+
+            if (error) {
+                log.error({ err: error }, 'Bulk delete email_replies error');
+                throw new AppError('Failed to delete email replies', 500);
+            }
+            deleted.email_replies = count || 0;
+        }
+
+        if (types.includes('activities')) {
+            const { count } = await supabaseAdmin
+                .from('activities')
+                .select('*', { count: 'exact', head: true })
+                .eq('tenant_id', id);
+
+            const { error } = await supabaseAdmin
+                .from('activities')
+                .delete()
+                .eq('tenant_id', id);
+
+            if (error) {
+                log.error({ err: error }, 'Bulk delete activities error');
+                throw new AppError('Failed to delete activities', 500);
+            }
+            deleted.activities = count || 0;
+        }
+
+        if (types.includes('contacts')) {
+            const { count } = await supabaseAdmin
+                .from('contacts')
+                .select('*', { count: 'exact', head: true })
+                .eq('tenant_id', id);
+
+            const { error } = await supabaseAdmin
+                .from('contacts')
+                .delete()
+                .eq('tenant_id', id);
+
+            if (error) {
+                log.error({ err: error }, 'Bulk delete contacts error');
+                throw new AppError('Failed to delete contacts', 500);
+            }
+            deleted.contacts = count || 0;
+        }
+
+        if (types.includes('companies')) {
+            const { count } = await supabaseAdmin
+                .from('companies')
+                .select('*', { count: 'exact', head: true })
+                .eq('tenant_id', id);
+
+            const { error } = await supabaseAdmin
+                .from('companies')
+                .delete()
+                .eq('tenant_id', id);
+
+            if (error) {
+                log.error({ err: error }, 'Bulk delete companies error');
+                throw new AppError('Failed to delete companies', 500);
+            }
+            deleted.companies = count || 0;
+        }
+
+        await logAuditAction(req.user!.id, 'tenant.bulk_data_delete', 'tenant', id, {
+            tenant_name: tenant.name,
+            types,
+            deleted,
+        });
+
+        log.info({ tenantId: id, types, deleted }, 'Bulk data delete completed');
+
+        res.json({ deleted });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Bulk delete tenant data error');
+        res.status(500).json({ error: 'Failed to delete tenant data' });
+    }
+});
+
 // =====================
 // MEMBERSHIPS ENDPOINTS
 // =====================
@@ -626,22 +759,19 @@ router.get('/memberships', async (req: Request, res: Response, next: NextFunctio
 
         if (error) throw new AppError('Failed to fetch memberships', 500);
 
-        // Enrich with user emails — batch fetch in parallel
+        // Enrich with user emails — cached to avoid N×1 Auth API calls per page load
         const enriched = await Promise.all(
-            (data || []).map(async (m) => {
-                const { data: userData } = await supabaseAdmin.auth.admin.getUserById(m.user_id);
-                return {
-                    id: m.id,
-                    user_id: m.user_id,
-                    user_email: userData?.user?.email || '',
-                    tenant_id: m.tenant_id,
-                    tenant_name: (m as any).tenants?.name || '',
-                    tenant_slug: (m as any).tenants?.slug || '',
-                    role: m.role,
-                    is_active: m.is_active,
-                    created_at: m.created_at,
-                };
-            })
+            (data || []).map(async (m) => ({
+                id: m.id,
+                user_id: m.user_id,
+                user_email: await getUserEmail(m.user_id),
+                tenant_id: m.tenant_id,
+                tenant_name: (m as any).tenants?.name || '',
+                tenant_slug: (m as any).tenants?.slug || '',
+                role: m.role,
+                is_active: m.is_active,
+                created_at: m.created_at,
+            }))
         );
 
         const totalPages = Math.ceil((count || 0) / limit);

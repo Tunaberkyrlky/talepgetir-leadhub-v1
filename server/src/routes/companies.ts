@@ -5,7 +5,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
-import { validateBody, createCompanySchema, updateCompanySchema } from '../lib/validation.js';
+import { validateBody, createCompanySchema, updateCompanySchema, sanitizeEmail } from '../lib/validation.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
@@ -32,6 +32,7 @@ const VALID_EMAIL_STATUSES = ['valid', 'uncertain', 'invalid'] as const;
 function isValidEmail(email: string): boolean {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
+
 
 // Valid sort columns (whitelist to prevent injection)
 const SORT_COLUMNS: Record<string, string> = {
@@ -91,7 +92,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         let dataQuery = db
             .from('companies')
-            .select('id, name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at')
+            .select('id, name, website, location, latitude, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at')
             .eq('tenant_id', tenantId);
 
         // Apply search (ILIKE on multiple columns)
@@ -119,8 +120,29 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         // Apply location filter
         if (locations.length > 0) {
-            countQuery = countQuery.in('location', locations);
-            dataQuery = dataQuery.in('location', locations);
+            const includesEmpty = locations.includes('__empty__');
+            const includesNotGeocoded = locations.includes('__not_geocoded__');
+            const namedLocations = locations.filter(l => l !== '__empty__' && l !== '__not_geocoded__');
+
+            const orParts: string[] = [];
+            if (includesEmpty) orParts.push('location.is.null');
+            if (includesNotGeocoded) orParts.push('latitude.is.null');
+            if (namedLocations.length > 0) orParts.push(`location.in.(${namedLocations.join(',')})`);
+
+            if (orParts.length > 1) {
+                const orFilter = orParts.join(',');
+                countQuery = countQuery.or(orFilter);
+                dataQuery = dataQuery.or(orFilter);
+            } else if (includesEmpty) {
+                countQuery = countQuery.is('location', null);
+                dataQuery = dataQuery.is('location', null);
+            } else if (includesNotGeocoded) {
+                countQuery = countQuery.is('latitude', null);
+                dataQuery = dataQuery.is('latitude', null);
+            } else {
+                countQuery = countQuery.in('location', namedLocations);
+                dataQuery = dataQuery.in('location', namedLocations);
+            }
         }
 
         // Apply product_services filter
@@ -332,11 +354,14 @@ router.post(
             const tenantId = req.tenantId!;
             const {
                 name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone,
-                company_email, email_status,
+                company_email: rawCompanyEmail, email_status,
                 stage, company_summary, internal_notes, next_step, custom_fields,
                 fit_score, custom_field_1, custom_field_2, custom_field_3,
-                contact_first_name, contact_last_name, contact_title, contact_email, contact_phone_e164
+                contact_first_name, contact_last_name, contact_title, contact_email: rawContactEmail, contact_phone_e164
             } = req.body;
+
+            const company_email = sanitizeEmail(rawCompanyEmail);
+            const contact_email = sanitizeEmail(rawContactEmail);
 
             if (!name || typeof name !== 'string' || name.trim().length === 0) {
                 res.status(400).json({ error: 'Company name is required' });
@@ -386,7 +411,7 @@ router.post(
                 email_status: email_status || null,
                 stage: stage || 'cold',
                 company_summary: company_summary || null,
-                internal_notes: internal_notes || null,
+                internal_notes: isInternalRole(req.user!.role) ? (internal_notes || null) : null,
                 next_step: next_step || null,
                 custom_fields: custom_fields || {},
                 fit_score: fit_score || null,
@@ -463,10 +488,10 @@ router.put(
             const tenantId = req.tenantId!;
             const { id } = req.params;
 
-            // Verify company belongs to tenant
+            // Verify company belongs to tenant (also fetch fields needed for auto-geocoding)
             const { data: existing } = await supabaseAdmin
                 .from('companies')
-                .select('id')
+                .select('id, location, latitude')
                 .eq('id', id)
                 .eq('tenant_id', tenantId)
                 .single();
@@ -476,7 +501,9 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3 } = req.body;
+            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email: rawCompanyEmail, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3 } = req.body;
+
+            const company_email = sanitizeEmail(rawCompanyEmail);
 
             // Validate stage if provided
             if (stage) {
@@ -512,9 +539,12 @@ router.put(
             if (company_phone !== undefined) updateData.company_phone = company_phone;
             if (company_email !== undefined) updateData.company_email = company_email;
             if (email_status !== undefined) updateData.email_status = email_status;
-            if (stage !== undefined) updateData.stage = stage;
+            if (stage !== undefined) {
+                updateData.stage = stage;
+                updateData.stage_changed_at = new Date().toISOString();
+            }
             if (company_summary !== undefined) updateData.company_summary = company_summary;
-            if (internal_notes !== undefined) updateData.internal_notes = internal_notes;
+            if (internal_notes !== undefined && isInternalRole(req.user!.role)) updateData.internal_notes = internal_notes;
             if (fit_score !== undefined) updateData.fit_score = fit_score;
             if (custom_field_1 !== undefined) updateData.custom_field_1 = custom_field_1;
             if (custom_field_2 !== undefined) updateData.custom_field_2 = custom_field_2;
@@ -522,11 +552,26 @@ router.put(
             if (next_step !== undefined) updateData.next_step = next_step;
             if (custom_fields !== undefined) updateData.custom_fields = custom_fields;
 
-            // Re-geocode when location changes
+            // Re-geocode when location field is explicitly changed
             if (location !== undefined) {
                 const coords = location ? lookupCoordinates(location) : null;
                 updateData.latitude  = coords?.lat ?? null;
                 updateData.longitude = coords?.lng ?? null;
+            }
+
+            // Auto-geocode when stage moves into pipeline/terminal and location exists but no coords yet
+            if (stage !== undefined && location === undefined && existing.location && existing.latitude == null) {
+                const allStages = await getTenantStages(tenantId);
+                const isPipelineOrTerminal = allStages.some(
+                    (s) => s.slug === stage && (s.stage_type === 'pipeline' || s.stage_type === 'terminal')
+                );
+                if (isPipelineOrTerminal) {
+                    const coords = lookupCoordinates(existing.location);
+                    if (coords) {
+                        updateData.latitude  = coords.lat;
+                        updateData.longitude = coords.lng;
+                    }
+                }
             }
 
             const { data, error } = await supabaseAdmin
@@ -557,37 +602,89 @@ router.put(
 );
 
 // POST /api/companies/geocode — Batch geocode pipeline companies missing coordinates
+// Streams progress via SSE (text/event-stream); each event is a JSON line prefixed with "data: "
 router.post(
     '/geocode',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    async (req: Request, res: Response): Promise<void> => {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no'); // disable nginx/Railway buffering
+        res.flushHeaders();
+
+        const send = (data: object) => {
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
+            // compression middleware adds flush(); call it to push bytes immediately
+            if (typeof (res as any).flush === 'function') (res as any).flush();
+        };
+
         try {
             const tenantId = req.tenantId!;
 
-            // Only geocode companies that are visible on the map:
-            // initial + pipeline-type stages — terminal stages are excluded
+            send({ type: 'progress', message: 'Hazırlanıyor...' });
+
+            // Only geocode companies visible on the map: pipeline + terminal stages
             const allStages = await getTenantStages(tenantId);
             const targetStages = allStages
-                .filter((s) => s.stage_type === 'initial' || s.stage_type === 'pipeline')
+                .filter((s) => s.stage_type === 'pipeline' || s.stage_type === 'terminal')
                 .map((s) => s.slug);
 
             if (targetStages.length === 0) {
-                res.json({ total: 0, geocoded: 0 });
+                send({ type: 'result', total: 0, geocoded: 0, skipped: 0 });
+                res.end();
                 return;
             }
 
-            // Fetch pipeline companies that have a location but no coordinates
-            const { data: companies, error } = await supabaseAdmin
-                .from('companies')
-                .select('id, location')
-                .eq('tenant_id', tenantId)
-                .in('stage', targetStages)
-                .not('location', 'is', null)
-                .is('latitude', null);
+            send({ type: 'progress', message: 'Konumları eksik şirketler aranıyor...' });
 
-            if (error) {
-                throw new AppError('Failed to fetch companies', 500);
+            // Count total pipeline companies and those missing location text
+            const [totalPipelineRes, noLocationRes, companiesRes] = await Promise.all([
+                supabaseAdmin
+                    .from('companies')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId)
+                    .in('stage', targetStages),
+                supabaseAdmin
+                    .from('companies')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId)
+                    .in('stage', targetStages)
+                    .is('location', null)
+                    .is('latitude', null),
+                // Fetch pipeline companies that have a location but no coordinates
+                supabaseAdmin
+                    .from('companies')
+                    .select('id, location')
+                    .eq('tenant_id', tenantId)
+                    .in('stage', targetStages)
+                    .not('location', 'is', null)
+                    .is('latitude', null),
+            ]);
+
+            if (companiesRes.error) {
+                send({ type: 'error', message: 'Şirketler yüklenemedi' });
+                res.end();
+                return;
             }
+
+            const totalPipeline = totalPipelineRes.count || 0;
+            const noLocation = noLocationRes.count || 0;
+            const companies = companiesRes.data;
+            const total = companies?.length || 0;
+
+            send({
+                type: 'progress',
+                message: `${totalPipeline} şirket tarandı — ${noLocation > 0 ? `${noLocation} şehir bilgisi eksik, ` : ''}${total} koordinatsız şirket bulundu`,
+            });
+
+            if (total === 0) {
+                send({ type: 'result', total: 0, geocoded: 0, skipped: 0, noLocation, totalPipeline });
+                res.end();
+                return;
+            }
+
+            send({ type: 'progress', message: `${total} şirket için koordinatlar çözümleniyor...` });
 
             // Resolve coordinates for each company and batch by coordinate value
             const updates = new Map<string, string[]>(); // "lat,lng" → [company_id, ...]
@@ -605,6 +702,22 @@ router.post(
                 }
             }
 
+            const resolvable = total - skipped;
+            send({
+                type: 'progress',
+                message: skipped > 0
+                    ? `${resolvable} koordinat çözümlendi, ${skipped} konum tanınamadı`
+                    : `${resolvable} koordinat çözümlendi`,
+            });
+
+            if (resolvable === 0) {
+                send({ type: 'result', total, geocoded: 0, skipped, noLocation, totalPipeline });
+                res.end();
+                return;
+            }
+
+            send({ type: 'progress', message: 'Veritabanı güncelleniyor...' });
+
             // Write coordinates — one UPDATE per unique coordinate pair (bulk by id list)
             let geocoded = 0;
             for (const [coordKey, ids] of updates) {
@@ -617,13 +730,13 @@ router.post(
                 if (!updateError) geocoded += ids.length;
             }
 
-            const total = companies?.length || 0;
-            log.info({ tenantId, targetStages, total, geocoded, skipped }, 'Batch geocode complete');
-            res.json({ total, geocoded, skipped });
+            log.info({ tenantId, targetStages, total, geocoded, skipped, noLocation, totalPipeline }, 'Batch geocode complete');
+            send({ type: 'result', total, geocoded, skipped, noLocation, totalPipeline });
+            res.end();
         } catch (err) {
-            if (err instanceof AppError) return next(err);
             log.error({ err }, 'Batch geocode error');
-            res.status(500).json({ error: 'Failed to geocode companies' });
+            send({ type: 'error', message: 'Geocoding sırasında bir hata oluştu' });
+            res.end();
         }
     }
 );
@@ -698,15 +811,38 @@ router.patch(
             const { id } = req.params;
             const { stage } = req.body;
 
-            const validSlugs = await getValidStageSlugs(tenantId);
+            const [validSlugs, pipelineSlugs, terminalSlugs] = await Promise.all([
+                getValidStageSlugs(tenantId),
+                getPipelineStageSlugs(tenantId),
+                getTerminalStageSlugs(tenantId),
+            ]);
             if (!stage || !validSlugs.includes(stage)) {
                 res.status(400).json({ error: 'The selected pipeline stage is not valid' });
                 return;
             }
 
+            // Auto-geocode when entering pipeline/terminal and location exists but no coords yet
+            const geocodeData: { latitude?: number; longitude?: number } = {};
+            if (pipelineSlugs.includes(stage) || terminalSlugs.includes(stage)) {
+                const { data: companyData } = await supabaseAdmin
+                    .from('companies')
+                    .select('location, latitude')
+                    .eq('id', id)
+                    .eq('tenant_id', tenantId)
+                    .single();
+                if (companyData?.location && companyData.latitude == null) {
+                    const coords = lookupCoordinates(companyData.location);
+                    if (coords) {
+                        geocodeData.latitude = coords.lat;
+                        geocodeData.longitude = coords.lng;
+                    }
+                }
+            }
+
+            const now = new Date().toISOString();
             const { data, error } = await supabaseAdmin
                 .from('companies')
-                .update({ stage, updated_at: new Date().toISOString() })
+                .update({ stage, updated_at: now, stage_changed_at: now, ...geocodeData })
                 .eq('id', id)
                 .eq('tenant_id', tenantId)
                 .select('id, name, stage, updated_at')

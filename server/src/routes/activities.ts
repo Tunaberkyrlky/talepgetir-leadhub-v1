@@ -309,7 +309,8 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
             .from('activities')
             .select('created_by')
             .eq('tenant_id', tenantId)
-            .not('created_by', 'is', null);
+            .not('created_by', 'is', null)
+            .limit(5000);
 
         if (error) {
             log.error({ err: error }, 'Activity users error');
@@ -530,10 +531,10 @@ router.put(
     }
 );
 
-// DELETE /api/activities/:id — Delete activity (superadmin only)
+// DELETE /api/activities/:id — Delete activity
 router.delete(
     '/:id',
-    requireRole('superadmin'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;

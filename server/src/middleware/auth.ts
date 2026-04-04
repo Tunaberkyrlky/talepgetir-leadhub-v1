@@ -98,20 +98,36 @@ export async function authMiddleware(
             .eq('user_id', user.id)
             .eq('is_active', true);
 
-        // Resolve default tenant — prefer JWT claim, fall back to first active membership
-        let defaultTenantId: string | undefined = user.app_metadata?.tenant_id;
+        // Resolve default tenant — prefer JWT claim, fall back to first active membership.
+        // Validate the JWT-claimed tenant exists; stale seed/deleted tenant IDs in
+        // app_metadata would otherwise scope every request to a phantom tenant.
+        const jwtTenantId: string | undefined = user.app_metadata?.tenant_id;
+        let defaultTenantId: string | undefined;
+
+        if (jwtTenantId) {
+            const { data: jwtTenant } = await supabaseAdmin
+                .from('tenants')
+                .select('id')
+                .eq('id', jwtTenantId)
+                .eq('is_active', true)
+                .single();
+            if (jwtTenant) {
+                defaultTenantId = jwtTenant.id;
+            } else {
+                log.warn({ userId: user.id, jwtTenantId }, 'app_metadata.tenant_id points to non-existent tenant — falling back to memberships');
+                defaultTenantId = allMemberships?.[0]?.tenant_id;
+            }
+        } else {
+            defaultTenantId = allMemberships?.[0]?.tenant_id;
+        }
 
         if (!defaultTenantId) {
-            const firstMembership = allMemberships?.[0];
-            if (!firstMembership && !isPlatformSuperadmin) {
-                log.warn({ userId: user.id }, 'No tenant_id in app_metadata and no active memberships');
+            if (!isPlatformSuperadmin) {
+                log.warn({ userId: user.id }, 'No valid tenant resolved and no active memberships');
                 res.status(403).json({ error: 'Your account is not set up yet. Please contact your administrator.' });
                 return;
             }
-            if (firstMembership) {
-                defaultTenantId = firstMembership.tenant_id;
-                log.info({ tenantId: defaultTenantId }, 'No app_metadata.tenant_id — resolved tenant from membership');
-            }
+            log.info({ userId: user.id }, 'Superadmin with no default tenant — will rely on X-Tenant-Id');
         }
 
         const primaryMembership = allMemberships?.find(m => m.tenant_id === defaultTenantId);
@@ -125,7 +141,7 @@ export async function authMiddleware(
         const primaryRole = isPlatformSuperadmin ? 'superadmin' : primaryMembership!.role;
 
         // Check if client is requesting a different tenant via X-Tenant-Id header
-        const effectiveTenantId = requestedTenantId || defaultTenantId!;
+        let effectiveTenantId = requestedTenantId || defaultTenantId;
         let effectiveRole = primaryRole;
 
         if (requestedTenantId && requestedTenantId !== defaultTenantId) {
@@ -140,11 +156,15 @@ export async function authMiddleware(
                     .single();
 
                 if (!tenant) {
-                    res.status(403).json({ error: 'This workspace is not available. Please contact your administrator.' });
-                    return;
+                    // Stale X-Tenant-Id (e.g. deleted seed tenant still in localStorage).
+                    // For superadmin, ignore the override rather than 403 — the client
+                    // will re-sync to a valid tenant on the next /auth/me call.
+                    log.warn({ requestedTenantId }, 'Superadmin requested non-existent tenant — ignoring override');
+                    effectiveTenantId = defaultTenantId; // revert to default (may be undefined)
+                } else {
+                    // Superadmin retains superadmin role across tenants
+                    effectiveRole = 'superadmin';
                 }
-                // Superadmin retains superadmin role across tenants
-                effectiveRole = 'superadmin';
             } else if (primaryRole === 'ops_agent') {
                 // Ops agent must have an active membership in the requested tenant
                 const { data: targetMembership } = await supabaseAdmin
@@ -173,14 +193,20 @@ export async function authMiddleware(
         const authUser = {
             id: user.id,
             email: user.email || '',
-            tenantId: effectiveTenantId,
+            tenantId: effectiveTenantId || '',
             role: effectiveRole,
         };
         req.user = authUser;
-        req.tenantId = effectiveTenantId;
+        req.tenantId = effectiveTenantId || undefined;
 
         // Cache for subsequent requests
-        if (authCache.size >= MAX_AUTH_CACHE_SIZE) authCache.clear();
+        if (authCache.size >= MAX_AUTH_CACHE_SIZE) {
+            // Evict the oldest 20% of entries instead of clearing all
+            // to avoid thundering-herd re-authentication on every 1001st user
+            const evictCount = Math.floor(MAX_AUTH_CACHE_SIZE * 0.2);
+            const sorted = [...authCache.entries()].sort((a, b) => a[1].ts - b[1].ts);
+            for (let i = 0; i < evictCount; i++) authCache.delete(sorted[i][0]);
+        }
         authCache.set(cacheKey, { user: authUser, ts: Date.now() });
 
         next();

@@ -8,6 +8,7 @@ import {
     assignReplySchema,
     emailRepliesQuerySchema,
     readStatusBodySchema,
+    threadHistoryQuerySchema,
     uuidField,
 } from '../lib/validation.js';
 import { z } from 'zod/v4';
@@ -27,8 +28,8 @@ function dbClient(req: Request) {
     return createUserClient(req.accessToken);
 }
 
-// GET /api/email-replies — paginated list with filters
-// Issue 6: restricted to non-viewer roles
+// GET /api/email-replies — threaded list (latest email per sender+campaign)
+// Returns thread_count and has_unread alongside each row.
 router.get(
     '/',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
@@ -36,7 +37,6 @@ router.get(
         try {
             const tenantId = req.tenantId!;
 
-            // Issue 3: validate and coerce all query parameters
             const queryResult = emailRepliesQuerySchema.safeParse(req.query);
             if (!queryResult.success) {
                 res.status(400).json({ error: 'Invalid query parameters' });
@@ -45,51 +45,66 @@ router.get(
             const { page, limit, campaign_id, match_status, read_status, date_from, date_to, search } = queryResult.data;
             const offset = (page - 1) * limit;
 
-            const db = dbClient(req);
-            let query = db
-                .from('email_replies')
-                .select('*', { count: 'exact' })
-                .eq('tenant_id', tenantId)
-                .order('replied_at', { ascending: false })
-                .range(offset, offset + limit - 1);
+            const rpcParams = {
+                p_tenant_id: tenantId,
+                p_offset: offset,
+                p_limit: limit,
+                p_campaign_id: campaign_id || null,
+                p_match_status: match_status || null,
+                p_read_status: read_status || null,
+                p_search: search || null,
+                p_date_from: date_from || null,
+                p_date_to: date_to || null,
+            };
 
-            if (campaign_id) query = query.eq('campaign_id', campaign_id);
-            if (match_status) query = query.eq('match_status', match_status);
-            if (read_status) query = query.eq('read_status', read_status);
-            if (date_from) query = query.gte('replied_at', date_from);
-            if (date_to) query = query.lte('replied_at', date_to);
-            if (search) {
-                const term = search.replace(/%/g, '\\%').replace(/_/g, '\\_');
-                query = query.or(`reply_body.ilike.%${term}%,sender_email.ilike.%${term}%`);
-            }
+            const [{ data: rows, error }, { data: countData, error: countError }] = await Promise.all([
+                supabaseAdmin.rpc('get_email_reply_threads', rpcParams),
+                supabaseAdmin.rpc('count_email_reply_threads', {
+                    p_tenant_id: tenantId,
+                    p_campaign_id: campaign_id || null,
+                    p_match_status: match_status || null,
+                    p_read_status: read_status || null,
+                    p_search: search || null,
+                    p_date_from: date_from || null,
+                    p_date_to: date_to || null,
+                }),
+            ]);
 
-            const { data, count, error } = await query;
-
-            if (error) {
-                log.error({ err: error }, 'List email replies error');
+            if (error || countError) {
+                log.error({ err: error || countError }, 'List email replies (threaded) error');
                 throw new AppError('Failed to fetch email replies', 500);
             }
 
-            // Resolve company names and contact names
-            const rows = data || [];
-            const companyIds = [...new Set(rows.map((r: any) => r.company_id).filter(Boolean))];
-            const contactIds = [...new Set(rows.map((r: any) => r.contact_id).filter(Boolean))];
+            // Resolve company and contact names
+            const list = rows || [];
+            const companyIds = [...new Set(list.map((r: any) => r.company_id).filter(Boolean))];
+            const contactIds = [...new Set(list.map((r: any) => r.contact_id).filter(Boolean))];
 
-            const companyMap: Record<string, string> = {};
+            const companyMap: Record<string, { name: string; stage: string | null }> = {};
+            const activityCountMap: Record<string, number> = {};
             const contactMap: Record<string, string> = {};
 
             if (companyIds.length > 0) {
-                const { data: companies } = await db
-                    .from('companies')
-                    .select('id, name')
-                    .in('id', companyIds);
+                const [{ data: companies }, { data: activities }] = await Promise.all([
+                    supabaseAdmin
+                        .from('companies')
+                        .select('id, name, stage')
+                        .in('id', companyIds),
+                    supabaseAdmin
+                        .from('activities')
+                        .select('company_id')
+                        .in('company_id', companyIds),
+                ]);
                 for (const c of companies || []) {
-                    companyMap[c.id] = c.name;
+                    companyMap[c.id] = { name: c.name, stage: c.stage ?? null };
+                }
+                for (const a of activities || []) {
+                    activityCountMap[a.company_id] = (activityCountMap[a.company_id] ?? 0) + 1;
                 }
             }
 
             if (contactIds.length > 0) {
-                const { data: contacts } = await db
+                const { data: contacts } = await supabaseAdmin
                     .from('contacts')
                     .select('id, first_name, last_name')
                     .in('id', contactIds);
@@ -98,13 +113,15 @@ router.get(
                 }
             }
 
-            const mapped = rows.map((r: any) => ({
+            const mapped = list.map((r: any) => ({
                 ...r,
-                company_name: r.company_id ? (companyMap[r.company_id] || null) : null,
+                company_name: r.company_id ? (companyMap[r.company_id]?.name || null) : null,
+                company_stage: r.company_id ? (companyMap[r.company_id]?.stage ?? null) : null,
+                company_activity_count: r.company_id ? (activityCountMap[r.company_id] ?? 0) : null,
                 contact_name: r.contact_id ? (contactMap[r.contact_id] || null) : null,
             }));
 
-            const total = count || 0;
+            const total = Number(countData) || 0;
             res.json({
                 data: mapped,
                 pagination: {
@@ -120,6 +137,47 @@ router.get(
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'List email replies error');
             next(new AppError('Failed to fetch email replies', 500));
+        }
+    }
+);
+
+// GET /api/email-replies/thread-history — older messages in a thread
+// Returns all replies from the same sender+campaign, excluding the latest (exclude_id).
+router.get(
+    '/thread-history',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const queryResult = threadHistoryQuerySchema.safeParse(req.query);
+            if (!queryResult.success) {
+                res.status(400).json({ error: 'Invalid query parameters' });
+                return;
+            }
+            const { sender_email, campaign_id, exclude_id } = queryResult.data;
+            const tenantId = req.tenantId!;
+
+            let query = supabaseAdmin
+                .from('email_replies')
+                .select('id, sender_email, reply_body, replied_at, read_status, campaign_id')
+                .eq('tenant_id', tenantId)
+                .eq('sender_email', sender_email)
+                .order('replied_at', { ascending: false })
+                .limit(50);
+
+            if (campaign_id) query = query.eq('campaign_id', campaign_id);
+            if (exclude_id) query = query.neq('id', exclude_id);
+
+            const { data, error } = await query;
+            if (error) {
+                log.error({ err: error }, 'Thread history error');
+                throw new AppError('Failed to fetch thread history', 500);
+            }
+
+            res.json(data || []);
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Thread history error');
+            next(new AppError('Failed to fetch thread history', 500));
         }
     }
 );
@@ -315,11 +373,294 @@ router.patch(
                 throw new AppError('Email reply not found', 404);
             }
 
+            const { advanceCompanyStageOnMatch } = await import('../lib/emailMatcher.js');
+            await advanceCompanyStageOnMatch(company_id);
+
             res.json(data);
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Assign company error');
             next(new AppError('Failed to assign company', 500));
+        }
+    }
+);
+
+// POST /api/email-replies/rematch-batch — re-run matching for a specific set of reply IDs
+// Used by the frontend bulk-rematch flow to process in chunks and show progress.
+router.post(
+    '/rematch-batch',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const ids: unknown = req.body.ids;
+
+            if (!Array.isArray(ids) || ids.length === 0 || ids.length > 50) {
+                res.status(400).json({ error: 'ids must be a non-empty array of up to 50 UUIDs' });
+                return;
+            }
+            const validIds = ids.filter((id) => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id));
+            if (validIds.length === 0) {
+                res.status(400).json({ error: 'No valid UUIDs provided' });
+                return;
+            }
+
+            const { data: replies, error: fetchErr } = await supabaseAdmin
+                .from('email_replies')
+                .select('id, sender_email')
+                .in('id', validIds)
+                .eq('tenant_id', tenantId);
+
+            if (fetchErr) throw new AppError('Failed to fetch replies', 500);
+
+            // Group by sender_email to call matchSenderEmail once per sender
+            const bySender = new Map<string, string[]>();
+            for (const r of replies || []) {
+                const arr = bySender.get(r.sender_email) || [];
+                arr.push(r.id);
+                bySender.set(r.sender_email, arr);
+            }
+
+            const { matchSenderEmail, advanceCompanyStageOnMatch } = await import('../lib/emailMatcher.js');
+            let matched = 0;
+
+            for (const [senderEmail, senderIds] of bySender) {
+                let match;
+                try {
+                    match = await matchSenderEmail(senderEmail, tenantId);
+                } catch {
+                    continue;
+                }
+                if (match.match_status !== 'matched') continue;
+
+                const { error: updateErr } = await supabaseAdmin
+                    .from('email_replies')
+                    .update({ company_id: match.company_id, contact_id: match.contact_id, match_status: 'matched' })
+                    .in('id', senderIds)
+                    .eq('tenant_id', tenantId);
+
+                if (!updateErr) {
+                    matched += senderIds.length;
+                    if (match.company_id) await advanceCompanyStageOnMatch(match.company_id);
+                }
+            }
+
+            res.json({ matched, processed: validIds.length });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Rematch-batch error');
+            next(new AppError('Failed to process batch', 500));
+        }
+    }
+);
+
+// POST /api/email-replies/rematch-all — re-run matching for all unmatched replies in the tenant
+// Groups by unique sender_email to avoid redundant matchSenderEmail calls.
+router.post(
+    '/rematch-all',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+
+            // Fetch all unmatched replies (id + sender_email only)
+            const { data: unmatched, error: fetchErr } = await supabaseAdmin
+                .from('email_replies')
+                .select('id, sender_email')
+                .eq('tenant_id', tenantId)
+                .eq('match_status', 'unmatched');
+
+            if (fetchErr) {
+                log.error({ err: fetchErr }, 'Rematch-all fetch error');
+                throw new AppError('Failed to fetch unmatched replies', 500);
+            }
+
+            if (!unmatched || unmatched.length === 0) {
+                res.json({ matched: 0, stillUnmatched: 0, total: 0 });
+                return;
+            }
+
+            // Group reply ids by sender_email to call matchSenderEmail once per sender
+            const bySender = new Map<string, string[]>();
+            for (const r of unmatched) {
+                const ids = bySender.get(r.sender_email) || [];
+                ids.push(r.id);
+                bySender.set(r.sender_email, ids);
+            }
+
+            const { matchSenderEmail, advanceCompanyStageOnMatch } = await import('../lib/emailMatcher.js');
+
+            let matchedCount = 0;
+            let stillUnmatched = 0;
+
+            // Process each unique sender sequentially to avoid hammering the DB
+            for (const [senderEmail, ids] of bySender) {
+                let match;
+                try {
+                    match = await matchSenderEmail(senderEmail, tenantId);
+                } catch (matchErr) {
+                    log.warn({ err: matchErr, senderEmail }, 'Rematch-all: sender match failed, skipping');
+                    stillUnmatched += ids.length;
+                    continue;
+                }
+
+                if (match.match_status === 'matched') {
+                    const { error: updateErr } = await supabaseAdmin
+                        .from('email_replies')
+                        .update({
+                            company_id: match.company_id,
+                            contact_id: match.contact_id,
+                            match_status: 'matched',
+                        })
+                        .in('id', ids)
+                        .eq('tenant_id', tenantId);
+
+                    if (updateErr) {
+                        log.warn({ err: updateErr, senderEmail }, 'Rematch-all: update failed for sender');
+                        stillUnmatched += ids.length;
+                    } else {
+                        matchedCount += ids.length;
+                        if (match.company_id) await advanceCompanyStageOnMatch(match.company_id);
+                    }
+                } else {
+                    stillUnmatched += ids.length;
+                }
+            }
+
+            log.info({ tenantId, matchedCount, stillUnmatched, total: unmatched.length }, 'Rematch-all completed');
+            res.json({ matched: matchedCount, stillUnmatched, total: unmatched.length });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Rematch-all error');
+            next(new AppError('Failed to rematch all replies', 500));
+        }
+    }
+);
+
+// POST /api/email-replies/:id/rematch — re-run automatic email matching for a single reply
+router.post(
+    '/:id/rematch',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const paramResult = idParamSchema.safeParse(req.params);
+            if (!paramResult.success) {
+                res.status(400).json({ error: 'Invalid reply ID' });
+                return;
+            }
+            const { id } = paramResult.data;
+            const tenantId = req.tenantId!;
+            const db = dbClient(req);
+
+            // Fetch the reply to get the sender email
+            const { data: existing, error: fetchErr } = await db
+                .from('email_replies')
+                .select('id, sender_email')
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .single();
+
+            if (fetchErr || !existing) {
+                throw new AppError('Email reply not found', 404);
+            }
+
+            // Re-run matching
+            const { matchSenderEmail, advanceCompanyStageOnMatch } = await import('../lib/emailMatcher.js');
+            const match = await matchSenderEmail(existing.sender_email, tenantId);
+
+            const { data, error } = await db
+                .from('email_replies')
+                .update({
+                    company_id: match.company_id,
+                    contact_id: match.contact_id,
+                    match_status: match.match_status,
+                })
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .select('id, read_status, match_status, company_id, contact_id, updated_at')
+                .single();
+
+            if (error) {
+                log.error({ err: error }, 'Rematch update error');
+                throw new AppError('Failed to update match', 500);
+            }
+
+            if (match.company_id && match.match_status === 'matched') {
+                await advanceCompanyStageOnMatch(match.company_id);
+            }
+
+            res.json(data);
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Rematch error');
+            next(new AppError('Failed to rematch email reply', 500));
+        }
+    }
+);
+
+// GET /api/email-replies/by-company/:companyId — emails linked to a specific company
+router.get(
+    '/by-company/:companyId',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const companyId = String(req.params.companyId);
+
+            if (!/^[0-9a-f-]{36}$/i.test(companyId)) {
+                res.status(400).json({ error: 'Invalid company ID' });
+                return;
+            }
+
+            const { data, error } = await supabaseAdmin
+                .from('email_replies')
+                .select('id, sender_email, reply_body, replied_at, read_status, match_status, campaign_id, campaign_name, company_id, contact_id, category, category_confidence, created_at, tenant_id')
+                .eq('tenant_id', tenantId)
+                .eq('company_id', companyId)
+                .order('replied_at', { ascending: false })
+                .limit(100);
+
+            if (error) {
+                log.error({ err: error }, 'By-company emails error');
+                throw new AppError('Failed to fetch emails', 500);
+            }
+
+            const list = data || [];
+
+            // Resolve company name and stage
+            let companyName: string | null = null;
+            let companyStage: string | null = null;
+            const { data: companyRow } = await supabaseAdmin
+                .from('companies')
+                .select('name, stage')
+                .eq('id', companyId)
+                .single();
+            if (companyRow) { companyName = companyRow.name; companyStage = companyRow.stage ?? null; }
+
+            // Resolve contact names
+            const contactIds = [...new Set(list.map((r: any) => r.contact_id).filter(Boolean))];
+            const contactMap: Record<string, string> = {};
+            if (contactIds.length > 0) {
+                const { data: contacts } = await supabaseAdmin
+                    .from('contacts')
+                    .select('id, first_name, last_name')
+                    .in('id', contactIds);
+                for (const c of contacts || []) {
+                    contactMap[c.id] = [c.first_name, c.last_name].filter(Boolean).join(' ');
+                }
+            }
+
+            const mapped = list.map((r: any) => ({
+                ...r,
+                company_name: companyName,
+                company_stage: companyStage,
+                contact_name: r.contact_id ? (contactMap[r.contact_id] || null) : null,
+            }));
+
+            res.json(mapped);
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            next(new AppError('Failed to fetch emails', 500));
         }
     }
 );

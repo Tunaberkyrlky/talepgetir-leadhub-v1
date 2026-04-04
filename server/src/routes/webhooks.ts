@@ -4,7 +4,7 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { createLogger } from '../lib/logger.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { validateBody, webhookPayloadSchema } from '../lib/validation.js';
-import { matchSenderEmail } from '../lib/emailMatcher.js';
+import { matchSenderEmail, advanceCompanyStageOnMatch } from '../lib/emailMatcher.js';
 
 const log = createLogger('route:webhooks');
 const router = Router();
@@ -85,8 +85,8 @@ router.post(
                 return;
             }
 
-            // Map PlusVibe field names to our internal names
-            const { camp_id, campaign_name, from_email, text_body, replied_date } = req.body;
+            // PlusVibe field names: from_email, camp_id, campaign_name, text_body, replied_date
+            const { from_email, camp_id, campaign_name, text_body, replied_date } = req.body;
 
             // Match sender email to contact/company within this tenant
             let match;
@@ -104,8 +104,6 @@ router.post(
 
             // Insert email reply
             // Deduplication: partial unique index on (campaign_id, sender_email, replied_at) WHERE campaign_id IS NOT NULL
-            // For inserts with campaign_id, use upsert with ignoreDuplicates.
-            // For inserts without campaign_id, always insert (no dedup possible).
             const row = {
                 tenant_id: match.tenant_id,
                 campaign_id: camp_id || null,
@@ -139,6 +137,10 @@ router.post(
                     hint: 'Database write failed. Retry the webhook. If this persists, check Supabase logs.',
                 });
                 return;
+            }
+
+            if (match.company_id && match.match_status === 'matched') {
+                await advanceCompanyStageOnMatch(match.company_id);
             }
 
             log.info({ camp_id, sender: from_email, match_status: match.match_status }, 'Webhook processed successfully');

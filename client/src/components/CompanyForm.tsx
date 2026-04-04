@@ -21,7 +21,15 @@ import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { useStages } from '../contexts/StagesContext';
 import EmailStatusIcon from './EmailStatusIcon';
 import { useAuth } from '../contexts/AuthContext';
-import { TERMINAL_STAGES } from '../lib/stages';
+
+/** Strip junk email placeholders (matches server-side sanitizeEmail) */
+function sanitizeEmail(value: string | null | undefined): string {
+    if (!value) return '';
+    const trimmed = value.trim();
+    if (!trimmed || /^[-–—_.\/\\()\s]+$/.test(trimmed) || /^n\/?a$/i.test(trimmed) || /^none$/i.test(trimmed) || /^yok$/i.test(trimmed)) return '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return '';
+    return trimmed;
+}
 
 interface Company {
     id: string;
@@ -104,7 +112,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                 product_portfolio: company.product_portfolio || '',
                 linkedin: company.linkedin || '',
                 company_phone: company.company_phone || '',
-                company_email: company.company_email || '',
+                company_email: sanitizeEmail(company.company_email),
                 email_status: company.email_status || null,
                 stage: company.stage || 'in_queue',
                 company_summary: company.company_summary || '',
@@ -162,7 +170,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
 
     const handleSubmit = form.onSubmit((values: typeof form.values) => {
         // If editing and a terminal stage is selected, delegate to parent instead of submitting
-        if (isEdit && onTerminalStageSelected && TERMINAL_STAGES.includes(values.stage as any) && values.stage !== company?.stage) {
+        if (isEdit && onTerminalStageSelected && terminalStageSlugs.includes(values.stage) && values.stage !== company?.stage) {
             onTerminalStageSelected(company!.id, company!.name, values.stage);
             return;
         }
@@ -175,7 +183,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
 
     const isSaving = createMutation.isPending || updateMutation.isPending;
 
-    const { stageOptions } = useStages();
+    const { stageOptions, terminalStageSlugs } = useStages();
 
     return (
         <Modal
@@ -280,7 +288,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                                 {...form.getInputProps('stage')}
                                 onChange={(val) => {
                                     form.setFieldValue('stage', val || 'cold');
-                                    if (isEdit && val && TERMINAL_STAGES.includes(val as any) && val !== company?.stage) {
+                                    if (isEdit && val && terminalStageSlugs.includes(val) && val !== company?.stage) {
                                         setPendingTerminalStage(val);
                                     } else {
                                         setPendingTerminalStage(null);

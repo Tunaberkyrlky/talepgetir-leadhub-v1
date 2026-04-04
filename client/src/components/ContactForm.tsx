@@ -27,6 +27,7 @@ interface Contact {
     phone_e164: string | null;
     linkedin: string | null;
     is_primary: boolean;
+    companies?: { id?: string; name: string } | null;
 }
 
 interface ContactFormProps {
@@ -53,10 +54,15 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
         enabled: opened,
     });
 
-    const companyOptions = (companiesData?.data || []).map((c: any) => ({
-        value: c.id,
-        label: c.name,
-    }));
+    const companyOptions = (() => {
+        const list = (companiesData?.data || []).map((c: any) => ({ value: c.id, label: c.name }));
+        // Seed the contact's current company so Select shows it before the list loads
+        if (contact?.company_id && contact?.companies?.name) {
+            const already = list.some((o: any) => o.value === contact.company_id);
+            if (!already) list.unshift({ value: contact.company_id, label: contact.companies.name });
+        }
+        return list;
+    })();
 
     const form = useForm({
         initialValues: {

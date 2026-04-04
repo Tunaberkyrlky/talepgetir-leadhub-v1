@@ -1,3 +1,8 @@
+/**
+ * Types for the CSV/XLSX import feature.
+ * Shared by ImportPage, DataMatchFlow, MappingEditor, and ImportProgressContext.
+ */
+
 export interface MappingSuggestion {
     fileHeader: string;
     dbField: string | null;

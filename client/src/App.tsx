@@ -32,6 +32,7 @@ const PipelinePage = lazy(() => import('./pages/PipelinePage'));
 const ActivitiesPage = lazy(() => import('./pages/ActivitiesPage'));
 const EmailRepliesPage = lazy(() => import('./pages/EmailRepliesPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
+const CampaignsPage = lazy(() => import('./pages/CampaignsPage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -97,6 +98,7 @@ function App() {
                           <Route path="/pipeline" element={<PipelinePage />} />
                           <Route path="/activities" element={<ActivitiesPage />} />
                           <Route path="/email-replies" element={<EmailRepliesPage />} />
+                          <Route path="/campaigns" element={<CampaignsPage />} />
                           <Route path="/import" element={<ImportPage />} />
                           <Route path="/admin" element={<AdminPage />} />
                           <Route path="/admin/:tab" element={<AdminPage />} />

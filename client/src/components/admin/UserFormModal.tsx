@@ -1,15 +1,41 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Modal, TextInput, PasswordInput, Select, Stack, Button, Group } from '@mantine/core';
+import {
+    Modal, TextInput, PasswordInput, Select, Stack, Button, Group,
+    Text, Badge, ActionIcon, Tooltip, Divider, Paper,
+} from '@mantine/core';
+import { IconTrash, IconPlus } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showSuccess, showErrorFromApi } from '../../lib/notifications';
 
+interface UserMembership {
+    id: string;
+    tenant_id: string;
+    tenant_name: string;
+    role: string;
+    is_active: boolean;
+}
+
 interface UserFormModalProps {
     opened: boolean;
     onClose: () => void;
-    user?: { id: string; email: string } | null;
+    user?: { id: string; email: string; memberships?: UserMembership[] } | null;
 }
+
+const ROLE_COLORS: Record<string, string> = {
+    superadmin: 'red',
+    ops_agent: 'orange',
+    client_admin: 'blue',
+    client_viewer: 'gray',
+};
+
+const ROLE_OPTIONS = [
+    { value: 'superadmin', label: 'Superadmin' },
+    { value: 'ops_agent', label: 'Ops Agent' },
+    { value: 'client_admin', label: 'Client Admin' },
+    { value: 'client_viewer', label: 'Client Viewer' },
+];
 
 export default function UserFormModal({ opened, onClose, user }: UserFormModalProps) {
     const { t } = useTranslation();
@@ -18,8 +44,12 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    // Create mode: single tenant+role
     const [tenantId, setTenantId] = useState<string | null>(null);
     const [role, setRole] = useState<string | null>(null);
+    // Edit mode: add new membership
+    const [addTenantId, setAddTenantId] = useState<string | null>(null);
+    const [addRole, setAddRole] = useState<string | null>('ops_agent');
 
     useEffect(() => {
         if (opened) {
@@ -27,32 +57,39 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
             setPassword('');
             setTenantId(null);
             setRole(null);
+            setAddTenantId(null);
+            setAddRole('ops_agent');
         }
     }, [opened, user]);
 
-    // Fetch tenants for the select
+    // Fetch tenants for selects
     const { data: tenantsData } = useQuery({
         queryKey: ['admin', 'tenants', 'all'],
         queryFn: async () => {
             const res = await api.get('/admin/tenants?limit=100');
             return res.data;
         },
-        enabled: opened && !isEdit,
+        enabled: opened,
     });
 
-    const tenantOptions = (tenantsData?.data || []).map((tn: any) => ({
+    const allTenants = (tenantsData?.data || []) as { id: string; name: string; tier: string }[];
+    const existingTenantIds = new Set((user?.memberships || []).map(m => m.tenant_id));
+
+    const tenantOptions = allTenants.map((tn) => ({
         value: tn.id,
         label: `${tn.name} (${tn.tier})`,
     }));
 
-    const roleOptions = [
-        { value: 'superadmin', label: 'Superadmin' },
-        { value: 'ops_agent', label: 'Ops Agent' },
-        { value: 'client_admin', label: 'Client Admin' },
-        { value: 'client_viewer', label: 'Client Viewer' },
-    ];
+    // For edit mode "add tenant" - filter out already assigned tenants
+    const availableTenantOptions = allTenants
+        .filter((tn) => !existingTenantIds.has(tn.id))
+        .map((tn) => ({
+            value: tn.id,
+            label: `${tn.name} (${tn.tier})`,
+        }));
 
-    const mutation = useMutation({
+    // Save user (email/password)
+    const saveMutation = useMutation({
         mutationFn: async () => {
             if (isEdit) {
                 const body: Record<string, string> = {};
@@ -70,6 +107,7 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+            queryClient.invalidateQueries({ queryKey: ['admin', 'memberships'] });
             showSuccess(isEdit ? t('admin.userUpdated') : t('admin.userCreated'));
             onClose();
         },
@@ -78,19 +116,57 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
         },
     });
 
+    // Add membership (edit mode)
+    const addMembershipMutation = useMutation({
+        mutationFn: async () => {
+            return api.post('/admin/memberships', {
+                user_id: user!.id,
+                tenant_id: addTenantId,
+                role: addRole,
+            });
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+            queryClient.invalidateQueries({ queryKey: ['admin', 'memberships'] });
+            showSuccess(t('admin.membershipCreated', 'Tenant atandı'));
+            setAddTenantId(null);
+            setAddRole('ops_agent');
+        },
+        onError: (err) => {
+            showErrorFromApi(err);
+        },
+    });
+
+    // Remove membership (edit mode)
+    const removeMembershipMutation = useMutation({
+        mutationFn: async (membershipId: string) => {
+            return api.delete(`/admin/memberships/${membershipId}`);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+            queryClient.invalidateQueries({ queryKey: ['admin', 'memberships'] });
+            showSuccess(t('admin.membershipRemoved', 'Tenant kaldırıldı'));
+        },
+        onError: (err) => {
+            showErrorFromApi(err);
+        },
+    });
+
     const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-    const canSubmit = isEdit
+    const canSubmitUser = isEdit
         ? (email !== user?.email || password.length > 0)
         : (emailValid && password.length >= 8 && (!tenantId || !!role));
+    const canAddMembership = addTenantId && addRole;
 
     return (
         <Modal
             opened={opened}
             onClose={onClose}
             title={isEdit ? t('admin.editUser') : t('admin.createUser')}
-            size="md"
+            size="lg"
         >
             <Stack gap="md">
+                {/* Email & Password */}
                 <TextInput
                     label={t('admin.userEmail')}
                     placeholder="user@example.com"
@@ -106,6 +182,8 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
                     required={!isEdit}
                     description={isEdit ? t('admin.userPasswordHint') : undefined}
                 />
+
+                {/* Create mode: single tenant assignment */}
                 {!isEdit && (
                     <>
                         <Select
@@ -120,21 +198,112 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
                         {tenantId && (
                             <Select
                                 label={t('admin.membershipRole')}
-                                data={roleOptions}
+                                data={ROLE_OPTIONS}
                                 value={role}
                                 onChange={setRole}
                             />
                         )}
                     </>
                 )}
+
+                {/* Edit mode: membership management */}
+                {isEdit && (
+                    <>
+                        <Divider
+                            label={
+                                <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.5px' }}>
+                                    {t('admin.userTenants', 'Tenant Atamaları')}
+                                </Text>
+                            }
+                            labelPosition="left"
+                        />
+
+                        {/* Current memberships */}
+                        {(user.memberships || []).length === 0 ? (
+                            <Text size="sm" c="dimmed">{t('admin.noMemberships', 'Henüz tenant atanmamış')}</Text>
+                        ) : (
+                            <Stack gap={6}>
+                                {(user.memberships || []).map((m) => (
+                                    <Paper key={m.id} px="sm" py={6} radius="md" withBorder
+                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                                    >
+                                        <Group gap="xs">
+                                            <Text size="sm" fw={500}>{m.tenant_name}</Text>
+                                            <Badge size="xs" variant="light" color={ROLE_COLORS[m.role] || 'gray'}>
+                                                {m.role}
+                                            </Badge>
+                                            {!m.is_active && (
+                                                <Badge size="xs" variant="outline" color="red">
+                                                    {t('admin.tenantInactive', 'Pasif')}
+                                                </Badge>
+                                            )}
+                                        </Group>
+                                        <Tooltip label={t('admin.removeMembership', 'Kaldır')} withArrow>
+                                            <ActionIcon
+                                                variant="subtle"
+                                                color="red"
+                                                size="sm"
+                                                loading={removeMembershipMutation.isPending}
+                                                onClick={() => {
+                                                    if (window.confirm(t('admin.membershipRemoveConfirm', `${m.tenant_name} tenant ataması kaldırılsın mı?`))) {
+                                                        removeMembershipMutation.mutate(m.id);
+                                                    }
+                                                }}
+                                            >
+                                                <IconTrash size={14} />
+                                            </ActionIcon>
+                                        </Tooltip>
+                                    </Paper>
+                                ))}
+                            </Stack>
+                        )}
+
+                        {/* Add new membership */}
+                        {availableTenantOptions.length > 0 && (
+                            <Paper px="sm" py="xs" radius="md" withBorder bg="var(--mantine-color-default-hover)">
+                                <Group gap="sm" align="flex-end">
+                                    <Select
+                                        label={t('admin.addTenant', 'Tenant Ekle')}
+                                        placeholder={t('admin.tenantSelectPlaceholder', 'Tenant seçin')}
+                                        data={availableTenantOptions}
+                                        value={addTenantId}
+                                        onChange={setAddTenantId}
+                                        searchable
+                                        style={{ flex: 1 }}
+                                        size="xs"
+                                    />
+                                    <Select
+                                        label={t('admin.membershipRole', 'Rol')}
+                                        data={ROLE_OPTIONS}
+                                        value={addRole}
+                                        onChange={setAddRole}
+                                        size="xs"
+                                        w={150}
+                                    />
+                                    <Button
+                                        size="xs"
+                                        leftSection={<IconPlus size={14} />}
+                                        disabled={!canAddMembership}
+                                        loading={addMembershipMutation.isPending}
+                                        onClick={() => addMembershipMutation.mutate()}
+                                    >
+                                        {t('common.add', 'Ekle')}
+                                    </Button>
+                                </Group>
+                            </Paper>
+                        )}
+                    </>
+                )}
+
+                {/* Save button */}
                 <Group justify="flex-end" mt="sm">
                     <Button variant="subtle" onClick={onClose}>{t('common.cancel')}</Button>
                     <Button
-                        onClick={() => mutation.mutate()}
-                        loading={mutation.isPending}
-                        disabled={!canSubmit}
+                        onClick={() => saveMutation.mutate()}
+                        loading={saveMutation.isPending}
+                        disabled={!canSubmitUser}
                     >
-                        {t('common.save')}
+                        {isEdit ? t('common.save') : t('admin.createUser')}
                     </Button>
                 </Group>
             </Stack>

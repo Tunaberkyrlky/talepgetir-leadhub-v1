@@ -1,17 +1,16 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
     Paper, Text, Loader, Center, Box, ActionIcon, Modal, Table, Badge,
-    ScrollArea, Group, Button, Menu,
+    ScrollArea, Group, Button, Stack, Menu,
 } from '@mantine/core';
-import { IconMaximize, IconMinimize, IconExternalLink, IconDotsVertical, IconMapPin } from '@tabler/icons-react';
+import { IconMaximize, IconMinimize, IconExternalLink, IconMapPin, IconCheck, IconX, IconWorld, IconChevronDown, IconRefresh, IconPlus, IconMinus } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from 'react-simple-maps';
+import { ComposableMap, Geographies, Geography, ZoomableGroup } from 'react-simple-maps';
 import * as topojson from 'topojson-client';
 import topoData from 'world-atlas/countries-110m.json';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
-import centroid from '@turf/centroid';
 import { COUNTRY_NAMES } from '../lib/countryNames';
 import { useStages } from '../contexts/StagesContext';
 import api from '../lib/api';
@@ -35,6 +34,11 @@ export interface CompanyLocation {
     stage: string;
 }
 
+export interface GeocodeStageItem {
+    message: string;
+    status: 'active' | 'done' | 'error';
+}
+
 interface GlobeMapProps {
     data: CompanyLocation[];
     isLoading?: boolean;
@@ -46,6 +50,8 @@ interface GlobeMapProps {
     canGeocode?: boolean;
     /** Number of pipeline companies lacking coordinates */
     missingCount?: number;
+    /** Live stage messages from the geocode stream */
+    geocodeStages?: GeocodeStageItem[];
 }
 
 // Stage group definitions
@@ -166,17 +172,48 @@ function CountryCompaniesModal({
     );
 }
 
-export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, canGeocode, missingCount = 0 }: GlobeMapProps) {
+export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, canGeocode, missingCount = 0, geocodeStages = [] }: GlobeMapProps) {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
     const [dimensions, setDimensions] = useState({ width: 600, height: 320 });
     const [hoveredMarker, setHoveredMarker] = useState<CountryMarker | null>(null);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
-    const zoomRef = useRef(1);
-    const markerGroupRefs = useRef<Map<number, SVGGElement>>(new Map());
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
     const mapContainerRef = useRef<HTMLDivElement>(null);
+    const [mapKey, setMapKey] = useState(0);
+    const [projCenter, setProjCenter] = useState<[number, number]>([20, 15]);
+    const [projScale, setProjScale] = useState(140);
+    // Track current pan center so zoom buttons don't reset it
+    const currentCenterRef = useRef<[number, number]>([20, 15]);
+
+    const goToRegion = useCallback((center: [number, number], scale: number) => {
+        currentCenterRef.current = center;
+        setProjCenter(center);
+        setProjScale(scale);
+        setMapKey(k => k + 1);
+    }, []);
+
+    const handleZoomIn = useCallback(() => {
+        setProjCenter(currentCenterRef.current);
+        setProjScale(s => Math.min(Math.round(s * 1.6), 4000));
+        setMapKey(k => k + 1);
+    }, []);
+
+    const handleZoomOut = useCallback(() => {
+        setProjCenter(currentCenterRef.current);
+        setProjScale(s => Math.max(Math.round(s / 1.6), 80));
+        setMapKey(k => k + 1);
+    }, []);
+
+    const OTHER_REGIONS = useMemo(() => [
+        { label: t('map.regionNorthAmerica', 'Kuzey Amerika'), center: [-95, 45]  as [number, number], scale: 320 },
+        { label: t('map.regionSouthAmerica', 'Güney Amerika'), center: [-60, -15] as [number, number], scale: 320 },
+        { label: t('map.regionAsia', 'Asya'),                  center: [90, 35]   as [number, number], scale: 320 },
+        { label: t('map.regionAfrica', 'Afrika'),              center: [20, 5]    as [number, number], scale: 320 },
+        { label: t('map.regionMiddleEast', 'Orta Doğu'),       center: [45, 28]   as [number, number], scale: 600 },
+        { label: t('map.regionOceania', 'Okyanusya'),          center: [140, -25] as [number, number], scale: 450 },
+    ], [t]);
 
     // Toggle fullscreen
     const toggleFullscreen = useCallback(() => {
@@ -214,49 +251,103 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
     // Filter out cold companies
     const activeData = useMemo(() => data.filter(c => c.stage !== 'cold'), [data]);
 
-    // Pre-compute: country feature id → stage group counts + centroid
+    // Pre-compute: country feature id → stage group counts + markers
+    //
+    // Strategy: group companies by coordinate pair first (companies in the same country
+    // share identical centroids), then try booleanPointInPolygon per unique coordinate to
+    // get the feature ID for country fill color. Markers are emitted regardless of whether
+    // the polygon lookup succeeds — this fixes rendering for small/simplified countries at
+    // 110m atlas resolution where the centroid can fall outside the simplified polygon.
     const { countryCompanyCounts, countryMarkers } = useMemo(() => {
         const countMap = new Map<number, CountryStats>();
         if (!activeData.length) return { countryCompanyCounts: countMap, countryMarkers: [] };
 
+        const addStage = (stats: CountryStats, stage: string) => {
+            stats.total += 1;
+            if ((STAGE_GROUPS.ilkTemas as readonly string[]).includes(stage))           stats.ilkTemas += 1;
+            else if ((STAGE_GROUPS.kalifikasyon as readonly string[]).includes(stage))  stats.kalifikasyon += 1;
+            else if ((STAGE_GROUPS.degerlendirme as readonly string[]).includes(stage)) stats.degerlendirme += 1;
+            else if ((STAGE_GROUPS.karar as readonly string[]).includes(stage))         stats.karar += 1;
+        };
+
+        // Step 1: group by coordinate pair — each unique (lat,lng) = one country centroid.
+        // PostgreSQL numeric columns are returned as strings by Supabase JSON serialization,
+        // so we must parse to float explicitly before any arithmetic or projection.
+        type CoordGroup = { lat: number; lng: number; location: string; stats: CountryStats };
+        const coordGroups = new Map<string, CoordGroup>();
+        for (const company of activeData) {
+            const lat = parseFloat(String(company.latitude));
+            const lng = parseFloat(String(company.longitude));
+            if (!isFinite(lat) || !isFinite(lng)) continue;
+            const key = `${lat},${lng}`;
+            let g = coordGroups.get(key);
+            if (!g) {
+                g = { lat, lng, location: company.location || '', stats: { total: 0, ilkTemas: 0, kalifikasyon: 0, degerlendirme: 0, karar: 0 } };
+                coordGroups.set(key, g);
+            }
+            addStage(g.stats, company.stage);
+        }
+
+        // Step 2: for each unique coordinate, try to find the matching country feature
+        // (used only for polygon fill color). Fallback synthetic IDs start above real
+        // ISO numeric codes (max ~900) to avoid collisions.
         const pt = (lng: number, lat: number) => ({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [lng, lat] },
             properties: {},
         });
 
-        for (const company of activeData) {
-            const point = pt(company.longitude, company.latitude);
-            for (const feature of GEO_FEATURES) {
-                if (booleanPointInPolygon(point, feature as any)) {
-                    const id = Number(feature.id);
-                    const cur = countMap.get(id) ?? { total: 0, ilkTemas: 0, kalifikasyon: 0, degerlendirme: 0, karar: 0 };
-                    cur.total += 1;
-                    if ((STAGE_GROUPS.ilkTemas as readonly string[]).includes(company.stage))      cur.ilkTemas += 1;
-                    else if ((STAGE_GROUPS.kalifikasyon as readonly string[]).includes(company.stage))  cur.kalifikasyon += 1;
-                    else if ((STAGE_GROUPS.degerlendirme as readonly string[]).includes(company.stage)) cur.degerlendirme += 1;
-                    else if ((STAGE_GROUPS.karar as readonly string[]).includes(company.stage))    cur.karar += 1;
-                    countMap.set(id, cur);
-                    break;
+        // featureId → marker (for merging multiple coord groups that land in the same polygon)
+        const mergedMarkers = new Map<number, CountryMarker>();
+        const fallbackMarkers: CountryMarker[] = [];
+        let syntheticId = 100_000;
+
+        const mergeStats = (target: CountryStats, src: CountryStats) => {
+            target.total        += src.total;
+            target.ilkTemas     += src.ilkTemas;
+            target.kalifikasyon += src.kalifikasyon;
+            target.degerlendirme += src.degerlendirme;
+            target.karar        += src.karar;
+        };
+
+        for (const group of coordGroups.values()) {
+            const point = pt(group.lng, group.lat);
+            let featureId: number | null = null;
+
+            try {
+                for (const feature of GEO_FEATURES) {
+                    if (booleanPointInPolygon(point, feature as any)) {
+                        featureId = Number(feature.id);
+                        break;
+                    }
                 }
+            } catch {
+                // booleanPointInPolygon can throw for degenerate geometries in the atlas
+            }
+
+            if (featureId !== null) {
+                const existing = mergedMarkers.get(featureId);
+                if (existing) {
+                    // Another coord group already matched this country polygon — merge stats.
+                    // This happens when a neighbouring country's centroid falls inside a
+                    // simplified 110m polygon (e.g. North Macedonia inside Bulgaria).
+                    mergeStats(existing.stats, group.stats);
+                    countMap.set(featureId, existing.stats);
+                } else {
+                    const stats = { ...group.stats };
+                    countMap.set(featureId, stats);
+                    const name = COUNTRY_NAMES[featureId] ?? group.location;
+                    const marker: CountryMarker = { id: featureId, name, lat: group.lat, lng: group.lng, stats };
+                    mergedMarkers.set(featureId, marker);
+                }
+            } else {
+                // Polygon lookup failed (centroid outside simplified 110m border) —
+                // still emit the marker so the company count is visible on the map.
+                fallbackMarkers.push({ id: syntheticId++, name: group.location, lat: group.lat, lng: group.lng, stats: { ...group.stats } });
             }
         }
 
-        // Build marker list from country centroids
-        const markers: CountryMarker[] = [];
-        for (const feature of GEO_FEATURES) {
-            const id = Number(feature.id);
-            const stats = countMap.get(id);
-            if (!stats) continue;
-            try {
-                const c = centroid(feature as any);
-                const [lng, lat] = c.geometry.coordinates;
-                const name = COUNTRY_NAMES[id] ?? '';
-                markers.push({ id, name, lat, lng, stats });
-            } catch {
-                // skip unparseable geometry
-            }
-        }
+        const markers = [...mergedMarkers.values(), ...fallbackMarkers];
 
         // Sort ascending so highest count renders last (on top in SVG)
         markers.sort((a, b) => a.stats.total - b.stats.total);
@@ -267,12 +358,12 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
     const getCountryFill = useCallback((geo: any) => {
         const stats = countryCompanyCounts.get(Number(geo.id));
         const count = stats?.total ?? 0;
-        if (count === 0) return 'rgba(22, 58, 105, 0.95)';
-        // 1 company = already bright, scales up with more
-        const t = Math.min(1, 0.15 + count * 0.08);
-        const r = Math.round(60 + t * 80);
-        const g = Math.round(120 + t * 100);
-        const b = Math.round(200 + t * 55);
+        if (count === 0) return '#d9e2ec';
+        // Light → dark blue scale
+        const t = Math.min(1, 0.2 + count * 0.12);
+        const r = Math.round(180 - t * 150);
+        const g = Math.round(210 - t * 110);
+        const b = Math.round(255 - t * 40);
         return `rgb(${r}, ${g}, ${b})`;
     }, [countryCompanyCounts]);
 
@@ -283,10 +374,6 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
         const name = COUNTRY_NAMES[id];
         if (name) setSelectedCountry(name);
     }, [countryCompanyCounts]);
-
-    const handleMarkerClick = useCallback((name: string) => {
-        if (name) setSelectedCountry(name);
-    }, []);
 
     const handleMarkerHover = useCallback((marker: CountryMarker | null, e?: React.MouseEvent) => {
         setHoveredMarker(marker);
@@ -303,46 +390,45 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
 
     return (
         <Paper shadow="sm" radius="lg" p="lg" mb="lg" withBorder>
-            <Group justify="space-between" mb="xs" align="center">
-                <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+            <Group justify="space-between" mb={geocodeStages.length > 0 ? 'xs' : 'xs'} align="flex-start">
+                <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px', marginTop: 2 }}>
                     {t('dashboard.companyLocations')}
                 </Text>
                 <Group gap="xs" align="center">
-                    {geocodeLoading && (
-                        <Group gap={6} align="center">
-                            <Loader size={12} color="blue" />
-                            <Text size="xs" c="dimmed">
-                                {t('dashboard.geocoding', 'Konumlar güncelleniyor...')}
-                            </Text>
-                        </Group>
-                    )}
-                    {canGeocode && onGeocode && (
-                        <Menu shadow="md" width={220} position="bottom-end">
-                            <Menu.Target>
-                                <ActionIcon variant="subtle" color="gray" size="sm" title={t('common.settings', 'Ayarlar')}>
-                                    <IconDotsVertical size={16} />
-                                </ActionIcon>
-                            </Menu.Target>
-                            <Menu.Dropdown>
-                                <Menu.Label>{t('dashboard.mapActions', 'Harita İşlemleri')}</Menu.Label>
-                                <Menu.Item
-                                    leftSection={geocodeLoading ? <Loader size={14} /> : <IconMapPin size={14} />}
-                                    onClick={onGeocode}
-                                    disabled={geocodeLoading}
+                    {geocodeStages.length > 0 && (() => {
+                        const last = geocodeStages[geocodeStages.length - 1];
+                        return (
+                            <Group gap={6} align="center" wrap="nowrap">
+                                <Box style={{ width: 12, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    {last.status === 'active' && <Loader size={10} color="blue" />}
+                                    {last.status === 'done' && <IconCheck size={12} color="var(--mantine-color-green-6)" />}
+                                    {last.status === 'error' && <IconX size={12} color="var(--mantine-color-red-6)" />}
+                                </Box>
+                                <Text
+                                    size="xs"
+                                    c={last.status === 'error' ? 'red' : last.status === 'active' ? 'blue' : 'dimmed'}
+                                    style={{ fontFamily: 'monospace', letterSpacing: '0.2px' }}
                                 >
-                                    <Group justify="space-between" style={{ flex: 1 }} gap="md">
-                                        <Text size="sm">
-                                            {geocodeLoading
-                                                ? t('dashboard.geocoding', 'Konumlar güncelleniyor...')
-                                                : t('dashboard.geocodeBtn', 'Konumları Güncelle')}
-                                        </Text>
-                                        {!geocodeLoading && missingCount > 0 && (
-                                            <Badge size="xs" color="yellow" variant="light">{missingCount}</Badge>
-                                        )}
-                                    </Group>
-                                </Menu.Item>
-                            </Menu.Dropdown>
-                        </Menu>
+                                    {last.message}
+                                </Text>
+                            </Group>
+                        );
+                    })()}
+                    {canGeocode && onGeocode && (
+                        <Button
+                            size="compact-xs"
+                            variant="light"
+                            color="blue"
+                            leftSection={geocodeLoading ? <Loader size={10} color="blue" /> : <IconMapPin size={12} />}
+                            onClick={onGeocode}
+                            disabled={geocodeLoading}
+                            rightSection={!geocodeLoading && missingCount > 0
+                                ? <Badge size="xs" color="yellow" variant="filled">{missingCount}</Badge>
+                                : undefined
+                            }
+                        >
+                            {t('dashboard.geocodeBtn', 'Konumları Güncelle')}
+                        </Button>
                     )}
                 </Group>
             </Group>
@@ -357,33 +443,115 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                         <Box
                             ref={mapContainerRef}
                             style={{
-                                background: '#0d1b2a',
+                                background: '#f4f6f8',
                                 borderRadius: isFullscreen ? 0 : 12,
                                 overflow: 'hidden',
                                 position: 'relative',
+                                border: '1px solid #e2e8f0',
                             }}
                         >
-                            <ActionIcon
-                                variant="subtle"
-                                color="gray"
-                                size="md"
-                                onClick={toggleFullscreen}
+                            <Group
+                                gap={6}
                                 style={{
                                     position: 'absolute',
                                     top: 10,
                                     right: 10,
                                     zIndex: 10,
-                                    background: 'rgba(10, 20, 40, 0.7)',
-                                    border: '1px solid rgba(100, 160, 255, 0.3)',
-                                    color: '#7eb8ff',
                                 }}
-                                title={isFullscreen ? t('common.exitFullscreen') : t('common.fullscreen')}
                             >
-                                {isFullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
-                            </ActionIcon>
+                                {/* Region selector */}
+                                <Menu shadow="md" width={180} position="bottom-end">
+                                    <Menu.Target>
+                                        <Button
+                                            size="compact-sm"
+                                            variant="default"
+                                            rightSection={<IconChevronDown size={12} />}
+                                            leftSection={<IconWorld size={13} />}
+                                            style={{
+                                                background: 'rgba(255,255,255,0.85)',
+                                                border: '1px solid #d1d5db',
+                                                color: '#374151',
+                                                fontSize: 12,
+                                            }}
+                                        >
+                                            {t('map.regions', 'Bölgeler')}
+                                        </Button>
+                                    </Menu.Target>
+                                    <Menu.Dropdown>
+                                        <Menu.Item
+                                            leftSection={<IconRefresh size={14} />}
+                                            onClick={() => goToRegion([20, 15], 140)}
+                                        >
+                                            {t('map.reset', 'Sıfırla')}
+                                        </Menu.Item>
+                                        <Menu.Divider />
+                                        <Menu.Item
+                                            leftSection={<IconWorld size={14} />}
+                                            onClick={() => goToRegion([15, 54], 500)}
+                                        >
+                                            {t('map.regionEurope', 'Avrupa')}
+                                        </Menu.Item>
+                                        <Menu.Divider />
+                                        <Menu.Label>{t('map.otherRegions', 'Diğer Bölgeler')}</Menu.Label>
+                                        {OTHER_REGIONS.map(r => (
+                                            <Menu.Item
+                                                key={r.label}
+                                                onClick={() => goToRegion(r.center, r.scale)}
+                                            >
+                                                {r.label}
+                                            </Menu.Item>
+                                        ))}
+                                    </Menu.Dropdown>
+                                </Menu>
+
+                                {/* Fullscreen toggle */}
+                                <ActionIcon
+                                    variant="default"
+                                    size="md"
+                                    onClick={toggleFullscreen}
+                                    style={{
+                                        background: 'rgba(255,255,255,0.85)',
+                                        color: '#6b7280',
+                                    }}
+                                    title={isFullscreen ? t('common.exitFullscreen') : t('common.fullscreen')}
+                                >
+                                    {isFullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
+                                </ActionIcon>
+                            </Group>
+                            {/* Zoom controls — bottom right */}
+                            <Stack
+                                gap={2}
+                                style={{
+                                    position: 'absolute',
+                                    bottom: 10,
+                                    right: 10,
+                                    zIndex: 10,
+                                }}
+                            >
+                                <ActionIcon
+                                    variant="default"
+                                    size="md"
+                                    onClick={handleZoomIn}
+                                    title={t('map.zoomIn', 'Yakınlaştır')}
+                                    style={{ background: 'rgba(255,255,255,0.85)', color: '#374151' }}
+                                >
+                                    <IconPlus size={14} />
+                                </ActionIcon>
+                                <ActionIcon
+                                    variant="default"
+                                    size="md"
+                                    onClick={handleZoomOut}
+                                    title={t('map.zoomOut', 'Uzaklaştır')}
+                                    style={{ background: 'rgba(255,255,255,0.85)', color: '#374151' }}
+                                >
+                                    <IconMinus size={14} />
+                                </ActionIcon>
+                            </Stack>
+
                             <ComposableMap
+                                key={mapKey}
                                 projection="geoNaturalEarth1"
-                                projectionConfig={{ scale: 140, center: [20, 15] }}
+                                projectionConfig={{ scale: projScale, center: projCenter }}
                                 width={800}
                                 height={340}
                                 style={{ width: '100%', height: isFullscreen ? '100vh' : 'auto', display: 'block' }}
@@ -391,11 +559,8 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                 <ZoomableGroup
                                     minZoom={1}
                                     maxZoom={8}
-                                    onMove={({ zoom: z }: { zoom: number }) => {
-                                        zoomRef.current = z;
-                                        markerGroupRefs.current.forEach((el) => {
-                                            el.setAttribute('transform', `scale(${1 / z})`);
-                                        });
+                                    onMoveEnd={({ coordinates }) => {
+                                        currentCenterRef.current = coordinates as [number, number];
                                     }}
                                 >
                                     <Geographies geography={topoData as any}>
@@ -404,21 +569,20 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                                 const fill = getCountryFill(geo);
                                                 const id = Number(geo.id);
                                                 const hasCompanies = (countryCompanyCounts.get(id)?.total ?? 0) > 0;
+                                                const marker = hasCompanies ? countryMarkers.find(m => m.id === id) : undefined;
                                                 return (
                                                     <Geography
                                                         key={geo.rsmKey}
                                                         geography={geo}
-                                                        fill={fill}
-                                                        stroke="rgba(115, 170, 230, 0.7)"
-                                                        strokeWidth={0.4}
+                                                        fill={hoveredMarker?.id === id ? '#bfdbfe' : fill}
+                                                        stroke="#ffffff"
+                                                        strokeWidth={0.5}
                                                         onClick={() => handleCountryClick(geo)}
+                                                        onMouseEnter={(e: React.MouseEvent) => marker && handleMarkerHover(marker, e)}
+                                                        onMouseLeave={() => handleMarkerHover(null)}
                                                         style={{
-                                                            default: { outline: 'none' },
-                                                            hover: {
-                                                                fill: hasCompanies ? '#5a9fd4' : fill,
-                                                                outline: 'none',
-                                                                cursor: hasCompanies ? 'pointer' : 'default',
-                                                            },
+                                                            default: { outline: 'none', filter: hoveredMarker?.id === id ? 'drop-shadow(0 0 6px rgba(59,130,246,0.7))' : 'none' },
+                                                            hover: { outline: 'none' },
                                                             pressed: { outline: 'none' },
                                                         }}
                                                     />
@@ -426,77 +590,6 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                             })
                                         }
                                     </Geographies>
-
-                                    {countryMarkers.map((marker) => {
-                                        const isHovered = hoveredMarker?.id === marker.id;
-                                        return (
-                                            <Marker
-                                                key={marker.id}
-                                                coordinates={[marker.lng, marker.lat]}
-                                            >
-                                                <g
-                                                    ref={(el) => {
-                                                        if (el) markerGroupRefs.current.set(marker.id, el);
-                                                        else markerGroupRefs.current.delete(marker.id);
-                                                    }}
-                                                    style={{ cursor: 'pointer' }}
-                                                    transform={`scale(${1 / zoomRef.current})`}
-                                                    onMouseEnter={(e) => handleMarkerHover(marker, e)}
-                                                    onMouseMove={handleMarkerMove}
-                                                    onMouseLeave={() => handleMarkerHover(null)}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleMarkerClick(marker.name);
-                                                    }}
-                                                >
-                                                  <g transform={isHovered ? 'scale(1.12)' : undefined} style={{ transition: 'transform 150ms ease' }}>
-                                                    {/* Glow ring on hover */}
-                                                    {isHovered && (
-                                                        <circle
-                                                            cx={0}
-                                                            cy={0}
-                                                            r={18}
-                                                            fill="none"
-                                                            stroke="rgba(100, 160, 255, 0.35)"
-                                                            strokeWidth={1.5}
-                                                        />
-                                                    )}
-                                                    <rect
-                                                        x={-22}
-                                                        y={-10}
-                                                        width={44}
-                                                        height={20}
-                                                        rx={10}
-                                                        fill={isHovered ? 'rgba(40, 80, 160, 0.95)' : 'rgba(10, 20, 40, 0.88)'}
-                                                        stroke={isHovered ? 'rgba(120, 180, 255, 0.9)' : 'rgba(100, 160, 255, 0.5)'}
-                                                        strokeWidth={isHovered ? 1.5 : 1}
-                                                    />
-                                                    {/* Building icon */}
-                                                    <g transform="translate(-14, -6) scale(0.5)" fill="none" stroke={isHovered ? '#b8d8ff' : '#7eb8ff'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                        <path d="M3 21h18" />
-                                                        <path d="M5 21V7l8-4v18" />
-                                                        <path d="M19 21V11l-6-4" />
-                                                        <path d="M9 9v.01" />
-                                                        <path d="M9 12v.01" />
-                                                        <path d="M9 15v.01" />
-                                                        <path d="M9 18v.01" />
-                                                    </g>
-                                                    <text
-                                                        x={6}
-                                                        y={4}
-                                                        textAnchor="middle"
-                                                        fill={isHovered ? '#fff' : '#e8f0ff'}
-                                                        fontSize={isHovered ? 12 : 11}
-                                                        fontWeight={isHovered ? 700 : 600}
-                                                        fontFamily="sans-serif"
-                                                    >
-                                                        {marker.stats.total}
-                                                    </text>
-                                                  </g>
-                                                </g>
-                                            </Marker>
-                                        );
-                                    })}
                                 </ZoomableGroup>
                             </ComposableMap>
                         </Box>
@@ -508,33 +601,33 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                     position: 'fixed',
                                     top: tooltipPos.y,
                                     left: tooltipPos.x,
-                                    background: 'rgba(0, 0, 0, 0.88)',
-                                    color: '#fff',
-                                    padding: '9px 13px',
+                                    background: '#1f2937',
+                                    color: '#f9fafb',
+                                    padding: '11px 16px',
                                     borderRadius: 8,
-                                    fontSize: 12,
+                                    fontSize: 14,
                                     fontFamily: 'sans-serif',
                                     whiteSpace: 'nowrap',
                                     lineHeight: 1.75,
                                     pointerEvents: 'none',
-                                    boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
-                                    border: '1px solid rgba(100,160,255,0.25)',
+                                    boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+                                    border: '1px solid #374151',
                                     zIndex: 99999,
                                     transform: 'translateY(-50%)',
                                 }}
                             >
-                                <div style={{ fontSize: 14, fontWeight: 700, color: '#7eb8ff', marginBottom: 6, paddingBottom: 5, borderBottom: '1px solid rgba(100,160,255,0.2)' }}>
+                                <div style={{ fontSize: 17, fontWeight: 700, color: '#f9fafb', marginBottom: 7, paddingBottom: 6, borderBottom: '1px solid #374151' }}>
                                     {hoveredMarker.name || String(hoveredMarker.id)}
                                 </div>
-                                <div style={{ color: '#adb5bd', marginBottom: 5 }}>
-                                    {t('dashboard.totalCompanies')}: <strong style={{ color: '#fff' }}>{hoveredMarker.stats.total}</strong> {t('dashboard.companies').toLowerCase()}
+                                <div style={{ color: '#9ca3af', marginBottom: 6, fontSize: 15 }}>
+                                    {t('dashboard.totalCompanies')}: <strong style={{ color: '#ffffff', fontSize: 16 }}>{hoveredMarker.stats.total}</strong> {t('dashboard.companies').toLowerCase()}
                                 </div>
-                                <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0 6px' }} />
+                                <div style={{ borderTop: '1px solid #374151', margin: '4px 0 7px' }} />
                                 {STAGE_COLORS.map(({ key, color, labelKey }) => (
                                     <div key={key} style={{ display: 'flex', alignItems: 'center' }}>
-                                        <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: color, marginRight: 6, flexShrink: 0 }} />
-                                        <span style={{ color: '#cdd5e0' }}>
-                                            {t(labelKey)}: <strong style={{ color: '#fff' }}>{hoveredMarker.stats[key]}</strong> {t('dashboard.companies').toLowerCase()}
+                                        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 7, flexShrink: 0 }} />
+                                        <span style={{ color: '#d1d5db' }}>
+                                            {t(labelKey)}: <strong style={{ color: '#f9fafb' }}>{hoveredMarker.stats[key]}</strong> {t('dashboard.companies').toLowerCase()}
                                         </span>
                                     </div>
                                 ))}
@@ -547,6 +640,51 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                     {t('dashboard.noLocations')}
                                 </Text>
                             </Center>
+                        )}
+
+                        {/* Country badge list below map */}
+                        {countryMarkers.length > 0 && (
+                            <Group gap={6} mt="sm" wrap="wrap">
+                                {[...countryMarkers]
+                                    .sort((a, b) => b.stats.total - a.stats.total)
+                                    .map((marker) => (
+                                        <div
+                                            key={marker.id}
+                                            onClick={() => {
+                                                const name = COUNTRY_NAMES[marker.id] ?? marker.name;
+                                                if (name) setSelectedCountry(name);
+                                            }}
+                                            onMouseEnter={(e) => handleMarkerHover(marker, e)}
+                                            onMouseMove={(e) => handleMarkerMove(e)}
+                                            onMouseLeave={() => handleMarkerHover(null)}
+                                            style={{ cursor: 'pointer' }}
+                                        >
+                                            <div style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 6,
+                                                padding: '4px 10px',
+                                                borderRadius: 6,
+                                                border: '1px solid #d1d5db',
+                                                background: '#ffffff',
+                                                fontSize: 13,
+                                                fontWeight: 500,
+                                                color: '#374151',
+                                                userSelect: 'none',
+                                            }}>
+                                                {marker.name || String(marker.id)}
+                                                <span style={{
+                                                    fontWeight: 700,
+                                                    color: '#111827',
+                                                    fontSize: 13,
+                                                }}>
+                                                    {marker.stats.total}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))
+                                }
+                            </Group>
                         )}
                     </>
                 )}

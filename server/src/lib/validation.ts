@@ -43,6 +43,21 @@ const urlField = (maxLen = 500) =>
             .nullable()
     );
 
+/** Strip placeholder/junk email values (-, n/a, none, yok) to null */
+export function sanitizeEmail(value: unknown): string | null {
+    if (!value || typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed || /^[-–—_.\/\\()\s]+$/.test(trimmed) || /^n\/?a$/i.test(trimmed) || /^none$/i.test(trimmed) || /^yok$/i.test(trimmed)) return null;
+    return trimmed;
+}
+
+/** Email field that coerces empty/junk strings to null before validation */
+const emailField = (maxLen = 255) =>
+    z.preprocess(
+        (val) => sanitizeEmail(val),
+        z.string().email().max(maxLen).optional().nullable()
+    );
+
 // ── Auth schemas ──
 
 export const loginSchema = z.object({
@@ -57,7 +72,7 @@ export const createContactSchema = z.object({
     first_name: z.string().min(1, 'First name is required').max(255),
     last_name: z.string().max(255).optional().nullable(),
     title: z.string().max(500).optional().nullable(),
-    email: z.string().email().max(255).optional().nullable(),
+    email: emailField(),
     phone_e164: z.string().max(30).optional().nullable(),
     linkedin: urlField(500),
     country: z.string().max(100).optional().nullable(),
@@ -67,10 +82,11 @@ export const createContactSchema = z.object({
 });
 
 export const updateContactSchema = z.object({
+    company_id: uuidField('Invalid company_id').optional(),
     first_name: z.string().min(1).max(255).optional(),
     last_name: z.string().max(255).optional().nullable(),
     title: z.string().max(500).optional().nullable(),
-    email: z.string().email().max(255).optional().nullable(),
+    email: emailField(),
     phone_e164: z.string().max(30).optional().nullable(),
     linkedin: urlField(500),
     country: z.string().max(100).optional().nullable(),
@@ -86,7 +102,7 @@ export const createCompanySchema = z.object({
     website: urlField(500),
     linkedin: urlField(500),
     company_phone: z.string().max(50).optional().nullable(),
-    company_email: z.string().email().max(255).optional().nullable(),
+    company_email: emailField(),
     email_status: z.enum(['valid', 'uncertain', 'invalid']).optional().nullable(),
     location: z.string().max(500).optional().nullable(),
     industry: z.string().max(255).optional().nullable(),
@@ -106,7 +122,7 @@ export const createCompanySchema = z.object({
     contact_first_name: z.string().max(255).optional().nullable(),
     contact_last_name: z.string().max(255).optional().nullable(),
     contact_title: z.string().max(500).optional().nullable(),
-    contact_email: z.string().email().max(255).optional().nullable(),
+    contact_email: emailField(),
     contact_phone_e164: z.string().max(30).optional().nullable(),
 });
 
@@ -168,16 +184,15 @@ export const updateMembershipSchema = z.object({
 // ── Activity schemas ──
 
 // DB CHECK: type = ANY (ARRAY['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change'])
-// 'not' and 'sonlandirma_raporu' / 'status_change' are system-generated; users may only submit these three:
+// KASITLI AYRIŞMA: client/src/types/activity.ts 5 tip tanımlar (render için gerekli).
+// Kullanıcı sadece aşağıdaki 3 tipi submit edebilir. DB CHECK constraint 5'e izin verir.
+// 'sonlandirma_raporu' closing-report endpoint'i tarafından, 'status_change' aşama geçişlerinde üretilir.
 export const ALLOWED_ACTIVITY_TYPES = ['not', 'meeting', 'follow_up'] as const;
 export type ActivityType = typeof ALLOWED_ACTIVITY_TYPES[number];
 
 // DB CHECK: visibility = ANY (ARRAY['internal', 'client'])
 export const ALLOWED_VISIBILITY = ['internal', 'client'] as const;
 
-// DB CHECK: stage / outcome = ANY (ARRAY['won', 'lost', 'on_hold', 'cancelled'])
-export const TERMINAL_STAGES = ['won', 'lost', 'on_hold', 'cancelled'] as const;
-export type TerminalStage = typeof TERMINAL_STAGES[number];
 
 export const createActivitySchema = z.object({
     company_id: uuidField('Invalid company_id'),
@@ -200,7 +215,7 @@ export const updateActivitySchema = z.object({
 
 export const closingReportSchema = z.object({
     company_id: uuidField('Invalid company_id'),
-    outcome: z.enum(TERMINAL_STAGES, { message: `Must be one of: ${TERMINAL_STAGES.join(', ')}` }),
+    outcome: z.string().min(1, 'Outcome is required'),
     summary: z.string().min(1, 'Summary is required').max(1000).trim(),
     detail: z.string().max(5000).optional().nullable(),
     visibility: z.enum(ALLOWED_VISIBILITY).default('client'),
@@ -226,16 +241,39 @@ export const readStatusBodySchema = z.object({
 
 // ── Email Reply webhook + assign schemas ──
 
-// PlusVibe webhook payload — only validates fields we actually use; extra fields pass through
+// PlusVibe webhook field names: from_email, camp_id, campaign_name, text_body, replied_date
 export const webhookPayloadSchema = z.object({
     from_email: z.string().email('Invalid from_email'),
     camp_id: z.string().max(500).optional().nullable(),
     campaign_name: z.string().max(500).optional().nullable(),
     text_body: z.string().optional().nullable(),
-    replied_date: z.string().optional().nullable(),
+    replied_date: z.string().datetime({ message: 'replied_date must be a valid ISO datetime' }).optional().nullable(),
 }).passthrough();
 
 export const assignReplySchema = z.object({
     company_id: uuidField('Invalid company_id'),
-    contact_id: uuidField('Invalid contact_id').optional(),
+    contact_id: uuidField('Invalid contact_id').optional().nullable(),
+});
+
+// ── PlusVibe integration schemas ──
+
+export const plusvibeCredentialSchema = z.object({
+    api_key: z.string().min(1, 'API key is required').max(500),
+    workspace_id: z.string().min(1, 'Workspace ID is required').max(500),
+});
+
+export const assignCampaignSchema = z.object({
+    tenant_id: uuidField('Invalid tenant_id'),
+});
+
+export const campaignStatsQuerySchema = z.object({
+    date_from: z.string().optional(),
+    date_to: z.string().optional(),
+    campaign_id: z.string().max(500).optional(),
+});
+
+export const threadHistoryQuerySchema = z.object({
+    sender_email: z.string().email('Invalid sender_email').max(255),
+    campaign_id: z.string().max(500).optional(),
+    exclude_id: uuidField('Invalid exclude_id').optional(),
 });

@@ -12,6 +12,7 @@ import { showSuccess, showErrorFromApi } from '../../lib/notifications';
 interface AssignCompanyFormProps {
     replyId: string;
     onAssigned: () => void;
+    hideWarning?: boolean;
 }
 
 interface CompanyOption {
@@ -25,7 +26,7 @@ interface ContactOption {
     last_name: string | null;
 }
 
-export default function AssignCompanyForm({ replyId, onAssigned }: AssignCompanyFormProps) {
+export default function AssignCompanyForm({ replyId, onAssigned, hideWarning }: AssignCompanyFormProps) {
     const { t } = useTranslation();
     const queryClient = useQueryClient();
 
@@ -94,9 +95,11 @@ export default function AssignCompanyForm({ replyId, onAssigned }: AssignCompany
 
     return (
         <Stack gap="md">
-            <Alert icon={<IconAlertTriangle size={16} />} color="yellow" variant="light">
-                {t('emailReplies.assign.warning')}
-            </Alert>
+            {!hideWarning && (
+                <Alert icon={<IconAlertTriangle size={16} />} color="yellow" variant="light">
+                    {t('emailReplies.assign.warning')}
+                </Alert>
+            )}
 
             <Select
                 label={t('emailReplies.assign.title')}

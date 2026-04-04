@@ -224,17 +224,17 @@ router.get('/company-locations', requireTier('pro'), async (req: Request, res: R
         if (!dateFilters) return;
         const { dateFrom, dateTo } = dateFilters;
 
-
-        // Get actual stage slugs for this tenant (initial + pipeline types)
+        // Only show pipeline + terminal companies on the map
         const allStages = await getTenantStages(tenantId);
-        const geocodableStages = allStages
-            .filter((s) => s.stage_type === 'initial' || s.stage_type === 'pipeline')
+        const mapStageSlugs = allStages
+            .filter((s) => s.stage_type === 'pipeline' || s.stage_type === 'terminal')
             .map((s) => s.slug);
 
         let locationsQuery = supabaseAdmin
             .from('companies')
             .select('id, name, location, latitude, longitude, stage')
             .eq('tenant_id', tenantId)
+            .in('stage', mapStageSlugs)
             .not('latitude', 'is', null)
             .not('longitude', 'is', null)
             .order('updated_at', { ascending: false })
@@ -242,12 +242,12 @@ router.get('/company-locations', requireTier('pro'), async (req: Request, res: R
         if (dateFrom) locationsQuery = locationsQuery.gte('created_at', dateFrom);
         if (dateTo) locationsQuery = locationsQuery.lte('created_at', dateTo);
 
-        let missingQuery = geocodableStages.length > 0
+        let missingQuery = mapStageSlugs.length > 0
             ? supabaseAdmin
                 .from('companies')
                 .select('*', { count: 'exact', head: true })
                 .eq('tenant_id', tenantId)
-                .in('stage', geocodableStages)
+                .in('stage', mapStageSlugs)
                 .not('location', 'is', null)
                 .is('latitude', null)
             : null;

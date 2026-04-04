@@ -1,23 +1,30 @@
-import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table,
     Loader, Center, Button, SimpleGrid, Select, TextInput,
-    Skeleton, Tooltip, Alert, Anchor,
+    Skeleton, Tooltip, Alert, Anchor, Pagination, ActionIcon,
+    SegmentedControl,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
 import {
     IconMail, IconMailOpened, IconSearch,
     IconCircleFilled, IconLink, IconLinkOff, IconAlertCircle,
+    IconSpeakerphone, IconDownload, IconChevronDown, IconChevronRight,
+    IconChevronLeft, IconRefresh,
 } from '@tabler/icons-react';
+import ThreadHistoryRows from '../components/email/ThreadHistoryRows';
 
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
+import { showErrorFromApi } from '../lib/notifications';
 import StatCard from '../components/StatCard';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import type { EmailReply, EmailReplyStats, Campaign } from '../types/emailReply';
+import type { CampaignsResponse } from '../types/plusvibe';
+import { useStages } from '../contexts/StagesContext';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -26,7 +33,9 @@ interface EmailRepliesResponse {
     pagination: {
         hasNext: boolean;
         total: number;
+        totalPages: number;
         page: number;
+        limit: number;
     };
 }
 
@@ -41,18 +50,20 @@ function tzOffset(d: Date): string {
     return `${sign}${hh}:${mm}`;
 }
 
-function toLocalISOStart(d: Date): string {
-    const y = d.getFullYear();
-    const mo = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${mo}-${day}T00:00:00${tzOffset(d)}`;
+function toLocalISOStart(d: Date | string): string {
+    const date = d instanceof Date ? d : new Date(d);
+    const y = date.getFullYear();
+    const mo = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${day}T00:00:00${tzOffset(date)}`;
 }
 
-function toLocalISOEnd(d: Date): string {
-    const y = d.getFullYear();
-    const mo = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${mo}-${day}T23:59:59${tzOffset(d)}`;
+function toLocalISOEnd(d: Date | string): string {
+    const date = d instanceof Date ? d : new Date(d);
+    const y = date.getFullYear();
+    const mo = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${day}T23:59:59${tzOffset(date)}`;
 }
 
 function formatDate(iso: string, locale: string): string {
@@ -70,12 +81,54 @@ function truncate(text: string | null, maxLen: number): string {
     return text.length > maxLen ? text.slice(0, maxLen) + '...' : text;
 }
 
+// ─── Period Filter Helpers ────────────────────────────────────────────────────
+
+type PeriodType = 'day' | 'week' | 'month' | 'custom';
+
+function getPeriodDates(type: PeriodType, anchor: Date): { start: Date; end: Date } {
+    if (type === 'day') return { start: anchor, end: anchor };
+    if (type === 'week') {
+        const d = new Date(anchor);
+        const day = d.getDay();
+        const diff = day === 0 ? -6 : 1 - day;
+        const monday = new Date(d);
+        monday.setDate(d.getDate() + diff);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        return { start: monday, end: sunday };
+    }
+    return {
+        start: new Date(anchor.getFullYear(), anchor.getMonth(), 1),
+        end: new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0),
+    };
+}
+
+function shiftPeriod(type: PeriodType, anchor: Date, direction: 1 | -1): Date {
+    const d = new Date(anchor);
+    if (type === 'day') d.setDate(d.getDate() + direction);
+    else if (type === 'week') d.setDate(d.getDate() + direction * 7);
+    else if (type === 'month') d.setMonth(d.getMonth() + direction);
+    return d;
+}
+
+function formatPeriodLabel(type: PeriodType, anchor: Date, locale: string): string {
+    if (type === 'day') return anchor.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+    if (type === 'week') {
+        const { start, end } = getPeriodDates(type, anchor);
+        const monthStr = end.toLocaleDateString(locale, { month: 'short' });
+        return `${start.getDate()} — ${end.getDate()} ${monthStr} ${end.getFullYear()}`;
+    }
+    return anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function EmailRepliesPage() {
     const { t, i18n } = useTranslation();
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
+    const { getStageColor, getStageLabel } = useStages();
 
     // Filters
     const [campaignFilter, setCampaignFilter] = useState('');
@@ -83,18 +136,41 @@ export default function EmailRepliesPage() {
     const [readStatusFilter, setReadStatusFilter] = useState('');
     const [search, setSearch] = useState('');
     const [debouncedSearch] = useDebouncedValue(search, 300);
-    const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null]);
+    const [periodType, setPeriodType] = useState<PeriodType>('month');
+    const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date());
+    const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null]);
 
     // Pagination
     const [page, setPage] = useState(1);
 
-    // Selected reply (for modal — wired in Task 9)
+    // Selected reply (for modal)
     const [selectedReply, setSelectedReply] = useState<EmailReply | null>(null);
+
+    // Expanded thread rows
+    const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+    const toggleExpand = useCallback((id: string) => {
+        setExpandedIds((prev) => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+        });
+    }, []);
 
     // ── Derived ──
 
-    const dateFrom = dateRange[0] ? toLocalISOStart(dateRange[0]) : '';
-    const dateTo = dateRange[1] ? toLocalISOEnd(dateRange[1]) : '';
+    const periodLabel = formatPeriodLabel(periodType, periodAnchor, locale);
+
+    const { dateFrom, dateTo } = useMemo(() => {
+        if (periodType === 'custom') {
+            return {
+                dateFrom: customRange[0] ? toLocalISOStart(customRange[0]) : '',
+                dateTo: customRange[1] ? toLocalISOEnd(customRange[1]) : '',
+            };
+        }
+        const { start, end } = getPeriodDates(periodType, periodAnchor);
+        return { dateFrom: toLocalISOStart(start), dateTo: toLocalISOEnd(end) };
+    }, [periodType, periodAnchor, customRange]);
 
     // ── Queries ──
 
@@ -135,6 +211,117 @@ export default function EmailRepliesPage() {
         queryFn: async () => (await api.get('/email-replies/campaigns')).data,
     });
 
+    // PlusVibe campaign stats (active campaigns assigned to this tenant)
+    const { data: pvCampaigns } = useQuery<CampaignsResponse>({
+        queryKey: ['plusvibe', 'campaigns', 'active'],
+        queryFn: async () => (await api.get('/plusvibe/campaigns', { params: { status: 'ACTIVE' } })).data,
+    });
+
+    const activeCampaigns = useMemo(() => pvCampaigns?.data || [], [pvCampaigns]);
+
+    // Assign short codes (#1, #2, ...) to campaigns for compact table display
+    const campaignCodeMap = useMemo(() => {
+        const map = new Map<string, number>();
+        activeCampaigns.forEach((c, i) => {
+            if (c.pv_campaign_id) map.set(c.pv_campaign_id, i + 1);
+        });
+        return map;
+    }, [activeCampaigns]);
+
+    // Bulk rematch — step-by-step progress state
+    type RematchPhase =
+        | { phase: 'idle' }
+        | { phase: 'fetching' }
+        | { phase: 'matching'; done: number; total: number }
+        | { phase: 'done'; matched: number; total: number };
+
+    const [rematchState, setRematchState] = useState<RematchPhase>({ phase: 'idle' });
+
+    const runRematchAll = useCallback(async () => {
+        setRematchState({ phase: 'fetching' });
+        try {
+            // Step 1: fetch all unmatched IDs (paginate through all pages, max 50/page)
+            const PAGE_LIMIT = 50;
+            const ids: string[] = [];
+            let currentPage = 1;
+            let hasMore = true;
+            while (hasMore) {
+                const resp = await api.get<{ data: { id: string }[]; pagination: { hasNext: boolean } }>('/email-replies', {
+                    params: { match_status: 'unmatched', limit: String(PAGE_LIMIT), page: String(currentPage) },
+                });
+                ids.push(...resp.data.data.map((r) => r.id));
+                hasMore = resp.data.pagination.hasNext;
+                currentPage++;
+            }
+
+            if (ids.length === 0) {
+                setRematchState({ phase: 'done', matched: 0, total: 0 });
+                queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+                return;
+            }
+
+            // Step 2: process in batches of 20
+            const BATCH = 20;
+            let totalMatched = 0;
+            for (let i = 0; i < ids.length; i += BATCH) {
+                setRematchState({ phase: 'matching', done: i, total: ids.length });
+                const batch = ids.slice(i, i + BATCH);
+                const { data } = await api.post<{ matched: number }>('/email-replies/rematch-batch', { ids: batch });
+                totalMatched += data.matched;
+            }
+
+            setRematchState({ phase: 'done', matched: totalMatched, total: ids.length });
+            queryClient.invalidateQueries({ queryKey: ['email-replies'] });
+            queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+        } catch (err) {
+            showErrorFromApi(err);
+            setRematchState({ phase: 'idle' });
+        }
+    }, [queryClient]);
+
+    // Import historical replies — step-by-step progress state
+    type ImportPhase =
+        | { phase: 'idle' }
+        | { phase: 'fetching' }
+        | { phase: 'importing'; done: number; total: number; campaignName: string }
+        | { phase: 'done'; imported: number };
+
+    const [importState, setImportState] = useState<ImportPhase>({ phase: 'idle' });
+
+    const runImport = useCallback(async () => {
+        setImportState({ phase: 'fetching' });
+        try {
+            // Step 1: get campaigns assigned to this tenant
+            const resp = await api.get<{ data: { pv_campaign_id: string; name: string }[] }>(
+                '/plusvibe/campaigns'
+            );
+            const campaigns = resp.data.data.filter((c) => c.pv_campaign_id);
+
+            if (campaigns.length === 0) {
+                setImportState({ phase: 'done', imported: 0 });
+                return;
+            }
+
+            // Step 2: import each campaign one by one
+            let totalImported = 0;
+            for (let i = 0; i < campaigns.length; i++) {
+                const campaign = campaigns[i];
+                setImportState({ phase: 'importing', done: i, total: campaigns.length, campaignName: campaign.name });
+                const { data } = await api.post<{ imported: number }>('/plusvibe/import-campaign', {
+                    pv_campaign_id: campaign.pv_campaign_id,
+                });
+                totalImported += data.imported;
+            }
+
+            setImportState({ phase: 'done', imported: totalImported });
+            queryClient.invalidateQueries({ queryKey: ['email-replies'] });
+            queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+        } catch (err) {
+            showErrorFromApi(err);
+            setImportState({ phase: 'idle' });
+        }
+    }, [queryClient]);
+
     // ── Filter change helpers (reset page) ──
 
     const resetPage = () => setPage(1);
@@ -146,14 +333,16 @@ export default function EmailRepliesPage() {
     if (prevFilterSig !== filterSig) {
         setPrevFilterSig(filterSig);
         if (selectedReply !== null) setSelectedReply(null);
+        if (expandedIds.size > 0) setExpandedIds(new Set());
     }
 
     // ── Displayed replies ──
 
     const displayedReplies = useMemo(() => data?.data ?? [], [data]);
 
-    const hasMore = data?.pagination?.hasNext ?? false;
     const total = data?.pagination?.total ?? 0;
+    const totalPages = data?.pagination?.totalPages ?? 1;
+    const limit = data?.pagination?.limit ?? 20;
 
     // ── Select Data ──
 
@@ -185,6 +374,54 @@ export default function EmailRepliesPage() {
                     <Badge size="lg" variant="light" color="violet" circle>
                         {total}
                     </Badge>
+                </Group>
+                <Group gap="xs">
+                    {((stats?.unmatched ?? 0) > 0 || rematchState.phase !== 'idle') && (() => {
+                        const isBusy = rematchState.phase === 'fetching' || rematchState.phase === 'matching';
+                        const label = rematchState.phase === 'idle'
+                            ? t('emailReplies.rematch.bulkButton', { count: stats?.unmatched ?? 0 })
+                            : rematchState.phase === 'fetching'
+                                ? t('emailReplies.rematch.stepFetching')
+                                : rematchState.phase === 'matching'
+                                    ? t('emailReplies.rematch.stepMatching', { done: rematchState.done, total: rematchState.total })
+                                    : t('emailReplies.rematch.stepDone', { matched: rematchState.matched, total: rematchState.total });
+                        return (
+                            <Button
+                                variant="light"
+                                size="sm"
+                                color={rematchState.phase === 'done' ? 'green' : 'violet'}
+                                leftSection={isBusy ? <Loader size={14} color="violet" /> : <IconRefresh size={16} />}
+                                disabled={isBusy}
+                                onClick={() => {
+                                    if (!isBusy) runRematchAll();
+                                }}
+                            >
+                                {label}
+                            </Button>
+                        );
+                    })()}
+                    {(activeCampaigns.length > 0 || importState.phase !== 'idle') && (() => {
+                        const isBusy = importState.phase === 'fetching' || importState.phase === 'importing';
+                        const label = importState.phase === 'idle'
+                            ? t('emailReplies.importReplies')
+                            : importState.phase === 'fetching'
+                                ? t('emailReplies.import.stepFetching')
+                                : importState.phase === 'importing'
+                                    ? t('emailReplies.import.stepImporting', { done: importState.done + 1, total: importState.total, name: importState.campaignName })
+                                    : t('emailReplies.import.stepDone', { count: importState.imported });
+                        return (
+                            <Button
+                                variant="light"
+                                size="sm"
+                                color={importState.phase === 'done' ? 'green' : 'blue'}
+                                leftSection={isBusy ? <Loader size={14} color="blue" /> : <IconDownload size={16} />}
+                                disabled={isBusy}
+                                onClick={() => { if (!isBusy) runImport(); }}
+                            >
+                                {label}
+                            </Button>
+                        );
+                    })()}
                 </Group>
             </Group>
 
@@ -240,6 +477,32 @@ export default function EmailRepliesPage() {
                 )}
             </SimpleGrid>
 
+            {/* Active Campaigns Summary */}
+            {activeCampaigns.length > 0 && (
+                <Paper p="sm" radius="md" withBorder mb="md" bg="var(--mantine-color-violet-0)">
+                    <Group gap="xs" mb={6}>
+                        <IconSpeakerphone size={14} style={{ opacity: 0.6 }} />
+                        <Text size="xs" fw={600} c="dimmed" tt="uppercase">
+                            {t('emailReplies.activeCampaigns')}
+                        </Text>
+                    </Group>
+                    <Group gap="lg" wrap="wrap">
+                        {activeCampaigns.map((c, i) => (
+                            <Group key={c.id} gap={6}>
+                                <Badge size="xs" variant="filled" color="violet" circle>{i + 1}</Badge>
+                                <Text size="xs" fw={500}>{c.name}</Text>
+                                <Badge size="xs" variant="light" color="violet">
+                                    {c.emails_sent} {t('campaigns.stats.sent').toLowerCase()}
+                                </Badge>
+                                <Badge size="xs" variant="light" color="orange">
+                                    {c.replies} {t('campaigns.stats.replies').toLowerCase()}
+                                </Badge>
+                            </Group>
+                        ))}
+                    </Group>
+                </Paper>
+            )}
+
             {/* Filter Bar */}
             <Paper p="md" radius="md" withBorder mb="md">
                 <Stack gap="sm">
@@ -280,15 +543,67 @@ export default function EmailRepliesPage() {
                             data={readStatusData}
                             style={{ minWidth: 160 }}
                         />
-                        <DatePickerInput
-                            type="range"
-                            placeholder={t('emailReplies.filters.dateRange')}
-                            value={dateRange}
-                            onChange={(v) => { setDateRange(v as [Date | null, Date | null]); resetPage(); }}
-                            clearable
-                            size="sm"
-                            style={{ minWidth: 220 }}
+                    </Group>
+                    <Group gap="xs" wrap="nowrap" justify="flex-end">
+                        <SegmentedControl
+                            size="xs"
+                            value={periodType}
+                            onChange={(v) => {
+                                setPeriodType(v as PeriodType);
+                                setPeriodAnchor(new Date());
+                                setCustomRange([null, null]);
+                                resetPage();
+                            }}
+                            data={[
+                                { label: t('activities.periodDay'), value: 'day' },
+                                { label: t('activities.periodWeek'), value: 'week' },
+                                { label: t('activities.periodMonth'), value: 'month' },
+                                { label: t('activities.periodCustom'), value: 'custom' },
+                            ]}
                         />
+
+                        {periodType !== 'custom' && (
+                            <Group gap={4} wrap="nowrap">
+                                <ActionIcon
+                                    variant="subtle"
+                                    color="gray"
+                                    size="sm"
+                                    onClick={() => { setPeriodAnchor((prev) => shiftPeriod(periodType, prev, -1)); resetPage(); }}
+                                >
+                                    <IconChevronLeft size={14} />
+                                </ActionIcon>
+                                <Text size="xs" fw={600} miw={120} ta="center">
+                                    {periodLabel}
+                                </Text>
+                                <ActionIcon
+                                    variant="subtle"
+                                    color="gray"
+                                    size="sm"
+                                    onClick={() => { setPeriodAnchor((prev) => shiftPeriod(periodType, prev, 1)); resetPage(); }}
+                                >
+                                    <IconChevronRight size={14} />
+                                </ActionIcon>
+                                <Button
+                                    size="compact-xs"
+                                    variant="light"
+                                    color="violet"
+                                    onClick={() => { setPeriodAnchor(new Date()); resetPage(); }}
+                                >
+                                    {t('activities.today')}
+                                </Button>
+                            </Group>
+                        )}
+
+                        {periodType === 'custom' && (
+                            <DatePickerInput
+                                type="range"
+                                placeholder={t('activities.dateRange')}
+                                value={customRange}
+                                onChange={(v) => { setCustomRange(v as [Date | null, Date | null]); resetPage(); }}
+                                clearable
+                                size="xs"
+                            />
+                        )}
                     </Group>
                 </Stack>
             </Paper>
@@ -315,124 +630,194 @@ export default function EmailRepliesPage() {
                         <Table highlightOnHover striped>
                             <Table.Thead>
                                 <Table.Tr>
-                                    <Table.Th style={{ width: 30 }} />
-                                    <Table.Th>{t('emailReplies.table.campaign')}</Table.Th>
+                                    <Table.Th style={{ width: 20, padding: '0 2px' }} />
+                                    <Table.Th style={{ width: 36, padding: '0 4px' }}>{t('emailReplies.table.campaign')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.sender')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.company')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.contact')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.preview')}</Table.Th>
+                                    <Table.Th style={{ width: 40, padding: '0 4px' }}>{t('emailReplies.table.notes')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.date')}</Table.Th>
                                 </Table.Tr>
                             </Table.Thead>
                             <Table.Tbody>
                                 {displayedReplies.map((reply) => {
-                                    const isUnread = reply.read_status === 'unread';
+                                    const hasUnread = reply.has_unread ?? reply.read_status === 'unread';
                                     const isUnmatched = reply.match_status === 'unmatched';
+                                    const threadCount = reply.thread_count ?? 1;
+                                    const isExpanded = expandedIds.has(reply.id);
 
                                     return (
-                                        <Table.Tr
-                                            key={reply.id}
-                                            style={{
-                                                cursor: 'pointer',
-                                                backgroundColor: isUnread
-                                                    ? 'var(--mantine-color-blue-0)'
-                                                    : undefined,
-                                            }}
-                                            onClick={() => setSelectedReply(reply)}
-                                        >
-                                            {/* Unread indicator */}
-                                            <Table.Td>
-                                                {isUnread && (
-                                                    <Tooltip label={t('emailReplies.status.unread')}>
-                                                        <IconCircleFilled
-                                                            size={10}
-                                                            style={{ color: 'var(--mantine-color-blue-5)' }}
-                                                        />
-                                                    </Tooltip>
-                                                )}
-                                            </Table.Td>
+                                        <>
+                                            <Table.Tr
+                                                key={reply.id}
+                                                style={{
+                                                    cursor: 'pointer',
+                                                    backgroundColor: hasUnread
+                                                        ? 'var(--mantine-color-blue-0)'
+                                                        : undefined,
+                                                }}
+                                                onClick={() => setSelectedReply(reply)}
+                                            >
+                                                {/* Unread dot + expand chevron */}
+                                                <Table.Td style={{ padding: '0 2px' }}>
+                                                    <Group gap={4} wrap="nowrap" justify="center">
+                                                        {hasUnread && (
+                                                            <Tooltip label={t('emailReplies.status.unread')}>
+                                                                <IconCircleFilled
+                                                                    size={10}
+                                                                    style={{ color: 'var(--mantine-color-blue-5)', flexShrink: 0 }}
+                                                                />
+                                                            </Tooltip>
+                                                        )}
+                                                        {threadCount > 1 && (
+                                                            <Tooltip label={isExpanded ? t('emailReplies.thread.collapse') : t('emailReplies.thread.expand', { count: threadCount - 1 })}>
+                                                                <ActionIcon
+                                                                    size="xs"
+                                                                    variant="subtle"
+                                                                    color="gray"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        toggleExpand(reply.id);
+                                                                    }}
+                                                                >
+                                                                    {isExpanded
+                                                                        ? <IconChevronDown size={13} />
+                                                                        : <IconChevronRight size={13} />
+                                                                    }
+                                                                </ActionIcon>
+                                                            </Tooltip>
+                                                        )}
+                                                    </Group>
+                                                </Table.Td>
 
-                                            {/* Campaign */}
-                                            <Table.Td>
-                                                {reply.campaign_name ? (
-                                                    <Badge size="sm" variant="light" color="violet">
-                                                        {reply.campaign_name}
-                                                    </Badge>
-                                                ) : (
-                                                    <Text size="xs" c="dimmed">-</Text>
-                                                )}
-                                            </Table.Td>
+                                                {/* Campaign code */}
+                                                <Table.Td style={{ padding: '0 4px' }}>
+                                                    {reply.campaign_id && campaignCodeMap.has(reply.campaign_id) ? (
+                                                        <Tooltip label={reply.campaign_name || reply.campaign_id} withArrow>
+                                                            <Badge size="sm" variant="filled" color="violet" circle>
+                                                                {campaignCodeMap.get(reply.campaign_id)}
+                                                            </Badge>
+                                                        </Tooltip>
+                                                    ) : reply.campaign_name ? (
+                                                        <Tooltip label={reply.campaign_name} withArrow>
+                                                            <Badge size="sm" variant="light" color="gray" circle>?</Badge>
+                                                        </Tooltip>
+                                                    ) : (
+                                                        <Text size="xs" c="dimmed">-</Text>
+                                                    )}
+                                                </Table.Td>
 
-                                            {/* Sender Email */}
-                                            <Table.Td>
-                                                <Text size="sm" fw={isUnread ? 600 : 400}>
-                                                    {reply.sender_email}
-                                                </Text>
-                                            </Table.Td>
+                                                {/* Sender Email + thread badge */}
+                                                <Table.Td>
+                                                    <Group gap={6} wrap="nowrap">
+                                                        <Text size="sm" fw={hasUnread ? 600 : 400}>
+                                                            {reply.sender_email}
+                                                        </Text>
+                                                        {threadCount > 1 && (
+                                                            <Badge size="xs" variant="outline" color="gray" style={{ flexShrink: 0 }}>
+                                                                {threadCount}
+                                                            </Badge>
+                                                        )}
+                                                    </Group>
+                                                </Table.Td>
 
-                                            {/* Company */}
-                                            <Table.Td>
-                                                {isUnmatched ? (
-                                                    <Badge size="sm" variant="light" color="red">
-                                                        {t('emailReplies.status.unmatched')}
-                                                    </Badge>
-                                                ) : reply.company_name ? (
-                                                    <Anchor
-                                                        size="sm"
-                                                        fw={500}
-                                                        href={`/companies/${reply.company_id}`}
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            navigate(`/companies/${reply.company_id}`);
-                                                        }}
-                                                    >
-                                                        {reply.company_name}
-                                                    </Anchor>
-                                                ) : (
-                                                    <Text size="xs" c="dimmed">-</Text>
-                                                )}
-                                            </Table.Td>
+                                                {/* Company */}
+                                                <Table.Td>
+                                                    {isUnmatched ? (
+                                                        <Badge size="sm" variant="light" color="red">
+                                                            {t('emailReplies.status.unmatched')}
+                                                        </Badge>
+                                                    ) : reply.company_name ? (
+                                                        <Group gap={6} wrap="nowrap" justify="space-between">
+                                                            <Anchor
+                                                                size="sm"
+                                                                fw={500}
+                                                                href={`/companies/${reply.company_id}`}
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    navigate(`/companies/${reply.company_id}`);
+                                                                }}
+                                                            >
+                                                                {reply.company_name}
+                                                            </Anchor>
+                                                            {reply.company_stage && (
+                                                                <Badge
+                                                                    color={getStageColor(reply.company_stage)}
+                                                                    variant="light"
+                                                                    size="xs"
+                                                                    radius="sm"
+                                                                    style={{ flexShrink: 0, marginLeft: 'auto' }}
+                                                                >
+                                                                    {getStageLabel(reply.company_stage)}
+                                                                </Badge>
+                                                            )}
+                                                        </Group>
+                                                    ) : (
+                                                        <Text size="xs" c="dimmed">-</Text>
+                                                    )}
+                                                </Table.Td>
 
-                                            {/* Contact */}
-                                            <Table.Td>
-                                                <Text size="sm">
-                                                    {reply.contact_name || '-'}
-                                                </Text>
-                                            </Table.Td>
+                                                {/* Contact */}
+                                                <Table.Td>
+                                                    <Text size="sm">{reply.contact_name || '-'}</Text>
+                                                </Table.Td>
 
-                                            {/* Reply Preview */}
-                                            <Table.Td>
-                                                <Text size="xs" c="dimmed" lineClamp={1}>
-                                                    {truncate(reply.reply_body, 80)}
-                                                </Text>
-                                            </Table.Td>
+                                                {/* Reply Preview */}
+                                                <Table.Td>
+                                                    <Text size="xs" c="dimmed" lineClamp={1}>
+                                                        {truncate(reply.reply_body, 80)}
+                                                    </Text>
+                                                </Table.Td>
 
-                                            {/* Date */}
-                                            <Table.Td>
-                                                <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                                                    {formatDate(reply.replied_at, locale)}
-                                                </Text>
-                                            </Table.Td>
-                                        </Table.Tr>
+                                                {/* Activity count badge */}
+                                                <Table.Td style={{ padding: '0 4px', textAlign: 'center' }}>
+                                                    {(reply.company_activity_count ?? 0) > 0 ? (
+                                                        <Badge size="xs" variant="light" color="violet" style={{ cursor: 'default' }}>
+                                                            {reply.company_activity_count}
+                                                        </Badge>
+                                                    ) : null}
+                                                </Table.Td>
+
+                                                {/* Date */}
+                                                <Table.Td>
+                                                    <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+                                                        {formatDate(reply.replied_at, locale)}
+                                                    </Text>
+                                                </Table.Td>
+                                            </Table.Tr>
+
+                                            {/* Thread history rows */}
+                                            {isExpanded && threadCount > 1 && (
+                                                <ThreadHistoryRows
+                                                    senderEmail={reply.sender_email}
+                                                    campaignId={reply.campaign_id}
+                                                    excludeId={reply.id}
+                                                    locale={locale}
+                                                    colSpan={8}
+                                                />
+                                            )}
+                                        </>
                                     );
                                 })}
                             </Table.Tbody>
                         </Table>
                     </Paper>
 
-                    {/* Load More */}
-                    {hasMore && (
-                        <Center>
-                            <Button
-                                variant="subtle"
-                                color="gray"
-                                loading={isLoading}
-                                onClick={() => setPage((p) => p + 1)}
-                            >
-                                {t('emailReplies.loadMore')}
-                            </Button>
-                        </Center>
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                        <Group justify="space-between" mt="xs">
+                            <Text size="xs" c="dimmed">
+                                {((page - 1) * limit) + 1}–{Math.min(page * limit, total)} / {total}
+                            </Text>
+                            <Pagination
+                                total={totalPages}
+                                value={page}
+                                onChange={setPage}
+                                size="sm"
+                            />
+                        </Group>
                     )}
                 </Stack>
             )}

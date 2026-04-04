@@ -24,6 +24,10 @@ npm-debug.log*
 # Supabase
 supabase/.temp/
 
+# Brainstorm outputs
+temp/
+.superpowers/
+
 # MCP (contains secrets)
 .mcp.json
 
@@ -38,3 +42,4 @@ temp/*
 CRM_EXPANSION_PLAN.md
 plans/
 CLAUDE.md
+.claude/settings.local.json

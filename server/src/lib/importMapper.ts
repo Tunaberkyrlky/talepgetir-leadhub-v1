@@ -23,7 +23,7 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
             'company website', 'company url', 'company domain', 'web adresi', 'internet adresi',
             'homepage', 'ana sayfa',
         ],
-        required: false,
+        required: true,
     },
     'companies.location': {
         table: 'companies',
@@ -33,7 +33,7 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
             'il', 'ilçe', 'ilce', 'company location', 'headquarters', 'hq location',
             'company address', 'merkez', 'genel merkez', 'bölge', 'region',
         ],
-        required: false,
+        required: true,
     },
     'companies.industry': {
         table: 'companies',

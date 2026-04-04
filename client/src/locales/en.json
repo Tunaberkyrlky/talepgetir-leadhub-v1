@@ -52,6 +52,7 @@
         "createdAt": "Created",
         "assignedTo": "Assigned To",
         "contactCount": "Contacts",
+        "geocoded": "Location pinned on map",
         "createTitle": "Add New Company",
         "editTitle": "Edit Company",
         "save": "Save",
@@ -107,6 +108,7 @@
         "uploadLimit": "Maximum file size: 10MB",
         "fileColumn": "File Column",
         "dbField": "Database Field",
+        "selectColumn": "Select column...",
         "confidence": "Confidence",
         "unmapped": "Unmapped (Additional Info)",
         "preview": "Preview (First 5 rows)",
@@ -170,7 +172,26 @@
         "progressMinimize": "Minimize",
         "progressClose": "Close",
         "progressHide": "Hide",
-        "matchZeroRows": "No rows matched. Please check your files."
+        "matchZeroRows": "No rows matched. Please check your files.",
+        "fileTooLarge": "File size exceeds the 10 MB limit. Please select a smaller file.",
+        "fileInvalidType": "Invalid file type. Only .csv and .xlsx files are supported.",
+        "fileRejected": "File was rejected. Check its size and format.",
+        "requiredFieldsMissing": "Required fields are not mapped",
+        "uploadError": "File could not be uploaded.",
+        "importError": "Import failed.",
+        "historyTitle": "Import History",
+        "historyEmpty": "No imports yet.",
+        "historyFileName": "File Name",
+        "historyType": "Type",
+        "historyStatus": "Status",
+        "historyRows": "Rows",
+        "historyDate": "Date",
+        "historyErrors": "errors",
+        "status_pending": "Pending",
+        "status_processing": "Processing",
+        "status_completed": "Completed",
+        "status_failed": "Failed",
+        "status_cancelled": "Cancelled"
     },
     "stages": {
         "cold": "Cold",
@@ -184,15 +205,15 @@
         "negotiation": "Negotiation",
         "won": "Won",
         "lost": "Lost",
-        "on_hold": "On Hold",
-        "cancelled": "Cancelled"
+        "on_hold": "On Hold"
     },
     "pagination": {
         "showing": "Showing",
         "of": "of",
         "prev": "Previous",
         "next": "Next",
-        "page": "Page"
+        "page": "Page",
+        "goTo": "Go to page"
     },
     "common": {
         "loading": "Loading...",
@@ -218,8 +239,11 @@
         "stage": "Filter by stage...",
         "industry": "Filter by industry...",
         "location": "Filter by location...",
+        "emptyLocation": "(No location)",
+        "notGeocoded": "(Not pinned on map)",
         "product": "Filter by product...",
         "clearAll": "Clear filters",
+        "clearSearch": "Clear search",
         "results": "results",
         "noResults": "No results found",
         "tryDifferent": "Try different search terms or filters.",
@@ -298,6 +322,7 @@
         "pipeline": "Pipeline",
         "activities": "Activities",
         "emailReplies": "Email Replies",
+        "campaigns": "Campaigns",
         "import": "Import",
         "admin": "Admin Panel"
     },
@@ -338,7 +363,16 @@
         "upgradeDesc": "Upgrade to Pro to access pipeline funnel charts and more detailed analytics.",
         "companyLocations": "Company Locations",
         "noLocations": "No geocoded locations yet. Open a company and click \"Geocode Location\" to add it to the map.",
-        "noStageData": "No stage data yet. Move companies to a stage and they will appear here."
+        "noStageData": "No stage data yet. Move companies to a stage and they will appear here.",
+        "geocodeSuccess": "{{geocoded}}/{{total}} companies added to map",
+        "geocodeSuccessWithSkipped": "{{geocoded}}/{{total}} companies added to map ({{skipped}} could not be resolved)",
+        "geocodeNoneFound": "No ungeocoded companies found in pipeline",
+        "geocodeNoneFoundWithNoLocation": "{{totalPipeline}} companies scanned — {{noLocation}} missing city info and cannot be geocoded",
+        "geocodeNoLocation": "{{count}} companies are missing city info and cannot be added to the map",
+        "geocodeNoneResolved": "{{total}} companies processed, no locations resolved",
+        "geocodeError": "Geocoding failed",
+        "locationsError": "Could not load company locations",
+        "pipelineError": "Could not load pipeline data"
     },
     "stageGroups": {
         "firstContact": "First Contact",
@@ -366,6 +400,9 @@
         "emptyColumn": "No companies",
         "stageMoved": "Stage updated",
         "moveError": "Failed to move company",
+        "loadError": "Could not load pipeline",
+        "noSearchResults": "no results found",
+        "noOutcomes": "No concluded companies yet",
         "upgradeTitle": "Unlock Pipeline Board",
         "upgradeDesc": "Upgrade to Pro to access the Kanban pipeline board and track deals visually.",
         "spotlight": {
@@ -391,6 +428,8 @@
         "users": "Users",
         "tenants": "Tenants",
         "memberships": "Memberships",
+        "campaigns": "Campaigns",
+        "feedback": "Feedback",
         "searchUsers": "Search by email...",
         "searchTenants": "Search by name...",
         "filterByRole": "Filter by role...",
@@ -443,7 +482,20 @@
         "membershipCreated": "Membership created",
         "membershipUpdated": "Membership updated",
         "membershipRemoved": "Membership removed",
-        "membershipRemoveConfirm": "Remove this user from the tenant?"
+        "membershipRemoveConfirm": "Remove this user from the tenant?",
+        "bulkDelete": "Bulk Delete Data",
+        "bulkDeleteTitle": "Bulk Delete Tenant Data",
+        "bulkDeleteDesc": "Selected data types will be permanently deleted. This action cannot be undone.",
+        "bulkDeleteCompanies": "All Companies",
+        "bulkDeleteContacts": "All Contacts",
+        "bulkDeleteActivities": "All Activities",
+        "bulkDeleteEmailReplies": "All Email Replies",
+        "bulkDeleteConfirmLabel": "Type the tenant name to confirm:",
+        "bulkDeleteConfirmPlaceholder": "Type tenant name here",
+        "bulkDeleteConfirmMismatch": "Tenant name does not match",
+        "bulkDeleteSelectType": "Select at least one data type",
+        "bulkDeleteSuccess": "Done: deleted {{companies}} companies, {{contacts}} contacts, {{activities}} activities, {{email_replies}} email replies",
+        "bulkDeleteExecute": "Delete"
     },
     "activity": {
         "timeline": "Activity Timeline",
@@ -478,8 +530,12 @@
             "required": "Closing report is required for this stage",
             "won": "Won",
             "lost": "Lost",
-            "on_hold": "On Hold",
-            "cancelled": "Cancelled"
+            "on_hold": "On Hold"
+        },
+        "outcomes": {
+            "won": "Won",
+            "lost": "Lost",
+            "on_hold": "On Hold"
         },
         "dateTime": "Date & Time",
         "dateRequired": "Please select a valid date and time",
@@ -516,6 +572,8 @@
     },
     "emailReplies": {
         "pageTitle": "Email Replies",
+        "noEmailsForCompany": "No emails linked to this company yet",
+        "companyEmailsTab": "Emails",
         "stats": {
             "total": "Total Replies",
             "unread": "Unread",
@@ -538,7 +596,10 @@
             "company": "Company",
             "contact": "Contact",
             "preview": "Reply Preview",
-            "date": "Date"
+            "date": "Date",
+            "stage": "Stage",
+            "notes": "Notes",
+            "columns": "Columns"
         },
         "status": {
             "matched": "Matched",
@@ -561,31 +622,70 @@
             "update": "Update",
             "markRead": "Mark as Read",
             "markUnread": "Mark as Unread",
-            "currentStage": "Current"
+            "currentStage": "Current",
+            "delete": "Delete Reply",
+            "deleteConfirm": "Are you sure you want to delete this reply?",
+            "confirmYes": "Yes, Delete",
+            "confirmNo": "Cancel"
+        },
+        "rematch": {
+            "button": "Auto Match",
+            "bulkButton": "Match {{count}} Unmatched",
+            "stepFetching": "Fetching unmatched emails...",
+            "stepMatching": "Comparing companies... {{done}} / {{total}}",
+            "stepDone": "Done: {{matched}} / {{total}} matched",
+            "success": "Company matched automatically.",
+            "noMatch": "No automatic match found. You can assign manually.",
+            "failed": "Auto matching failed."
         },
         "assign": {
             "title": "Assign to Company",
             "warning": "This reply has not been matched to any company yet. Please assign manually.",
             "searchCompany": "Search company...",
             "searchContact": "Search contact (optional)...",
-            "assignButton": "Assign"
+            "assignButton": "Assign",
+            "manualMatch": "Manual Match"
         },
         "aiCategory": {
             "title": "AI Category",
             "comingSoon": "Coming Soon — automatic segmentation"
         },
+        "importReplies": "Import Past Emails",
+        "importSuccess": "{{count}} new replies imported",
+        "importUpToDate": "All replies are up to date",
+        "import": {
+            "stepFetching": "Fetching campaigns...",
+            "stepImporting": "Importing... {{done}} / {{total}}: {{name}}",
+            "stepDone": "Done: {{count}} new emails imported"
+        },
+        "activeCampaigns": "Active Campaigns",
         "noData": "No email replies yet",
         "noDataDescription": "Replies from PlusVibe campaigns will appear here.",
         "loadMore": "Load More",
         "assigned": "Reply assigned successfully",
         "stageUpdated": "Stage updated successfully",
         "readStatusUpdated": "Read status updated",
+        "deleted": "Reply deleted successfully",
         "errors": {
             "loadFailed": "Could not load email replies",
             "loadFailedDescription": "There was a problem fetching data. Please refresh the page or try again later.",
             "readToggleFailed": "Could not update read status. Please try again.",
             "stageUpdateFailed": "Could not update stage. Please check your connection and try again.",
-            "assignFailed": "Could not assign company. Please try again."
+            "assignFailed": "Could not assign company. Please try again.",
+            "deleteFailed": "Could not delete reply. Please try again."
+        },
+        "thread": {
+            "expand": "Show {{count}} previous messages",
+            "collapse": "Hide previous messages"
+        },
+        "quickActivity": {
+            "title": "Quick Activity",
+            "button": "Activity",
+            "placeholder": "Activity note...",
+            "save": "Save",
+            "cancel": "Cancel",
+            "added": "Activity added",
+            "failed": "Could not add activity"
         }
     },
     "validation": {
@@ -600,5 +700,98 @@
         "conflict": "This record already exists",
         "validationFailed": "Please check the form",
         "generic": "Something went wrong, please try again"
+    },
+    "campaigns": {
+        "pageTitle": "Campaigns",
+        "sync": "Sync",
+        "synced": "Campaigns synced successfully",
+        "searchPlaceholder": "Search campaigns...",
+        "filters": {
+            "allStatuses": "All Statuses",
+            "active": "Active",
+            "paused": "Paused",
+            "completed": "Completed",
+            "draft": "Draft"
+        },
+        "notConfigured": "PlusVibe Not Configured",
+        "notConfiguredDesc": "To view campaigns, enter your PlusVibe API key and Workspace ID in Settings > Integrations.",
+        "connectionError": "Could not connect to PlusVibe. Please check your API key.",
+        "noData": "No campaigns yet",
+        "noAssignedDesc": "No campaigns have been assigned to you yet. Contact your administrator.",
+        "lastSync": "Last sync",
+        "stats": {
+            "sent": "Sent",
+            "opens": "Opens",
+            "clicks": "Clicks",
+            "replies": "Replies"
+        },
+        "table": {
+            "name": "Campaign Name",
+            "status": "Status",
+            "assignedTo": "Assigned To",
+            "unassigned": "Unassigned",
+            "leads": "Leads",
+            "sent": "Sent",
+            "openRate": "Open Rate",
+            "clickRate": "Click Rate",
+            "replyRate": "Reply Rate"
+        }
+    },
+    "feedback": {
+        "title": "Feedback",
+        "typeLabel": "Type",
+        "titleLabel": "Title",
+        "descriptionLabel": "Description",
+        "submit": "Submit",
+        "submitted": "Your feedback has been received. Thank you!",
+        "types": {
+            "featureRequest": "Feature Request",
+            "bugReport": "Bug Report"
+        },
+        "placeholders": {
+            "featureTitle": "What feature would you like to see?",
+            "featureDescription": "How do you expect this feature to work?",
+            "bugTitle": "Briefly describe the issue",
+            "bugDescription": "How can we reproduce the bug? What did you expect, what happened?"
+        },
+        "statuses": {
+            "open": "Open",
+            "inProgress": "In Progress",
+            "resolved": "Resolved",
+            "closed": "Closed"
+        },
+        "admin": {
+            "search": "Search title, description, or email...",
+            "allTypes": "All Types",
+            "allStatuses": "All Statuses",
+            "noData": "No feedback yet",
+            "statusUpdated": "Status updated",
+            "deleted": "Feedback deleted",
+            "delete": "Delete",
+            "table": {
+                "type": "Type",
+                "title": "Title",
+                "user": "User",
+                "status": "Status",
+                "date": "Date"
+            }
+        },
+        "errors": {
+            "submitFailed": "Could not submit feedback. Please try again.",
+            "updateFailed": "Could not update status.",
+            "deleteFailed": "Could not delete feedback."
+        }
+    },
+    "plusvibe": {
+        "setup": {
+            "title": "PlusVibe API",
+            "statusConnected": "Connected",
+            "statusDisconnected": "Disconnected",
+            "configuredViaEnv": "PlusVibe API is configured via server environment variables.",
+            "notConfigured": "PlusVibe API is not configured. Set PLUSVIBE_API_KEY and PLUSVIBE_WORKSPACE_ID env vars."
+        }
+    },
+    "shortcuts": {
+        "undone": "Undone"
     }
 }

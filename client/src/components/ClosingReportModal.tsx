@@ -16,6 +16,8 @@ import { IconAlertTriangle } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
+import { useAuth } from '../contexts/AuthContext';
+import { hasRolePermission } from '../lib/permissions';
 import type { ClosingOutcome } from '../types/activity';
 
 interface ClosingReportModalProps {
@@ -37,6 +39,8 @@ export default function ClosingReportModal({
 }: ClosingReportModalProps) {
     const { t } = useTranslation();
     const queryClient = useQueryClient();
+    const { user } = useAuth();
+    const canUseInternalNotes = hasRolePermission(user?.role ?? '', 'internal_notes');
 
     const form = useForm({
         initialValues: {
@@ -97,7 +101,6 @@ export default function ClosingReportModal({
         { value: 'won', label: t('activity.closingReport.won') },
         { value: 'lost', label: t('activity.closingReport.lost') },
         { value: 'on_hold', label: t('activity.closingReport.on_hold') },
-        { value: 'cancelled', label: t('activity.closingReport.cancelled') },
     ];
 
     const visibilityOptions = [
@@ -154,12 +157,14 @@ export default function ClosingReportModal({
                         {...form.getInputProps('detail')}
                     />
 
-                    <Select
-                        label={t('activity.visibility')}
-                        data={visibilityOptions}
-                        radius="md"
-                        {...form.getInputProps('visibility')}
-                    />
+                    {canUseInternalNotes && (
+                        <Select
+                            label={t('activity.visibility')}
+                            data={visibilityOptions}
+                            radius="md"
+                            {...form.getInputProps('visibility')}
+                        />
+                    )}
 
                     <Group justify="flex-end" mt="sm">
                         <Button variant="default" radius="md" onClick={onClose}>

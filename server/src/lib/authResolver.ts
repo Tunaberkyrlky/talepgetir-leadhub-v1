@@ -40,10 +40,23 @@ export async function resolveUserContext(
         .eq('user_id', userId)
         .eq('is_active', true);
 
-    // Resolve default tenant — prefer JWT claim, fall back to first active membership
-    const defaultTenantId: string | null = (appMetadata?.tenant_id as string)
-        || allMemberships?.[0]?.tenant_id
-        || null;
+    // Resolve default tenant — prefer JWT claim, fall back to first active membership.
+    // Validate the JWT-claimed tenant actually exists; if not, fall back gracefully
+    // (handles stale seed/test tenant IDs that were deleted from the tenants table).
+    const jwtTenantId = appMetadata?.tenant_id as string | undefined;
+    let defaultTenantId: string | null = null;
+
+    if (jwtTenantId) {
+        const { data: jwtTenant } = await supabaseAdmin
+            .from('tenants')
+            .select('id')
+            .eq('id', jwtTenantId)
+            .eq('is_active', true)
+            .single();
+        defaultTenantId = jwtTenant?.id || allMemberships?.[0]?.tenant_id || null;
+    } else {
+        defaultTenantId = allMemberships?.[0]?.tenant_id || null;
+    }
 
     // Base role
     const baseRole = isPlatformSuperadmin

@@ -27,6 +27,7 @@ import {
     Divider,
     Modal,
     Alert,
+    SegmentedControl,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure, useHotkeys } from '@mantine/hooks';
 import { showSuccess, showInfo, showErrorFromApi } from '../lib/notifications';
@@ -48,12 +49,14 @@ import {
     IconGripVertical,
     IconArrowLeft,
     IconMap,
+    IconMapPin,
     IconAlertCircle,
     IconCalendar,
+    IconChevronLeft,
+    IconChevronRight,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { DatePickerInput } from '@mantine/dates';
-import { type DatePeriod, getDateRange, getCustomDateRange } from '../lib/dateUtils';
 import {
     DndContext,
     closestCenter,
@@ -80,7 +83,6 @@ import ClosingReportModal from '../components/ClosingReportModal';
 import TruncatedText from '../components/TruncatedText';
 import EmailStatusIcon from '../components/EmailStatusIcon';
 import { useUndoStack } from '../hooks/useUndoStack';
-import { TERMINAL_STAGES } from '../lib/stages';
 import type { ClosingOutcome } from '../types/activity';
 
 interface Company {
@@ -106,6 +108,7 @@ interface Company {
     assigned_to: string | null;
     created_at: string;
     updated_at: string;
+    latitude: number | null;
     contact_count: number;
 }
 
@@ -146,6 +149,30 @@ interface ColumnDef {
 }
 
 const COLUMNS_STORAGE_KEY = 'leads_columns_v2';
+const LEADS_TABLE_STATE_KEY = 'leads_table_state';
+
+interface LeadsTableState {
+    page: number;
+    search: string;
+    selectedStages: string[];
+    selectedIndustries: string[];
+    selectedLocations: string[];
+    selectedProducts: string[];
+    periodType: PeriodType;
+    periodAnchor: string;
+    customRange: [string | null, string | null];
+    sortBy: SortKey;
+    sortOrder: 'asc' | 'desc';
+}
+
+function loadLeadsTableState(): LeadsTableState | null {
+    try {
+        const s = sessionStorage.getItem(LEADS_TABLE_STATE_KEY);
+        return s ? (JSON.parse(s) as LeadsTableState) : null;
+    } catch {
+        return null;
+    }
+}
 
 const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'name', visible: true },
@@ -238,34 +265,111 @@ function SortableColumnItem({
     );
 }
 
+// ─── Period Filter Helpers ────────────────────────────────────────────────────
+
+type PeriodType = 'day' | 'week' | 'month' | 'custom';
+
+function toLocalDateStr(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function getDateRangeForPeriod(type: PeriodType, anchor: Date): { from: string; to: string } {
+    if (type === 'day') {
+        const from = toLocalDateStr(anchor);
+        return { from, to: `${from}T23:59:59` };
+    }
+    if (type === 'week') {
+        const d = new Date(anchor);
+        const day = d.getDay();
+        const diff = day === 0 ? -6 : 1 - day;
+        const monday = new Date(d);
+        monday.setDate(d.getDate() + diff);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        return { from: toLocalDateStr(monday), to: `${toLocalDateStr(sunday)}T23:59:59` };
+    }
+    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const last = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+    return { from: toLocalDateStr(first), to: `${toLocalDateStr(last)}T23:59:59` };
+}
+
+function shiftPeriod(type: PeriodType, anchor: Date, direction: 1 | -1): Date {
+    const d = new Date(anchor);
+    if (type === 'day') d.setDate(d.getDate() + direction);
+    else if (type === 'week') d.setDate(d.getDate() + direction * 7);
+    else if (type === 'month') d.setMonth(d.getMonth() + direction);
+    return d;
+}
+
+function formatPeriodLabel(type: PeriodType, anchor: Date, locale: string): string {
+    if (type === 'day') return anchor.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+    if (type === 'week') {
+        const day = anchor.getDay();
+        const diff = day === 0 ? -6 : 1 - day;
+        const monday = new Date(anchor);
+        monday.setDate(anchor.getDate() + diff);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        const monthStr = sunday.toLocaleDateString(locale, { month: 'short' });
+        return `${monday.getDate()} — ${sunday.getDate()} ${monthStr} ${sunday.getFullYear()}`;
+    }
+    return anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+}
+
+
 export default function LeadsPage() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
     const { user } = useAuth();
-    const { allStages, getStageColor, getStageLabel } = useStages();
+    const { allStages, getStageColor, getStageLabel, terminalStageSlugs } = useStages();
     const queryClient = useQueryClient();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const fromMap = searchParams.get('fromMap') === 'true';
-    const [page, setPage] = useState(1);
+
+    // Restore table state when coming back from company detail
+    const savedState = fromMap ? null : loadLeadsTableState();
+
+    const [page, setPage] = useState(() => savedState?.page ?? 1);
     const [opened, { open, close }] = useDisclosure(false);
     const [editingCompany, setEditingCompany] = useState<Company | null>(null);
 
-    // Search & filter state — initialise from URL param when coming from the map
-    const [search, setSearch] = useState(() => searchParams.get('search') || '');
-    const [debouncedSearch] = useDebouncedValue(search, 300);
-    const [selectedStages, setSelectedStages] = useState<string[]>([]);
-    const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
-    const [selectedLocations, setSelectedLocations] = useState<string[]>(() => {
-        const loc = searchParams.get('locations');
-        return loc ? loc.split(',').filter(Boolean) : [];
+    // Search & filter state — initialise from URL param when coming from the map, otherwise restore saved state
+    const [search, setSearch] = useState(() => {
+        if (fromMap) return searchParams.get('search') || '';
+        return savedState?.search ?? '';
     });
-    const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
-    const [datePeriod, setDatePeriod] = useState<DatePeriod | null>(null);
-    const [customDateRange, setCustomDateRange] = useState<[Date | string | null, Date | string | null]>([null, null]);
+    const [debouncedSearch] = useDebouncedValue(search, 300);
+    const [selectedStages, setSelectedStages] = useState<string[]>(() => savedState?.selectedStages ?? []);
+    const [selectedIndustries, setSelectedIndustries] = useState<string[]>(() => savedState?.selectedIndustries ?? []);
+    const [selectedLocations, setSelectedLocations] = useState<string[]>(() => {
+        if (fromMap) {
+            const loc = searchParams.get('locations');
+            return loc ? loc.split(',').filter(Boolean) : [];
+        }
+        return savedState?.selectedLocations ?? [];
+    });
+    const [selectedProducts, setSelectedProducts] = useState<string[]>(() => savedState?.selectedProducts ?? []);
+    const [periodType, setPeriodType] = useState<PeriodType>(() => savedState?.periodType ?? 'month');
+    const [periodAnchor, setPeriodAnchor] = useState<Date>(() =>
+        savedState?.periodAnchor ? new Date(savedState.periodAnchor) : new Date()
+    );
+    const [customRange, setCustomRange] = useState<[Date | null, Date | null]>(() => {
+        if (savedState?.customRange) {
+            return [
+                savedState.customRange[0] ? new Date(savedState.customRange[0]) : null,
+                savedState.customRange[1] ? new Date(savedState.customRange[1]) : null,
+            ];
+        }
+        return [null, null];
+    });
 
     // Sort state
-    const [sortBy, setSortBy] = useState<SortKey>('updated_at');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [sortBy, setSortBy] = useState<SortKey>(() => savedState?.sortBy ?? 'updated_at');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(() => savedState?.sortOrder ?? 'desc');
 
     // Column visibility state
     const [columns, setColumns] = useState<ColumnDef[]>(loadColumnConfig);
@@ -285,13 +389,39 @@ export default function LeadsPage() {
 
     const canEdit = canWrite(user?.role || '');
 
+    const periodLabel = formatPeriodLabel(periodType, periodAnchor, locale);
+
     const dateParams = useMemo(() => {
-        if (datePeriod) return getDateRange(datePeriod);
-        if (customDateRange[0] && customDateRange[1]) {
-            return getCustomDateRange(customDateRange[0], customDateRange[1]);
+        if (periodType === 'custom') {
+            if (!customRange[0] || !customRange[1]) return null;
+            return {
+                dateFrom: `${toLocalDateStr(customRange[0] instanceof Date ? customRange[0] : new Date(customRange[0]))}T00:00:00`,
+                dateTo: `${toLocalDateStr(customRange[1] instanceof Date ? customRange[1] : new Date(customRange[1]))}T23:59:59`,
+            };
         }
-        return null;
-    }, [datePeriod, customDateRange]);
+        const r = getDateRangeForPeriod(periodType, periodAnchor);
+        return { dateFrom: r.from, dateTo: r.to };
+    }, [periodType, periodAnchor, customRange]);
+
+    const handleCompanyClick = useCallback((id: string) => {
+        sessionStorage.setItem(LEADS_TABLE_STATE_KEY, JSON.stringify({
+            page,
+            search,
+            selectedStages,
+            selectedIndustries,
+            selectedLocations,
+            selectedProducts,
+            periodType,
+            periodAnchor: periodAnchor.toISOString(),
+            customRange: [
+                customRange[0]?.toISOString() ?? null,
+                customRange[1]?.toISOString() ?? null,
+            ],
+            sortBy,
+            sortOrder,
+        } satisfies LeadsTableState));
+        navigate(`/companies/${id}`);
+    }, [page, search, selectedStages, selectedIndustries, selectedLocations, selectedProducts, periodType, periodAnchor, customRange, sortBy, sortOrder, navigate]);
 
     // Build query params (moved up so useQuery can be before handleRowSelect)
     const buildQueryParams = useCallback(() => {
@@ -376,58 +506,6 @@ export default function LeadsPage() {
     }, [page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
 
     // Bulk stage update mutation with undo support
-    const bulkStageMutation = useMutation({
-        mutationFn: async ({ stage, ids, oldStages }: { stage: string; ids: string[]; oldStages: Record<string, string> }) => {
-            await api.patch('/companies/bulk-stage', { ids, stage });
-            return { stage, ids, oldStages };
-        },
-        onSuccess: ({ ids, oldStages }) => {
-            queryClient.invalidateQueries({ queryKey: ['companies'] });
-            queryClient.invalidateQueries({ queryKey: ['filterOptions'] });
-            queryClient.invalidateQueries({ queryKey: ['statistics'] });
-            queryClient.invalidateQueries({ queryKey: ['pipeline'] });
-            // Push undo entry — revert each company to its old stage
-            undoStack.push({
-                description: t('bulk.stageChanged', 'Toplu aşama değişikliği'),
-                undo: async () => {
-                    const grouped = new Map<string, string[]>();
-                    for (const id of ids) {
-                        const old = oldStages[id];
-                        if (old) {
-                            if (!grouped.has(old)) grouped.set(old, []);
-                            grouped.get(old)!.push(id);
-                        }
-                    }
-                    for (const [stage, stageIds] of grouped) {
-                        await api.patch('/companies/bulk-stage', { ids: stageIds, stage });
-                    }
-                    queryClient.invalidateQueries({ queryKey: ['companies'] });
-                    queryClient.invalidateQueries({ queryKey: ['pipeline'] });
-                    queryClient.invalidateQueries({ queryKey: ['statistics'] });
-                },
-            });
-            setSelectedIds(new Set());
-            showSuccess(t('company.updated'));
-        },
-        onError: (err) => {
-            showErrorFromApi(err);
-        },
-    });
-
-    const handleBulkStageChange = useCallback((newStage: string) => {
-        if (TERMINAL_STAGES.includes(newStage as any)) {
-            showInfo(t('bulk.terminalNotBulk', 'Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir.'));
-            return;
-        }
-        const ids = Array.from(selectedIds);
-        const oldStages: Record<string, string> = {};
-        for (const id of ids) {
-            const company = data?.data.find(c => c.id === id);
-            if (company) oldStages[id] = company.stage;
-        }
-        bulkStageMutation.mutate({ stage: newStage, ids, oldStages });
-    }, [selectedIds, data?.data, bulkStageMutation]);
-
     const columnLabels: Record<ColumnKey, string> = {
         name: t('company.name'),
         website: t('company.website'),
@@ -559,7 +637,7 @@ export default function LeadsPage() {
         });
     };
 
-    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedProducts.length || !!datePeriod || !!(customDateRange[0] && customDateRange[1]));
+    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedProducts.length);
 
     const clearAllFilters = () => {
         setSearch('');
@@ -567,24 +645,9 @@ export default function LeadsPage() {
         setSelectedIndustries([]);
         setSelectedLocations([]);
         setSelectedProducts([]);
-        setDatePeriod(null);
-        setCustomDateRange([null, null]);
-    };
-
-    const handleDatePeriodToggle = (value: DatePeriod) => {
-        if (value === datePeriod) {
-            setDatePeriod(null); // toggle off
-        } else {
-            setDatePeriod(value);
-            setCustomDateRange([null, null]); // clear custom range
-        }
-    };
-
-    const handleCustomDateChange = (value: [Date | string | null, Date | string | null]) => {
-        setCustomDateRange(value);
-        if (value[0] && value[1]) {
-            setDatePeriod(null); // clear period when custom range selected
-        }
+        setPeriodType('month');
+        setPeriodAnchor(new Date());
+        setCustomRange([null, null]);
     };
 
     // Sort header component
@@ -680,7 +743,7 @@ export default function LeadsPage() {
                                         key={s.slug}
                                         onClick={() => {
                                             const isBulk = selectedIds.has(company.id) && selectedIds.size > 1;
-                                            if (TERMINAL_STAGES.includes(s.slug as any)) {
+                                            if (terminalStageSlugs.includes(s.slug)) {
                                                 if (isBulk) {
                                                     showInfo(t('bulk.terminalNotBulk', 'Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir.'));
                                                 } else {
@@ -746,7 +809,18 @@ export default function LeadsPage() {
             case 'industry':
                 return <Table.Td key="industry"><TruncatedText size="sm">{company.industry}</TruncatedText></Table.Td>;
             case 'location':
-                return <Table.Td key="location"><TruncatedText size="sm">{company.location}</TruncatedText></Table.Td>;
+                return (
+                    <Table.Td key="location">
+                        <Group gap={4} wrap="nowrap">
+                            <TruncatedText size="sm">{company.location}</TruncatedText>
+                            {company.latitude != null && (
+                                <Tooltip label={t('company.geocoded')} withArrow>
+                                    <IconMapPin size={14} color="var(--mantine-color-teal-6)" style={{ flexShrink: 0 }} />
+                                </Tooltip>
+                            )}
+                        </Group>
+                    </Table.Td>
+                );
             case 'employee_size':
                 return <Table.Td key="employee_size"><TruncatedText size="sm">{company.employee_size}</TruncatedText></Table.Td>;
             case 'product_services':
@@ -848,9 +922,11 @@ export default function LeadsPage() {
     const industryOptions = (filterOptions?.industries || []).map((s) => ({
         value: s, label: s,
     }));
-    const locationOptions = (filterOptions?.locations || []).map((s) => ({
-        value: s, label: s,
-    }));
+    const locationOptions = [
+        { value: '__empty__', label: t('filter.emptyLocation') },
+        { value: '__not_geocoded__', label: t('filter.notGeocoded') },
+        ...(filterOptions?.locations || []).map((s) => ({ value: s, label: s })),
+    ];
     const productOptions = (filterOptions?.products || []).map((s) => ({
         value: s, label: s,
     }));
@@ -976,30 +1052,67 @@ export default function LeadsPage() {
                         maxDropdownHeight={200}
                     />
                 </Group>
-                <Group mt="xs" gap="sm">
-                    <Button.Group>
-                        {(['day', 'week', 'month'] as DatePeriod[]).map((period) => (
-                            <Button
-                                key={period}
-                                variant={datePeriod === period ? 'filled' : 'default'}
-                                size="sm"
-                                onClick={() => handleDatePeriodToggle(period)}
-                            >
-                                {t(`filter.${period}`)}
-                            </Button>
-                        ))}
-                    </Button.Group>
-                    <DatePickerInput
-                        type="range"
-                        placeholder={t('filter.customRange')}
-                        value={customDateRange}
-                        onChange={handleCustomDateChange}
-                        leftSection={<IconCalendar size={16} />}
-                        clearable
-                        size="sm"
-                        maxDate={new Date()}
-                        w={220}
+                <Group mt="xs" gap="xs" wrap="nowrap" justify="flex-end">
+                    <SegmentedControl
+                        size="xs"
+                        value={periodType}
+                        onChange={(v) => {
+                            setPeriodType(v as PeriodType);
+                            setPeriodAnchor(new Date());
+                            setCustomRange([null, null]);
+                            setPage(1);
+                        }}
+                        data={[
+                            { label: t('activities.periodDay'), value: 'day' },
+                            { label: t('activities.periodWeek'), value: 'week' },
+                            { label: t('activities.periodMonth'), value: 'month' },
+                            { label: t('activities.periodCustom'), value: 'custom' },
+                        ]}
                     />
+
+                    {periodType !== 'custom' && (
+                        <Group gap={4} wrap="nowrap">
+                            <ActionIcon
+                                variant="subtle"
+                                color="gray"
+                                size="sm"
+                                onClick={() => { setPeriodAnchor((prev) => shiftPeriod(periodType, prev, -1)); setPage(1); }}
+                            >
+                                <IconChevronLeft size={14} />
+                            </ActionIcon>
+                            <Text size="xs" fw={600} miw={120} ta="center">
+                                {periodLabel}
+                            </Text>
+                            <ActionIcon
+                                variant="subtle"
+                                color="gray"
+                                size="sm"
+                                onClick={() => { setPeriodAnchor((prev) => shiftPeriod(periodType, prev, 1)); setPage(1); }}
+                            >
+                                <IconChevronRight size={14} />
+                            </ActionIcon>
+                            <Button
+                                size="compact-xs"
+                                variant="light"
+                                color="violet"
+                                onClick={() => { setPeriodAnchor(new Date()); setPage(1); }}
+                            >
+                                {t('activities.today')}
+                            </Button>
+                        </Group>
+                    )}
+
+                    {periodType === 'custom' && (
+                        <DatePickerInput
+                            type="range"
+                            placeholder={t('activities.dateRange')}
+                            value={customRange}
+                            onChange={(v) => { setCustomRange(v as [Date | null, Date | null]); setPage(1); }}
+                            leftSection={<IconCalendar size={16} />}
+                            clearable
+                            size="xs"
+                        />
+                    )}
                 </Group>
                 {hasActiveFilters && (
                     <Group mt="xs">
@@ -1034,22 +1147,6 @@ export default function LeadsPage() {
                             <Button variant="subtle" color="gray" size="xs" onClick={() => setSelectedIds(new Set())}>
                                 {t('bulk.clearSelection')}
                             </Button>
-                        </Group>
-                        <Group gap="xs">
-                            <Text size="sm" fw={500} c="dimmed">{t('bulk.moveTo')}</Text>
-                            {allStages.map((s) => (
-                                <Button
-                                    key={s.slug}
-                                    size="compact-xs"
-                                    variant="light"
-                                    color={s.color}
-                                    onClick={() => handleBulkStageChange(s.slug)}
-                                    loading={bulkStageMutation.isPending}
-                                    radius="sm"
-                                >
-                                    {getStageLabel(s.slug)}
-                                </Button>
-                            ))}
                         </Group>
                     </Group>
                 </Paper>
@@ -1183,7 +1280,7 @@ export default function LeadsPage() {
                                             cursor: 'pointer',
                                             background: selectedIds.has(company.id) ? 'var(--mantine-color-violet-light)' : undefined,
                                         }}
-                                        onClick={() => navigate(`/companies/${company.id}`)}
+                                        onClick={() => handleCompanyClick(company.id)}
                                     >
                                         <Table.Td
                                             style={{ width: 48, padding: '0 8px' }}
@@ -1252,19 +1349,37 @@ export default function LeadsPage() {
                         {/* Pagination */}
                         {data && data.pagination.totalPages > 1 && (
                             <Box p="md">
-                                <Flex justify="space-between" align="center">
+                                <Flex justify="space-between" align="center" gap="sm" wrap="wrap">
                                     <Text size="sm" c="dimmed">
                                         {t('pagination.showing')} {((page - 1) * 25) + 1}–
                                         {Math.min(page * 25, data.pagination.total)} {t('pagination.of')} {data.pagination.total}
                                     </Text>
-                                    <Pagination
-                                        total={data.pagination.totalPages}
-                                        value={page}
-                                        onChange={setPage}
-                                        color="violet"
-                                        radius="md"
-                                        size="sm"
-                                    />
+                                    <Flex align="center" gap="xs">
+                                        <Pagination
+                                            total={data.pagination.totalPages}
+                                            value={page}
+                                            onChange={setPage}
+                                            color="violet"
+                                            radius="md"
+                                            size="sm"
+                                        />
+                                        <TextInput
+                                            key={page}
+                                            size="xs"
+                                            placeholder={t('pagination.goTo')}
+                                            style={{ width: 110 }}
+                                            defaultValue=""
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
+                                                    if (!isNaN(val)) {
+                                                        setPage(Math.max(1, Math.min(val, data.pagination.totalPages)));
+                                                    }
+                                                    (e.currentTarget as HTMLInputElement).value = '';
+                                                }
+                                            }}
+                                        />
+                                    </Flex>
                                 </Flex>
                             </Box>
                         )}

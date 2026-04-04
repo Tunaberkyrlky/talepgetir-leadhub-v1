@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Table, TextInput, Select, Button, Group, Badge, Text,
@@ -63,6 +63,14 @@ export default function AdminUsersTab() {
             return res.data;
         },
     });
+
+    // Keep editingUser in sync when query data refreshes (e.g. after adding/removing memberships)
+    useEffect(() => {
+        if (editingUser && data?.data) {
+            const fresh = (data.data as AdminUser[]).find((u) => u.id === editingUser.id);
+            if (fresh) setEditingUser(fresh);
+        }
+    }, [data]);
 
     const deactivateMutation = useMutation({
         mutationFn: async (id: string) => api.delete(`/admin/users/${id}`),

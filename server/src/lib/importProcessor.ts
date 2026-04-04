@@ -8,6 +8,7 @@ import ExcelJS from 'exceljs';
 import fs from 'fs';
 import { supabaseAdmin } from './supabase.js';
 import { sanitizeCell } from './importMapper.js';
+import { clearCompanyCache } from './emailMatcher.js';
 import { cleanWebsite } from './dataMatcher.js';
 import { createLogger } from './logger.js';
 import { getTenantStages } from '../routes/settings.js';
@@ -340,7 +341,7 @@ async function _executeImportInner(
         }
 
         const rawStage = getValue(row, 'companies.stage');
-        let resolvedStage = initialStageSlug;
+        let resolvedStage: string | null = null;
         let stageOverflow: string | null = null;
         if (rawStage) {
             const { stage, overflow } = normalizeStage(rawStage, validStages, initialStageSlug);
@@ -367,6 +368,7 @@ async function _executeImportInner(
             company_phone: getValue(row, 'companies.company_phone') || null,
             company_email: getValue(row, 'companies.company_email') || null,
             ...(() => { const es = normalizeEmailStatus(getValue(row, 'companies.email_status')); return es ? { email_status: es } : {}; })(),
+            // null when CSV has no stage value — preserves existing stage on update
             stage: resolvedStage,
             company_summary: getValue(row, 'companies.company_summary') || null,
             next_step: getValue(row, 'companies.next_step') || null,
@@ -395,6 +397,8 @@ async function _executeImportInner(
             }
             updateCompanyMap.set(mapKey, { ...updatePayload, id: existing.id } as Record<string, unknown> & { id: string });
         } else {
+            // New company: fall back to initial stage when CSV has no stage value
+            if (!companyPayload.stage) companyPayload.stage = initialStageSlug;
             if (Object.keys(customFields).length > 0) {
                 const prevCustom = (newCompanyMap.get(mapKey)?.custom_fields as Record<string, string>) ?? {};
                 companyPayload.custom_fields = { ...prevCustom, ...customFields };
@@ -551,6 +555,9 @@ async function _executeImportInner(
     // ── Finalize ──
     const totalElapsed = Date.now() - t0;
     log.info({ successCount, errorCount: errors.length, createdCompanies, updatedCompanies, createdContacts, totalElapsed }, 'Import complete');
+
+    // Invalidate company cache so email matching picks up newly imported companies
+    clearCompanyCache(tenantId);
 
     await supabaseAdmin
         .from('import_jobs')

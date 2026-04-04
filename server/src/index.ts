@@ -7,11 +7,13 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import pinoHttp from 'pino-http';
 import path from 'path';
+import fs from 'fs';
 
 // Load env for local development (Railway/Vercel inject env vars directly)
 dotenv.config({ path: path.join(__dirname, '..', '..', '..', '.env') });
 
 import logger from './lib/logger.js';
+import { supabaseAdmin } from './lib/supabase.js';
 import { authMiddleware, requireRole } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { dataFilter } from './middleware/dataFilter.js';
@@ -26,19 +28,30 @@ import adminRoutes from './routes/admin.js';
 import settingsRoutes from './routes/settings.js';
 import activitiesRoutes from './routes/activities.js';
 import emailRepliesRoutes from './routes/email-replies.js';
+import plusvibeRoutes from './routes/plusvibe.js';
 import webhooksRoutes from './routes/webhooks.js';
+import feedbackRoutes from './routes/feedback.js';
 
 const app = express();
 const PORT = process.env.PORT || process.env.API_PORT || 3001;
 
-// Trust Vercel / reverse-proxy X-Forwarded-For so rate limiters identify real IPs
-app.set('trust proxy', 1);
-
 // Compression (before all routes for smaller responses)
-app.use(compression());
+// Skip compression for SSE endpoints — buffering breaks streaming
+app.use(compression({
+    filter: (req, res) => {
+        if (req.url.includes('/geocode')) return false;
+        return compression.filter(req, res);
+    },
+}));
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+    contentSecurityPolicy: false,
+}));
+app.use((_req, res, next) => {
+    res.setHeader('Permissions-Policy', 'window-management=(), protocol-handler=()');
+    next();
+});
 app.use(pinoHttp({
     logger,
     customSuccessMessage: (req: any, res: any, responseTime: any) =>
@@ -103,13 +116,32 @@ const webhookLimiter = rateLimit({
     message: { error: 'Too many webhook requests' },
 });
 
+const plusvibeImportLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many PlusVibe import requests, please try again later' },
+});
 
 // Apply general rate limit to all API routes
 app.use('/api', generalLimiter);
 
-// Health check (no auth)
-app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check (no auth) — tests HTTP liveness and Supabase connectivity
+app.get('/api/health', async (_req, res) => {
+    try {
+        // Lightweight Supabase ping: count one row from tenants (0 rows is fine, error is not)
+        const { error } = await supabaseAdmin
+            .from('tenants')
+            .select('id', { count: 'exact', head: true });
+        if (error) {
+            res.status(503).json({ status: 'degraded', database: 'unreachable', timestamp: new Date().toISOString() });
+            return;
+        }
+        res.json({ status: 'ok', database: 'connected', timestamp: new Date().toISOString() });
+    } catch {
+        res.status(503).json({ status: 'degraded', database: 'unreachable', timestamp: new Date().toISOString() });
+    }
 });
 
 // Auth routes — strict rate limit on login/refresh
@@ -131,6 +163,21 @@ app.use('/api/statistics', authMiddleware, statisticsRoutes);
 app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
 app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
+app.use('/api/plusvibe/import-replies', authMiddleware, plusvibeImportLimiter);
+app.use('/api/plusvibe', authMiddleware, dataFilter, plusvibeRoutes);
+app.use('/api/feedback', authMiddleware, feedbackRoutes);
+
+// Serve static client files in production (Railway/non-Vercel)
+if (!process.env.VERCEL) {
+    const clientDist = path.resolve(__dirname, '../../client/dist');
+    if (fs.existsSync(path.join(clientDist, 'index.html'))) {
+        app.use(express.static(clientDist));
+        // SPA fallback — serve index.html for all non-API routes
+        app.get(/^(?!\/api).*/, (_req, res) => {
+            res.sendFile(path.join(clientDist, 'index.html'));
+        });
+    }
+}
 
 // Serve static client build (Railway: single-service deployment)
 const CLIENT_DIST = path.join(__dirname, '..', '..', 'client', 'dist');

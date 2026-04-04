@@ -17,10 +17,10 @@ import {
     Collapse,
     UnstyledButton,
     TextInput,
-    ActionIcon,
-    Alert,
     CopyButton,
     Tooltip,
+    ActionIcon,
+    Alert,
 } from '@mantine/core';
 import {
     IconSun,
@@ -38,6 +38,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import PipelineSettingsEditor, { type PipelineSettingsEditorHandle } from './PipelineSettingsEditor';
+import PlusVibeSetup from './plusvibe/PlusVibeSetup';
 
 interface SettingsModalProps {
     opened: boolean;
@@ -66,6 +67,10 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
     const [confirmCloseOpened, setConfirmCloseOpened] = useState(false);
     const [shortcutsOpen, setShortcutsOpen] = useState(false);
     const pipelineSaveRef = useRef<PipelineSettingsEditorHandle | null>(null);
+    const { accessibleTenants, user } = useAuth();
+    const isInternal = user?.role === 'superadmin' || user?.role === 'ops_agent';
+
+    const apiBase = (import.meta.env.VITE_API_URL as string) || `${window.location.origin}/api`;
 
     useEffect(() => {
         if (opened) setActiveTab(defaultTab);
@@ -74,7 +79,6 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
     const { setColorScheme } = useMantineColorScheme();
     const computed = useComputedColorScheme('light');
     const { t, i18n } = useTranslation();
-    const { activeTenantId } = useAuth();
     const isDark = computed === 'dark';
     const isTurkish = i18n.language === 'tr';
 
@@ -103,14 +107,10 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
         setConfirmCloseOpened(false);
     }, []);
 
-    const webhookUrl = activeTenantId
-        ? `${window.location.origin}/api/webhooks/plusvibe/${activeTenantId}`
-        : '';
-
     const tabs = [
         { value: 'general', label: t('settings.general', 'Genel'), icon: <IconSettings size={18} /> },
         { value: 'pipeline', label: t('settings.pipelineTab', 'Pipeline'), icon: <IconColumns size={18} /> },
-        { value: 'integrations', label: t('settings.integrationsTab', 'Entegrasyonlar'), icon: <IconWebhook size={18} /> },
+        ...(isInternal ? [{ value: 'integrations', label: t('settings.integrationsTab', 'Entegrasyonlar'), icon: <IconWebhook size={18} /> }] : []),
     ];
 
     return (
@@ -237,32 +237,54 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
                                 />
                             )}
 
-                            {activeTab === 'integrations' && (
-                                <Stack gap="md">
-                                    <Text size="sm" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.5px' }}>
-                                        PlusVibe
-                                    </Text>
-                                    <Text size="sm" fw={500}>{t('settings.webhookTitle')}</Text>
-                                    <Text size="xs" c="dimmed">{t('settings.webhookDesc')}</Text>
-                                    <CopyButton value={webhookUrl} timeout={2000}>
-                                        {({ copied, copy }) => (
-                                            <TextInput
-                                                value={webhookUrl}
-                                                readOnly
-                                                styles={{ input: { fontFamily: 'monospace', fontSize: 12 } }}
-                                                rightSection={
-                                                    <Tooltip label={copied ? t('settings.webhookCopied') : t('common.copy', 'Kopyala')} withArrow>
-                                                        <ActionIcon variant="subtle" color={copied ? 'teal' : 'gray'} onClick={copy}>
-                                                            {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
-                                                        </ActionIcon>
-                                                    </Tooltip>
-                                                }
-                                            />
-                                        )}
-                                    </CopyButton>
-                                    <Alert icon={<IconInfoCircle size={16} />} color="blue" variant="light" radius="md">
-                                        <Text size="xs">{t('settings.webhookSecretHint')}</Text>
-                                    </Alert>
+                            {activeTab === 'integrations' && isInternal && (
+                                <Stack gap="lg">
+                                    {/* PlusVibe API Status — superadmin/ops only */}
+                                    {isInternal && (
+                                        <>
+                                            <PlusVibeSetup />
+                                            <Divider />
+                                        </>
+                                    )}
+
+                                    {/* PlusVibe Webhook URLs — one per tenant */}
+                                    <Stack gap="sm">
+                                        <Text size="sm" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.5px' }}>
+                                            {t('settings.webhookTitle', 'Webhook URL')}
+                                        </Text>
+                                        <Text size="xs" c="dimmed">
+                                            {t('settings.webhookDesc', 'Her tenant için ayrı bir webhook URL\'i kullanılır. İlgili URL\'i PlusVibe ayarlarına yapıştırın.')}
+                                        </Text>
+
+                                        {accessibleTenants.map((tenant) => {
+                                            const url = `${apiBase}/webhooks/plusvibe/${tenant.id}`;
+                                            return (
+                                                <Stack key={tenant.id} gap={4}>
+                                                    <Text size="xs" fw={600}>{tenant.name}</Text>
+                                                    <CopyButton value={url} timeout={2000}>
+                                                        {({ copied, copy }) => (
+                                                            <TextInput
+                                                                value={url}
+                                                                readOnly
+                                                                styles={{ input: { fontFamily: 'monospace', fontSize: 11 } }}
+                                                                rightSection={
+                                                                    <Tooltip label={copied ? t('settings.webhookCopied', 'Kopyalandı!') : t('common.copy', 'Kopyala')} withArrow>
+                                                                        <ActionIcon variant="subtle" color={copied ? 'teal' : 'gray'} onClick={copy}>
+                                                                            {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
+                                                                        </ActionIcon>
+                                                                    </Tooltip>
+                                                                }
+                                                            />
+                                                        )}
+                                                    </CopyButton>
+                                                </Stack>
+                                            );
+                                        })}
+
+                                        <Alert icon={<IconInfoCircle size={16} />} color="blue" variant="light" radius="md" mt="xs">
+                                            <Text size="xs">{t('settings.webhookSecretHint', 'Webhook secret sunucu tarafında PLUSVIBE_WEBHOOK_SECRET ortam değişkeni olarak ayarlanmalıdır.')}</Text>
+                                        </Alert>
+                                    </Stack>
                                 </Stack>
                             )}
                         </Box>
