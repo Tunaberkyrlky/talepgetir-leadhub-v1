@@ -130,13 +130,6 @@ function formatPeriodLabel(periodType: PeriodType, anchor: Date, locale: string)
     return anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
 }
 
-function isCurrentPeriod(periodType: PeriodType, anchor: Date): boolean {
-    if (periodType === 'custom') return false;
-    const today = new Date();
-    const todayRange = getDateRange(periodType, today);
-    const anchorRange = getDateRange(periodType, anchor);
-    return todayRange.from === anchorRange.from;
-}
 
 function formatDate(iso: string, locale: string): string {
     return new Date(iso).toLocaleDateString(locale, {

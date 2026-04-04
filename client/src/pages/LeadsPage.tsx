@@ -293,11 +293,6 @@ function formatPeriodLabel(type: PeriodType, anchor: Date, locale: string): stri
     return anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
 }
 
-function isCurrentPeriod(type: PeriodType, anchor: Date): boolean {
-    if (type === 'custom') return false;
-    const today = new Date();
-    return getDateRangeForPeriod(type, today).from === getDateRangeForPeriod(type, anchor).from;
-}
 
 export default function LeadsPage() {
     const { t, i18n } = useTranslation();
@@ -445,44 +440,6 @@ export default function LeadsPage() {
     }, [page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
 
     // Bulk stage update mutation with undo support
-    const bulkStageMutation = useMutation({
-        mutationFn: async ({ stage, ids, oldStages }: { stage: string; ids: string[]; oldStages: Record<string, string> }) => {
-            await api.patch('/companies/bulk-stage', { ids, stage });
-            return { stage, ids, oldStages };
-        },
-        onSuccess: ({ ids, oldStages }) => {
-            queryClient.invalidateQueries({ queryKey: ['companies'] });
-            queryClient.invalidateQueries({ queryKey: ['filterOptions'] });
-            queryClient.invalidateQueries({ queryKey: ['statistics'] });
-            queryClient.invalidateQueries({ queryKey: ['pipeline'] });
-            // Push undo entry — revert each company to its old stage
-            undoStack.push({
-                description: t('bulk.stageChanged', 'Toplu aşama değişikliği'),
-                undo: async () => {
-                    const grouped = new Map<string, string[]>();
-                    for (const id of ids) {
-                        const old = oldStages[id];
-                        if (old) {
-                            if (!grouped.has(old)) grouped.set(old, []);
-                            grouped.get(old)!.push(id);
-                        }
-                    }
-                    for (const [stage, stageIds] of grouped) {
-                        await api.patch('/companies/bulk-stage', { ids: stageIds, stage });
-                    }
-                    queryClient.invalidateQueries({ queryKey: ['companies'] });
-                    queryClient.invalidateQueries({ queryKey: ['pipeline'] });
-                    queryClient.invalidateQueries({ queryKey: ['statistics'] });
-                },
-            });
-            setSelectedIds(new Set());
-            showSuccess(t('company.updated'));
-        },
-        onError: (err) => {
-            showErrorFromApi(err);
-        },
-    });
-
     const columnLabels: Record<ColumnKey, string> = {
         name: t('company.name'),
         website: t('company.website'),
