@@ -118,8 +118,20 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         // Apply location filter
         if (locations.length > 0) {
-            countQuery = countQuery.in('location', locations);
-            dataQuery = dataQuery.in('location', locations);
+            const includesEmpty = locations.includes('__empty__');
+            const namedLocations = locations.filter(l => l !== '__empty__');
+            if (includesEmpty && namedLocations.length > 0) {
+                // NULL or empty string OR specific locations
+                const orFilter = `location.is.null,location.eq.,location.in.(${namedLocations.join(',')})`;
+                countQuery = countQuery.or(orFilter);
+                dataQuery = dataQuery.or(orFilter);
+            } else if (includesEmpty) {
+                countQuery = countQuery.or('location.is.null,location.eq.');
+                dataQuery = dataQuery.or('location.is.null,location.eq.');
+            } else {
+                countQuery = countQuery.in('location', namedLocations);
+                dataQuery = dataQuery.in('location', namedLocations);
+            }
         }
 
         // Apply product_services filter
@@ -610,30 +622,53 @@ router.post(
 
             send({ type: 'progress', message: 'Konumları eksik şirketler aranıyor...' });
 
-            // Fetch pipeline companies that have a location but no coordinates
-            const { data: companies, error } = await supabaseAdmin
-                .from('companies')
-                .select('id, location')
-                .eq('tenant_id', tenantId)
-                .in('stage', targetStages)
-                .not('location', 'is', null)
-                .is('latitude', null);
+            // Count total pipeline companies and those missing location text
+            const [totalPipelineRes, noLocationRes, companiesRes] = await Promise.all([
+                supabaseAdmin
+                    .from('companies')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId)
+                    .in('stage', targetStages),
+                supabaseAdmin
+                    .from('companies')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('tenant_id', tenantId)
+                    .in('stage', targetStages)
+                    .is('location', null)
+                    .is('latitude', null),
+                // Fetch pipeline companies that have a location but no coordinates
+                supabaseAdmin
+                    .from('companies')
+                    .select('id, location')
+                    .eq('tenant_id', tenantId)
+                    .in('stage', targetStages)
+                    .not('location', 'is', null)
+                    .is('latitude', null),
+            ]);
 
-            if (error) {
+            if (companiesRes.error) {
                 send({ type: 'error', message: 'Şirketler yüklenemedi' });
                 res.end();
                 return;
             }
 
+            const totalPipeline = totalPipelineRes.count || 0;
+            const noLocation = noLocationRes.count || 0;
+            const companies = companiesRes.data;
             const total = companies?.length || 0;
 
+            send({
+                type: 'progress',
+                message: `${totalPipeline} şirket tarandı — ${noLocation > 0 ? `${noLocation} şehir bilgisi eksik, ` : ''}${total} koordinatsız şirket bulundu`,
+            });
+
             if (total === 0) {
-                send({ type: 'result', total: 0, geocoded: 0, skipped: 0 });
+                send({ type: 'result', total: 0, geocoded: 0, skipped: 0, noLocation, totalPipeline });
                 res.end();
                 return;
             }
 
-            send({ type: 'progress', message: `${total} şirket bulundu, koordinatlar çözümleniyor...` });
+            send({ type: 'progress', message: `${total} şirket için koordinatlar çözümleniyor...` });
 
             // Resolve coordinates for each company and batch by coordinate value
             const updates = new Map<string, string[]>(); // "lat,lng" → [company_id, ...]
@@ -660,7 +695,7 @@ router.post(
             });
 
             if (resolvable === 0) {
-                send({ type: 'result', total, geocoded: 0, skipped });
+                send({ type: 'result', total, geocoded: 0, skipped, noLocation, totalPipeline });
                 res.end();
                 return;
             }
@@ -679,8 +714,8 @@ router.post(
                 if (!updateError) geocoded += ids.length;
             }
 
-            log.info({ tenantId, targetStages, total, geocoded, skipped }, 'Batch geocode complete');
-            send({ type: 'result', total, geocoded, skipped });
+            log.info({ tenantId, targetStages, total, geocoded, skipped, noLocation, totalPipeline }, 'Batch geocode complete');
+            send({ type: 'result', total, geocoded, skipped, noLocation, totalPipeline });
             res.end();
         } catch (err) {
             log.error({ err }, 'Batch geocode error');

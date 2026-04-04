@@ -147,6 +147,30 @@ interface ColumnDef {
 }
 
 const COLUMNS_STORAGE_KEY = 'leads_columns_v2';
+const LEADS_TABLE_STATE_KEY = 'leads_table_state';
+
+interface LeadsTableState {
+    page: number;
+    search: string;
+    selectedStages: string[];
+    selectedIndustries: string[];
+    selectedLocations: string[];
+    selectedProducts: string[];
+    periodType: PeriodType;
+    periodAnchor: string;
+    customRange: [string | null, string | null];
+    sortBy: SortKey;
+    sortOrder: 'asc' | 'desc';
+}
+
+function loadLeadsTableState(): LeadsTableState | null {
+    try {
+        const s = sessionStorage.getItem(LEADS_TABLE_STATE_KEY);
+        return s ? (JSON.parse(s) as LeadsTableState) : null;
+    } catch {
+        return null;
+    }
+}
 
 const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'name', visible: true },
@@ -303,27 +327,47 @@ export default function LeadsPage() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const fromMap = searchParams.get('fromMap') === 'true';
-    const [page, setPage] = useState(1);
+
+    // Restore table state when coming back from company detail
+    const savedState = fromMap ? null : loadLeadsTableState();
+
+    const [page, setPage] = useState(() => savedState?.page ?? 1);
     const [opened, { open, close }] = useDisclosure(false);
     const [editingCompany, setEditingCompany] = useState<Company | null>(null);
 
-    // Search & filter state — initialise from URL param when coming from the map
-    const [search, setSearch] = useState(() => searchParams.get('search') || '');
-    const [debouncedSearch] = useDebouncedValue(search, 300);
-    const [selectedStages, setSelectedStages] = useState<string[]>([]);
-    const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
-    const [selectedLocations, setSelectedLocations] = useState<string[]>(() => {
-        const loc = searchParams.get('locations');
-        return loc ? loc.split(',').filter(Boolean) : [];
+    // Search & filter state — initialise from URL param when coming from the map, otherwise restore saved state
+    const [search, setSearch] = useState(() => {
+        if (fromMap) return searchParams.get('search') || '';
+        return savedState?.search ?? '';
     });
-    const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
-    const [periodType, setPeriodType] = useState<PeriodType>('month');
-    const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date());
-    const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null]);
+    const [debouncedSearch] = useDebouncedValue(search, 300);
+    const [selectedStages, setSelectedStages] = useState<string[]>(() => savedState?.selectedStages ?? []);
+    const [selectedIndustries, setSelectedIndustries] = useState<string[]>(() => savedState?.selectedIndustries ?? []);
+    const [selectedLocations, setSelectedLocations] = useState<string[]>(() => {
+        if (fromMap) {
+            const loc = searchParams.get('locations');
+            return loc ? loc.split(',').filter(Boolean) : [];
+        }
+        return savedState?.selectedLocations ?? [];
+    });
+    const [selectedProducts, setSelectedProducts] = useState<string[]>(() => savedState?.selectedProducts ?? []);
+    const [periodType, setPeriodType] = useState<PeriodType>(() => savedState?.periodType ?? 'month');
+    const [periodAnchor, setPeriodAnchor] = useState<Date>(() =>
+        savedState?.periodAnchor ? new Date(savedState.periodAnchor) : new Date()
+    );
+    const [customRange, setCustomRange] = useState<[Date | null, Date | null]>(() => {
+        if (savedState?.customRange) {
+            return [
+                savedState.customRange[0] ? new Date(savedState.customRange[0]) : null,
+                savedState.customRange[1] ? new Date(savedState.customRange[1]) : null,
+            ];
+        }
+        return [null, null];
+    });
 
     // Sort state
-    const [sortBy, setSortBy] = useState<SortKey>('updated_at');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [sortBy, setSortBy] = useState<SortKey>(() => savedState?.sortBy ?? 'updated_at');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(() => savedState?.sortOrder ?? 'desc');
 
     // Column visibility state
     const [columns, setColumns] = useState<ColumnDef[]>(loadColumnConfig);
@@ -356,6 +400,26 @@ export default function LeadsPage() {
         const r = getDateRangeForPeriod(periodType, periodAnchor);
         return { dateFrom: r.from, dateTo: r.to };
     }, [periodType, periodAnchor, customRange]);
+
+    const handleCompanyClick = useCallback((id: string) => {
+        sessionStorage.setItem(LEADS_TABLE_STATE_KEY, JSON.stringify({
+            page,
+            search,
+            selectedStages,
+            selectedIndustries,
+            selectedLocations,
+            selectedProducts,
+            periodType,
+            periodAnchor: periodAnchor.toISOString(),
+            customRange: [
+                customRange[0]?.toISOString() ?? null,
+                customRange[1]?.toISOString() ?? null,
+            ],
+            sortBy,
+            sortOrder,
+        } satisfies LeadsTableState));
+        navigate(`/companies/${id}`);
+    }, [page, search, selectedStages, selectedIndustries, selectedLocations, selectedProducts, periodType, periodAnchor, customRange, sortBy, sortOrder, navigate]);
 
     // Build query params (moved up so useQuery can be before handleRowSelect)
     const buildQueryParams = useCallback(() => {
@@ -845,9 +909,10 @@ export default function LeadsPage() {
     const industryOptions = (filterOptions?.industries || []).map((s) => ({
         value: s, label: s,
     }));
-    const locationOptions = (filterOptions?.locations || []).map((s) => ({
-        value: s, label: s,
-    }));
+    const locationOptions = [
+        { value: '__empty__', label: t('filter.emptyLocation') },
+        ...(filterOptions?.locations || []).map((s) => ({ value: s, label: s })),
+    ];
     const productOptions = (filterOptions?.products || []).map((s) => ({
         value: s, label: s,
     }));
@@ -1201,7 +1266,7 @@ export default function LeadsPage() {
                                             cursor: 'pointer',
                                             background: selectedIds.has(company.id) ? 'var(--mantine-color-violet-light)' : undefined,
                                         }}
-                                        onClick={() => navigate(`/companies/${company.id}`)}
+                                        onClick={() => handleCompanyClick(company.id)}
                                     >
                                         <Table.Td
                                             style={{ width: 48, padding: '0 8px' }}
@@ -1270,19 +1335,37 @@ export default function LeadsPage() {
                         {/* Pagination */}
                         {data && data.pagination.totalPages > 1 && (
                             <Box p="md">
-                                <Flex justify="space-between" align="center">
+                                <Flex justify="space-between" align="center" gap="sm" wrap="wrap">
                                     <Text size="sm" c="dimmed">
                                         {t('pagination.showing')} {((page - 1) * 25) + 1}–
                                         {Math.min(page * 25, data.pagination.total)} {t('pagination.of')} {data.pagination.total}
                                     </Text>
-                                    <Pagination
-                                        total={data.pagination.totalPages}
-                                        value={page}
-                                        onChange={setPage}
-                                        color="violet"
-                                        radius="md"
-                                        size="sm"
-                                    />
+                                    <Flex align="center" gap="xs">
+                                        <Pagination
+                                            total={data.pagination.totalPages}
+                                            value={page}
+                                            onChange={setPage}
+                                            color="violet"
+                                            radius="md"
+                                            size="sm"
+                                        />
+                                        <TextInput
+                                            key={page}
+                                            size="xs"
+                                            placeholder={t('pagination.goTo')}
+                                            style={{ width: 110 }}
+                                            defaultValue=""
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
+                                                    if (!isNaN(val)) {
+                                                        setPage(Math.max(1, Math.min(val, data.pagination.totalPages)));
+                                                    }
+                                                    (e.currentTarget as HTMLInputElement).value = '';
+                                                }
+                                            }}
+                                        />
+                                    </Flex>
                                 </Flex>
                             </Box>
                         )}
