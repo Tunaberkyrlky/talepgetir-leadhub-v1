@@ -24,6 +24,10 @@ npm-debug.log*
 # Supabase
 supabase/.temp/
 
+# Brainstorm outputs
+temp/
+.superpowers/
+
 # MCP (contains secrets)
 .mcp.json
 
