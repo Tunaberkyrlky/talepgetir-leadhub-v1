@@ -80,15 +80,27 @@ router.get(
             const companyIds = [...new Set(list.map((r: any) => r.company_id).filter(Boolean))];
             const contactIds = [...new Set(list.map((r: any) => r.contact_id).filter(Boolean))];
 
-            const companyMap: Record<string, string> = {};
+            const companyMap: Record<string, { name: string; stage: string | null }> = {};
+            const activityCountMap: Record<string, number> = {};
             const contactMap: Record<string, string> = {};
 
             if (companyIds.length > 0) {
-                const { data: companies } = await supabaseAdmin
-                    .from('companies')
-                    .select('id, name')
-                    .in('id', companyIds);
-                for (const c of companies || []) companyMap[c.id] = c.name;
+                const [{ data: companies }, { data: activities }] = await Promise.all([
+                    supabaseAdmin
+                        .from('companies')
+                        .select('id, name, stage')
+                        .in('id', companyIds),
+                    supabaseAdmin
+                        .from('activities')
+                        .select('company_id')
+                        .in('company_id', companyIds),
+                ]);
+                for (const c of companies || []) {
+                    companyMap[c.id] = { name: c.name, stage: c.stage ?? null };
+                }
+                for (const a of activities || []) {
+                    activityCountMap[a.company_id] = (activityCountMap[a.company_id] ?? 0) + 1;
+                }
             }
 
             if (contactIds.length > 0) {
@@ -103,7 +115,9 @@ router.get(
 
             const mapped = list.map((r: any) => ({
                 ...r,
-                company_name: r.company_id ? (companyMap[r.company_id] || null) : null,
+                company_name: r.company_id ? (companyMap[r.company_id]?.name || null) : null,
+                company_stage: r.company_id ? (companyMap[r.company_id]?.stage ?? null) : null,
+                company_activity_count: r.company_id ? (activityCountMap[r.company_id] ?? 0) : null,
                 contact_name: r.contact_id ? (contactMap[r.contact_id] || null) : null,
             }));
 
@@ -611,7 +625,39 @@ router.get(
                 throw new AppError('Failed to fetch emails', 500);
             }
 
-            res.json(data || []);
+            const list = data || [];
+
+            // Resolve company name and stage
+            let companyName: string | null = null;
+            let companyStage: string | null = null;
+            const { data: companyRow } = await supabaseAdmin
+                .from('companies')
+                .select('name, stage')
+                .eq('id', companyId)
+                .single();
+            if (companyRow) { companyName = companyRow.name; companyStage = companyRow.stage ?? null; }
+
+            // Resolve contact names
+            const contactIds = [...new Set(list.map((r: any) => r.contact_id).filter(Boolean))];
+            const contactMap: Record<string, string> = {};
+            if (contactIds.length > 0) {
+                const { data: contacts } = await supabaseAdmin
+                    .from('contacts')
+                    .select('id, first_name, last_name')
+                    .in('id', contactIds);
+                for (const c of contacts || []) {
+                    contactMap[c.id] = [c.first_name, c.last_name].filter(Boolean).join(' ');
+                }
+            }
+
+            const mapped = list.map((r: any) => ({
+                ...r,
+                company_name: companyName,
+                company_stage: companyStage,
+                contact_name: r.contact_id ? (contactMap[r.contact_id] || null) : null,
+            }));
+
+            res.json(mapped);
         } catch (err) {
             if (err instanceof AppError) return next(err);
             next(new AppError('Failed to fetch emails', 500));

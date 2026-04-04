@@ -26,7 +26,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS } from '../lib/activityConstants';
 import { useAuth } from '../contexts/AuthContext';
-import { hasRolePermission } from '../lib/permissions';
+import { hasRolePermission, canDelete } from '../lib/permissions';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import api from '../lib/api';
 import ActivityForm from './ActivityForm';
@@ -78,7 +78,7 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
     const typeFilter = externalTypeFilter ?? '';
 
     const canEditActivities = hasRolePermission(user?.role || '', 'activity_write');
-    const isSuperadmin = user?.role === 'superadmin';
+    const canDeleteActivities = canDelete(user?.role || '');
 
     // Reset accumulated pages when typeFilter changes
     useEffect(() => {
@@ -236,7 +236,7 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
                                                                 {t('activity.editActivity')}
                                                             </Menu.Item>
                                                         )}
-                                                        {isSuperadmin && (
+                                                        {canDeleteActivities && (
                                                             <Menu.Item
                                                                 color="red"
                                                                 leftSection={<IconTrash size={14} />}

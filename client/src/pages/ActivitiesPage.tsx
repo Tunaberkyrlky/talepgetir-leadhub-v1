@@ -1,23 +1,26 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, SegmentedControl,
     Loader, Center, Button, SimpleGrid, Select, TextInput, ActionIcon,
-    Skeleton, Divider,
+    Skeleton, Divider, Menu,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
 import {
     IconNotes, IconCalendar, IconClock,
     IconUser, IconSearch, IconChevronLeft, IconChevronRight,
+    IconDotsVertical, IconPencil, IconTrash,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
-import { isInternal } from '../lib/permissions';
+import { isInternal, hasRolePermission, canDelete } from '../lib/permissions';
 import api from '../lib/api';
 import StatCard from '../components/StatCard';
 import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS } from '../lib/activityConstants';
+import ActivityForm from '../components/ActivityForm';
+import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import type { Activity, ActivityType } from '../types/activity';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
@@ -167,11 +170,18 @@ interface ActivityCardProps {
     navigate: ReturnType<typeof useNavigate>;
     t: ReturnType<typeof useTranslation>['t'];
     locale: string;
+    canEdit: boolean;
+    canDeleteItem: boolean;
+    onEdit: (activity: Activity) => void;
+    onDelete: (id: string) => void;
 }
 
-function ActivityCard({ activity, navigate, t, locale }: ActivityCardProps) {
+function ActivityCard({ activity, navigate, t, locale, canEdit, canDeleteItem, onEdit, onDelete }: ActivityCardProps) {
     const color = ACTIVITY_COLORS[activity.type] || 'gray';
     const outcomeColor = OUTCOME_COLORS[activity.outcome || ''] || 'gray';
+    const isStatusChange = activity.type === 'status_change';
+    const isClosingReport = activity.type === 'sonlandirma_raporu';
+    const showMenu = (canEdit && !isStatusChange && !isClosingReport) || canDeleteItem;
 
     return (
         <Paper key={activity.id} p="md" radius="md" withBorder>
@@ -223,9 +233,39 @@ function ActivityCard({ activity, navigate, t, locale }: ActivityCardProps) {
                         <Text size="xs" c="dimmed" lineClamp={2}>{activity.detail}</Text>
                     )}
                 </Stack>
-                <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                    {formatDate(activity.occurred_at, locale)}
-                </Text>
+                <Group gap={4} align="flex-start" wrap="nowrap">
+                    <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+                        {formatDate(activity.occurred_at, locale)}
+                    </Text>
+                    {showMenu && (
+                        <Menu withinPortal position="bottom-end" shadow="sm">
+                            <Menu.Target>
+                                <ActionIcon variant="subtle" size="sm" color="gray">
+                                    <IconDotsVertical size={14} />
+                                </ActionIcon>
+                            </Menu.Target>
+                            <Menu.Dropdown>
+                                {canEdit && !isStatusChange && !isClosingReport && (
+                                    <Menu.Item
+                                        leftSection={<IconPencil size={14} />}
+                                        onClick={() => onEdit(activity)}
+                                    >
+                                        {t('activity.editActivity')}
+                                    </Menu.Item>
+                                )}
+                                {canDeleteItem && (
+                                    <Menu.Item
+                                        color="red"
+                                        leftSection={<IconTrash size={14} />}
+                                        onClick={() => onDelete(activity.id)}
+                                    >
+                                        {t('company.delete')}
+                                    </Menu.Item>
+                                )}
+                            </Menu.Dropdown>
+                        </Menu>
+                    )}
+                </Group>
             </Group>
         </Paper>
     );
@@ -237,8 +277,37 @@ export default function ActivitiesPage() {
     const { t, i18n } = useTranslation();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const queryClient = useQueryClient();
 
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
+
+    const canEditActivities = hasRolePermission(user?.role || '', 'activity_write');
+    const canDeleteActivities = canDelete(user?.role || '');
+
+    const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
+    const [formOpened, setFormOpened] = useState(false);
+
+    const deleteMutation = useMutation({
+        mutationFn: (id: string) => api.delete(`/activities/${id}`),
+        onSuccess: () => {
+            showSuccess(t('activity.deleted'));
+            queryClient.invalidateQueries({ queryKey: ['activities-all'] });
+            queryClient.invalidateQueries({ queryKey: ['activities-stats'] });
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    function handleEdit(activity: Activity) {
+        setEditingActivity(activity);
+        setFormOpened(true);
+    }
+
+    function handleFormClose() {
+        setFormOpened(false);
+        setEditingActivity(null);
+        queryClient.invalidateQueries({ queryKey: ['activities-all'] });
+        queryClient.invalidateQueries({ queryKey: ['activities-stats'] });
+    }
 
     // Period / date navigation
     const [periodType, setPeriodType] = useState<PeriodType>('month');
@@ -270,8 +339,8 @@ export default function ActivitiesPage() {
             const d1 = customRange[1];
             if (!d0 || !d1) return { from: '', to: '' };
             return {
-                from: toLocalDateStr(d0),
-                to: `${toLocalDateStr(d1)}T23:59:59`,
+                from: toLocalDateStr(d0 instanceof Date ? d0 : new Date(d0)),
+                to: `${toLocalDateStr(d1 instanceof Date ? d1 : new Date(d1))}T23:59:59`,
             };
         }
         return getDateRange(periodType, periodAnchor);
@@ -582,23 +651,20 @@ export default function ActivitiesPage() {
                                         variant="subtle"
                                         color="gray"
                                         size="sm"
-                                        disabled={isCurrent}
                                         onClick={() =>
                                             setPeriodAnchor((prev) => shiftPeriod(periodType, prev, 1))
                                         }
                                     >
                                         <IconChevronRight size={14} />
                                     </ActionIcon>
-                                    {!isCurrent && (
-                                        <Button
-                                            size="compact-xs"
-                                            variant="light"
-                                            color="violet"
-                                            onClick={() => setPeriodAnchor(new Date())}
-                                        >
-                                            {t('activities.today')}
-                                        </Button>
-                                    )}
+                                    <Button
+                                        size="compact-xs"
+                                        variant="light"
+                                        color="violet"
+                                        onClick={() => setPeriodAnchor(new Date())}
+                                    >
+                                        {t('activities.today')}
+                                    </Button>
                                 </Group>
                             )}
 
@@ -686,6 +752,10 @@ export default function ActivitiesPage() {
                                         navigate={navigate}
                                         t={t}
                                         locale={locale}
+                                        canEdit={canEditActivities}
+                                        canDeleteItem={canDeleteActivities}
+                                        onEdit={handleEdit}
+                                        onDelete={(id) => deleteMutation.mutate(id)}
                                     />
                                 ))}
                             </Stack>
@@ -730,6 +800,13 @@ export default function ActivitiesPage() {
                     )}
                 </Stack>
             )}
+
+            <ActivityForm
+                opened={formOpened}
+                onClose={handleFormClose}
+                companyId={editingActivity?.company_id ?? ''}
+                activity={editingActivity}
+            />
         </Container>
     );
 }

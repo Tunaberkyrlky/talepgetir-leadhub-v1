@@ -531,10 +531,10 @@ router.put(
     }
 );
 
-// DELETE /api/activities/:id — Delete activity (superadmin only)
+// DELETE /api/activities/:id — Delete activity
 router.delete(
     '/:id',
-    requireRole('superadmin'),
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;

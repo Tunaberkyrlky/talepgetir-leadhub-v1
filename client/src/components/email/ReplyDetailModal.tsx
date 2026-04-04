@@ -483,18 +483,29 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                             loading={stageUpdateMutation.isPending}
                                         >
                                             {t('emailReplies.actions.updateStage')}
+                                            {localReply?.company_stage && (
+                                                <span style={{ marginLeft: 4, color: 'var(--mantine-color-violet-6)', fontWeight: 600 }}>
+                                                    · {stageOptions.find((s) => s.value === localReply.company_stage)?.label ?? localReply.company_stage}
+                                                </span>
+                                            )}
                                         </Button>
                                     </Menu.Target>
                                     <Menu.Dropdown>
                                         <Menu.Label>{t('emailReplies.actions.updateStage')}</Menu.Label>
-                                        {stageOptions.map((stage) => (
-                                            <Menu.Item
-                                                key={stage.value}
-                                                onClick={() => stageUpdateMutation.mutate(stage.value)}
-                                            >
-                                                {stage.label}
-                                            </Menu.Item>
-                                        ))}
+                                        {stageOptions.map((stage) => {
+                                            const isCurrent = stage.value === localReply?.company_stage;
+                                            return (
+                                                <Menu.Item
+                                                    key={stage.value}
+                                                    fw={isCurrent ? 600 : undefined}
+                                                    c={isCurrent ? 'violet' : undefined}
+                                                    rightSection={isCurrent ? <IconCheck size={13} /> : undefined}
+                                                    onClick={() => stageUpdateMutation.mutate(stage.value)}
+                                                >
+                                                    {stage.label}
+                                                </Menu.Item>
+                                            );
+                                        })}
                                     </Menu.Dropdown>
                                 </Menu>
                                 <Divider orientation="vertical" h={18} my="auto" />
