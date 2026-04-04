@@ -557,7 +557,10 @@
             "company": "Şirket",
             "contact": "Kişi",
             "preview": "Yanıt Önizleme",
-            "date": "Tarih"
+            "date": "Tarih",
+            "stage": "Stage",
+            "notes": "Notlar",
+            "columns": "Sütunlar"
         },
         "status": {
             "matched": "Eşleşmiş",

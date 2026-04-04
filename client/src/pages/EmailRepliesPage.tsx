@@ -24,6 +24,7 @@ import StatCard from '../components/StatCard';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import type { EmailReply, EmailReplyStats, Campaign } from '../types/emailReply';
 import type { CampaignsResponse } from '../types/plusvibe';
+import { useStages } from '../contexts/StagesContext';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -49,18 +50,20 @@ function tzOffset(d: Date): string {
     return `${sign}${hh}:${mm}`;
 }
 
-function toLocalISOStart(d: Date): string {
-    const y = d.getFullYear();
-    const mo = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${mo}-${day}T00:00:00${tzOffset(d)}`;
+function toLocalISOStart(d: Date | string): string {
+    const date = d instanceof Date ? d : new Date(d);
+    const y = date.getFullYear();
+    const mo = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${day}T00:00:00${tzOffset(date)}`;
 }
 
-function toLocalISOEnd(d: Date): string {
-    const y = d.getFullYear();
-    const mo = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${mo}-${day}T23:59:59${tzOffset(d)}`;
+function toLocalISOEnd(d: Date | string): string {
+    const date = d instanceof Date ? d : new Date(d);
+    const y = date.getFullYear();
+    const mo = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${day}T23:59:59${tzOffset(date)}`;
 }
 
 function formatDate(iso: string, locale: string): string {
@@ -118,13 +121,6 @@ function formatPeriodLabel(type: PeriodType, anchor: Date, locale: string): stri
     return anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
 }
 
-function isCurrentPeriod(type: PeriodType, anchor: Date): boolean {
-    if (type === 'custom') return false;
-    const today = getPeriodDates(type, new Date());
-    const anchorRange = getPeriodDates(type, anchor);
-    return today.start.toDateString() === anchorRange.start.toDateString();
-}
-
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function EmailRepliesPage() {
@@ -132,6 +128,7 @@ export default function EmailRepliesPage() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
+    const { getStageColor, getStageLabel } = useStages();
 
     // Filters
     const [campaignFilter, setCampaignFilter] = useState('');
@@ -163,7 +160,6 @@ export default function EmailRepliesPage() {
     // ── Derived ──
 
     const periodLabel = formatPeriodLabel(periodType, periodAnchor, locale);
-    const isCurrent = isCurrentPeriod(periodType, periodAnchor);
 
     const { dateFrom, dateTo } = useMemo(() => {
         if (periodType === 'custom') {
@@ -548,7 +544,7 @@ export default function EmailRepliesPage() {
                             style={{ minWidth: 160 }}
                         />
                     </Group>
-                    <Group gap="xs" wrap="nowrap">
+                    <Group gap="xs" wrap="nowrap" justify="flex-end">
                         <SegmentedControl
                             size="xs"
                             value={periodType}
@@ -583,21 +579,18 @@ export default function EmailRepliesPage() {
                                     variant="subtle"
                                     color="gray"
                                     size="sm"
-                                    disabled={isCurrent}
                                     onClick={() => { setPeriodAnchor((prev) => shiftPeriod(periodType, prev, 1)); resetPage(); }}
                                 >
                                     <IconChevronRight size={14} />
                                 </ActionIcon>
-                                {!isCurrent && (
-                                    <Button
-                                        size="compact-xs"
-                                        variant="light"
-                                        color="violet"
-                                        onClick={() => { setPeriodAnchor(new Date()); resetPage(); }}
-                                    >
-                                        {t('activities.today')}
-                                    </Button>
-                                )}
+                                <Button
+                                    size="compact-xs"
+                                    variant="light"
+                                    color="violet"
+                                    onClick={() => { setPeriodAnchor(new Date()); resetPage(); }}
+                                >
+                                    {t('activities.today')}
+                                </Button>
                             </Group>
                         )}
 
@@ -637,12 +630,13 @@ export default function EmailRepliesPage() {
                         <Table highlightOnHover striped>
                             <Table.Thead>
                                 <Table.Tr>
-                                    <Table.Th style={{ width: 46 }} />
-                                    <Table.Th>{t('emailReplies.table.campaign')}</Table.Th>
+                                    <Table.Th style={{ width: 20, padding: '0 2px' }} />
+                                    <Table.Th style={{ width: 36, padding: '0 4px' }}>{t('emailReplies.table.campaign')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.sender')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.company')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.contact')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.preview')}</Table.Th>
+                                    <Table.Th style={{ width: 40, padding: '0 4px' }}>{t('emailReplies.table.notes')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.date')}</Table.Th>
                                 </Table.Tr>
                             </Table.Thead>
@@ -666,7 +660,7 @@ export default function EmailRepliesPage() {
                                                 onClick={() => setSelectedReply(reply)}
                                             >
                                                 {/* Unread dot + expand chevron */}
-                                                <Table.Td>
+                                                <Table.Td style={{ padding: '0 2px' }}>
                                                     <Group gap={4} wrap="nowrap" justify="center">
                                                         {hasUnread && (
                                                             <Tooltip label={t('emailReplies.status.unread')}>
@@ -698,7 +692,7 @@ export default function EmailRepliesPage() {
                                                 </Table.Td>
 
                                                 {/* Campaign code */}
-                                                <Table.Td>
+                                                <Table.Td style={{ padding: '0 4px' }}>
                                                     {reply.campaign_id && campaignCodeMap.has(reply.campaign_id) ? (
                                                         <Tooltip label={reply.campaign_name || reply.campaign_id} withArrow>
                                                             <Badge size="sm" variant="filled" color="violet" circle>
@@ -735,18 +729,31 @@ export default function EmailRepliesPage() {
                                                             {t('emailReplies.status.unmatched')}
                                                         </Badge>
                                                     ) : reply.company_name ? (
-                                                        <Anchor
-                                                            size="sm"
-                                                            fw={500}
-                                                            href={`/companies/${reply.company_id}`}
-                                                            onClick={(e) => {
-                                                                e.preventDefault();
-                                                                e.stopPropagation();
-                                                                navigate(`/companies/${reply.company_id}`);
-                                                            }}
-                                                        >
-                                                            {reply.company_name}
-                                                        </Anchor>
+                                                        <Group gap={6} wrap="nowrap" justify="space-between">
+                                                            <Anchor
+                                                                size="sm"
+                                                                fw={500}
+                                                                href={`/companies/${reply.company_id}`}
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    navigate(`/companies/${reply.company_id}`);
+                                                                }}
+                                                            >
+                                                                {reply.company_name}
+                                                            </Anchor>
+                                                            {reply.company_stage && (
+                                                                <Badge
+                                                                    color={getStageColor(reply.company_stage)}
+                                                                    variant="light"
+                                                                    size="xs"
+                                                                    radius="sm"
+                                                                    style={{ flexShrink: 0, marginLeft: 'auto' }}
+                                                                >
+                                                                    {getStageLabel(reply.company_stage)}
+                                                                </Badge>
+                                                            )}
+                                                        </Group>
                                                     ) : (
                                                         <Text size="xs" c="dimmed">-</Text>
                                                     )}
@@ -764,6 +771,15 @@ export default function EmailRepliesPage() {
                                                     </Text>
                                                 </Table.Td>
 
+                                                {/* Activity count badge */}
+                                                <Table.Td style={{ padding: '0 4px', textAlign: 'center' }}>
+                                                    {(reply.company_activity_count ?? 0) > 0 ? (
+                                                        <Badge size="xs" variant="light" color="violet" style={{ cursor: 'default' }}>
+                                                            {reply.company_activity_count}
+                                                        </Badge>
+                                                    ) : null}
+                                                </Table.Td>
+
                                                 {/* Date */}
                                                 <Table.Td>
                                                     <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
@@ -779,7 +795,7 @@ export default function EmailRepliesPage() {
                                                     campaignId={reply.campaign_id}
                                                     excludeId={reply.id}
                                                     locale={locale}
-                                                    colSpan={7}
+                                                    colSpan={8}
                                                 />
                                             )}
                                         </>

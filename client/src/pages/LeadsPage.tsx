@@ -355,8 +355,8 @@ export default function LeadsPage() {
         if (periodType === 'custom') {
             if (!customRange[0] || !customRange[1]) return null;
             return {
-                dateFrom: `${toLocalDateStr(customRange[0])}T00:00:00`,
-                dateTo: `${toLocalDateStr(customRange[1])}T23:59:59`,
+                dateFrom: `${toLocalDateStr(customRange[0] instanceof Date ? customRange[0] : new Date(customRange[0]))}T00:00:00`,
+                dateTo: `${toLocalDateStr(customRange[1] instanceof Date ? customRange[1] : new Date(customRange[1]))}T23:59:59`,
             };
         }
         const r = getDateRangeForPeriod(periodType, periodAnchor);
@@ -1031,7 +1031,7 @@ export default function LeadsPage() {
                         maxDropdownHeight={200}
                     />
                 </Group>
-                <Group mt="xs" gap="xs" wrap="nowrap">
+                <Group mt="xs" gap="xs" wrap="nowrap" justify="flex-end">
                     <SegmentedControl
                         size="xs"
                         value={periodType}
@@ -1066,21 +1066,18 @@ export default function LeadsPage() {
                                 variant="subtle"
                                 color="gray"
                                 size="sm"
-                                disabled={isCurrent}
                                 onClick={() => { setPeriodAnchor((prev) => shiftPeriod(periodType, prev, 1)); setPage(1); }}
                             >
                                 <IconChevronRight size={14} />
                             </ActionIcon>
-                            {!isCurrent && (
-                                <Button
-                                    size="compact-xs"
-                                    variant="light"
-                                    color="violet"
-                                    onClick={() => { setPeriodAnchor(new Date()); setPage(1); }}
-                                >
-                                    {t('activities.today')}
-                                </Button>
-                            )}
+                            <Button
+                                size="compact-xs"
+                                variant="light"
+                                color="violet"
+                                onClick={() => { setPeriodAnchor(new Date()); setPage(1); }}
+                            >
+                                {t('activities.today')}
+                            </Button>
                         </Group>
                     )}
 

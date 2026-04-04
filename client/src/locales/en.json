@@ -557,7 +557,10 @@
             "company": "Company",
             "contact": "Contact",
             "preview": "Reply Preview",
-            "date": "Date"
+            "date": "Date",
+            "stage": "Stage",
+            "notes": "Notes",
+            "columns": "Columns"
         },
         "status": {
             "matched": "Matched",

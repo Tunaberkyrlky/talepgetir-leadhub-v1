@@ -395,6 +395,25 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                     {t('dashboard.companyLocations')}
                 </Text>
                 <Group gap="xs" align="center">
+                    {geocodeStages.length > 0 && (() => {
+                        const last = geocodeStages[geocodeStages.length - 1];
+                        return (
+                            <Group gap={6} align="center" wrap="nowrap">
+                                <Box style={{ width: 12, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    {last.status === 'active' && <Loader size={10} color="blue" />}
+                                    {last.status === 'done' && <IconCheck size={12} color="var(--mantine-color-green-6)" />}
+                                    {last.status === 'error' && <IconX size={12} color="var(--mantine-color-red-6)" />}
+                                </Box>
+                                <Text
+                                    size="xs"
+                                    c={last.status === 'error' ? 'red' : last.status === 'active' ? 'blue' : 'dimmed'}
+                                    style={{ fontFamily: 'monospace', letterSpacing: '0.2px' }}
+                                >
+                                    {last.message}
+                                </Text>
+                            </Group>
+                        );
+                    })()}
                     {canGeocode && onGeocode && (
                         <Button
                             size="compact-xs"
@@ -413,37 +432,6 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                     )}
                 </Group>
             </Group>
-
-            {/* Geocode progress stages */}
-            {geocodeStages.length > 0 && (
-                <Stack
-                    gap={4}
-                    mb="sm"
-                    p="xs"
-                    style={{
-                        background: 'rgba(255,255,255,0.03)',
-                        border: '1px solid rgba(100,160,255,0.15)',
-                        borderRadius: 8,
-                    }}
-                >
-                    {geocodeStages.map((stage, i) => (
-                        <Group key={i} gap={8} align="center" wrap="nowrap">
-                            <Box style={{ width: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                {stage.status === 'active' && <Loader size={10} color="blue" />}
-                                {stage.status === 'done' && <IconCheck size={12} color="var(--mantine-color-green-6)" />}
-                                {stage.status === 'error' && <IconX size={12} color="var(--mantine-color-red-6)" />}
-                            </Box>
-                            <Text
-                                size="xs"
-                                c={stage.status === 'error' ? 'red' : stage.status === 'active' ? 'blue' : 'dimmed'}
-                                style={{ fontFamily: 'monospace', letterSpacing: '0.2px' }}
-                            >
-                                {stage.message}
-                            </Text>
-                        </Group>
-                    ))}
-                </Stack>
-            )}
 
             <Box ref={containerRef} style={{ width: '100%' }}>
                 {isLoading ? (

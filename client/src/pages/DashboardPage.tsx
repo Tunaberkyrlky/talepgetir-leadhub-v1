@@ -14,8 +14,11 @@ import {
     Group,
     SegmentedControl,
     ThemeIcon,
+    ActionIcon,
 } from '@mantine/core';
-import { type DatePeriod, getDateRange } from '../lib/dateUtils';
+import { DatePickerInput } from '@mantine/dates';
+import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
+import { type DatePeriod, getDateRange, shiftPeriod, formatPeriodLabel, getCustomDateRange } from '../lib/dateUtils';
 import {
     IconBuilding,
     IconTrendingUp,
@@ -50,20 +53,29 @@ interface PipelineData {
     terminal: { stage: string; count: number }[];
 }
 
+type DashboardPeriod = DatePeriod | 'all' | 'custom';
+
 export default function DashboardPage() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
     const navigate = useNavigate();
     const { user, activeTenantTier } = useAuth();
     const role = user?.role || '';
     const tier = (activeTenantTier || 'basic') as Tier;
     const isAdvanced = hasTierAccess(role, tier, 'advanced_stats');
 
-    const [datePeriod, setDatePeriod] = useState<DatePeriod | null>(null);
+    const [period, setPeriod] = useState<DashboardPeriod>('month');
+    const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date());
+    const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null]);
 
     const dateParams = useMemo(() => {
-        if (!datePeriod) return null;
-        return getDateRange(datePeriod);
-    }, [datePeriod]);
+        if (period === 'all') return null;
+        if (period === 'custom') {
+            if (!customRange[0] || !customRange[1]) return null;
+            return getCustomDateRange(customRange[0], customRange[1]);
+        }
+        return getDateRange(period, periodAnchor);
+    }, [period, periodAnchor, customRange]);
 
     const handleStageClick = useCallback((stage: string) => {
         navigate(`/pipeline?focus=${stage}`);
@@ -237,21 +249,68 @@ export default function DashboardPage() {
 
     return (
         <Container size="xl" py="lg">
-            <Group justify="space-between" align="center" mb="lg">
+            <Group justify="space-between" align="center" mb="lg" wrap="wrap" gap="sm">
                 <Title order={2} fw={700}>
                     {t('nav.dashboard')}
                 </Title>
-                <SegmentedControl
-                    value={datePeriod || 'all'}
-                    onChange={(value) => setDatePeriod(value === 'all' ? null : value as DatePeriod)}
-                    data={[
-                        { label: t('filter.all'), value: 'all' },
-                        { label: t('filter.month'), value: 'month' },
-                        { label: t('filter.week'), value: 'week' },
-                        { label: t('filter.day'), value: 'day' },
-                    ]}
-                    size="sm"
-                />
+                <Group gap="xs" wrap="nowrap" justify="flex-end">
+                    <SegmentedControl
+                        value={period}
+                        onChange={(v) => {
+                            setPeriod(v as DashboardPeriod);
+                            setPeriodAnchor(new Date());
+                        }}
+                        data={[
+                            { label: t('filter.all'), value: 'all' },
+                            { label: t('activities.periodDay'), value: 'day' },
+                            { label: t('activities.periodWeek'), value: 'week' },
+                            { label: t('activities.periodMonth'), value: 'month' },
+                            { label: t('activities.periodCustom'), value: 'custom' },
+                        ]}
+                        size="xs"
+                    />
+                    {period !== 'all' && period !== 'custom' && (
+                        <Group gap={4} wrap="nowrap">
+                            <ActionIcon
+                                variant="subtle"
+                                color="gray"
+                                size="sm"
+                                onClick={() => setPeriodAnchor((prev) => shiftPeriod(period, prev, -1))}
+                            >
+                                <IconChevronLeft size={14} />
+                            </ActionIcon>
+                            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap', minWidth: 120, textAlign: 'center' }}>
+                                {formatPeriodLabel(period, periodAnchor, locale)}
+                            </Text>
+                            <ActionIcon
+                                variant="subtle"
+                                color="gray"
+                                size="sm"
+                                onClick={() => setPeriodAnchor((prev) => shiftPeriod(period, prev, 1))}
+                            >
+                                <IconChevronRight size={14} />
+                            </ActionIcon>
+                            <Button
+                                size="compact-xs"
+                                variant="light"
+                                color="violet"
+                                onClick={() => setPeriodAnchor(new Date())}
+                            >
+                                {t('activities.today')}
+                            </Button>
+                        </Group>
+                    )}
+                    {period === 'custom' && (
+                        <DatePickerInput
+                            type="range"
+                            placeholder={t('activities.dateRange')}
+                            value={customRange}
+                            onChange={(v) => setCustomRange(v as [Date | null, Date | null])}
+                            clearable
+                            size="xs"
+                        />
+                    )}
+                </Group>
             </Group>
 
             {/* Stat Cards — always visible */}
