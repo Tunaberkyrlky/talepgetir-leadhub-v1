@@ -330,7 +330,6 @@ export default function ActivitiesPage() {
 
     // ── Derived ──
 
-    const isCurrent = isCurrentPeriod(periodType, periodAnchor);
     const pageLimit = groupBy !== 'none' ? 100 : 20;
 
     const dateRange = useMemo(() => {
@@ -784,6 +783,10 @@ export default function ActivitiesPage() {
                             navigate={navigate}
                             t={t}
                             locale={locale}
+                            canEdit={canEditActivities}
+                            canDeleteItem={canDeleteActivities}
+                            onEdit={handleEdit}
+                            onDelete={(id) => deleteMutation.mutate(id)}
                         />
                     ))}
 

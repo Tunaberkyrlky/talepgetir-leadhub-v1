@@ -349,7 +349,6 @@ export default function LeadsPage() {
     const canEdit = canWrite(user?.role || '');
 
     const periodLabel = formatPeriodLabel(periodType, periodAnchor, locale);
-    const isCurrent = isCurrentPeriod(periodType, periodAnchor);
 
     const dateParams = useMemo(() => {
         if (periodType === 'custom') {
@@ -483,20 +482,6 @@ export default function LeadsPage() {
             showErrorFromApi(err);
         },
     });
-
-    const handleBulkStageChange = useCallback((newStage: string) => {
-        if (terminalStageSlugs.includes(newStage)) {
-            showInfo(t('bulk.terminalNotBulk', 'Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir.'));
-            return;
-        }
-        const ids = Array.from(selectedIds);
-        const oldStages: Record<string, string> = {};
-        for (const id of ids) {
-            const company = data?.data.find(c => c.id === id);
-            if (company) oldStages[id] = company.stage;
-        }
-        bulkStageMutation.mutate({ stage: newStage, ids, oldStages });
-    }, [selectedIds, data?.data, bulkStageMutation]);
 
     const columnLabels: Record<ColumnKey, string> = {
         name: t('company.name'),
