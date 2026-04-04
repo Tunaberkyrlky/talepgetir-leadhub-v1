@@ -171,6 +171,11 @@ export default function DashboardPage() {
                                     ? t('dashboard.geocodeSuccessWithSkipped', { geocoded: data.geocoded, total: data.total, skipped: data.skipped })
                                     : t('dashboard.geocodeSuccess', { geocoded: data.geocoded, total: data.total });
                                 showSuccess(msg);
+                                if (data.noLocation > 0) {
+                                    notifications.show({ message: t('dashboard.geocodeNoLocation', { count: data.noLocation }), color: 'yellow' });
+                                }
+                            } else if (data.total === 0 && data.noLocation > 0) {
+                                notifications.show({ message: t('dashboard.geocodeNoneFoundWithNoLocation', { totalPipeline: data.totalPipeline, noLocation: data.noLocation }), color: 'yellow' });
                             } else if (data.total === 0) {
                                 notifications.show({ message: t('dashboard.geocodeNoneFound'), color: 'blue' });
                             } else {

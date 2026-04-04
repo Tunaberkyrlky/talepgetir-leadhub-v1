@@ -290,16 +290,22 @@ export default function AdminTenantsTab() {
                         <Checkbox
                             label={t('admin.bulkDeleteCompanies')}
                             checked={bulkDeleteTypes.includes('companies')}
-                            onChange={(e) => setBulkDeleteTypes(prev =>
-                                e.currentTarget.checked ? [...prev, 'companies'] : prev.filter(x => x !== 'companies')
-                            )}
+                            onChange={(e) => {
+                                const checked = e.currentTarget.checked;
+                                setBulkDeleteTypes(prev =>
+                                    checked ? [...prev, 'companies'] : prev.filter(x => x !== 'companies')
+                                );
+                            }}
                         />
                         <Checkbox
                             label={t('admin.bulkDeleteContacts')}
                             checked={bulkDeleteTypes.includes('contacts')}
-                            onChange={(e) => setBulkDeleteTypes(prev =>
-                                e.currentTarget.checked ? [...prev, 'contacts'] : prev.filter(x => x !== 'contacts')
-                            )}
+                            onChange={(e) => {
+                                const checked = e.currentTarget.checked;
+                                setBulkDeleteTypes(prev =>
+                                    checked ? [...prev, 'contacts'] : prev.filter(x => x !== 'contacts')
+                                );
+                            }}
                         />
                     </Stack>
 
@@ -308,7 +314,7 @@ export default function AdminTenantsTab() {
                         placeholder={t('admin.bulkDeleteConfirmPlaceholder')}
                         value={bulkDeleteConfirm}
                         onChange={(e) => setBulkDeleteConfirm(e.currentTarget.value)}
-                        error={bulkDeleteConfirm && bulkDeleteConfirm !== bulkDeleteTenant?.name ? t('admin.bulkDeleteConfirmMismatch') : undefined}
+                        error={bulkDeleteConfirm && bulkDeleteConfirm.toLowerCase() !== bulkDeleteTenant?.name.toLowerCase() ? t('admin.bulkDeleteConfirmMismatch') : undefined}
                     />
 
                     <Group justify="flex-end">
@@ -321,7 +327,7 @@ export default function AdminTenantsTab() {
                             loading={bulkDeleteMutation.isPending}
                             disabled={
                                 bulkDeleteTypes.length === 0 ||
-                                bulkDeleteConfirm !== bulkDeleteTenant?.name
+                                bulkDeleteConfirm.toLowerCase() !== bulkDeleteTenant?.name.toLowerCase()
                             }
                             onClick={() => {
                                 if (bulkDeleteTenant) {
