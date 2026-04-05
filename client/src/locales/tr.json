@@ -673,6 +673,18 @@
             "expand": "{{count}} önceki mesajı göster",
             "collapse": "Önceki mesajları gizle"
         },
+        "reply": {
+            "button": "Yanıtla",
+            "title": "Yanıt Gönder",
+            "from": "Kimden",
+            "to": "Kime",
+            "placeholder": "Yanıtınızı yazın...",
+            "send": "Gönder",
+            "cancel": "İptal",
+            "success": "Yanıt başarıyla gönderildi",
+            "failed": "Yanıt gönderilemedi",
+            "noCampaign": "Yanıt gönderilemez — kampanya bağlı değil"
+        },
         "quickActivity": {
             "title": "Hızlı Aktivite Ekle",
             "button": "Aktivite",

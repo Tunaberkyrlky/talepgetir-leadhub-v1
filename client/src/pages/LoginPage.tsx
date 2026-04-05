@@ -141,6 +141,9 @@ export default function LoginPage() {
                         </Stack>
                     </form>
                 </Paper>
+                <Text size="xs" c="rgba(255,255,255,0.35)" ta="center" mt="md">
+                    v{__APP_VERSION__}
+                </Text>
             </Container>
         </Box>
     );

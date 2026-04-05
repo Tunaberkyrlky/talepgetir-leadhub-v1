@@ -673,6 +673,18 @@
             "expand": "Show {{count}} previous messages",
             "collapse": "Hide previous messages"
         },
+        "reply": {
+            "button": "Reply",
+            "title": "Send Reply",
+            "from": "From",
+            "to": "To",
+            "placeholder": "Type your reply...",
+            "send": "Send",
+            "cancel": "Cancel",
+            "success": "Reply sent successfully",
+            "failed": "Failed to send reply",
+            "noCampaign": "Cannot reply — no campaign linked"
+        },
         "quickActivity": {
             "title": "Quick Activity",
             "button": "Activity",

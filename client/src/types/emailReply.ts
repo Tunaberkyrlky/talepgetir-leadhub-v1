@@ -8,6 +8,8 @@ export type EmailCategory =
     | 'not_interested'
     | 'other';
 
+export type EmailDirection = 'IN' | 'OUT';
+
 export interface EmailReply {
     id: string;
     tenant_id: string;
@@ -27,6 +29,8 @@ export interface EmailReply {
     category: EmailCategory | null;
     category_confidence: number | null;
     created_at: string;
+    direction?: EmailDirection;
+    parent_reply_id?: string | null;
     // Threading fields (present on threaded list responses)
     thread_count?: number;
     has_unread?: boolean;
@@ -39,6 +43,7 @@ export interface ThreadHistoryItem {
     replied_at: string;
     read_status: ReadStatus;
     campaign_id: string | null;
+    direction?: EmailDirection;
 }
 
 export interface EmailReplyStats {

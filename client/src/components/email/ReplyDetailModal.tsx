@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Modal, Group, Stack, Text, Badge, Button, Anchor,
@@ -9,6 +9,7 @@ import {
 import {
     IconMail, IconMailOpened, IconTrash, IconRefresh,
     IconExternalLink, IconPlus, IconChevronDown, IconX, IconCheck,
+    IconArrowBackUp, IconSend,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
@@ -57,6 +58,8 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [activityType, setActivityType] = useState<ActivityType>('follow_up');
     const [activityNote, setActivityNote] = useState('');
     const [assignOpen, setAssignOpen] = useState(false);
+    const [replyOpen, setReplyOpen] = useState(false);
+    const [replyBody, setReplyBody] = useState('');
 
     // Sync when a new reply is selected
     if (reply?.id !== localReply?.id) {
@@ -66,6 +69,8 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         setActivityNote('');
         setActivityType('follow_up');
         setAssignOpen(false);
+        setReplyOpen(false);
+        setReplyBody('');
     }
 
     const isMatched = !!localReply?.company_id;
@@ -157,6 +162,32 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             queryClient.invalidateQueries({ queryKey: ['activities'] });
         },
         onError: (err) => showErrorFromApi(err, t('emailReplies.quickActivity.failed')),
+    });
+
+    // ── Resolve sender (from) address when reply panel is open ──
+    const { data: senderAddress } = useQuery<string | null>({
+        queryKey: ['campaign-sender', localReply?.campaign_id],
+        queryFn: async () => {
+            if (!localReply?.campaign_id) return null;
+            const { data } = await api.get('/plusvibe/campaigns', { params: { admin: 'true' } });
+            const campaign = (data.data || []).find((c: { pv_campaign_id: string }) => c.pv_campaign_id === localReply.campaign_id);
+            return campaign?.sender_emails?.[0] || null;
+        },
+        enabled: replyOpen && !!localReply?.campaign_id,
+        staleTime: 5 * 60_000,
+    });
+
+    // ── Send reply via PlusVibe ──
+    const sendReplyMutation = useMutation({
+        mutationFn: async () => (await api.post(`/email-replies/${localReply!.id}/reply`, { body: replyBody.trim() })).data,
+        onSuccess: () => {
+            showSuccess(t('emailReplies.reply.success'));
+            setReplyOpen(false);
+            setReplyBody('');
+            queryClient.invalidateQueries({ queryKey: ['email-replies'] });
+            queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+        },
+        onError: (err) => showErrorFromApi(err, t('emailReplies.reply.failed')),
     });
 
     if (!localReply) return null;
@@ -450,6 +481,80 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 </Box>
             </Collapse>
 
+            {/* ── REPLY PANEL ────────────────────────────── */}
+            <Collapse in={replyOpen}>
+                <Box mx={24} mb={12}>
+                    <Box
+                        style={{
+                            border: '1px solid #c4b5fd',
+                            borderRadius: 10,
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <Group
+                            px={14} py={10}
+                            style={{ background: '#f5f3ff', borderBottom: '1px solid #c4b5fd' }}
+                            justify="space-between"
+                        >
+                            <Group gap={6}>
+                                <IconArrowBackUp size={13} color="#5b21b6" />
+                                <Text size="xs" fw={600} c="#5b21b6">
+                                    {t('emailReplies.reply.title')}
+                                </Text>
+                            </Group>
+                            <ActionIcon
+                                size="sm"
+                                variant="subtle"
+                                color="gray"
+                                onClick={() => setReplyOpen(false)}
+                            >
+                                <IconX size={12} />
+                            </ActionIcon>
+                        </Group>
+
+                        <Box p={14} style={{ background: '#fff' }}>
+                            {senderAddress && (
+                                <Text size="xs" c="dimmed" mb={4}>
+                                    {t('emailReplies.reply.from')}: <Text span fw={500} c="dark">{senderAddress}</Text>
+                                </Text>
+                            )}
+                            <Text size="xs" c="dimmed" mb={8}>
+                                {t('emailReplies.reply.to')}: <Text span fw={500} c="dark">{localReply.sender_email}</Text>
+                            </Text>
+                            <Textarea
+                                placeholder={t('emailReplies.reply.placeholder')}
+                                value={replyBody}
+                                onChange={(e) => setReplyBody(e.currentTarget.value)}
+                                minRows={3}
+                                maxRows={8}
+                                autosize
+                                styles={{ input: { fontSize: 13, lineHeight: 1.6 } }}
+                            />
+                            <Group justify="flex-end" mt={10} gap="xs">
+                                <Button
+                                    size="xs"
+                                    variant="subtle"
+                                    color="gray"
+                                    onClick={() => setReplyOpen(false)}
+                                >
+                                    {t('emailReplies.reply.cancel')}
+                                </Button>
+                                <Button
+                                    size="xs"
+                                    color="violet"
+                                    leftSection={<IconSend size={12} />}
+                                    loading={sendReplyMutation.isPending}
+                                    disabled={!replyBody.trim()}
+                                    onClick={() => sendReplyMutation.mutate()}
+                                >
+                                    {t('emailReplies.reply.send')}
+                                </Button>
+                            </Group>
+                        </Box>
+                    </Box>
+                </Box>
+            </Collapse>
+
             {/* ── TOOLBAR ────────────────────────────────── */}
             <Box
                 px={18}
@@ -523,6 +628,22 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                     onClick={() => setActivityOpen((v) => !v)}
                                 >
                                     {t('emailReplies.quickActivity.button')}
+                                </Button>
+                                <Divider orientation="vertical" h={18} my="auto" />
+                            </>
+                        )}
+
+                        {/* Reply button — only when campaign is linked */}
+                        {!!localReply.campaign_id && (
+                            <>
+                                <Button
+                                    variant={replyOpen ? 'light' : 'subtle'}
+                                    color={replyOpen ? 'violet' : 'gray'}
+                                    size="xs"
+                                    leftSection={<IconArrowBackUp size={13} />}
+                                    onClick={() => setReplyOpen((v) => !v)}
+                                >
+                                    {t('emailReplies.reply.button')}
                                 </Button>
                                 <Divider orientation="vertical" h={18} my="auto" />
                             </>

@@ -58,23 +58,26 @@ export default function ThreadHistoryRows({
         );
     }
 
-    return (data || []).map((h) => (
-        <Table.Tr
-            key={h.id}
-            style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}
-        >
-            <Table.Td />
-            <Table.Td />
-            <Table.Td colSpan={2}>
-                <Text size="xs" c="dimmed" pl="md">
-                    ↳ {formatDate(h.replied_at, locale)}
-                </Text>
-            </Table.Td>
-            <Table.Td colSpan={colSpan - 4}>
-                <Text size="xs" c="dimmed" lineClamp={1}>
-                    {truncate(h.reply_body, 100)}
-                </Text>
-            </Table.Td>
-        </Table.Tr>
-    ));
+    return (data || []).map((h) => {
+        const isOut = h.direction === 'OUT';
+        return (
+            <Table.Tr
+                key={h.id}
+                style={{ backgroundColor: isOut ? 'var(--mantine-color-violet-0)' : 'var(--mantine-color-gray-0)' }}
+            >
+                <Table.Td />
+                <Table.Td />
+                <Table.Td colSpan={2}>
+                    <Text size="xs" c={isOut ? 'violet' : 'dimmed'} pl="md" fw={isOut ? 500 : 400}>
+                        {isOut ? '↱ ' : '↳ '}{formatDate(h.replied_at, locale)}{isOut ? ' (sent)' : ''}
+                    </Text>
+                </Table.Td>
+                <Table.Td colSpan={colSpan - 4}>
+                    <Text size="xs" c={isOut ? 'violet.6' : 'dimmed'} lineClamp={1}>
+                        {truncate(h.reply_body, 100)}
+                    </Text>
+                </Table.Td>
+            </Table.Tr>
+        );
+    });
 }
