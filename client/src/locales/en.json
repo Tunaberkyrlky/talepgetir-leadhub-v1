@@ -588,7 +588,9 @@
             "allMatchStatuses": "All Statuses",
             "readStatus": "Read Status",
             "allReadStatuses": "Read / Unread",
-            "dateRange": "Date Range"
+            "dateRange": "Date Range",
+            "allLabels": "All Labels",
+            "allSentiments": "All Sentiments"
         },
         "table": {
             "campaign": "Campaign",

@@ -43,7 +43,7 @@ router.get(
                 res.status(400).json({ error: 'Invalid query parameters' });
                 return;
             }
-            const { page, limit, campaign_id, match_status, read_status, date_from, date_to, search } = queryResult.data;
+            const { page, limit, campaign_id, match_status, read_status, date_from, date_to, search, label, sentiment } = queryResult.data;
             const offset = (page - 1) * limit;
 
             const rpcParams = {
@@ -56,6 +56,8 @@ router.get(
                 p_search: search || null,
                 p_date_from: date_from || null,
                 p_date_to: date_to || null,
+                p_label: label || null,
+                p_sentiment: sentiment || null,
             };
 
             const [{ data: rows, error }, { data: countData, error: countError }] = await Promise.all([
@@ -68,6 +70,8 @@ router.get(
                     p_search: search || null,
                     p_date_from: date_from || null,
                     p_date_to: date_to || null,
+                    p_label: label || null,
+                    p_sentiment: sentiment || null,
                 }),
             ]);
 

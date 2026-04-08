@@ -233,6 +233,8 @@ export const emailRepliesQuerySchema = z.object({
     date_from: z.string().optional(),
     date_to: z.string().optional(),
     search: z.string().max(255).optional(),
+    label: z.string().max(100).optional(),
+    sentiment: z.string().max(50).optional(),
 });
 
 export const readStatusBodySchema = z.object({
@@ -241,13 +243,35 @@ export const readStatusBodySchema = z.object({
 
 // ── Email Reply webhook + assign schemas ──
 
-// PlusVibe webhook field names: from_email, camp_id, campaign_name, text_body, replied_date
+// PlusVibe webhook payload — core fields validated, rest passed through to raw_payload
 export const webhookPayloadSchema = z.object({
     from_email: z.string().email('Invalid from_email'),
     camp_id: z.string().max(500).optional().nullable(),
     campaign_name: z.string().max(500).optional().nullable(),
     text_body: z.string().optional().nullable(),
     replied_date: z.string().datetime({ offset: true, message: 'replied_date must be a valid ISO datetime' }).optional().nullable(),
+    // Enrichment: stored on email_replies
+    label: z.string().max(100).optional().nullable(),
+    sentiment: z.string().max(50).optional().nullable(),
+    subject: z.string().max(1000).optional().nullable(),
+    lead_id: z.string().max(200).optional().nullable(),
+    step: z.number().int().min(0).max(1000).optional().nullable(),
+    // Enrichment: used for company/contact fill-blanks
+    first_name: z.string().max(200).optional().nullable(),
+    last_name: z.string().max(200).optional().nullable(),
+    company_name: z.string().max(500).optional().nullable(),
+    company_website: z.string().max(500).optional().nullable(),
+    linkedin_company_url: z.string().max(500).optional().nullable(),
+    linkedin_person_url: z.string().max(500).optional().nullable(),
+    industry: z.string().max(200).optional().nullable(),
+    job_title: z.string().max(200).optional().nullable(),
+    department: z.string().max(200).optional().nullable(),
+    phone_number: z.string().max(50).optional().nullable(),
+    country: z.string().max(100).optional().nullable(),
+    city: z.string().max(200).optional().nullable(),
+    state: z.string().max(200).optional().nullable(),
+    custom_company_size: z.string().max(100).optional().nullable(),
+    custom_revenue: z.string().max(100).optional().nullable(),
 }).passthrough();
 
 export const assignReplySchema = z.object({

@@ -5,6 +5,7 @@ import { createLogger } from '../lib/logger.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { validateBody, webhookPayloadSchema } from '../lib/validation.js';
 import { matchSenderEmail, advanceCompanyStageOnMatch } from '../lib/emailMatcher.js';
+import { enrichCompanyFromWebhook, enrichContactFromWebhook } from '../lib/webhookEnricher.js';
 
 const log = createLogger('route:webhooks');
 const router = Router();
@@ -85,13 +86,19 @@ router.post(
                 return;
             }
 
-            // PlusVibe field names: from_email, camp_id, campaign_name, text_body, replied_date
-            const { from_email, camp_id, campaign_name, text_body, replied_date } = req.body;
+            const {
+                from_email, camp_id, campaign_name, text_body, replied_date,
+                label, sentiment, subject, lead_id, step,
+                company_name: pv_company_name, company_website,
+            } = req.body;
 
             // Match sender email to contact/company within this tenant
             let match;
             try {
-                match = await matchSenderEmail(from_email, tenantId);
+                match = await matchSenderEmail(from_email, tenantId, {
+                    company_name: pv_company_name,
+                    company_website,
+                });
             } catch (matchErr) {
                 log.error({ err: matchErr, from_email }, 'Email matching failed — database may be unavailable');
                 res.status(503).json({
@@ -116,6 +123,11 @@ router.post(
                 match_status: match.match_status,
                 read_status: 'unread',
                 raw_payload: sanitizePayload(req.body),
+                label: label || null,
+                sentiment: sentiment || null,
+                subject: subject || null,
+                plusvibe_lead_id: lead_id || null,
+                step: step ?? null,
             };
 
             const { error } = await supabaseAdmin
@@ -142,7 +154,19 @@ router.post(
                 await advanceCompanyStageOnMatch(match.company_id);
             }
 
-            log.info({ camp_id, sender: from_email, match_status: match.match_status }, 'Webhook processed successfully');
+            // Fire-and-forget enrichment — never fail the webhook due to enrichment errors
+            try {
+                if (match.company_id) {
+                    await enrichCompanyFromWebhook(match.company_id, req.body, tenantId);
+                }
+                if (match.contact_id) {
+                    await enrichContactFromWebhook(match.contact_id, req.body);
+                }
+            } catch (enrichErr) {
+                log.warn({ err: enrichErr, camp_id, sender: from_email }, 'Enrichment failed (non-critical)');
+            }
+
+            log.info({ camp_id, sender: from_email, match_status: match.match_status, label }, 'Webhook processed successfully');
             res.status(200).json({ ok: true });
         } catch (err) {
             if (err instanceof AppError) return next(err);

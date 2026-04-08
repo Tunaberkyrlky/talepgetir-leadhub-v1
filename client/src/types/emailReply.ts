@@ -28,6 +28,9 @@ export interface EmailReply {
     read_status: ReadStatus;
     category: EmailCategory | null;
     category_confidence: number | null;
+    label: string | null;
+    sentiment: string | null;
+    subject: string | null;
     created_at: string;
     direction?: EmailDirection;
     parent_reply_id?: string | null;

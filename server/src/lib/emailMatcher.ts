@@ -126,6 +126,12 @@ function extractWebsiteLabels(website: string): string[] {
 }
 
 
+/** Optional hints from PlusVibe webhook to improve matching when email-based matching fails */
+export interface MatchHints {
+    company_name?: string | null;
+    company_website?: string | null;
+}
+
 /**
  * Match a sender email to a contact or company within the given tenant.
  *
@@ -134,11 +140,13 @@ function extractWebsiteLabels(website: string): string[] {
  * 2. companies.company_email exact match → returns company only
  * 3. Domain label (between @ and first dot) matched against companies.name
  *    via ILIKE — also tries hyphens/underscores as spaces (best-effort)
+ * 3b. PlusVibe hints fallback — match via company_name or company_website from webhook
  * 4. No match → unmatched
  */
 export async function matchSenderEmail(
     senderEmail: string,
-    defaultTenantId: string
+    defaultTenantId: string,
+    hints?: MatchHints,
 ): Promise<MatchResult> {
     const email = senderEmail.toLowerCase().trim();
 
@@ -244,6 +252,64 @@ export async function matchSenderEmail(
                 return {
                     tenant_id: bestMatch.tenant_id,
                     company_id: bestMatch.id,
+                    contact_id: null,
+                    match_status: 'matched',
+                };
+            }
+        }
+    }
+
+    // Step 3b: PlusVibe hints fallback (company_name / company_website)
+    if (hints?.company_name || hints?.company_website) {
+        const allCompanies = domainLabels.length > 0
+            ? await fetchAllCompanies(defaultTenantId)  // already fetched above
+            : await fetchAllCompanies(defaultTenantId);
+
+        if (allCompanies.length > 0) {
+            let hintMatch: typeof allCompanies[0] | null = null;
+            let hintScore = 0;
+
+            // Try matching by company_website from PlusVibe
+            if (hints.company_website) {
+                const hintWebsiteLabels = extractWebsiteLabels(hints.company_website);
+                for (const company of allCompanies) {
+                    for (const wl of company.websiteLabels) {
+                        for (const hl of hintWebsiteLabels) {
+                            if (hl === wl && wl.length >= 3) {
+                                const score = wl.length + WEBSITE_MATCH_BONUS;
+                                if (score > hintScore) {
+                                    hintScore = score;
+                                    hintMatch = company;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Try matching by company_name from PlusVibe
+            if (!hintMatch && hints.company_name) {
+                const normalizedHint = hints.company_name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (normalizedHint.length >= 4) {
+                    for (const company of allCompanies) {
+                        if (company.normalizedName) {
+                            const matched =
+                                normalizedHint.includes(company.normalizedName) ||
+                                company.normalizedName.includes(normalizedHint);
+                            if (matched && company.normalizedName.length > hintScore) {
+                                hintScore = company.normalizedName.length;
+                                hintMatch = company;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (hintMatch) {
+                log.info({ email, company_id: hintMatch.id, company_name: hintMatch.name, hint_source: hints.company_website ? 'website' : 'name' }, 'Matched via PlusVibe hints');
+                return {
+                    tenant_id: hintMatch.tenant_id,
+                    company_id: hintMatch.id,
                     contact_id: null,
                     match_status: 'matched',
                 };

@@ -134,6 +134,8 @@ export default function EmailRepliesPage() {
     const [campaignFilter, setCampaignFilter] = useState('');
     const [matchStatusFilter, setMatchStatusFilter] = useState('');
     const [readStatusFilter, setReadStatusFilter] = useState('');
+    const [labelFilter, setLabelFilter] = useState('');
+    const [sentimentFilter, setSentimentFilter] = useState('');
     const [search, setSearch] = useState('');
     const [debouncedSearch] = useDebouncedValue(search, 300);
     const [periodType, setPeriodType] = useState<PeriodType>('month');
@@ -181,6 +183,8 @@ export default function EmailRepliesPage() {
             campaignFilter,
             matchStatusFilter,
             readStatusFilter,
+            labelFilter,
+            sentimentFilter,
             debouncedSearch,
             dateFrom,
             dateTo,
@@ -193,6 +197,8 @@ export default function EmailRepliesPage() {
             if (campaignFilter) params.campaign_id = campaignFilter;
             if (matchStatusFilter) params.match_status = matchStatusFilter;
             if (readStatusFilter) params.read_status = readStatusFilter;
+            if (labelFilter) params.label = labelFilter;
+            if (sentimentFilter) params.sentiment = sentimentFilter;
             if (debouncedSearch) params.search = debouncedSearch;
             if (dateFrom) params.date_from = dateFrom;
             if (dateTo) params.date_to = dateTo;
@@ -328,7 +334,7 @@ export default function EmailRepliesPage() {
 
     // Issue 14: close modal when filters change to prevent showing stale data.
     // Render-phase state comparison (same pattern as ReplyDetailModal localReply sync).
-    const filterSig = `${campaignFilter}|${matchStatusFilter}|${readStatusFilter}|${debouncedSearch}|${dateFrom}|${dateTo}`;
+    const filterSig = `${campaignFilter}|${matchStatusFilter}|${readStatusFilter}|${labelFilter}|${sentimentFilter}|${debouncedSearch}|${dateFrom}|${dateTo}`;
     const [prevFilterSig, setPrevFilterSig] = useState(filterSig);
     if (prevFilterSig !== filterSig) {
         setPrevFilterSig(filterSig);
@@ -543,6 +549,37 @@ export default function EmailRepliesPage() {
                             data={readStatusData}
                             style={{ minWidth: 160 }}
                         />
+                        <Select
+                            size="sm"
+                            placeholder={t('emailReplies.filters.allLabels')}
+                            clearable
+                            value={labelFilter || null}
+                            onChange={(v) => { setLabelFilter(v || ''); resetPage(); }}
+                            data={[
+                                { value: 'INTERESTED', label: 'Interested' },
+                                { value: 'NOT_INTERESTED', label: 'Not Interested' },
+                                { value: 'MEETING_BOOKED', label: 'Meeting Booked' },
+                                { value: 'MEETING_CANCELLED', label: 'Meeting Cancelled' },
+                                { value: 'CLOSED', label: 'Closed' },
+                                { value: 'OUT_OF_OFFICE', label: 'Out of Office' },
+                                { value: 'WRONG_PERSON', label: 'Wrong Person' },
+                                { value: 'DO_NOT_CONTACT', label: 'Do Not Contact' },
+                            ]}
+                            style={{ minWidth: 160 }}
+                        />
+                        <Select
+                            size="sm"
+                            placeholder={t('emailReplies.filters.allSentiments')}
+                            clearable
+                            value={sentimentFilter || null}
+                            onChange={(v) => { setSentimentFilter(v || ''); resetPage(); }}
+                            data={[
+                                { value: 'POSITIVE', label: 'Positive' },
+                                { value: 'NEGATIVE', label: 'Negative' },
+                                { value: 'NEUTRAL', label: 'Neutral' },
+                            ]}
+                            style={{ minWidth: 140 }}
+                        />
                     </Group>
                     <Group gap="xs" wrap="nowrap" justify="flex-end">
                         <SegmentedControl
@@ -635,6 +672,7 @@ export default function EmailRepliesPage() {
                                     <Table.Th>{t('emailReplies.table.sender')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.company')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.contact')}</Table.Th>
+                                    <Table.Th style={{ width: 100 }}>Label</Table.Th>
                                     <Table.Th>{t('emailReplies.table.preview')}</Table.Th>
                                     <Table.Th style={{ width: 40, padding: '0 4px' }}>{t('emailReplies.table.notes')}</Table.Th>
                                     <Table.Th>{t('emailReplies.table.date')}</Table.Th>
@@ -764,6 +802,42 @@ export default function EmailRepliesPage() {
                                                     <Text size="sm">{reply.contact_name || '-'}</Text>
                                                 </Table.Td>
 
+                                                {/* Label + Sentiment */}
+                                                <Table.Td>
+                                                    <Group gap={4} wrap="nowrap">
+                                                        {reply.label && (
+                                                            <Badge
+                                                                size="xs"
+                                                                variant="light"
+                                                                color={
+                                                                    reply.label === 'INTERESTED' ? 'green'
+                                                                    : reply.label === 'MEETING_BOOKED' ? 'teal'
+                                                                    : reply.label === 'NOT_INTERESTED' ? 'red'
+                                                                    : reply.label === 'DO_NOT_CONTACT' ? 'red'
+                                                                    : reply.label === 'OUT_OF_OFFICE' ? 'yellow'
+                                                                    : reply.label === 'WRONG_PERSON' ? 'orange'
+                                                                    : 'gray'
+                                                                }
+                                                            >
+                                                                {reply.label.replace(/_/g, ' ')}
+                                                            </Badge>
+                                                        )}
+                                                        {reply.sentiment && (
+                                                            <Badge
+                                                                size="xs"
+                                                                variant="dot"
+                                                                color={
+                                                                    reply.sentiment === 'POSITIVE' ? 'green'
+                                                                    : reply.sentiment === 'NEGATIVE' ? 'red'
+                                                                    : 'gray'
+                                                                }
+                                                            >
+                                                                {reply.sentiment.charAt(0)}
+                                                            </Badge>
+                                                        )}
+                                                    </Group>
+                                                </Table.Td>
+
                                                 {/* Reply Preview */}
                                                 <Table.Td>
                                                     <Text size="xs" c="dimmed" lineClamp={1}>
@@ -795,7 +869,7 @@ export default function EmailRepliesPage() {
                                                     campaignId={reply.campaign_id}
                                                     excludeId={reply.id}
                                                     locale={locale}
-                                                    colSpan={8}
+                                                    colSpan={9}
                                                 />
                                             )}
                                         </>

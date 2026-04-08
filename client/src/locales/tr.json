@@ -588,7 +588,9 @@
             "allMatchStatuses": "Tüm Durumlar",
             "readStatus": "Okunma Durumu",
             "allReadStatuses": "Okundu / Okunmadı",
-            "dateRange": "Tarih Aralığı"
+            "dateRange": "Tarih Aralığı",
+            "allLabels": "Tüm Etiketler",
+            "allSentiments": "Tüm Duygular"
         },
         "table": {
             "campaign": "Kampanya",
