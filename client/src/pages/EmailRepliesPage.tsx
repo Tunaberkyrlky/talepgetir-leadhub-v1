@@ -16,6 +16,7 @@ import {
     IconChevronLeft, IconRefresh,
 } from '@tabler/icons-react';
 import ThreadHistoryRows from '../components/email/ThreadHistoryRows';
+import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
 
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -440,7 +441,10 @@ export default function EmailRepliesPage() {
                     mb="md"
                     title={t('emailReplies.errors.loadFailed')}
                 >
-                    {t('emailReplies.errors.loadFailedDescription')}
+                    <Group justify="space-between" align="center">
+                        <Text size="sm">{t('emailReplies.errors.loadFailedDescription')}</Text>
+                        <ErrorFeedbackButton context="Email Replies" size="xs" />
+                    </Group>
                 </Alert>
             )}
 

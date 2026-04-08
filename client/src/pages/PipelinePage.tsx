@@ -35,6 +35,7 @@ import {
     IconSelector,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -342,13 +343,16 @@ export default function PipelinePage() {
                         <Stack align="center" gap="sm">
                             <IconWifi size={48} color="#ccc" stroke={1.5} />
                             <Text c="dimmed" fw={500}>{t('pipeline.loadError', 'Pipeline yüklenemedi')}</Text>
-                            <Button
-                                variant="light"
-                                leftSection={<IconRefresh size={16} />}
-                                onClick={() => queryClient.invalidateQueries({ queryKey: ['pipeline'] })}
-                            >
-                                {t('common.retry', 'Yeniden Dene')}
-                            </Button>
+                            <Group>
+                                <Button
+                                    variant="light"
+                                    leftSection={<IconRefresh size={16} />}
+                                    onClick={() => queryClient.invalidateQueries({ queryKey: ['pipeline'] })}
+                                >
+                                    {t('common.retry', 'Yeniden Dene')}
+                                </Button>
+                                <ErrorFeedbackButton context="Pipeline" />
+                            </Group>
                         </Stack>
                     </Center>
                 )}

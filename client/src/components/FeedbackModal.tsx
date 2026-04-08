@@ -11,13 +11,30 @@ import { showSuccess, showErrorFromApi } from '../lib/notifications';
 interface FeedbackModalProps {
     opened: boolean;
     onClose: () => void;
+    /** Pre-fill values (e.g. from error screens) */
+    prefill?: {
+        type?: 'bug_report' | 'feature_request';
+        title?: string;
+        description?: string;
+    };
 }
 
-export default function FeedbackModal({ opened, onClose }: FeedbackModalProps) {
+export default function FeedbackModal({ opened, onClose, prefill }: FeedbackModalProps) {
     const { t } = useTranslation();
-    const [type, setType] = useState<string>('bug_report');
-    const [title, setTitle] = useState('');
-    const [description, setDescription] = useState('');
+    const [type, setType] = useState<string>(prefill?.type || 'bug_report');
+    const [title, setTitle] = useState(prefill?.title || '');
+    const [description, setDescription] = useState(prefill?.description || '');
+
+    // Sync prefill when it changes (e.g. new error triggers modal)
+    const [prevPrefill, setPrevPrefill] = useState(prefill);
+    if (prefill !== prevPrefill) {
+        setPrevPrefill(prefill);
+        if (prefill) {
+            if (prefill.type) setType(prefill.type);
+            if (prefill.title) setTitle(prefill.title);
+            if (prefill.description) setDescription(prefill.description);
+        }
+    }
 
     const submitMutation = useMutation({
         mutationFn: async () => {

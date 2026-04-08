@@ -53,6 +53,7 @@ import {
     IconEyeOff,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useStages } from '../contexts/StagesContext';
@@ -388,14 +389,17 @@ export default function CompanyDetailPage() {
                         <Alert icon={<IconAlertCircle size={24} />} color="red" radius="lg" title={t('company.notFound')}>
                             {t('company.notFoundDesc')}
                         </Alert>
-                        <Button
-                            leftSection={<IconArrowLeft size={16} />}
-                            variant="light"
-                            color="gray"
-                            onClick={() => goBack('/companies')}
-                        >
-                            {t('common.goBack')}
-                        </Button>
+                        <Group>
+                            <Button
+                                leftSection={<IconArrowLeft size={16} />}
+                                variant="light"
+                                color="gray"
+                                onClick={() => goBack('/companies')}
+                            >
+                                {t('common.goBack')}
+                            </Button>
+                            <ErrorFeedbackButton context="Company" />
+                        </Group>
                     </Stack>
                 </Center>
             </Container>

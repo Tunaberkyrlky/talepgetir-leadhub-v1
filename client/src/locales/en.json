@@ -758,6 +758,7 @@
         "descriptionLabel": "Description",
         "submit": "Submit",
         "submitted": "Your feedback has been received. Thank you!",
+        "reportError": "Report Error",
         "types": {
             "featureRequest": "Feature Request",
             "bugReport": "Bug Report"

@@ -25,6 +25,7 @@ import {
     IconCopy,
     IconCheck,
 } from '@tabler/icons-react';
+import ErrorFeedbackButton from './ErrorFeedbackButton';
 
 interface Props {
     children: ReactNode;
@@ -205,8 +206,8 @@ export default class ErrorBoundary extends Component<Props, State> {
                             radius="md"
                             w="100%"
                         >
-                            Sayfayı yenilemeyi deneyin. Sorun tekrarlanırsa teknik
-                            detayları sistem yöneticinizle paylaşın.
+                            Sayfayı yenilemeyi deneyin. Sorun tekrarlanırsa aşağıdaki
+                            &quot;Hata Bildir&quot; butonunu kullanarak bize bildirin.
                         </Alert>
                     )}
 
@@ -225,6 +226,10 @@ export default class ErrorBoundary extends Component<Props, State> {
                         >
                             Ana Sayfa
                         </Button>
+                        <ErrorFeedbackButton
+                            context="Uygulama Hatası"
+                            description={error ? `${error.name}: ${error.message}\n\nSayfa: ${window.location.pathname}\n\n${error.stack?.slice(0, 500) || ''}` : undefined}
+                        />
                     </Group>
 
                     <Divider w="100%" />

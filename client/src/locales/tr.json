@@ -758,6 +758,7 @@
         "descriptionLabel": "Açıklama",
         "submit": "Gönder",
         "submitted": "Geri bildiriminiz alındı. Teşekkürler!",
+        "reportError": "Hata Bildir",
         "types": {
             "featureRequest": "Özellik İsteği",
             "bugReport": "Hata Bildirimi"
