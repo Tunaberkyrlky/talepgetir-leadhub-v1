@@ -71,6 +71,10 @@ function sanitizePayload(body: unknown): unknown {
 router.post(
     '/plusvibe/:tenantId',
     verifyWebhookSecret,
+    (req: Request, _res: Response, next: NextFunction) => {
+        log.info({ body: sanitizePayload(req.body), headers: { contentType: req.headers['content-type'] } }, 'Webhook raw payload received');
+        next();
+    },
     validateBody(webhookPayloadSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
