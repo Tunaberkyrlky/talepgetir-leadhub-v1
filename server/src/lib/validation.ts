@@ -272,6 +272,10 @@ export const campaignStatsQuerySchema = z.object({
     campaign_id: z.string().max(500).optional(),
 });
 
+export const sendReplyBodySchema = z.object({
+    body: z.string().min(1, 'Reply body is required').max(50000),
+});
+
 export const threadHistoryQuerySchema = z.object({
     sender_email: z.string().email('Invalid sender_email').max(255),
     campaign_id: z.string().max(500).optional(),

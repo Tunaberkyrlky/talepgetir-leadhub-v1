@@ -8,6 +8,7 @@ import {
     assignReplySchema,
     emailRepliesQuerySchema,
     readStatusBodySchema,
+    sendReplyBodySchema,
     threadHistoryQuerySchema,
     uuidField,
 } from '../lib/validation.js';
@@ -158,7 +159,7 @@ router.get(
 
             let query = supabaseAdmin
                 .from('email_replies')
-                .select('id, sender_email, reply_body, replied_at, read_status, campaign_id')
+                .select('id, sender_email, reply_body, replied_at, read_status, campaign_id, direction')
                 .eq('tenant_id', tenantId)
                 .eq('sender_email', sender_email)
                 .order('replied_at', { ascending: false })
@@ -594,6 +595,127 @@ router.post(
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Rematch error');
             next(new AppError('Failed to rematch email reply', 500));
+        }
+    }
+);
+
+// POST /api/email-replies/:id/reply — send a reply via PlusVibe
+router.post(
+    '/:id/reply',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    validateBody(sendReplyBodySchema),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const paramResult = idParamSchema.safeParse(req.params);
+            if (!paramResult.success) {
+                res.status(400).json({ error: 'Invalid reply ID' });
+                return;
+            }
+            const { id } = paramResult.data;
+            const { body: replyText } = req.body as { body: string };
+            const tenantId = req.tenantId!;
+
+            // Fetch the inbound email reply
+            const { data: emailReply, error: fetchErr } = await supabaseAdmin
+                .from('email_replies')
+                .select('id, campaign_id, sender_email, replied_at, raw_payload, company_id, contact_id, campaign_name, direction')
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .single();
+
+            if (fetchErr || !emailReply) {
+                throw new AppError('Email reply not found', 404);
+            }
+
+            if (emailReply.direction === 'OUT') {
+                throw new AppError('Cannot reply to an outbound email', 400);
+            }
+
+            if (!emailReply.campaign_id) {
+                throw new AppError('Cannot reply — no campaign linked to this email', 400);
+            }
+
+            // Tenant isolation: verify campaign exists and belongs to this tenant
+            const { data: campaign } = await supabaseAdmin
+                .from('plusvibe_campaigns')
+                .select('id, tenant_id')
+                .eq('pv_campaign_id', emailReply.campaign_id)
+                .single();
+
+            if (!campaign) {
+                throw new AppError('Campaign not found. Please sync campaigns first.', 404);
+            }
+            if (campaign.tenant_id && campaign.tenant_id !== tenantId) {
+                throw new AppError('Campaign does not belong to this tenant', 403);
+            }
+
+            // Resolve PlusVibe email ID, from-address, and subject
+            const { resolveReplyContext } = await import('../lib/plusvibeReplyResolver.js');
+            const context = await resolveReplyContext(emailReply, tenantId);
+
+            // Convert plain text to simple HTML
+            const htmlBody = replyText
+                .split('\n')
+                .map((line: string) => `<p>${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
+                .join('');
+
+            // Ensure subject starts with "Re: "
+            const subject = context.subject.startsWith('Re:')
+                ? context.subject
+                : `Re: ${context.subject}`;
+
+            // Send via PlusVibe API
+            const { replyToEmail } = await import('../lib/plusvibeClient.js');
+            const pvResponse = await replyToEmail({
+                reply_to_id: context.plusvibeEmailId,
+                subject,
+                from: context.fromAddress,
+                to: emailReply.sender_email,
+                body: htmlBody,
+            });
+
+            // Insert outbound reply record
+            const outRow = {
+                tenant_id: tenantId,
+                campaign_id: emailReply.campaign_id,
+                campaign_name: emailReply.campaign_name,
+                sender_email: emailReply.sender_email,
+                reply_body: replyText,
+                replied_at: new Date().toISOString(),
+                company_id: emailReply.company_id,
+                contact_id: emailReply.contact_id,
+                match_status: emailReply.company_id ? 'matched' : 'unmatched',
+                read_status: 'read' as const,
+                direction: 'OUT' as const,
+                parent_reply_id: id,
+                raw_payload: {
+                    source: 'user_reply',
+                    plusvibe_reply_id: pvResponse.id,
+                    from_address: context.fromAddress,
+                    subject,
+                },
+            };
+
+            const { data: inserted, error: insertErr } = await supabaseAdmin
+                .from('email_replies')
+                .insert(outRow)
+                .select('id, direction, reply_body, replied_at, sender_email, campaign_id')
+                .single();
+
+            if (insertErr) {
+                log.error({ err: insertErr }, 'Failed to store outbound reply');
+                // Reply was sent via PlusVibe successfully, but local storage failed
+                // Return success with warning
+                res.json({ sent: true, stored: false, plusvibe_id: pvResponse.id });
+                return;
+            }
+
+            log.info({ replyId: id, outboundId: inserted.id, to: emailReply.sender_email }, 'Reply sent via PlusVibe');
+            res.json({ sent: true, stored: true, data: inserted });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Send reply error');
+            next(new AppError('Failed to send reply', 500));
         }
     }
 );

@@ -10,6 +10,7 @@ import {
     listCampaigns,
     getCampaignSummary,
     getCampaignStats,
+    getCampaignAccounts,
     fetchAllReplies,
     type PlusVibeCampaign,
 } from '../lib/plusvibeClient.js';
@@ -340,7 +341,7 @@ router.post(
                             contact_id: match.contact_id,
                             match_status: match.match_status,
                             read_status: reply.is_unread ? 'unread' : 'read',
-                            raw_payload: { source: 'plusvibe_api_import', plusvibe_email_id: reply.id, label: reply.label },
+                            raw_payload: { source: 'plusvibe_api_import', plusvibe_email_id: reply.id, label: reply.label, subject: reply.subject || null, from_address: reply.to_address_email_list || null },
                         });
                         existingKeys.add(key);
                     }
@@ -464,7 +465,7 @@ router.post(
                     contact_id: match.contact_id,
                     match_status: match.match_status,
                     read_status: reply.is_unread ? 'unread' : 'read',
-                    raw_payload: { source: 'plusvibe_api_import', plusvibe_email_id: reply.id, label: reply.label },
+                    raw_payload: { source: 'plusvibe_api_import', plusvibe_email_id: reply.id, label: reply.label, subject: reply.subject || null, from_address: reply.to_address_email_list || null },
                 });
                 existingKeys.add(key);
             }
@@ -500,6 +501,14 @@ async function syncCampaigns(): Promise<number> {
             log.warn({ err, campaignId: pvId }, 'Failed to fetch summary for campaign, skipping stats');
         }
 
+        // Fetch email accounts linked to this campaign for reply from-address
+        let senderEmails: string[] = [];
+        try {
+            senderEmails = await getCampaignAccounts(pvId);
+        } catch (err) {
+            log.warn({ err, campaignId: pvId }, 'Failed to fetch campaign accounts, skipping sender_emails');
+        }
+
         // Map PlusVibe summary fields to our schema
         const s = stats as Record<string, unknown>;
         const totalLeads = Number(s.contacted) || 0;
@@ -523,6 +532,7 @@ async function syncCampaigns(): Promise<number> {
             click_rate: 0,
             reply_rate: emailsSent > 0 ? replies / emailsSent : 0,
             last_synced_at: now,
+            sender_emails: senderEmails,
         };
 
         // Check if campaign exists — update stats only, preserve tenant_id

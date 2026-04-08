@@ -191,6 +191,53 @@ export async function fetchEmailsPage(
     };
 }
 
+/** Fetch email accounts linked to a campaign. Returns email address strings. */
+export async function getCampaignAccounts(campaignId: string): Promise<string[]> {
+    const data = await plusVibeFetch<string[] | { data?: string[] }>(
+        'GET',
+        `/campaign/get/accounts?campaign_id=${encodeURIComponent(campaignId)}`,
+    );
+    return Array.isArray(data) ? data : (data.data || []);
+}
+
+/** Fetch emails for a specific lead (sender) within a campaign. */
+export async function fetchEmailsByLead(
+    campaignId: string,
+    leadEmail: string,
+): Promise<PlusVibeEmail[]> {
+    const allEmails: PlusVibeEmail[] = [];
+    let pageTrail: string | undefined;
+
+    for (let page = 0; page < 50; page++) {
+        let path = `/unibox/emails?campaign_id=${encodeURIComponent(campaignId)}&lead=${encodeURIComponent(leadEmail)}`;
+        if (pageTrail) path += `&page_trail=${encodeURIComponent(pageTrail)}`;
+
+        const result = await plusVibeFetch<UniboxPage>('GET', path);
+        if (result.data?.length) allEmails.push(...result.data);
+        if (!result.page_trail) break;
+        pageTrail = result.page_trail;
+    }
+
+    return allEmails;
+}
+
+/** Send a reply to an existing email via PlusVibe. */
+export async function replyToEmail(params: {
+    reply_to_id: string;
+    subject: string;
+    from: string;
+    to: string;
+    body: string;
+    cc?: string;
+    bcc?: string;
+}): Promise<{ status: string; id: string }> {
+    return plusVibeFetch<{ status: string; id: string }>(
+        'POST',
+        '/unibox/emails/reply',
+        params,
+    );
+}
+
 /** Fetch ALL incoming reply emails for a campaign (paginated). */
 export async function fetchAllReplies(campaignId: string): Promise<PlusVibeEmail[]> {
     const allReplies: PlusVibeEmail[] = [];
