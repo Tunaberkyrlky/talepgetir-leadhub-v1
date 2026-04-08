@@ -433,6 +433,12 @@ router.post(
             }
 
             const replies = await fetchAllReplies(pvCampaignId);
+            log.info({ campaign: pvCampaignId, fetchedTotal: replies.length }, 'Fetched replies from PlusVibe API');
+
+            if (replies.length > 0) {
+                const dates = replies.map(r => r.timestamp_created).filter(Boolean).sort();
+                log.info({ oldest: dates[0], newest: dates[dates.length - 1] }, 'Fetched date range');
+            }
 
             const { data: existing } = await supabaseAdmin
                 .from('email_replies')
@@ -454,6 +460,7 @@ router.post(
                 const key = `${senderEmail}|${repliedAt}`;
                 if (existingKeys.has(key)) { skipped++; continue; }
                 const match = matchEmail(reply.from_address_email);
+                const pvLead = reply.lead || {};
                 newRows.push({
                     tenant_id: tenantId,
                     campaign_id: pvCampaignId,
@@ -465,6 +472,10 @@ router.post(
                     contact_id: match.contact_id,
                     match_status: match.match_status,
                     read_status: reply.is_unread ? 'unread' : 'read',
+                    label: reply.label || null,
+                    sentiment: (pvLead as Record<string, unknown>).sentiment as string || null,
+                    subject: reply.subject || null,
+                    plusvibe_lead_id: reply.lead_id || null,
                     raw_payload: { source: 'plusvibe_api_import', plusvibe_email_id: reply.id, label: reply.label, subject: reply.subject || null, from_address: reply.to_address_email_list || null },
                 });
                 existingKeys.add(key);
@@ -473,9 +484,14 @@ router.post(
             let imported = 0;
             for (let i = 0; i < newRows.length; i += 500) {
                 const { error } = await supabaseAdmin.from('email_replies').insert(newRows.slice(i, i + 500));
-                if (!error) imported += Math.min(500, newRows.length - i);
+                if (error) {
+                    log.warn({ err: error, batch: i / 500 }, 'Batch insert failed during import');
+                } else {
+                    imported += Math.min(500, newRows.length - i);
+                }
             }
 
+            log.info({ campaign: pvCampaignId, imported, skipped, fetched: replies.length, existingCount: existing?.length ?? 0 }, 'Import completed');
             res.json({ imported, skipped, fetched: replies.length });
         } catch (err) {
             if (err instanceof AppError) return next(err);

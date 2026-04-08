@@ -242,10 +242,12 @@ export async function replyToEmail(params: {
 export async function fetchAllReplies(campaignId: string): Promise<PlusVibeEmail[]> {
     const allReplies: PlusVibeEmail[] = [];
     let pageTrail: string | undefined;
+    let pageCount = 0;
 
     for (let page = 0; page < 200; page++) { // safety limit
         const { emails, nextPageTrail } = await fetchEmailsPage(campaignId, pageTrail);
         if (emails.length === 0) break;
+        pageCount++;
 
         // Only keep incoming replies
         for (const email of emails) {
@@ -258,5 +260,6 @@ export async function fetchAllReplies(campaignId: string): Promise<PlusVibeEmail
         pageTrail = nextPageTrail;
     }
 
+    log.info({ campaignId, pages: pageCount, inboundCount: allReplies.length }, 'fetchAllReplies completed');
     return allReplies;
 }
