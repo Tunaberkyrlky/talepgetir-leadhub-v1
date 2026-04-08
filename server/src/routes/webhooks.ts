@@ -118,18 +118,17 @@ router.post(
                 raw_payload: sanitizePayload(req.body),
             };
 
-            let error;
-            if (camp_id) {
-                ({ error } = await supabaseAdmin
-                    .from('email_replies')
-                    .upsert(row, { onConflict: 'campaign_id,sender_email,replied_at', ignoreDuplicates: true }));
-            } else {
-                ({ error } = await supabaseAdmin
-                    .from('email_replies')
-                    .insert(row));
-            }
+            const { error } = await supabaseAdmin
+                .from('email_replies')
+                .insert(row);
 
             if (error) {
+                // Partial unique index handles dedup — treat unique violation as success
+                if (error.code === '23505') {
+                    log.info({ camp_id, sender: from_email }, 'Duplicate webhook ignored');
+                    res.status(200).json({ ok: true, duplicate: true });
+                    return;
+                }
                 log.error({ err: error, camp_id, sender: from_email }, 'Failed to insert email reply into database');
                 res.status(500).json({
                     error: 'Failed to store email reply',
