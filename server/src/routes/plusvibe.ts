@@ -446,9 +446,13 @@ router.post(
                 .eq('tenant_id', tenantId)
                 .eq('campaign_id', pvCampaignId);
 
+            // Normalize timestamps to ISO for consistent dedup comparison
+            // DB returns "2026-04-03 12:13:57.826+00", API returns "2026-04-03T12:13:57.826Z"
+            const normalizeTs = (ts: string) => new Date(ts).toISOString();
+
             const existingKeys = new Set(
                 (existing || []).map((r: { sender_email: string; replied_at: string }) =>
-                    `${r.sender_email}|${r.replied_at}`
+                    `${r.sender_email}|${normalizeTs(r.replied_at)}`
                 )
             );
 
@@ -457,7 +461,7 @@ router.post(
             for (const reply of replies) {
                 const senderEmail = reply.from_address_email.toLowerCase().trim();
                 const repliedAt = reply.timestamp_created || new Date().toISOString();
-                const key = `${senderEmail}|${repliedAt}`;
+                const key = `${senderEmail}|${normalizeTs(repliedAt)}`;
                 if (existingKeys.has(key)) { skipped++; continue; }
                 const match = matchEmail(reply.from_address_email);
                 const pvLead = reply.lead || {};
@@ -483,11 +487,22 @@ router.post(
 
             let imported = 0;
             for (let i = 0; i < newRows.length; i += 500) {
-                const { error } = await supabaseAdmin.from('email_replies').insert(newRows.slice(i, i + 500));
+                const batch = newRows.slice(i, i + 500);
+                const { error } = await supabaseAdmin.from('email_replies').insert(batch);
                 if (error) {
-                    log.warn({ err: error, batch: i / 500 }, 'Batch insert failed during import');
+                    if (error.code === '23505') {
+                        // Duplicate in batch — fall back to one-by-one insert
+                        log.info({ batch: i / 500, batchSize: batch.length }, 'Batch has duplicates, inserting individually');
+                        for (const row of batch) {
+                            const { error: rowErr } = await supabaseAdmin.from('email_replies').insert(row);
+                            if (!rowErr) imported++;
+                            // silently skip duplicates
+                        }
+                    } else {
+                        log.warn({ err: error, batch: i / 500 }, 'Batch insert failed during import');
+                    }
                 } else {
-                    imported += Math.min(500, newRows.length - i);
+                    imported += batch.length;
                 }
             }
 
