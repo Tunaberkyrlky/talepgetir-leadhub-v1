@@ -247,7 +247,7 @@ export const webhookPayloadSchema = z.object({
     camp_id: z.string().max(500).optional().nullable(),
     campaign_name: z.string().max(500).optional().nullable(),
     text_body: z.string().optional().nullable(),
-    replied_date: z.string().datetime({ message: 'replied_date must be a valid ISO datetime' }).optional().nullable(),
+    replied_date: z.string().datetime({ offset: true, message: 'replied_date must be a valid ISO datetime' }).optional().nullable(),
 }).passthrough();
 
 export const assignReplySchema = z.object({
