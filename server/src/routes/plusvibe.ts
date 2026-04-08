@@ -473,7 +473,7 @@ router.post(
                     match_status: match.match_status,
                     read_status: reply.is_unread ? 'unread' : 'read',
                     label: reply.label || null,
-                    sentiment: (pvLead as Record<string, unknown>).sentiment as string || null,
+                    sentiment: ((pvLead as Record<string, unknown>).sentiment as string) ?? null,
                     subject: reply.subject || null,
                     plusvibe_lead_id: reply.lead_id || null,
                     raw_payload: { source: 'plusvibe_api_import', plusvibe_email_id: reply.id, label: reply.label, subject: reply.subject || null, from_address: reply.to_address_email_list || null },

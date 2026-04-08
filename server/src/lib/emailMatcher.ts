@@ -261,9 +261,7 @@ export async function matchSenderEmail(
 
     // Step 3b: PlusVibe hints fallback (company_name / company_website)
     if (hints?.company_name || hints?.company_website) {
-        const allCompanies = domainLabels.length > 0
-            ? await fetchAllCompanies(defaultTenantId)  // already fetched above
-            : await fetchAllCompanies(defaultTenantId);
+        const allCompanies = await fetchAllCompanies(defaultTenantId);
 
         if (allCompanies.length > 0) {
             let hintMatch: typeof allCompanies[0] | null = null;
