@@ -729,7 +729,10 @@
             "typeLabel": "File Type",
             "sizeLabel": "Size",
             "save": "Save",
-            "createFailed": "Failed to create attachment"
+            "createFailed": "Failed to create attachment",
+            "deleteFailed": "Failed to delete attachment",
+            "deleteTitle": "Delete Attachment",
+            "deleteConfirm": "Are you sure you want to delete this attachment? It will be removed for all users."
         },
         "quickActivity": {
             "title": "Quick Activity",

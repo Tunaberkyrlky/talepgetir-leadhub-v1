@@ -729,7 +729,10 @@
             "typeLabel": "Dosya Tipi",
             "sizeLabel": "Boyut",
             "save": "Kaydet",
-            "createFailed": "Eklenti oluşturulamadı"
+            "createFailed": "Eklenti oluşturulamadı",
+            "deleteFailed": "Eklenti silinemedi",
+            "deleteTitle": "Eklentiyi Sil",
+            "deleteConfirm": "Bu eklentiyi silmek istediğinizden emin misiniz? Tüm kullanıcılar için kaldırılacak."
         },
         "quickActivity": {
             "title": "Hızlı Aktivite Ekle",

@@ -61,6 +61,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [newAttUrl, setNewAttUrl] = useState('');
     const [newAttType, setNewAttType] = useState('PDF');
     const [newAttSize, setNewAttSize] = useState('');
+    const [deleteAttId, setDeleteAttId] = useState<string | null>(null);
 
     // Sync when a new reply is selected
     if (reply?.id !== localReply?.id) {
@@ -209,6 +210,16 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             setNewAttSize('');
         },
         onError: (err) => showErrorFromApi(err, t('emailReplies.attachments.createFailed')),
+    });
+
+    // ── Delete attachment template ──
+    const deleteTemplateMutation = useMutation({
+        mutationFn: async (id: string) => { await api.delete(`/attachment-templates/${id}`); },
+        onSuccess: (_data, deletedId) => {
+            queryClient.invalidateQueries({ queryKey: ['attachment-templates'] });
+            setSelectedAttachments((prev) => prev.filter((x) => x !== deletedId));
+        },
+        onError: (err) => showErrorFromApi(err, t('emailReplies.attachments.deleteFailed')),
     });
 
     // ── Send reply via PlusVibe ──
@@ -572,6 +583,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                                         borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
                                                         background: isSelected ? '#f5f3ff' : '#fafafe',
                                                         transition: 'all 0.15s', userSelect: 'none',
+                                                        position: 'relative',
                                                     }}
                                                 >
                                                     <Checkbox
@@ -581,12 +593,27 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                                         color="violet"
                                                         styles={{ input: { cursor: 'pointer' } }}
                                                     />
-                                                    <Box>
+                                                    <Box style={{ flex: 1 }}>
                                                         <Text size="xs" fw={600} c="#252540">{tmpl.label}</Text>
                                                         <Text size="xs" c="dimmed" style={{ fontSize: 10 }}>
                                                             {tmpl.file_type.toUpperCase()}{tmpl.file_size ? ` · ${tmpl.file_size}` : ''}
                                                         </Text>
                                                     </Box>
+                                                    <ActionIcon
+                                                        size={16}
+                                                        variant="subtle"
+                                                        color="red"
+                                                        radius="xl"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setDeleteAttId(tmpl.id);
+                                                        }}
+                                                        style={{ flexShrink: 0, opacity: 0.4 }}
+                                                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+                                                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.4'; }}
+                                                    >
+                                                        <IconX size={10} />
+                                                    </ActionIcon>
                                                 </Box>
                                             );
                                         })}
@@ -832,6 +859,39 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         </Modal>
 
         {/* ── Closing Report Modal ─────────────────── */}
+        {/* ── Delete attachment confirm ────────────── */}
+        <Modal
+            opened={!!deleteAttId}
+            onClose={() => setDeleteAttId(null)}
+            title={t('emailReplies.attachments.deleteTitle')}
+            size="xs"
+            radius="lg"
+            centered
+            zIndex={1000}
+            overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}
+            styles={{ title: { fontWeight: 700 } }}
+        >
+            <Text size="sm" mb="md">{t('emailReplies.attachments.deleteConfirm')}</Text>
+            <Group justify="flex-end">
+                <Button variant="default" size="sm" radius="md" onClick={() => setDeleteAttId(null)}>
+                    {t('common.cancel')}
+                </Button>
+                <Button
+                    color="red"
+                    size="sm"
+                    radius="md"
+                    loading={deleteTemplateMutation.isPending}
+                    onClick={() => {
+                        if (deleteAttId) {
+                            deleteTemplateMutation.mutate(deleteAttId, { onSuccess: () => setDeleteAttId(null) });
+                        }
+                    }}
+                >
+                    {t('common.delete')}
+                </Button>
+            </Group>
+        </Modal>
+
         {closingReportTarget && localReply?.company_id && (
             <ClosingReportModal
                 opened={true}
