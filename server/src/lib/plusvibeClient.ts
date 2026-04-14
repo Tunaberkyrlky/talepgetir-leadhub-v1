@@ -60,14 +60,12 @@ export async function plusVibeFetch<T>(
 
     let fetchBody: string | undefined;
 
-    if (method === 'GET' || method === 'DELETE') {
-        const sep = url.includes('?') ? '&' : '?';
-        url += `${sep}workspace_id=${WORKSPACE_ID}`;
-    } else {
-        const payload = body && typeof body === 'object'
-            ? { workspace_id: WORKSPACE_ID, ...body }
-            : { workspace_id: WORKSPACE_ID };
-        fetchBody = JSON.stringify(payload);
+    // workspace_id is always a query parameter (all PlusVibe endpoints)
+    const sep = url.includes('?') ? '&' : '?';
+    url += `${sep}workspace_id=${WORKSPACE_ID}`;
+
+    if (method !== 'GET' && method !== 'DELETE' && body) {
+        fetchBody = JSON.stringify(body);
     }
 
     log.info({ method, path }, 'PlusVibe API request');
@@ -76,8 +74,10 @@ export async function plusVibeFetch<T>(
 
     if (!res.ok) {
         const errorBody = await res.text();
-        log.error({ status: res.status, body: errorBody, path }, 'PlusVibe API error');
-        throw new AppError(`PlusVibe API error: ${res.status}`, res.status >= 500 ? 502 : res.status);
+        log.error({ status: res.status, body: errorBody, path, method }, 'PlusVibe API error');
+        // Include error detail for debugging (truncate to avoid leaking huge payloads)
+        const detail = errorBody.slice(0, 300);
+        throw new AppError(`PlusVibe API error: ${res.status} — ${detail}`, res.status >= 500 ? 502 : res.status);
     }
 
     return await res.json() as T;
