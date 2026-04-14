@@ -700,7 +700,9 @@
         },
         "thread": {
             "expand": "Show {{count}} previous messages",
-            "collapse": "Hide previous messages"
+            "collapse": "Hide previous messages",
+            "sent": "Sent",
+            "received": "Received"
         },
         "reply": {
             "button": "Reply",

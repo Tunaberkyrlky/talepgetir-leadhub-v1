@@ -700,7 +700,9 @@
         },
         "thread": {
             "expand": "{{count}} önceki mesajı göster",
-            "collapse": "Önceki mesajları gizle"
+            "collapse": "Önceki mesajları gizle",
+            "sent": "Gönderildi",
+            "received": "Alındı"
         },
         "reply": {
             "button": "Yanıtla",

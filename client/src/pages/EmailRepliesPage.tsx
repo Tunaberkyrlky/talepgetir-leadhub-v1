@@ -13,7 +13,7 @@ import {
     IconMail, IconMailOpened, IconSearch,
     IconCircleFilled, IconLink, IconLinkOff, IconAlertCircle,
     IconSpeakerphone, IconDownload, IconChevronDown, IconChevronRight,
-    IconChevronLeft, IconRefresh, IconAdjustments, IconExternalLink,
+    IconChevronLeft, IconRefresh, IconAdjustments,
 } from '@tabler/icons-react';
 import ThreadHistoryRows from '../components/email/ThreadHistoryRows';
 import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
@@ -126,7 +126,7 @@ function formatPeriodLabel(type: PeriodType, anchor: Date, locale: string): stri
 
 type EmailColumnKey =
     | 'campaign' | 'sender' | 'company' | 'contact'
-    | 'label' | 'status' | 'preview' | 'website' | 'notes' | 'date';
+    | 'label' | 'preview' | 'website' | 'notes' | 'date';
 
 interface EmailColumnDef { key: EmailColumnKey; visible: boolean; }
 
@@ -138,7 +138,6 @@ const DEFAULT_EMAIL_COLUMNS: EmailColumnDef[] = [
     { key: 'company', visible: true },
     { key: 'contact', visible: true },
     { key: 'label', visible: true },
-    { key: 'status', visible: true },
     { key: 'preview', visible: true },
     { key: 'website', visible: false },
     { key: 'notes', visible: true },
@@ -175,7 +174,6 @@ export default function EmailRepliesPage() {
     const [matchStatusFilter, setMatchStatusFilter] = useState('');
     const [readStatusFilter, setReadStatusFilter] = useState('');
     const [labelFilter, setLabelFilter] = useState('');
-    const [sentimentFilter, setSentimentFilter] = useState('');
     const [search, setSearch] = useState('');
     const [debouncedSearch] = useDebouncedValue(search, 300);
     const [periodType, setPeriodType] = useState<PeriodType>('month');
@@ -209,7 +207,6 @@ export default function EmailRepliesPage() {
         company: t('emailReplies.table.company'),
         contact: t('emailReplies.table.contact'),
         label: t('emailReplies.table.label'),
-        status: t('emailReplies.table.status'),
         preview: t('emailReplies.table.preview'),
         website: t('emailReplies.table.website'),
         notes: t('emailReplies.table.notes'),
@@ -252,7 +249,6 @@ export default function EmailRepliesPage() {
             matchStatusFilter,
             readStatusFilter,
             labelFilter,
-            sentimentFilter,
             debouncedSearch,
             dateFrom,
             dateTo,
@@ -266,7 +262,6 @@ export default function EmailRepliesPage() {
             if (matchStatusFilter) params.match_status = matchStatusFilter;
             if (readStatusFilter) params.read_status = readStatusFilter;
             if (labelFilter) params.label = labelFilter === '__EMPTY__' ? '__EMPTY__' : labelFilter;
-            if (sentimentFilter) params.sentiment = sentimentFilter === '__EMPTY__' ? '__EMPTY__' : sentimentFilter;
             if (debouncedSearch) params.search = debouncedSearch;
             if (dateFrom) params.date_from = dateFrom;
             if (dateTo) params.date_to = dateTo;
@@ -402,7 +397,7 @@ export default function EmailRepliesPage() {
 
     // Issue 14: close modal when filters change to prevent showing stale data.
     // Render-phase state comparison (same pattern as ReplyDetailModal localReply sync).
-    const filterSig = `${campaignFilter}|${matchStatusFilter}|${readStatusFilter}|${labelFilter}|${sentimentFilter}|${debouncedSearch}|${dateFrom}|${dateTo}`;
+    const filterSig = `${campaignFilter}|${matchStatusFilter}|${readStatusFilter}|${labelFilter}|${debouncedSearch}|${dateFrom}|${dateTo}`;
     const [prevFilterSig, setPrevFilterSig] = useState(filterSig);
     if (prevFilterSig !== filterSig) {
         setPrevFilterSig(filterSig);
@@ -639,20 +634,6 @@ export default function EmailRepliesPage() {
                             ]}
                             style={{ minWidth: 160 }}
                         />
-                        <Select
-                            size="sm"
-                            placeholder={t('emailReplies.filters.allStatuses')}
-                            clearable
-                            value={sentimentFilter || null}
-                            onChange={(v) => { setSentimentFilter(v || ''); resetPage(); }}
-                            data={[
-                                { value: 'POSITIVE', label: t('emailReplies.statuses.positive') },
-                                { value: 'NEGATIVE', label: t('emailReplies.statuses.negative') },
-                                { value: 'NEUTRAL', label: t('emailReplies.statuses.neutral') },
-                                { value: '__EMPTY__', label: t('emailReplies.statuses.empty') },
-                            ]}
-                            style={{ minWidth: 140 }}
-                        />
                     </Group>
                     <Group gap="xs" wrap="nowrap" justify="flex-end">
                         <SegmentedControl
@@ -745,8 +726,7 @@ export default function EmailRepliesPage() {
                                     {isColVisible('sender') && <Table.Th>{t('emailReplies.table.sender')}</Table.Th>}
                                     {isColVisible('company') && <Table.Th>{t('emailReplies.table.company')}</Table.Th>}
                                     {isColVisible('contact') && <Table.Th>{t('emailReplies.table.contact')}</Table.Th>}
-                                    {isColVisible('label') && <Table.Th style={{ width: 80 }}>{t('emailReplies.table.label')}</Table.Th>}
-                                    {isColVisible('status') && <Table.Th style={{ width: 30 }}>{t('emailReplies.table.status')}</Table.Th>}
+                                    {isColVisible('label') && <Table.Th style={{ width: 30, padding: '0 4px', textAlign: 'center' }}>{t('emailReplies.table.label')}</Table.Th>}
                                     {isColVisible('preview') && <Table.Th>{t('emailReplies.table.preview')}</Table.Th>}
                                     {isColVisible('website') && <Table.Th>{t('emailReplies.table.website')}</Table.Th>}
                                     {isColVisible('notes') && <Table.Th style={{ width: 40, padding: '0 4px' }}>{t('emailReplies.table.notes')}</Table.Th>}
@@ -804,7 +784,7 @@ export default function EmailRepliesPage() {
                                                         ? 'var(--mantine-color-blue-0)'
                                                         : undefined,
                                                 }}
-                                                onClick={() => setSelectedReply(reply)}
+                                                onClick={() => toggleExpand(reply.id)}
                                             >
                                                 {/* Unread dot + expand chevron */}
                                                 <Table.Td style={{ padding: '0 2px' }}>
@@ -817,24 +797,20 @@ export default function EmailRepliesPage() {
                                                                 />
                                                             </Tooltip>
                                                         )}
-                                                        {threadCount > 1 && (
-                                                            <Tooltip label={isExpanded ? t('emailReplies.thread.collapse') : t('emailReplies.thread.expand', { count: threadCount - 1 })}>
-                                                                <ActionIcon
-                                                                    size="xs"
-                                                                    variant="subtle"
-                                                                    color="gray"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        toggleExpand(reply.id);
-                                                                    }}
-                                                                >
-                                                                    {isExpanded
-                                                                        ? <IconChevronDown size={13} />
-                                                                        : <IconChevronRight size={13} />
-                                                                    }
-                                                                </ActionIcon>
-                                                            </Tooltip>
-                                                        )}
+                                                        <ActionIcon
+                                                            size="xs"
+                                                            variant="subtle"
+                                                            color="gray"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                toggleExpand(reply.id);
+                                                            }}
+                                                        >
+                                                            {isExpanded
+                                                                ? <IconChevronDown size={13} />
+                                                                : <IconChevronRight size={13} />
+                                                            }
+                                                        </ActionIcon>
                                                     </Group>
                                                 </Table.Td>
 
@@ -917,9 +893,9 @@ export default function EmailRepliesPage() {
                                                 </Table.Td>
                                                 )}
 
-                                                {/* Label — color-only badge, no text */}
+                                                {/* Label — color dot */}
                                                 {isColVisible('label') && (
-                                                <Table.Td>
+                                                <Table.Td style={{ padding: '0 4px', textAlign: 'center' }}>
                                                     {reply.label && (
                                                         <Tooltip label={reply.label.replace(/_/g, ' ')} withArrow>
                                                             <Badge
@@ -932,26 +908,6 @@ export default function EmailRepliesPage() {
                                                                     : reply.label === 'DO_NOT_CONTACT' ? 'red'
                                                                     : reply.label === 'OUT_OF_OFFICE' ? 'yellow'
                                                                     : reply.label === 'WRONG_PERSON' ? 'orange'
-                                                                    : 'gray'
-                                                                }
-                                                                style={{ width: 10, height: 10, padding: 0, minWidth: 10, borderRadius: '50%' }}
-                                                            />
-                                                        </Tooltip>
-                                                    )}
-                                                </Table.Td>
-                                                )}
-
-                                                {/* Status (sentiment) — color dot only */}
-                                                {isColVisible('status') && (
-                                                <Table.Td>
-                                                    {reply.sentiment && (
-                                                        <Tooltip label={reply.sentiment.charAt(0) + reply.sentiment.slice(1).toLowerCase()} withArrow>
-                                                            <Badge
-                                                                size="xs"
-                                                                variant="filled"
-                                                                color={
-                                                                    reply.sentiment === 'POSITIVE' ? 'green'
-                                                                    : reply.sentiment === 'NEGATIVE' ? 'red'
                                                                     : 'gray'
                                                                 }
                                                                 style={{ width: 10, height: 10, padding: 0, minWidth: 10, borderRadius: '50%' }}
@@ -979,11 +935,9 @@ export default function EmailRepliesPage() {
                                                             href={reply.company_website.startsWith('http') ? reply.company_website : `https://${reply.company_website}`}
                                                             target="_blank"
                                                             onClick={(e) => e.stopPropagation()}
+                                                            style={{ whiteSpace: 'nowrap' }}
                                                         >
-                                                            <Group gap={4} wrap="nowrap">
-                                                                <IconExternalLink size={12} />
-                                                                <Text size="xs" lineClamp={1}>{reply.company_website.replace(/^https?:\/\/(www\.)?/, '')}</Text>
-                                                            </Group>
+                                                            {reply.company_website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '')}
                                                         </Anchor>
                                                     ) : (
                                                         <Text size="xs" c="dimmed">-</Text>
@@ -1011,18 +965,33 @@ export default function EmailRepliesPage() {
                                                 </Table.Td>
                                                 )}
 
-                                                {/* Spacer for settings column */}
-                                                <Table.Td style={{ width: 30, padding: '0 4px' }} />
+                                                {/* Open detail modal */}
+                                                <Table.Td style={{ width: 30, padding: '0 4px' }}>
+                                                    <Tooltip label={t('emailReplies.detail.title')} withArrow>
+                                                        <ActionIcon
+                                                            size="xs"
+                                                            variant="subtle"
+                                                            color="violet"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedReply(reply);
+                                                            }}
+                                                        >
+                                                            <IconMailOpened size={14} />
+                                                        </ActionIcon>
+                                                    </Tooltip>
+                                                </Table.Td>
                                             </Table.Tr>
 
                                             {/* Thread history rows */}
-                                            {isExpanded && threadCount > 1 && (
+                                            {isExpanded && (
                                                 <ThreadHistoryRows
                                                     senderEmail={reply.sender_email}
                                                     campaignId={reply.campaign_id}
-                                                    excludeId={reply.id}
+                                                    parentReplyId={reply.id}
                                                     locale={locale}
                                                     colSpan={visibleEmailCols.length + 2}
+                                                    onClickRow={() => setSelectedReply(reply)}
                                                 />
                                             )}
                                         </>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -18,7 +18,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { isInternal } from '../../lib/permissions';
 import { useStages } from '../../contexts/StagesContext';
 import AssignCompanyForm from './AssignCompanyForm';
-import type { EmailReply } from '../../types/emailReply';
+import type { EmailReply, ThreadHistoryItem } from '../../types/emailReply';
 import type { ActivityType } from '../../types/activity';
 
 interface ReplyDetailModalProps {
@@ -82,6 +82,26 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     }
 
     const isMatched = !!localReply?.company_id;
+
+    // ── Thread history (all IN + OUT messages) ──
+    const { data: threadMessages } = useQuery<ThreadHistoryItem[]>({
+        queryKey: ['email-reply-thread-modal', localReply?.sender_email, localReply?.campaign_id],
+        queryFn: async () => {
+            const params: Record<string, string> = {
+                sender_email: localReply!.sender_email,
+            };
+            if (localReply!.campaign_id) params.campaign_id = localReply!.campaign_id;
+            return (await api.get('/email-replies/thread-history', { params })).data;
+        },
+        enabled: opened && !!localReply,
+        staleTime: 60_000,
+    });
+
+    // Sort oldest-first for conversation flow
+    const sortedThread = useMemo(() =>
+        [...(threadMessages || [])].sort((a, b) =>
+            new Date(a.replied_at).getTime() - new Date(b.replied_at).getTime()
+        ), [threadMessages]);
 
     const formatDate = (iso: string) =>
         new Date(iso).toLocaleDateString(locale, {
@@ -379,21 +399,63 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 </Group>
             </Box>
 
-            {/* ── REPLY BODY ─────────────────────────────── */}
-            <ScrollArea.Autosize mah={320}>
-                <Box px={24} py={20}>
-                    <Text
-                        size="sm"
-                        style={{
-                            lineHeight: 1.8,
-                            color: '#252540',
-                            fontFamily: 'Georgia, "Times New Roman", serif',
-                            whiteSpace: 'pre-wrap',
-                        }}
-                    >
-                        {localReply.reply_body || '—'}
-                    </Text>
-                </Box>
+            {/* ── CONVERSATION THREAD ────────────────────── */}
+            <ScrollArea.Autosize mah={380}>
+                {sortedThread.length > 0 ? sortedThread.map((msg, idx) => {
+                    const isOut = msg.direction === 'OUT';
+                    const isCurrent = msg.id === localReply.id;
+                    return (
+                        <Box key={msg.id}>
+                            {idx > 0 && <Divider color="#ededf8" />}
+                            <Box
+                                px={24}
+                                py={14}
+                                style={{
+                                    background: isOut ? '#f8f5ff' : '#fff',
+                                    ...(isCurrent ? { borderLeft: '3px solid #7c3aed' } : {}),
+                                }}
+                            >
+                                <Group gap={8} mb={6}>
+                                    <Badge
+                                        size="xs"
+                                        variant={isOut ? 'filled' : 'light'}
+                                        color={isOut ? 'violet' : 'gray'}
+                                    >
+                                        {isOut ? t('emailReplies.thread.sent') : t('emailReplies.thread.received')}
+                                    </Badge>
+                                    <Text size="xs" c="dimmed">
+                                        {formatDate(msg.replied_at)}
+                                    </Text>
+                                </Group>
+                                <Text
+                                    size="sm"
+                                    style={{
+                                        lineHeight: 1.7,
+                                        color: isOut ? '#4c1d95' : '#252540',
+                                        fontFamily: 'Georgia, "Times New Roman", serif',
+                                        whiteSpace: 'pre-wrap',
+                                    }}
+                                >
+                                    {msg.reply_body || '—'}
+                                </Text>
+                            </Box>
+                        </Box>
+                    );
+                }) : (
+                    <Box px={24} py={20}>
+                        <Text
+                            size="sm"
+                            style={{
+                                lineHeight: 1.8,
+                                color: '#252540',
+                                fontFamily: 'Georgia, "Times New Roman", serif',
+                                whiteSpace: 'pre-wrap',
+                            }}
+                        >
+                            {localReply.reply_body || '—'}
+                        </Text>
+                    </Box>
+                )}
             </ScrollArea.Autosize>
 
             {/* ── UNMATCHED PANEL ────────────────────────── */}
