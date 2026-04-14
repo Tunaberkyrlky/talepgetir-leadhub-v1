@@ -4,12 +4,12 @@ import { useNavigate } from 'react-router-dom';
 import {
     Modal, Group, Stack, Text, Badge, Button, Anchor,
     Collapse, Textarea, Box, ActionIcon, Menu, Divider,
-    Avatar, ScrollArea,
+    Avatar, ScrollArea, Checkbox, TextInput,
 } from '@mantine/core';
 import {
     IconMail, IconMailOpened, IconTrash, IconRefresh,
     IconExternalLink, IconPlus, IconChevronDown, IconX, IconCheck,
-    IconArrowBackUp, IconSend,
+    IconArrowBackUp, IconSend, IconPaperclip,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
@@ -60,6 +60,12 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [assignOpen, setAssignOpen] = useState(false);
     const [replyOpen, setReplyOpen] = useState(false);
     const [replyBody, setReplyBody] = useState('');
+    const [selectedAttachments, setSelectedAttachments] = useState<string[]>([]);
+    const [newAttOpen, setNewAttOpen] = useState(false);
+    const [newAttLabel, setNewAttLabel] = useState('');
+    const [newAttUrl, setNewAttUrl] = useState('');
+    const [newAttType, setNewAttType] = useState('PDF');
+    const [newAttSize, setNewAttSize] = useState('');
 
     // Sync when a new reply is selected
     if (reply?.id !== localReply?.id) {
@@ -71,6 +77,8 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         setAssignOpen(false);
         setReplyOpen(false);
         setReplyBody('');
+        setSelectedAttachments([]);
+        setNewAttOpen(false);
     }
 
     const isMatched = !!localReply?.company_id;
@@ -177,13 +185,49 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         staleTime: 5 * 60_000,
     });
 
+    // ── Fetch attachment templates ──
+    interface AttachmentTemplate { id: string; label: string; file_type: string; file_url: string; file_size: string; }
+    const { data: attachmentTemplates = [] } = useQuery<AttachmentTemplate[]>({
+        queryKey: ['attachment-templates'],
+        queryFn: async () => {
+            const { data } = await api.get('/attachment-templates');
+            return data.data || [];
+        },
+        enabled: replyOpen,
+        staleTime: 5 * 60_000,
+    });
+
+    // ── Create new attachment template ──
+    const createTemplateMutation = useMutation({
+        mutationFn: async () => (await api.post('/attachment-templates', {
+            label: newAttLabel.trim(),
+            file_url: newAttUrl.trim(),
+            file_type: newAttType.toLowerCase(),
+            file_size: newAttSize.trim(),
+        })).data,
+        onSuccess: (result: { data: AttachmentTemplate }) => {
+            queryClient.invalidateQueries({ queryKey: ['attachment-templates'] });
+            setSelectedAttachments((prev) => [...prev, result.data.id]);
+            setNewAttOpen(false);
+            setNewAttLabel('');
+            setNewAttUrl('');
+            setNewAttType('PDF');
+            setNewAttSize('');
+        },
+        onError: (err) => showErrorFromApi(err, t('emailReplies.attachments.createFailed')),
+    });
+
     // ── Send reply via PlusVibe ──
     const sendReplyMutation = useMutation({
-        mutationFn: async () => (await api.post(`/email-replies/${localReply!.id}/reply`, { body: replyBody.trim() })).data,
+        mutationFn: async () => (await api.post(`/email-replies/${localReply!.id}/reply`, {
+            body: replyBody.trim(),
+            ...(selectedAttachments.length > 0 && { attachmentIds: selectedAttachments }),
+        })).data,
         onSuccess: () => {
             showSuccess(t('emailReplies.reply.success'));
             setReplyOpen(false);
             setReplyBody('');
+            setSelectedAttachments([]);
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
         },
@@ -530,12 +574,140 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                 autosize
                                 styles={{ input: { fontSize: 13, lineHeight: 1.6 } }}
                             />
+                            {/* ── Attachment selector ── */}
+                            {attachmentTemplates.length > 0 || newAttOpen ? (
+                                <Box mt={12} pt={12} style={{ borderTop: '1px solid #f1f3f5' }}>
+                                    <Group justify="space-between" mb={8}>
+                                        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em', fontSize: 10 }}>
+                                            {t('emailReplies.attachments.label')}
+                                        </Text>
+                                        <Button
+                                            size="compact-xs"
+                                            variant="subtle"
+                                            color="violet"
+                                            leftSection={<IconPlus size={11} />}
+                                            onClick={() => setNewAttOpen((v) => !v)}
+                                            styles={{ root: { fontSize: 11, fontWeight: 600, border: '1px dashed #c4b5fd', borderRadius: 6, padding: '2px 8px' } }}
+                                        >
+                                            {t('emailReplies.attachments.addNew')}
+                                        </Button>
+                                    </Group>
+
+                                    {/* Chips */}
+                                    <Group gap={6} mb={newAttOpen ? 0 : undefined}>
+                                        {attachmentTemplates.map((tmpl) => {
+                                            const isSelected = selectedAttachments.includes(tmpl.id);
+                                            return (
+                                                <Box
+                                                    key={tmpl.id}
+                                                    onClick={() => setSelectedAttachments((prev) =>
+                                                        isSelected ? prev.filter((x) => x !== tmpl.id) : [...prev, tmpl.id]
+                                                    )}
+                                                    style={{
+                                                        display: 'flex', alignItems: 'center', gap: 6,
+                                                        border: `1px solid ${isSelected ? '#7c3aed' : '#e8e8f0'}`,
+                                                        borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+                                                        background: isSelected ? '#f5f3ff' : '#fafafe',
+                                                        transition: 'all 0.15s', userSelect: 'none',
+                                                    }}
+                                                >
+                                                    <Checkbox
+                                                        checked={isSelected}
+                                                        onChange={() => {}}
+                                                        size="xs"
+                                                        color="violet"
+                                                        styles={{ input: { cursor: 'pointer' } }}
+                                                    />
+                                                    <Box>
+                                                        <Text size="xs" fw={600} c="#252540">{tmpl.label}</Text>
+                                                        <Text size="xs" c="dimmed" style={{ fontSize: 10 }}>
+                                                            {tmpl.file_type.toUpperCase()}{tmpl.file_size ? ` · ${tmpl.file_size}` : ''}
+                                                        </Text>
+                                                    </Box>
+                                                </Box>
+                                            );
+                                        })}
+                                    </Group>
+
+                                    {/* New attachment form */}
+                                    <Collapse in={newAttOpen}>
+                                        <Box mt={10} p={12} style={{ border: '1px solid #e8e8f0', borderRadius: 10, background: '#f9f9fd' }}>
+                                            <Text size="xs" fw={600} c="#495057" mb={8}>
+                                                {t('emailReplies.attachments.createTitle')}
+                                            </Text>
+                                            <TextInput
+                                                size="xs"
+                                                label={t('emailReplies.attachments.nameLabel')}
+                                                placeholder={t('emailReplies.attachments.namePlaceholder')}
+                                                value={newAttLabel}
+                                                onChange={(e) => setNewAttLabel(e.currentTarget.value)}
+                                                mb={6}
+                                            />
+                                            <TextInput
+                                                size="xs"
+                                                label={t('emailReplies.attachments.urlLabel')}
+                                                placeholder="https://drive.google.com/..."
+                                                value={newAttUrl}
+                                                onChange={(e) => setNewAttUrl(e.currentTarget.value)}
+                                                mb={6}
+                                                styles={{ input: { fontFamily: 'monospace', fontSize: 11 } }}
+                                            />
+                                            <Group gap={8}>
+                                                <TextInput
+                                                    size="xs"
+                                                    label={t('emailReplies.attachments.typeLabel')}
+                                                    placeholder="PDF"
+                                                    value={newAttType}
+                                                    onChange={(e) => setNewAttType(e.currentTarget.value)}
+                                                    style={{ flex: '0 0 100px' }}
+                                                />
+                                                <TextInput
+                                                    size="xs"
+                                                    label={t('emailReplies.attachments.sizeLabel')}
+                                                    placeholder="2.4 MB"
+                                                    value={newAttSize}
+                                                    onChange={(e) => setNewAttSize(e.currentTarget.value)}
+                                                    style={{ flex: '0 0 100px' }}
+                                                />
+                                            </Group>
+                                            <Group justify="flex-end" mt={10} gap={6}>
+                                                <Button size="xs" variant="subtle" color="gray" onClick={() => setNewAttOpen(false)}>
+                                                    {t('emailReplies.reply.cancel')}
+                                                </Button>
+                                                <Button
+                                                    size="xs"
+                                                    color="violet"
+                                                    loading={createTemplateMutation.isPending}
+                                                    disabled={!newAttLabel.trim() || !newAttUrl.trim()}
+                                                    onClick={() => createTemplateMutation.mutate()}
+                                                >
+                                                    {t('emailReplies.attachments.save')}
+                                                </Button>
+                                            </Group>
+                                        </Box>
+                                    </Collapse>
+                                </Box>
+                            ) : (
+                                <Box mt={8}>
+                                    <Button
+                                        size="compact-xs"
+                                        variant="subtle"
+                                        color="gray"
+                                        leftSection={<IconPaperclip size={12} />}
+                                        onClick={() => setNewAttOpen(true)}
+                                        styles={{ root: { fontSize: 11 } }}
+                                    >
+                                        {t('emailReplies.attachments.addNew')}
+                                    </Button>
+                                </Box>
+                            )}
+
                             <Group justify="flex-end" mt={10} gap="xs">
                                 <Button
                                     size="xs"
                                     variant="subtle"
                                     color="gray"
-                                    onClick={() => setReplyOpen(false)}
+                                    onClick={() => { setReplyOpen(false); setSelectedAttachments([]); }}
                                 >
                                     {t('emailReplies.reply.cancel')}
                                 </Button>
@@ -548,6 +720,11 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                     onClick={() => sendReplyMutation.mutate()}
                                 >
                                     {t('emailReplies.reply.send')}
+                                    {selectedAttachments.length > 0 && (
+                                        <Badge size="xs" variant="filled" color="white" c="violet" ml={4}>
+                                            +{selectedAttachments.length}
+                                        </Badge>
+                                    )}
                                 </Button>
                             </Group>
                         </Box>

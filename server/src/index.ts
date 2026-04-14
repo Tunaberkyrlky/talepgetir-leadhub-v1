@@ -31,6 +31,7 @@ import emailRepliesRoutes from './routes/email-replies.js';
 import plusvibeRoutes from './routes/plusvibe.js';
 import webhooksRoutes from './routes/webhooks.js';
 import feedbackRoutes from './routes/feedback.js';
+import attachmentTemplatesRoutes from './routes/attachment-templates.js';
 
 const app = express();
 const PORT = process.env.PORT || process.env.API_PORT || 3001;
@@ -166,6 +167,7 @@ app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
 app.use('/api/plusvibe/import-replies', authMiddleware, plusvibeImportLimiter);
 app.use('/api/plusvibe', authMiddleware, dataFilter, plusvibeRoutes);
 app.use('/api/feedback', authMiddleware, feedbackRoutes);
+app.use('/api/attachment-templates', authMiddleware, attachmentTemplatesRoutes);
 
 // Serve static client files in production (Railway/non-Vercel)
 if (!process.env.VERCEL) {

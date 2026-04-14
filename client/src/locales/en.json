@@ -692,6 +692,18 @@
             "failed": "Failed to send reply",
             "noCampaign": "Cannot reply — no campaign linked"
         },
+        "attachments": {
+            "label": "Attachments",
+            "addNew": "Add New",
+            "createTitle": "Create New Attachment",
+            "nameLabel": "Attachment Name",
+            "namePlaceholder": "e.g. Company Brochure 2026",
+            "urlLabel": "File URL",
+            "typeLabel": "File Type",
+            "sizeLabel": "Size",
+            "save": "Save",
+            "createFailed": "Failed to create attachment"
+        },
         "quickActivity": {
             "title": "Quick Activity",
             "button": "Activity",

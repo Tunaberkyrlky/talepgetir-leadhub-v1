@@ -692,6 +692,18 @@
             "failed": "Yanıt gönderilemedi",
             "noCampaign": "Yanıt gönderilemez — kampanya bağlı değil"
         },
+        "attachments": {
+            "label": "Eklentiler",
+            "addNew": "Yeni Ekle",
+            "createTitle": "Yeni Eklenti Oluştur",
+            "nameLabel": "Eklenti Adı",
+            "namePlaceholder": "örn: Firma Tanıtım 2026",
+            "urlLabel": "Dosya URL'i",
+            "typeLabel": "Dosya Tipi",
+            "sizeLabel": "Boyut",
+            "save": "Kaydet",
+            "createFailed": "Eklenti oluşturulamadı"
+        },
         "quickActivity": {
             "title": "Hızlı Aktivite Ekle",
             "button": "Aktivite",

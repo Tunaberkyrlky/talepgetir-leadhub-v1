@@ -298,6 +298,7 @@ export const campaignStatsQuerySchema = z.object({
 
 export const sendReplyBodySchema = z.object({
     body: z.string().min(1, 'Reply body is required').max(50000),
+    attachmentIds: z.array(z.string().uuid()).max(3).optional(),
 });
 
 export const threadHistoryQuerySchema = z.object({

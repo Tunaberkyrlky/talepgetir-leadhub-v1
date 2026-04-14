@@ -616,7 +616,7 @@ router.post(
                 return;
             }
             const { id } = paramResult.data;
-            const { body: replyText } = req.body as { body: string };
+            const { body: replyText, attachmentIds } = req.body as { body: string; attachmentIds?: string[] };
             const tenantId = req.tenantId!;
 
             // Fetch the inbound email reply
@@ -658,10 +658,25 @@ router.post(
             const context = await resolveReplyContext(emailReply, tenantId);
 
             // Convert plain text to simple HTML
-            const htmlBody = replyText
+            let htmlBody = replyText
                 .split('\n')
                 .map((line: string) => `<p>${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
                 .join('');
+
+            // Append attachment cards if selected
+            if (attachmentIds?.length) {
+                const { data: templates } = await supabaseAdmin
+                    .from('email_attachment_templates')
+                    .select('label, file_type, file_url, file_size')
+                    .in('id', attachmentIds)
+                    .eq('tenant_id', tenantId)
+                    .eq('is_active', true);
+
+                if (templates?.length) {
+                    const { buildAttachmentCardsHtml } = await import('../lib/emailHtmlBuilder.js');
+                    htmlBody += buildAttachmentCardsHtml(templates);
+                }
+            }
 
             // Ensure subject starts with "Re: "
             const subject = context.subject.startsWith('Re:')
@@ -697,6 +712,7 @@ router.post(
                     plusvibe_reply_id: pvResponse.id,
                     from_address: context.fromAddress,
                     subject,
+                    ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
                 },
             };
 
