@@ -21,6 +21,7 @@ export interface EmailReply {
     company_id: string | null;
     company_name: string | null;
     company_stage: string | null;
+    company_website: string | null;
     company_activity_count: number | null;
     contact_id: string | null;
     contact_name: string | null;

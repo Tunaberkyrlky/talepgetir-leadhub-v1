@@ -590,18 +590,40 @@
             "allReadStatuses": "Okundu / Okunmadı",
             "dateRange": "Tarih Aralığı",
             "allLabels": "Tüm Etiketler",
-            "allSentiments": "Tüm Duygular"
+            "allSentiments": "Tüm Duygular",
+            "allStatuses": "Tüm Durumlar"
         },
         "table": {
             "campaign": "Kampanya",
             "sender": "Gönderen",
             "company": "Şirket",
             "contact": "Kişi",
+            "label": "Etiket",
+            "status": "Durum",
             "preview": "Yanıt Önizleme",
+            "website": "Website",
             "date": "Tarih",
             "stage": "Stage",
             "notes": "Notlar",
-            "columns": "Sütunlar"
+            "columns": "Sütunlar",
+            "resetColumns": "Sütunları Sıfırla"
+        },
+        "labels": {
+            "interested": "İlgili",
+            "notInterested": "İlgisiz",
+            "meetingBooked": "Toplantı Planlandı",
+            "meetingCancelled": "Toplantı İptal",
+            "closed": "Kapandı",
+            "outOfOffice": "Ofis Dışında",
+            "wrongPerson": "Yanlış Kişi",
+            "doNotContact": "İletişime Geçme",
+            "empty": "Boş (etiketsiz)"
+        },
+        "statuses": {
+            "positive": "Olumlu",
+            "negative": "Olumsuz",
+            "neutral": "Nötr",
+            "empty": "Boş (durumsuz)"
         },
         "status": {
             "matched": "Eşleşmiş",

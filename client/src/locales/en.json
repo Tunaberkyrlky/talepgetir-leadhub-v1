@@ -590,18 +590,40 @@
             "allReadStatuses": "Read / Unread",
             "dateRange": "Date Range",
             "allLabels": "All Labels",
-            "allSentiments": "All Sentiments"
+            "allSentiments": "All Sentiments",
+            "allStatuses": "All Statuses"
         },
         "table": {
             "campaign": "Campaign",
             "sender": "Sender",
             "company": "Company",
             "contact": "Contact",
+            "label": "Label",
+            "status": "Status",
             "preview": "Reply Preview",
+            "website": "Website",
             "date": "Date",
             "stage": "Stage",
             "notes": "Notes",
-            "columns": "Columns"
+            "columns": "Columns",
+            "resetColumns": "Reset Columns"
+        },
+        "labels": {
+            "interested": "Interested",
+            "notInterested": "Not Interested",
+            "meetingBooked": "Meeting Booked",
+            "meetingCancelled": "Meeting Cancelled",
+            "closed": "Closed",
+            "outOfOffice": "Out of Office",
+            "wrongPerson": "Wrong Person",
+            "doNotContact": "Do Not Contact",
+            "empty": "Empty (no label)"
+        },
+        "statuses": {
+            "positive": "Positive",
+            "negative": "Negative",
+            "neutral": "Neutral",
+            "empty": "Empty (no status)"
         },
         "status": {
             "matched": "Matched",

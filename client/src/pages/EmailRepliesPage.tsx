@@ -5,7 +5,7 @@ import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table,
     Loader, Center, Button, SimpleGrid, Select, TextInput,
     Skeleton, Tooltip, Alert, Anchor, Pagination, ActionIcon,
-    SegmentedControl,
+    SegmentedControl, Popover, Checkbox, Divider,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
@@ -13,7 +13,7 @@ import {
     IconMail, IconMailOpened, IconSearch,
     IconCircleFilled, IconLink, IconLinkOff, IconAlertCircle,
     IconSpeakerphone, IconDownload, IconChevronDown, IconChevronRight,
-    IconChevronLeft, IconRefresh,
+    IconChevronLeft, IconRefresh, IconAdjustments, IconExternalLink,
 } from '@tabler/icons-react';
 import ThreadHistoryRows from '../components/email/ThreadHistoryRows';
 import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
@@ -122,6 +122,45 @@ function formatPeriodLabel(type: PeriodType, anchor: Date, locale: string): stri
     return anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
 }
 
+// ─── Column Toggle ──────────────────────────────────────────────────────────
+
+type EmailColumnKey =
+    | 'campaign' | 'sender' | 'company' | 'contact'
+    | 'label' | 'status' | 'preview' | 'website' | 'notes' | 'date';
+
+interface EmailColumnDef { key: EmailColumnKey; visible: boolean; }
+
+const EMAIL_COLUMNS_KEY = 'email_replies_columns_v1';
+
+const DEFAULT_EMAIL_COLUMNS: EmailColumnDef[] = [
+    { key: 'campaign', visible: true },
+    { key: 'sender', visible: true },
+    { key: 'company', visible: true },
+    { key: 'contact', visible: true },
+    { key: 'label', visible: true },
+    { key: 'status', visible: true },
+    { key: 'preview', visible: true },
+    { key: 'website', visible: false },
+    { key: 'notes', visible: true },
+    { key: 'date', visible: true },
+];
+
+const VALID_EMAIL_COLS = new Set<string>(DEFAULT_EMAIL_COLUMNS.map(c => c.key));
+
+function loadEmailColumns(): EmailColumnDef[] {
+    try {
+        const stored = localStorage.getItem(EMAIL_COLUMNS_KEY);
+        if (stored) {
+            const parsed = JSON.parse(stored) as EmailColumnDef[];
+            const valid = parsed.filter(c => VALID_EMAIL_COLS.has(c.key));
+            const keys = valid.map(c => c.key);
+            const missing = DEFAULT_EMAIL_COLUMNS.filter(c => !keys.includes(c.key));
+            return [...valid, ...missing];
+        }
+    } catch {}
+    return DEFAULT_EMAIL_COLUMNS;
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function EmailRepliesPage() {
@@ -148,6 +187,34 @@ export default function EmailRepliesPage() {
 
     // Selected reply (for modal)
     const [selectedReply, setSelectedReply] = useState<EmailReply | null>(null);
+
+    // Column visibility
+    const [emailColumns, setEmailColumns] = useState<EmailColumnDef[]>(loadEmailColumns);
+    const saveEmailColumns = (cols: EmailColumnDef[]) => {
+        setEmailColumns(cols);
+        localStorage.setItem(EMAIL_COLUMNS_KEY, JSON.stringify(cols));
+    };
+    const toggleEmailColumn = (key: EmailColumnKey) => {
+        const visibleCount = emailColumns.filter(c => c.visible).length;
+        const col = emailColumns.find(c => c.key === key);
+        if (col?.visible && visibleCount <= 1) return;
+        saveEmailColumns(emailColumns.map(c => c.key === key ? { ...c, visible: !c.visible } : c));
+    };
+    const visibleEmailCols = emailColumns.filter(c => c.visible);
+    const isColVisible = (key: EmailColumnKey) => visibleEmailCols.some(c => c.key === key);
+
+    const emailColumnLabels: Record<EmailColumnKey, string> = {
+        campaign: t('emailReplies.table.campaign'),
+        sender: t('emailReplies.table.sender'),
+        company: t('emailReplies.table.company'),
+        contact: t('emailReplies.table.contact'),
+        label: t('emailReplies.table.label'),
+        status: t('emailReplies.table.status'),
+        preview: t('emailReplies.table.preview'),
+        website: t('emailReplies.table.website'),
+        notes: t('emailReplies.table.notes'),
+        date: t('emailReplies.table.date'),
+    };
 
     // Expanded thread rows
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -198,8 +265,8 @@ export default function EmailRepliesPage() {
             if (campaignFilter) params.campaign_id = campaignFilter;
             if (matchStatusFilter) params.match_status = matchStatusFilter;
             if (readStatusFilter) params.read_status = readStatusFilter;
-            if (labelFilter) params.label = labelFilter;
-            if (sentimentFilter) params.sentiment = sentimentFilter;
+            if (labelFilter) params.label = labelFilter === '__EMPTY__' ? '__EMPTY__' : labelFilter;
+            if (sentimentFilter) params.sentiment = sentimentFilter === '__EMPTY__' ? '__EMPTY__' : sentimentFilter;
             if (debouncedSearch) params.search = debouncedSearch;
             if (dateFrom) params.date_from = dateFrom;
             if (dateTo) params.date_to = dateTo;
@@ -560,27 +627,29 @@ export default function EmailRepliesPage() {
                             value={labelFilter || null}
                             onChange={(v) => { setLabelFilter(v || ''); resetPage(); }}
                             data={[
-                                { value: 'INTERESTED', label: 'Interested' },
-                                { value: 'NOT_INTERESTED', label: 'Not Interested' },
-                                { value: 'MEETING_BOOKED', label: 'Meeting Booked' },
-                                { value: 'MEETING_CANCELLED', label: 'Meeting Cancelled' },
-                                { value: 'CLOSED', label: 'Closed' },
-                                { value: 'OUT_OF_OFFICE', label: 'Out of Office' },
-                                { value: 'WRONG_PERSON', label: 'Wrong Person' },
-                                { value: 'DO_NOT_CONTACT', label: 'Do Not Contact' },
+                                { value: 'INTERESTED', label: t('emailReplies.labels.interested') },
+                                { value: 'NOT_INTERESTED', label: t('emailReplies.labels.notInterested') },
+                                { value: 'MEETING_BOOKED', label: t('emailReplies.labels.meetingBooked') },
+                                { value: 'MEETING_CANCELLED', label: t('emailReplies.labels.meetingCancelled') },
+                                { value: 'CLOSED', label: t('emailReplies.labels.closed') },
+                                { value: 'OUT_OF_OFFICE', label: t('emailReplies.labels.outOfOffice') },
+                                { value: 'WRONG_PERSON', label: t('emailReplies.labels.wrongPerson') },
+                                { value: 'DO_NOT_CONTACT', label: t('emailReplies.labels.doNotContact') },
+                                { value: '__EMPTY__', label: t('emailReplies.labels.empty') },
                             ]}
                             style={{ minWidth: 160 }}
                         />
                         <Select
                             size="sm"
-                            placeholder={t('emailReplies.filters.allSentiments')}
+                            placeholder={t('emailReplies.filters.allStatuses')}
                             clearable
                             value={sentimentFilter || null}
                             onChange={(v) => { setSentimentFilter(v || ''); resetPage(); }}
                             data={[
-                                { value: 'POSITIVE', label: 'Positive' },
-                                { value: 'NEGATIVE', label: 'Negative' },
-                                { value: 'NEUTRAL', label: 'Neutral' },
+                                { value: 'POSITIVE', label: t('emailReplies.statuses.positive') },
+                                { value: 'NEGATIVE', label: t('emailReplies.statuses.negative') },
+                                { value: 'NEUTRAL', label: t('emailReplies.statuses.neutral') },
+                                { value: '__EMPTY__', label: t('emailReplies.statuses.empty') },
                             ]}
                             style={{ minWidth: 140 }}
                         />
@@ -672,14 +741,50 @@ export default function EmailRepliesPage() {
                             <Table.Thead>
                                 <Table.Tr>
                                     <Table.Th style={{ width: 20, padding: '0 2px' }} />
-                                    <Table.Th style={{ width: 36, padding: '0 4px' }}>{t('emailReplies.table.campaign')}</Table.Th>
-                                    <Table.Th>{t('emailReplies.table.sender')}</Table.Th>
-                                    <Table.Th>{t('emailReplies.table.company')}</Table.Th>
-                                    <Table.Th>{t('emailReplies.table.contact')}</Table.Th>
-                                    <Table.Th style={{ width: 100 }}>Label</Table.Th>
-                                    <Table.Th>{t('emailReplies.table.preview')}</Table.Th>
-                                    <Table.Th style={{ width: 40, padding: '0 4px' }}>{t('emailReplies.table.notes')}</Table.Th>
-                                    <Table.Th>{t('emailReplies.table.date')}</Table.Th>
+                                    {isColVisible('campaign') && <Table.Th style={{ width: 28, padding: '0 2px' }} />}
+                                    {isColVisible('sender') && <Table.Th>{t('emailReplies.table.sender')}</Table.Th>}
+                                    {isColVisible('company') && <Table.Th>{t('emailReplies.table.company')}</Table.Th>}
+                                    {isColVisible('contact') && <Table.Th>{t('emailReplies.table.contact')}</Table.Th>}
+                                    {isColVisible('label') && <Table.Th style={{ width: 80 }}>{t('emailReplies.table.label')}</Table.Th>}
+                                    {isColVisible('status') && <Table.Th style={{ width: 30 }}>{t('emailReplies.table.status')}</Table.Th>}
+                                    {isColVisible('preview') && <Table.Th>{t('emailReplies.table.preview')}</Table.Th>}
+                                    {isColVisible('website') && <Table.Th>{t('emailReplies.table.website')}</Table.Th>}
+                                    {isColVisible('notes') && <Table.Th style={{ width: 40, padding: '0 4px' }}>{t('emailReplies.table.notes')}</Table.Th>}
+                                    {isColVisible('date') && <Table.Th>{t('emailReplies.table.date')}</Table.Th>}
+                                    <Table.Th style={{ width: 30, padding: '0 4px' }}>
+                                        <Popover position="bottom-end" shadow="md" width={220}>
+                                            <Popover.Target>
+                                                <ActionIcon variant="subtle" color="gray" size="sm">
+                                                    <IconAdjustments size={16} />
+                                                </ActionIcon>
+                                            </Popover.Target>
+                                            <Popover.Dropdown>
+                                                <Text size="xs" fw={700} c="dimmed" tt="uppercase" mb={6}>{t('emailReplies.table.columns')}</Text>
+                                                <Divider mb={6} />
+                                                <Stack gap={4}>
+                                                    {emailColumns.map((col) => (
+                                                        <Checkbox
+                                                            key={col.key}
+                                                            size="xs"
+                                                            checked={col.visible}
+                                                            onChange={() => toggleEmailColumn(col.key)}
+                                                            label={<Text size="sm">{emailColumnLabels[col.key]}</Text>}
+                                                        />
+                                                    ))}
+                                                </Stack>
+                                                <Divider my={6} />
+                                                <Button
+                                                    size="compact-xs"
+                                                    variant="subtle"
+                                                    color="gray"
+                                                    fullWidth
+                                                    onClick={() => saveEmailColumns(DEFAULT_EMAIL_COLUMNS)}
+                                                >
+                                                    {t('emailReplies.table.resetColumns')}
+                                                </Button>
+                                            </Popover.Dropdown>
+                                        </Popover>
+                                    </Table.Th>
                                 </Table.Tr>
                             </Table.Thead>
                             <Table.Tbody>
@@ -733,24 +838,25 @@ export default function EmailRepliesPage() {
                                                     </Group>
                                                 </Table.Td>
 
-                                                {/* Campaign code */}
-                                                <Table.Td style={{ padding: '0 4px' }}>
+                                                {/* Campaign code — compact, left-aligned */}
+                                                {isColVisible('campaign') && (
+                                                <Table.Td style={{ padding: '0 2px' }}>
                                                     {reply.campaign_id && campaignCodeMap.has(reply.campaign_id) ? (
                                                         <Tooltip label={reply.campaign_name || reply.campaign_id} withArrow>
-                                                            <Badge size="sm" variant="filled" color="violet" circle>
+                                                            <Badge size="xs" variant="filled" color="violet" circle>
                                                                 {campaignCodeMap.get(reply.campaign_id)}
                                                             </Badge>
                                                         </Tooltip>
                                                     ) : reply.campaign_name ? (
                                                         <Tooltip label={reply.campaign_name} withArrow>
-                                                            <Badge size="sm" variant="light" color="gray" circle>?</Badge>
+                                                            <Badge size="xs" variant="light" color="gray" circle>?</Badge>
                                                         </Tooltip>
-                                                    ) : (
-                                                        <Text size="xs" c="dimmed">-</Text>
-                                                    )}
+                                                    ) : null}
                                                 </Table.Td>
+                                                )}
 
                                                 {/* Sender Email + thread badge */}
+                                                {isColVisible('sender') && (
                                                 <Table.Td>
                                                     <Group gap={6} wrap="nowrap">
                                                         <Text size="sm" fw={hasUnread ? 600 : 400}>
@@ -763,8 +869,10 @@ export default function EmailRepliesPage() {
                                                         )}
                                                     </Group>
                                                 </Table.Td>
+                                                )}
 
                                                 {/* Company */}
+                                                {isColVisible('company') && (
                                                 <Table.Td>
                                                     {isUnmatched ? (
                                                         <Badge size="sm" variant="light" color="red">
@@ -800,19 +908,23 @@ export default function EmailRepliesPage() {
                                                         <Text size="xs" c="dimmed">-</Text>
                                                     )}
                                                 </Table.Td>
+                                                )}
 
                                                 {/* Contact */}
+                                                {isColVisible('contact') && (
                                                 <Table.Td>
                                                     <Text size="sm">{reply.contact_name || '-'}</Text>
                                                 </Table.Td>
+                                                )}
 
-                                                {/* Label + Sentiment */}
+                                                {/* Label — color-only badge, no text */}
+                                                {isColVisible('label') && (
                                                 <Table.Td>
-                                                    <Group gap={4} wrap="nowrap">
-                                                        {reply.label && (
+                                                    {reply.label && (
+                                                        <Tooltip label={reply.label.replace(/_/g, ' ')} withArrow>
                                                             <Badge
                                                                 size="xs"
-                                                                variant="light"
+                                                                variant="filled"
                                                                 color={
                                                                     reply.label === 'INTERESTED' ? 'green'
                                                                     : reply.label === 'MEETING_BOOKED' ? 'teal'
@@ -822,34 +934,65 @@ export default function EmailRepliesPage() {
                                                                     : reply.label === 'WRONG_PERSON' ? 'orange'
                                                                     : 'gray'
                                                                 }
-                                                            >
-                                                                {reply.label.replace(/_/g, ' ')}
-                                                            </Badge>
-                                                        )}
-                                                        {reply.sentiment && (
+                                                                style={{ width: 10, height: 10, padding: 0, minWidth: 10, borderRadius: '50%' }}
+                                                            />
+                                                        </Tooltip>
+                                                    )}
+                                                </Table.Td>
+                                                )}
+
+                                                {/* Status (sentiment) — color dot only */}
+                                                {isColVisible('status') && (
+                                                <Table.Td>
+                                                    {reply.sentiment && (
+                                                        <Tooltip label={reply.sentiment.charAt(0) + reply.sentiment.slice(1).toLowerCase()} withArrow>
                                                             <Badge
                                                                 size="xs"
-                                                                variant="dot"
+                                                                variant="filled"
                                                                 color={
                                                                     reply.sentiment === 'POSITIVE' ? 'green'
                                                                     : reply.sentiment === 'NEGATIVE' ? 'red'
                                                                     : 'gray'
                                                                 }
-                                                            >
-                                                                {reply.sentiment.charAt(0)}
-                                                            </Badge>
-                                                        )}
-                                                    </Group>
+                                                                style={{ width: 10, height: 10, padding: 0, minWidth: 10, borderRadius: '50%' }}
+                                                            />
+                                                        </Tooltip>
+                                                    )}
                                                 </Table.Td>
+                                                )}
 
                                                 {/* Reply Preview */}
+                                                {isColVisible('preview') && (
                                                 <Table.Td>
                                                     <Text size="xs" c="dimmed" lineClamp={1}>
                                                         {truncate(reply.reply_body, 80)}
                                                     </Text>
                                                 </Table.Td>
+                                                )}
+
+                                                {/* Website */}
+                                                {isColVisible('website') && (
+                                                <Table.Td>
+                                                    {reply.company_website ? (
+                                                        <Anchor
+                                                            size="xs"
+                                                            href={reply.company_website.startsWith('http') ? reply.company_website : `https://${reply.company_website}`}
+                                                            target="_blank"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            <Group gap={4} wrap="nowrap">
+                                                                <IconExternalLink size={12} />
+                                                                <Text size="xs" lineClamp={1}>{reply.company_website.replace(/^https?:\/\/(www\.)?/, '')}</Text>
+                                                            </Group>
+                                                        </Anchor>
+                                                    ) : (
+                                                        <Text size="xs" c="dimmed">-</Text>
+                                                    )}
+                                                </Table.Td>
+                                                )}
 
                                                 {/* Activity count badge */}
+                                                {isColVisible('notes') && (
                                                 <Table.Td style={{ padding: '0 4px', textAlign: 'center' }}>
                                                     {(reply.company_activity_count ?? 0) > 0 ? (
                                                         <Badge size="xs" variant="light" color="violet" style={{ cursor: 'default' }}>
@@ -857,13 +1000,19 @@ export default function EmailRepliesPage() {
                                                         </Badge>
                                                     ) : null}
                                                 </Table.Td>
+                                                )}
 
                                                 {/* Date */}
+                                                {isColVisible('date') && (
                                                 <Table.Td>
                                                     <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
                                                         {formatDate(reply.replied_at, locale)}
                                                     </Text>
                                                 </Table.Td>
+                                                )}
+
+                                                {/* Spacer for settings column */}
+                                                <Table.Td style={{ width: 30, padding: '0 4px' }} />
                                             </Table.Tr>
 
                                             {/* Thread history rows */}
@@ -873,7 +1022,7 @@ export default function EmailRepliesPage() {
                                                     campaignId={reply.campaign_id}
                                                     excludeId={reply.id}
                                                     locale={locale}
-                                                    colSpan={9}
+                                                    colSpan={visibleEmailCols.length + 2}
                                                 />
                                             )}
                                         </>

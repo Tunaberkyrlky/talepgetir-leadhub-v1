@@ -85,7 +85,7 @@ router.get(
             const companyIds = [...new Set(list.map((r: any) => r.company_id).filter(Boolean))];
             const contactIds = [...new Set(list.map((r: any) => r.contact_id).filter(Boolean))];
 
-            const companyMap: Record<string, { name: string; stage: string | null }> = {};
+            const companyMap: Record<string, { name: string; stage: string | null; website: string | null }> = {};
             const activityCountMap: Record<string, number> = {};
             const contactMap: Record<string, string> = {};
 
@@ -93,7 +93,7 @@ router.get(
                 const [{ data: companies }, { data: activities }] = await Promise.all([
                     supabaseAdmin
                         .from('companies')
-                        .select('id, name, stage')
+                        .select('id, name, stage, website')
                         .in('id', companyIds),
                     supabaseAdmin
                         .from('activities')
@@ -101,7 +101,7 @@ router.get(
                         .in('company_id', companyIds),
                 ]);
                 for (const c of companies || []) {
-                    companyMap[c.id] = { name: c.name, stage: c.stage ?? null };
+                    companyMap[c.id] = { name: c.name, stage: c.stage ?? null, website: c.website ?? null };
                 }
                 for (const a of activities || []) {
                     activityCountMap[a.company_id] = (activityCountMap[a.company_id] ?? 0) + 1;
@@ -122,6 +122,7 @@ router.get(
                 ...r,
                 company_name: r.company_id ? (companyMap[r.company_id]?.name || null) : null,
                 company_stage: r.company_id ? (companyMap[r.company_id]?.stage ?? null) : null,
+                company_website: r.company_id ? (companyMap[r.company_id]?.website ?? null) : null,
                 company_activity_count: r.company_id ? (activityCountMap[r.company_id] ?? 0) : null,
                 contact_name: r.contact_id ? (contactMap[r.contact_id] || null) : null,
             }));
