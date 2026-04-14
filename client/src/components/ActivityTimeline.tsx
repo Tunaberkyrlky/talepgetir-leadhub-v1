@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Stack,
@@ -41,6 +41,12 @@ interface ActivityTimelineProps {
     hideEmpty?: boolean;
     /** When true, render without Paper wrapper, header, and add button — for embedding inside tabs */
     embedded?: boolean;
+    /** When true, hide the add activity button (parent will render it) */
+    hideActionButton?: boolean;
+}
+
+export interface ActivityTimelineHandle {
+    openAddForm: () => void;
 }
 
 interface ActivitiesResponse {
@@ -66,7 +72,7 @@ function formatActivityDate(isoString: string, locale: string = 'tr-TR'): string
     });
 }
 
-export default function ActivityTimeline({ companyId, contactId, compact, typeFilter: externalTypeFilter, hideEmpty, embedded }: ActivityTimelineProps) {
+const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProps>(function ActivityTimeline({ companyId, contactId, compact, typeFilter: externalTypeFilter, hideEmpty, embedded, hideActionButton }, ref) {
     const { t, i18n } = useTranslation();
     const locale = i18n.language === 'tr' ? 'tr-TR' : 'en-US';
     const { user } = useAuth();
@@ -134,6 +140,10 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
         setEditingActivity(null);
         openForm();
     };
+
+    useImperativeHandle(ref, () => ({
+        openAddForm: handleAddActivity,
+    }));
 
     const handleEditActivity = (activity: Activity) => {
         setEditingActivity(activity);
@@ -299,7 +309,7 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
     if (embedded || compact) {
         return (
             <>
-                {embedded && canEditActivities && (
+                {embedded && canEditActivities && !hideActionButton && (
                     <Group justify="flex-end" mb="md">
                         <Button
                             size="sm"
@@ -346,4 +356,6 @@ export default function ActivityTimeline({ companyId, contactId, compact, typeFi
             {content}
         </Paper>
     );
-}
+});
+
+export default ActivityTimeline;

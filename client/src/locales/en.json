@@ -518,6 +518,9 @@
             "sonlandirma_raporu": "Closing Report",
             "status_change": "Stage Change"
         },
+        "summaryPlaceholder": "What happened or what needs to be done?",
+        "moreFields": "More fields (detail, outcome, visibility...)",
+        "dateTime": "Date & Time",
         "visibility_options": {
             "internal": "Internal",
             "client": "Client"

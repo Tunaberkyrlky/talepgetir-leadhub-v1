@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useNavigateBack } from '../hooks/useNavigateBack';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -64,6 +64,7 @@ import EmailStatusIcon from '../components/EmailStatusIcon';
 import CompanyForm from '../components/CompanyForm';
 import ClosingReportModal from '../components/ClosingReportModal';
 import ActivityTimeline from '../components/ActivityTimeline';
+import type { ActivityTimelineHandle } from '../components/ActivityTimeline';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import type { ClosingOutcome } from '../types/activity';
 import type { EmailReply } from '../types/emailReply';
@@ -241,6 +242,8 @@ export default function CompanyDetailPage() {
     const [selectedEmailReply, setSelectedEmailReply] = useState<EmailReply | null>(null);
     const [emailModalOpened, { open: openEmailModal, close: closeEmailModal }] = useDisclosure(false);
     const canEdit = canWrite(user?.role || '');
+    const [activeTab, setActiveTab] = useState<string | null>('activities');
+    const activityTimelineRef = useRef<ActivityTimelineHandle>(null);
 
     const { data: companyEmails = [], isLoading: emailsLoading, isError: emailsError } = useQuery<EmailReply[]>({
         queryKey: ['company-emails', id],
@@ -692,51 +695,58 @@ export default function CompanyDetailPage() {
 
             {/* Activities & Contacts Tabs */}
             <Paper shadow="sm" radius="lg" p="xl" withBorder>
-                <Tabs defaultValue="activities">
-                    <Tabs.List mb="lg">
-                        <Tabs.Tab value="activities">{t('activity.timeline')}</Tabs.Tab>
-                        <Tabs.Tab value="contacts">
-                            <Group gap={6} wrap="nowrap">
-                                {t('company.contacts')}
-                                {company.contacts.length > 0 && (
-                                    <Badge size="xs" variant="light" color="violet" circle>{company.contacts.length}</Badge>
-                                )}
-                            </Group>
-                        </Tabs.Tab>
-                        <Tabs.Tab value="emails">
-                            <Group gap={6} wrap="nowrap">
-                                {t('emailReplies.companyEmailsTab')}
-                                {companyEmails.length > 0 && (
-                                    <Badge size="xs" variant="light" color="blue" circle>{companyEmails.length}</Badge>
-                                )}
-                                {companyEmails.some((e) => e.read_status === 'unread') && (
-                                    <Badge size="xs" variant="filled" color="red" circle>
-                                        {companyEmails.filter((e) => e.read_status === 'unread').length}
-                                    </Badge>
-                                )}
-                            </Group>
-                        </Tabs.Tab>
-                    </Tabs.List>
+                <Tabs value={activeTab} onChange={setActiveTab}>
+                    <Group justify="space-between" align="center" mb="lg">
+                        <Tabs.List>
+                            <Tabs.Tab value="activities">{t('activity.timeline')}</Tabs.Tab>
+                            <Tabs.Tab value="contacts">
+                                <Group gap={6} wrap="nowrap">
+                                    {t('company.contacts')}
+                                    {company.contacts.length > 0 && (
+                                        <Badge size="xs" variant="light" color="violet" circle>{company.contacts.length}</Badge>
+                                    )}
+                                </Group>
+                            </Tabs.Tab>
+                            <Tabs.Tab value="emails">
+                                <Group gap={6} wrap="nowrap">
+                                    {t('emailReplies.companyEmailsTab')}
+                                    {companyEmails.length > 0 && (
+                                        <Badge size="xs" variant="light" color="blue" circle>{companyEmails.length}</Badge>
+                                    )}
+                                </Group>
+                            </Tabs.Tab>
+                        </Tabs.List>
+                        {activeTab === 'activities' && canEdit && (
+                            <Button
+                                size="sm"
+                                leftSection={<IconPlus size={16} />}
+                                onClick={() => activityTimelineRef.current?.openAddForm()}
+                                variant="light"
+                                color="violet"
+                                radius="md"
+                            >
+                                {t('activity.addActivity')}
+                            </Button>
+                        )}
+                        {activeTab === 'contacts' && canEdit && (
+                            <Button
+                                size="sm"
+                                leftSection={<IconPlus size={16} />}
+                                onClick={handleAddContact}
+                                variant="light"
+                                color="violet"
+                                radius="md"
+                            >
+                                {t('contact.addContact')}
+                            </Button>
+                        )}
+                    </Group>
 
                     <Tabs.Panel value="activities">
-                        {id && <ActivityTimeline companyId={id} embedded />}
+                        {id && <ActivityTimeline ref={activityTimelineRef} companyId={id} embedded hideActionButton />}
                     </Tabs.Panel>
 
                     <Tabs.Panel value="contacts">
-                        <Group justify="flex-end" mb="md">
-                            {canEdit && (
-                                <Button
-                                    size="sm"
-                                    leftSection={<IconPlus size={16} />}
-                                    onClick={handleAddContact}
-                                    variant="light"
-                                    color="violet"
-                                    radius="md"
-                                >
-                                    {t('contact.addContact')}
-                                </Button>
-                            )}
-                        </Group>
 
                         {company.contacts.length === 0 ? (
                             <Center py="xl">

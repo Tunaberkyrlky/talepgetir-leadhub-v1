@@ -572,7 +572,7 @@ export default function ActivitiesPage() {
                             <SegmentedControl
                                 size="sm"
                                 value={typeFilter}
-                                onChange={(v) => setTypeFilter(v)}
+                                onChange={(v) => { setTypeFilter(v); if (v && groupBy === 'type') setGroupBy('none'); }}
                                 data={[
                                     { label: t('activities.all'), value: '' },
                                     { label: t('activities.types.not'), value: 'not' },
@@ -694,7 +694,7 @@ export default function ActivitiesPage() {
                         { label: t('activities.groupByNone'), value: 'none' },
                         { label: t('activities.groupByDate'), value: 'date' },
                         { label: t('activities.groupByCompany'), value: 'company' },
-                        { label: t('activities.groupByType'), value: 'type' },
+                        ...(!typeFilter ? [{ label: t('activities.groupByType'), value: 'type' }] : []),
                     ]}
                 />
             </Group>

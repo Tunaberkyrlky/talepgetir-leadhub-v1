@@ -518,9 +518,12 @@
             "sonlandirma_raporu": "Sonlandırma Raporu",
             "status_change": "Aşama Değişikliği"
         },
+        "summaryPlaceholder": "Ne oldu veya ne yapilmasi gerekiyor?",
+        "moreFields": "Daha fazla alan (detay, sonuc, gorunurluk...)",
+        "dateTime": "Tarih ve Saat",
         "visibility_options": {
-            "internal": "İç",
-            "client": "Müşteri"
+            "internal": "Ic",
+            "client": "Musteri"
         },
         "closingReport": {
             "title": "Sonlandırma Raporu",

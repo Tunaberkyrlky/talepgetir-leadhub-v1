@@ -18,20 +18,16 @@ import { useAuth } from '../../contexts/AuthContext';
 import { isInternal } from '../../lib/permissions';
 import { useStages } from '../../contexts/StagesContext';
 import AssignCompanyForm from './AssignCompanyForm';
+import ActivityForm from '../ActivityForm';
+import ClosingReportModal from '../ClosingReportModal';
 import type { EmailReply, ThreadHistoryItem } from '../../types/emailReply';
-import type { ActivityType } from '../../types/activity';
+import type { ClosingOutcome } from '../../types/activity';
 
 interface ReplyDetailModalProps {
     reply: EmailReply | null;
     opened: boolean;
     onClose: () => void;
 }
-
-const ACTIVITY_TYPES: { value: ActivityType; emoji: string; labelKey: string }[] = [
-    { value: 'follow_up', emoji: '📞', labelKey: 'activities.types.follow_up' },
-    { value: 'meeting',   emoji: '🤝', labelKey: 'activities.types.meeting' },
-    { value: 'not',       emoji: '📝', labelKey: 'activities.types.not' },
-];
 
 function getInitials(name: string | null, email: string): string {
     if (name) {
@@ -48,15 +44,14 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { user } = useAuth();
-    const { stageOptions } = useStages();
+    const { stageOptions, terminalStageSlugs } = useStages();
     const canDeleteReply = isInternal(user?.role || '');
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
 
     const [localReply, setLocalReply] = useState<EmailReply | null>(reply);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [activityOpen, setActivityOpen] = useState(false);
-    const [activityType, setActivityType] = useState<ActivityType>('follow_up');
-    const [activityNote, setActivityNote] = useState('');
+    const [closingReportTarget, setClosingReportTarget] = useState<ClosingOutcome | null>(null);
     const [assignOpen, setAssignOpen] = useState(false);
     const [replyOpen, setReplyOpen] = useState(false);
     const [replyBody, setReplyBody] = useState('');
@@ -72,8 +67,6 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         setLocalReply(reply);
         setConfirmDelete(false);
         setActivityOpen(false);
-        setActivityNote('');
-        setActivityType('follow_up');
         setAssignOpen(false);
         setReplyOpen(false);
         setReplyBody('');
@@ -173,25 +166,6 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         onError: (err) => showErrorFromApi(err, t('emailReplies.errors.readToggleFailed')),
     });
 
-    // ── Quick activity ──
-    const addActivityMutation = useMutation({
-        mutationFn: async () => (await api.post('/activities', {
-            company_id: localReply!.company_id,
-            contact_id: localReply!.contact_id || null,
-            type: activityType,
-            summary: activityNote.trim(),
-            visibility: 'client',
-        })).data,
-        onSuccess: () => {
-            showSuccess(t('emailReplies.quickActivity.added'));
-            setActivityOpen(false);
-            setActivityNote('');
-            setActivityType('follow_up');
-            queryClient.invalidateQueries({ queryKey: ['activities'] });
-        },
-        onError: (err) => showErrorFromApi(err, t('emailReplies.quickActivity.failed')),
-    });
-
     // ── Resolve sender (from) address when reply panel is open ──
     const { data: senderAddress } = useQuery<string | null>({
         queryKey: ['campaign-sender', localReply?.campaign_id],
@@ -260,6 +234,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const avatarColor = isMatched ? 'violet' : 'orange';
 
     return (
+        <>
         <Modal
             opened={opened}
             onClose={onClose}
@@ -502,90 +477,16 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 </Box>
             )}
 
-            {/* ── QUICK ACTIVITY PANEL ───────────────────── */}
-            <Collapse in={activityOpen && isMatched}>
-                <Box mx={24} mb={12}>
-                    <Box
-                        style={{
-                            border: '1px solid #e2e8f0',
-                            borderRadius: 10,
-                            overflow: 'hidden',
-                        }}
-                    >
-                        {/* Panel header */}
-                        <Group
-                            px={14} py={10}
-                            style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}
-                            justify="space-between"
-                        >
-                            <Group gap={6}>
-                                <IconPlus size={13} color="#334155" />
-                                <Text size="xs" fw={600} c="#334155">
-                                    {t('emailReplies.quickActivity.title')}
-                                </Text>
-                            </Group>
-                            <ActionIcon
-                                size="sm"
-                                variant="subtle"
-                                color="gray"
-                                onClick={() => setActivityOpen(false)}
-                            >
-                                <IconX size={12} />
-                            </ActionIcon>
-                        </Group>
-
-                        {/* Panel body */}
-                        <Box p={14} style={{ background: '#fff' }}>
-                            {/* Type selector */}
-                            <Group gap={6} mb={10}>
-                                {ACTIVITY_TYPES.map(({ value, emoji, labelKey }) => (
-                                    <Button
-                                        key={value}
-                                        size="xs"
-                                        variant={activityType === value ? 'filled' : 'default'}
-                                        color="violet"
-                                        radius="xl"
-                                        fw={activityType === value ? 600 : 400}
-                                        onClick={() => setActivityType(value)}
-                                    >
-                                        {emoji} {t(labelKey)}
-                                    </Button>
-                                ))}
-                            </Group>
-
-                            <Textarea
-                                placeholder={t('emailReplies.quickActivity.placeholder')}
-                                value={activityNote}
-                                onChange={(e) => setActivityNote(e.currentTarget.value)}
-                                minRows={2}
-                                maxRows={4}
-                                autosize
-                                styles={{ input: { fontSize: 13, lineHeight: 1.6 } }}
-                            />
-
-                            <Group justify="flex-end" mt={10} gap="xs">
-                                <Button
-                                    size="xs"
-                                    variant="subtle"
-                                    color="gray"
-                                    onClick={() => setActivityOpen(false)}
-                                >
-                                    {t('emailReplies.quickActivity.cancel')}
-                                </Button>
-                                <Button
-                                    size="xs"
-                                    leftSection={<IconCheck size={12} />}
-                                    loading={addActivityMutation.isPending}
-                                    disabled={!activityNote.trim()}
-                                    onClick={() => addActivityMutation.mutate()}
-                                >
-                                    {t('emailReplies.quickActivity.save')}
-                                </Button>
-                            </Group>
-                        </Box>
-                    </Box>
-                </Box>
-            </Collapse>
+            {/* ── ACTIVITY FORM (inline) ──────────────── */}
+            {isMatched && localReply.company_id && (
+                <ActivityForm
+                    opened={activityOpen}
+                    onClose={() => setActivityOpen(false)}
+                    companyId={localReply.company_id}
+                    contactId={localReply.contact_id || undefined}
+                    inline
+                />
+            )}
 
             {/* ── REPLY PANEL ────────────────────────────── */}
             <Collapse in={replyOpen}>
@@ -844,7 +745,13 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                                     fw={isCurrent ? 600 : undefined}
                                                     c={isCurrent ? 'violet' : undefined}
                                                     rightSection={isCurrent ? <IconCheck size={13} /> : undefined}
-                                                    onClick={() => stageUpdateMutation.mutate(stage.value)}
+                                                    onClick={() => {
+                                                        if (terminalStageSlugs.includes(stage.value)) {
+                                                            setClosingReportTarget(stage.value as ClosingOutcome);
+                                                        } else {
+                                                            stageUpdateMutation.mutate(stage.value);
+                                                        }
+                                                    }}
                                                 >
                                                     {stage.label}
                                                 </Menu.Item>
@@ -923,5 +830,22 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 )}
             </Box>
         </Modal>
+
+        {/* ── Closing Report Modal ─────────────────── */}
+        {closingReportTarget && localReply?.company_id && (
+            <ClosingReportModal
+                opened={true}
+                onClose={() => setClosingReportTarget(null)}
+                companyId={localReply.company_id}
+                companyName={localReply.company_name || ''}
+                targetStage={closingReportTarget}
+                onSuccess={() => {
+                    setClosingReportTarget(null);
+                    queryClient.invalidateQueries({ queryKey: ['email-replies'] });
+                    queryClient.invalidateQueries({ queryKey: ['companies'] });
+                }}
+            />
+        )}
+    </>
     );
 }

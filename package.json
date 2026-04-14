@@ -1,6 +1,6 @@
 {
   "name": "leadhub",
-  "version": "1.6.2",
+  "version": "1.6.5",
   "private": true,
   "workspaces": [
     "server",
