@@ -18,8 +18,10 @@ import { AppError } from '../middleware/errorHandler.js';
 
 const log = createLogger('campaignEngine');
 
-const TRACKING_SECRET = process.env.TRACKING_SECRET
-    || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('TRACKING_SECRET env var is required in production'); })() : 'dev-tracking-secret-local-only');
+const TRACKING_SECRET = process.env.TRACKING_SECRET || 'dev-tracking-secret-local-only';
+if (!process.env.TRACKING_SECRET) {
+    log.warn('TRACKING_SECRET env var not set — using insecure default. Set it in production!');
+}
 const API_BASE = process.env.API_BASE_URL || '';
 
 // ── Types ──────────────────────────────────────────────────────────────────
