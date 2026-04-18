@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -64,7 +64,6 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [newAttType, setNewAttType] = useState('PDF');
     const [newAttSize, setNewAttSize] = useState('');
     const [deleteAttId, setDeleteAttId] = useState<string | null>(null);
-
     // Sync when a new reply is selected
     if (reply?.id !== localReply?.id) {
         setLocalReply(reply);
@@ -76,6 +75,18 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         setSelectedAttachments([]);
         setNewAttOpen(false);
     }
+
+    // Auto-mark as read when a decisive action is taken (activity, closing report, reply sent)
+    const markAsRead = useCallback(() => {
+        if (!localReply || localReply.read_status === 'read') return;
+        api.patch(`/email-replies/${localReply.id}/read`, { read_status: 'read' })
+            .then(() => {
+                setLocalReply(prev => prev ? { ...prev, read_status: 'read' } : prev);
+                queryClient.invalidateQueries({ queryKey: ['email-replies'] });
+                queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+            })
+            .catch(() => {});
+    }, [localReply, queryClient]);
 
     const isMatched = !!localReply?.company_id;
 
@@ -118,6 +129,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             (await api.put(`/companies/${localReply!.company_id}`, { stage: newStage })).data,
         onSuccess: () => {
             showSuccess(t('emailReplies.stageUpdated'));
+            markAsRead();
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['companies'] });
         },
@@ -253,6 +265,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             setSelectedCc([]);
             setCustomCc('');
             setSelectedAttachments([]);
+            markAsRead();
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
         },
@@ -513,6 +526,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 <ActivityForm
                     opened={activityOpen}
                     onClose={() => setActivityOpen(false)}
+                    onSuccess={markAsRead}
                     companyId={localReply.company_id}
                     contactId={localReply.contact_id || undefined}
                     inline
@@ -976,6 +990,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 targetStage={closingReportTarget}
                 onSuccess={() => {
                     setClosingReportTarget(null);
+                    markAsRead();
                     queryClient.invalidateQueries({ queryKey: ['email-replies'] });
                     queryClient.invalidateQueries({ queryKey: ['companies'] });
                 }}

@@ -37,6 +37,8 @@ interface ActivityTimelineProps {
     contactId?: string;
     compact?: boolean;
     typeFilter?: string;
+    /** Activity types to hide from rendering (client-side filter) */
+    excludeTypes?: string[];
     /** When true, render nothing instead of "no activities" message */
     hideEmpty?: boolean;
     /** When true, render without Paper wrapper, header, and add button — for embedding inside tabs */
@@ -72,7 +74,7 @@ function formatActivityDate(isoString: string, locale: string = 'tr-TR'): string
     });
 }
 
-const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProps>(function ActivityTimeline({ companyId, contactId, compact, typeFilter: externalTypeFilter, hideEmpty, embedded, hideActionButton }, ref) {
+const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProps>(function ActivityTimeline({ companyId, contactId, compact, typeFilter: externalTypeFilter, excludeTypes, hideEmpty, embedded, hideActionButton }, ref) {
     const { t, i18n } = useTranslation();
     const locale = i18n.language === 'tr' ? 'tr-TR' : 'en-US';
     const { user } = useAuth();
@@ -119,7 +121,9 @@ const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProp
         }
     }, [data, page]);
 
-    const shownList: Activity[] = allActivities;
+    const shownList: Activity[] = excludeTypes?.length
+        ? allActivities.filter(a => !excludeTypes.includes(a.type))
+        : allActivities;
 
     const deleteMutation = useMutation({
         mutationFn: async (id: string) => {

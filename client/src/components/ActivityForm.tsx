@@ -26,6 +26,7 @@ import type { Activity, ActivityType } from '../types/activity';
 interface ActivityFormProps {
     opened: boolean;
     onClose: () => void;
+    onSuccess?: () => void;
     companyId: string;
     contactId?: string;
     contacts?: { id: string; first_name: string; last_name?: string | null }[];
@@ -39,7 +40,7 @@ const TYPE_CONFIG: { value: ActivityType; emoji: string; labelKey: string; showD
     { value: 'not',       emoji: '\u{1F4DD}', labelKey: 'activity.types.not',       showDate: false },
 ];
 
-export default function ActivityForm({ opened, onClose, companyId, contactId, contacts, activity, inline }: ActivityFormProps) {
+export default function ActivityForm({ opened, onClose, onSuccess, companyId, contactId, contacts, activity, inline }: ActivityFormProps) {
     const { t } = useTranslation();
     const { user } = useAuth();
     const queryClient = useQueryClient();
@@ -132,6 +133,7 @@ export default function ActivityForm({ opened, onClose, companyId, contactId, co
         onSuccess: () => {
             showSuccess(t('activity.created'));
             queryClient.invalidateQueries({ queryKey: ['activities', companyId] });
+            onSuccess?.();
             onClose();
             form.reset();
         },

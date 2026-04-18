@@ -228,7 +228,7 @@ function OutcomeDetailCell({ companyId, closingReport }: { companyId: string; cl
                             )}
                         </Stack>
                     )}
-                    <ActivityTimeline companyId={companyId} compact hideEmpty />
+                    <ActivityTimeline companyId={companyId} compact hideEmpty excludeTypes={['sonlandirma_raporu']} />
                 </Stack>
             )}
         </Box>

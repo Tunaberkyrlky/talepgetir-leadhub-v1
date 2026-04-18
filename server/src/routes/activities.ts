@@ -128,6 +128,9 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
                 return;
             }
             query = query.eq('type', type as string);
+        } else {
+            // Exclude system-generated types from the activities feed by default
+            query = query.not('type', 'in', '(status_change)');
         }
         if (date_from) query = query.gte('occurred_at', date_from as string);
         if (date_to) query = query.lte('occurred_at', date_to as string);
@@ -282,13 +285,14 @@ router.get('/stats', async (req: Request, res: Response, next: NextFunction): Pr
             total += Number(row.count);
         }
 
+        // Exclude status_change from total — it's a system-generated record
+        const statusChangeCount = counts['status_change'] || 0;
         res.json({
             meeting: counts['meeting'] || 0,
             not: counts['not'] || 0,
             follow_up: counts['follow_up'] || 0,
             sonlandirma_raporu: counts['sonlandirma_raporu'] || 0,
-            status_change: counts['status_change'] || 0,
-            total,
+            total: total - statusChangeCount,
         });
     } catch (err) {
         if (err instanceof AppError) return next(err);

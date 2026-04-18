@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, Fragment } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -775,9 +775,8 @@ export default function EmailRepliesPage() {
                                     const isExpanded = expandedIds.has(reply.id);
 
                                     return (
-                                        <>
+                                        <Fragment key={reply.id}>
                                             <Table.Tr
-                                                key={reply.id}
                                                 style={{
                                                     cursor: 'pointer',
                                                     backgroundColor: hasUnread
@@ -994,7 +993,7 @@ export default function EmailRepliesPage() {
                                                     onClickRow={() => setSelectedReply(reply)}
                                                 />
                                             )}
-                                        </>
+                                        </Fragment>
                                     );
                                 })}
                             </Table.Tbody>

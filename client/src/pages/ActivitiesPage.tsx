@@ -39,7 +39,6 @@ interface ActivityStats {
     not: number;
     follow_up: number;
     sonlandirma_raporu: number;
-    status_change: number;
     total: number;
 }
 
