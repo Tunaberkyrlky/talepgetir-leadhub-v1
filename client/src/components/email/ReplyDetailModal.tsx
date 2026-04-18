@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -9,7 +9,7 @@ import {
 import {
     IconMail, IconMailOpened, IconTrash, IconRefresh,
     IconExternalLink, IconPlus, IconChevronDown, IconX, IconCheck,
-    IconArrowBackUp, IconSend, IconPaperclip,
+    IconArrowBackUp, IconSend, IconPaperclip, IconDeviceFloppy,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
@@ -64,6 +64,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [newAttType, setNewAttType] = useState('PDF');
     const [newAttSize, setNewAttSize] = useState('');
     const [deleteAttId, setDeleteAttId] = useState<string | null>(null);
+    const [draftLoaded, setDraftLoaded] = useState<string | null>(null);
     // Sync when a new reply is selected
     if (reply?.id !== localReply?.id) {
         setLocalReply(reply);
@@ -72,8 +73,10 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         setAssignOpen(false);
         setReplyOpen(false);
         setReplyBody('');
+        setSelectedCc([]);
         setSelectedAttachments([]);
         setNewAttOpen(false);
+        setDraftLoaded(null);
     }
 
     // Auto-mark as read when a decisive action is taken (activity, closing report, reply sent)
@@ -90,12 +93,48 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
 
     const isMatched = !!localReply?.company_id;
 
-    // ── CC addresses (tenant-level predefined list) ──
+    // ── CC addresses (tenant-level, persisted on server) ──
     const { data: ccAddresses } = useQuery<{ email: string; label: string }[]>({
         queryKey: ['cc-addresses'],
         queryFn: async () => (await api.get('/settings/cc-addresses')).data.data,
         staleTime: 5 * 60 * 1000,
     });
+    const savedCcList = useMemo(() => (ccAddresses || []).map(a => a.email), [ccAddresses]);
+    const addToSavedCc = useCallback((email: string) => {
+        const current = ccAddresses || [];
+        if (current.some(a => a.email === email)) return;
+        const updated = [...current, { email, label: email }];
+        api.put('/settings/cc-addresses', { cc_addresses: updated }).then(() => {
+            queryClient.invalidateQueries({ queryKey: ['cc-addresses'] });
+        }).catch(() => {});
+    }, [ccAddresses, queryClient]);
+    const removeFromSavedCc = useCallback((email: string) => {
+        const updated = (ccAddresses || []).filter(a => a.email !== email);
+        api.put('/settings/cc-addresses', { cc_addresses: updated }).then(() => {
+            queryClient.invalidateQueries({ queryKey: ['cc-addresses'] });
+        }).catch(() => {});
+    }, [ccAddresses, queryClient]);
+
+    // ── Load saved draft ──
+    const { data: draftData } = useQuery<{ draft: { id: string; reply_body: string; raw_payload: any } | null }>({
+        queryKey: ['email-reply-draft', localReply?.id],
+        queryFn: async () => (await api.get(`/email-replies/${localReply!.id}/draft`)).data,
+        enabled: opened && !!localReply,
+        staleTime: 30_000,
+    });
+
+    // Auto-fill body from draft when reply compose opens (only if body is empty)
+    useEffect(() => {
+        if (draftData?.draft && draftData.draft.id !== draftLoaded && !replyBody.trim()) {
+            setReplyBody(draftData.draft.reply_body);
+            setDraftLoaded(draftData.draft.id);
+            // Restore CC from draft if available
+            const savedCc = draftData.draft.raw_payload?.cc;
+            if (savedCc && typeof savedCc === 'string') {
+                setSelectedCc(savedCc.split(',').map((e: string) => e.trim()).filter(Boolean));
+            }
+        }
+    }, [draftData, draftLoaded, replyBody]);
 
     // ── Thread history (all IN + OUT messages) ──
     const { data: threadMessages } = useQuery<ThreadHistoryItem[]>({
@@ -270,6 +309,23 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
         },
         onError: (err) => showErrorFromApi(err, t('emailReplies.reply.failed')),
+    });
+
+    const saveDraftMutation = useMutation({
+        mutationFn: async () => {
+            const ccList = buildCcList();
+            return (await api.post(`/email-replies/${localReply!.id}/save-draft`, {
+                body: replyBody.trim(),
+                ...(selectedAttachments.length > 0 && { attachmentIds: selectedAttachments }),
+                ...(ccList.length > 0 && { cc: ccList.join(', ') }),
+            })).data;
+        },
+        onSuccess: () => {
+            showSuccess(t('emailReplies.reply.draftSaved'));
+            queryClient.invalidateQueries({ queryKey: ['email-replies'] });
+            queryClient.invalidateQueries({ queryKey: ['activities'] });
+        },
+        onError: (err) => showErrorFromApi(err, t('emailReplies.reply.draftFailed')),
     });
 
     if (!localReply) return null;
@@ -574,44 +630,48 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                 {t('emailReplies.reply.to')}: <Text span fw={500} c="dark">{localReply.sender_email}</Text>
                             </Text>
 
-                            {/* CC selector — chip-based */}
-                            <Box mb={8}>
-                                <Text size="xs" c="dimmed" mb={4}>CC:</Text>
+                            {/* CC selector — saved badges + custom input */}
+                            <Group gap={6} mb={8} align="flex-start" wrap="nowrap">
+                                <Text size="xs" c="dimmed" mt={6} style={{ whiteSpace: 'nowrap' }}>CC:</Text>
+                                <Box style={{ flex: 1, minWidth: 0 }}>
                                 <Group gap={4} mb={4} style={{ flexWrap: 'wrap' }}>
-                                    {/* Predefined CC'ler */}
-                                    {(ccAddresses || []).map((addr) => (
-                                        <Badge key={addr.email} size="xs"
-                                            variant={selectedCc.includes(addr.email) ? 'filled' : 'light'}
+                                    {/* Saved CC addresses (toggle on/off) */}
+                                    {savedCcList.map((email) => (
+                                        <Badge key={email} size="xs"
+                                            variant={selectedCc.includes(email) ? 'filled' : 'light'}
                                             color="violet" style={{ cursor: 'pointer' }}
                                             onClick={() => setSelectedCc((prev) =>
-                                                prev.includes(addr.email)
-                                                    ? prev.filter((e) => e !== addr.email)
-                                                    : [...prev, addr.email]
+                                                prev.includes(email) ? prev.filter((e) => e !== email) : [...prev, email]
                                             )}
+                                            rightSection={
+                                                <ActionIcon size={12} variant="transparent"
+                                                    c={selectedCc.includes(email) ? 'white' : 'dimmed'}
+                                                    onClick={(ev) => { ev.stopPropagation(); removeFromSavedCc(email); setSelectedCc(p => p.filter(e => e !== email)); }}
+                                                >
+                                                    <IconX size={10} />
+                                                </ActionIcon>
+                                            }
                                         >
-                                            {addr.label}
+                                            {email}
                                         </Badge>
                                     ))}
-                                    {/* Custom eklenen CC'ler (chip olarak) */}
-                                    {selectedCc
-                                        .filter((e) => !(ccAddresses || []).some((a) => a.email === e))
-                                        .map((email) => (
-                                            <Badge key={email} size="xs" variant="filled" color="gray"
-                                                rightSection={
-                                                    <ActionIcon size={12} variant="transparent" c="white"
-                                                        onClick={(ev) => { ev.stopPropagation(); setSelectedCc((p) => p.filter((e) => e !== email)); }}
-                                                    >
-                                                        <IconX size={10} />
-                                                    </ActionIcon>
-                                                }
-                                            >
-                                                {email}
-                                            </Badge>
-                                        ))
-                                    }
+                                    {/* Active CC's not in saved list */}
+                                    {selectedCc.filter(e => !savedCcList.includes(e)).map((email) => (
+                                        <Badge key={email} size="xs" variant="filled" color="gray"
+                                            rightSection={
+                                                <ActionIcon size={12} variant="transparent" c="white"
+                                                    onClick={(ev) => { ev.stopPropagation(); setSelectedCc(p => p.filter(e => e !== email)); }}
+                                                >
+                                                    <IconX size={10} />
+                                                </ActionIcon>
+                                            }
+                                        >
+                                            {email}
+                                        </Badge>
+                                    ))}
                                 </Group>
-                                {/* Custom CC input — Enter'la chip olarak ekle */}
-                                <TextInput size="xs" placeholder={t('emailReplies.reply.customCc', 'Custom CC email...')}
+                                {/* CC input — Enter to add + auto-save */}
+                                <TextInput size="xs" placeholder={t('emailReplies.reply.customCc', 'CC ekle...')}
                                     value={customCc}
                                     onChange={(e) => setCustomCc(e.currentTarget.value)}
                                     onKeyDown={(e) => {
@@ -620,13 +680,15 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                             const email = customCc.trim().toLowerCase();
                                             if (email && email.includes('@') && !selectedCc.includes(email)) {
                                                 setSelectedCc((prev) => [...prev, email]);
+                                                addToSavedCc(email);
                                                 setCustomCc('');
                                             }
                                         }
                                     }}
                                     styles={{ input: { fontSize: 11 } }}
                                 />
-                            </Box>
+                                </Box>
+                            </Group>
 
                             <Textarea
                                 placeholder={t('emailReplies.reply.placeholder')}
@@ -792,10 +854,21 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                 </Button>
                                 <Button
                                     size="xs"
+                                    variant="light"
+                                    color="gray"
+                                    leftSection={<IconDeviceFloppy size={12} />}
+                                    loading={saveDraftMutation.isPending}
+                                    disabled={!replyBody.trim() || sendReplyMutation.isPending}
+                                    onClick={() => saveDraftMutation.mutate()}
+                                >
+                                    {t('emailReplies.reply.saveDraft')}
+                                </Button>
+                                <Button
+                                    size="xs"
                                     color="violet"
                                     leftSection={<IconSend size={12} />}
                                     loading={sendReplyMutation.isPending}
-                                    disabled={!replyBody.trim()}
+                                    disabled={!replyBody.trim() || saveDraftMutation.isPending}
                                     onClick={() => sendReplyMutation.mutate()}
                                 >
                                     {t('emailReplies.reply.send')}

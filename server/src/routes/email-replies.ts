@@ -173,6 +173,9 @@ router.get(
             if (campaign_id) query = query.eq('campaign_id', campaign_id);
             if (exclude_id) query = query.neq('id', exclude_id);
 
+            // Exclude drafts from thread history
+            query = query.not('raw_payload', 'cs', '{"source":"draft"}');
+
             const { data, error } = await query;
             if (error) {
                 log.error({ err: error }, 'Thread history error');
@@ -742,6 +745,131 @@ router.post(
     }
 );
 
+// GET /api/email-replies/:id/draft — get latest draft for this reply
+router.get(
+    '/:id/draft',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const paramResult = idParamSchema.safeParse(req.params);
+            if (!paramResult.success) {
+                res.status(400).json({ error: 'Invalid reply ID' });
+                return;
+            }
+            const { id } = paramResult.data;
+            const tenantId = req.tenantId!;
+
+            const { data: draft } = await supabaseAdmin
+                .from('email_replies')
+                .select('id, reply_body, raw_payload, replied_at')
+                .eq('parent_reply_id', id)
+                .eq('tenant_id', tenantId)
+                .eq('direction', 'OUT')
+                .contains('raw_payload', { source: 'draft' })
+                .order('replied_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            res.json({ draft: draft || null });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            next(new AppError('Failed to fetch draft', 500));
+        }
+    }
+);
+
+// POST /api/email-replies/:id/save-draft — save reply as draft + log activity
+router.post(
+    '/:id/save-draft',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    validateBody(sendReplyBodySchema),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const paramResult = idParamSchema.safeParse(req.params);
+            if (!paramResult.success) {
+                res.status(400).json({ error: 'Invalid reply ID' });
+                return;
+            }
+            const { id } = paramResult.data;
+            const { body: draftText, attachmentIds, cc } = req.body as { body: string; attachmentIds?: string[]; cc?: string };
+            const tenantId = req.tenantId!;
+            const userId = req.user!.id;
+
+            // Fetch the original email reply
+            const { data: emailReply, error: fetchErr } = await supabaseAdmin
+                .from('email_replies')
+                .select('id, sender_email, company_id, contact_id, campaign_id, campaign_name')
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .single();
+
+            if (fetchErr || !emailReply) {
+                throw new AppError('Email reply not found', 404);
+            }
+
+            // Insert draft record
+            const draftRow = {
+                tenant_id: tenantId,
+                campaign_id: emailReply.campaign_id,
+                campaign_name: emailReply.campaign_name,
+                sender_email: emailReply.sender_email,
+                reply_body: draftText,
+                replied_at: new Date().toISOString(),
+                company_id: emailReply.company_id,
+                contact_id: emailReply.contact_id,
+                match_status: emailReply.company_id ? 'matched' : 'unmatched',
+                read_status: 'read' as const,
+                direction: 'OUT' as const,
+                parent_reply_id: id,
+                raw_payload: {
+                    source: 'draft',
+                    ...(cc && { cc }),
+                    ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
+                },
+            };
+
+            const { data: draft, error: draftErr } = await supabaseAdmin
+                .from('email_replies')
+                .insert(draftRow)
+                .select('id')
+                .single();
+
+            if (draftErr) {
+                log.error({ err: draftErr }, 'Failed to save draft');
+                throw new AppError('Failed to save draft', 500);
+            }
+
+            // Log activity note if company is linked
+            let activityId: string | null = null;
+            if (emailReply.company_id) {
+                const { data: activity } = await supabaseAdmin
+                    .from('activities')
+                    .insert({
+                        tenant_id: tenantId,
+                        company_id: emailReply.company_id,
+                        contact_id: emailReply.contact_id,
+                        type: 'not',
+                        summary: `Taslak mail kaydedildi — ${emailReply.sender_email}`,
+                        detail: draftText.length > 200 ? draftText.slice(0, 200) + '...' : draftText,
+                        visibility: 'client',
+                        occurred_at: new Date().toISOString(),
+                        created_by: userId,
+                    })
+                    .select('id')
+                    .single();
+                activityId = activity?.id || null;
+            }
+
+            log.info({ replyId: id, draftId: draft.id, activityId }, 'Draft saved');
+            res.json({ saved: true, draftId: draft.id, activityId });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Save draft error');
+            next(new AppError('Failed to save draft', 500));
+        }
+    }
+);
+
 // GET /api/email-replies/by-company/:companyId — emails linked to a specific company
 router.get(
     '/by-company/:companyId',
@@ -761,6 +889,7 @@ router.get(
                 .select('id, sender_email, reply_body, replied_at, read_status, match_status, campaign_id, campaign_name, company_id, contact_id, category, category_confidence, created_at, tenant_id')
                 .eq('tenant_id', tenantId)
                 .eq('company_id', companyId)
+                .not('raw_payload', 'cs', '{"source":"draft"}')
                 .order('replied_at', { ascending: false })
                 .limit(100);
 

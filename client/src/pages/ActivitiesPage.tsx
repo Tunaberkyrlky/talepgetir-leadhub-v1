@@ -11,7 +11,7 @@ import { useDebouncedValue } from '@mantine/hooks';
 import {
     IconNotes, IconCalendar, IconClock,
     IconUser, IconSearch, IconChevronLeft, IconChevronRight,
-    IconDotsVertical, IconPencil, IconTrash,
+    IconDotsVertical, IconPencil, IconTrash, IconWifiOff, IconRefresh,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
@@ -343,7 +343,7 @@ export default function ActivitiesPage() {
 
     // ── Queries ──
 
-    const { data, isLoading } = useQuery<ActivitiesResponse>({
+    const { data, isLoading, error: activitiesError } = useQuery<ActivitiesResponse>({
         queryKey: [
             'activities-all',
             page,
@@ -703,7 +703,23 @@ export default function ActivitiesPage() {
             </Group>
 
             {/* Activity List */}
-            {isLoading && allActivities.length === 0 ? (
+            {activitiesError && allActivities.length === 0 ? (
+                <Center py={60}>
+                    <Stack align="center" gap="sm">
+                        <IconWifiOff size={40} color="var(--mantine-color-gray-5)" />
+                        <Text c="dimmed" size="sm">{t('activities.loadError', 'Aktiviteler yüklenemedi')}</Text>
+                        <Button
+                            size="xs"
+                            variant="light"
+                            color="violet"
+                            leftSection={<IconRefresh size={14} />}
+                            onClick={() => queryClient.invalidateQueries({ queryKey: ['activities-all'] })}
+                        >
+                            {t('common.retry', 'Tekrar Dene')}
+                        </Button>
+                    </Stack>
+                </Center>
+            ) : isLoading && allActivities.length === 0 ? (
                 <Center py="xl">
                     <Loader size="md" color="violet" />
                 </Center>
