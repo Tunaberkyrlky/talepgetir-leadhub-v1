@@ -23,7 +23,8 @@ export type TierFeature =
     | 'advanced_stats'
     | 'activity_timeline'
     | 'person_detail_full'
-    | 'advanced_filters';
+    | 'advanced_filters'
+    | 'drip_campaigns';
 
 const ROLE_PERMISSIONS: Record<RoleFeature, Role[]> = {
     import: ['superadmin', 'ops_agent', 'client_admin'],
@@ -44,6 +45,7 @@ const TIER_FEATURES: Record<TierFeature, Tier[]> = {
     activity_timeline: ['pro'],
     person_detail_full: ['pro'],
     advanced_filters: ['pro'],
+    drip_campaigns: ['pro'],
 };
 
 const INTERNAL_ROLES: Role[] = ['superadmin', 'ops_agent'];

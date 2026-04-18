@@ -268,7 +268,12 @@
         "webhookTitle": "PlusVibe Webhook URL",
         "webhookDesc": "Bu URL'i PlusVibe webhook ayarlarına ekleyin. Kampanya yanıtları otomatik olarak bu hesaba eşleştirilecektir.",
         "webhookCopied": "Kopyalandı!",
-        "webhookSecretHint": "PlusVibe'da Webhook Secret alanını da doldurun — sunucudaki PLUSVIBE_WEBHOOK_SECRET değeriyle aynı olmalı."
+        "webhookSecretHint": "PlusVibe'da Webhook Secret alanını da doldurun — sunucudaki PLUSVIBE_WEBHOOK_SECRET değeriyle aynı olmalı.",
+        "ccTitle": "CC Adresleri",
+        "ccDesc": "Email gönderimlerinde kullanılacak CC adreslerini tanımlayın. PlusVibe yanıtları ve drip kampanyalar için ortaktır.",
+        "ccSaved": "CC adresleri kaydedildi",
+        "ccEmail": "Email",
+        "ccLabel": "Etiket"
     },
     "pipelineSettings": {
         "flowPreview": "Pipeline Akışı",
@@ -516,7 +521,8 @@
             "meeting": "Toplantı",
             "follow_up": "Takip",
             "sonlandirma_raporu": "Sonlandırma Raporu",
-            "status_change": "Aşama Değişikliği"
+            "status_change": "Aşama Değişikliği",
+            "campaign_email": "Kampanya Emaili"
         },
         "summaryPlaceholder": "Ne oldu veya ne yapilmasi gerekiyor?",
         "moreFields": "Daha fazla alan (detay, sonuc, gorunurluk...)",
@@ -717,7 +723,8 @@
             "cancel": "İptal",
             "success": "Yanıt başarıyla gönderildi",
             "failed": "Yanıt gönderilemedi",
-            "noCampaign": "Yanıt gönderilemez — kampanya bağlı değil"
+            "noCampaign": "Yanıt gönderilemez — kampanya bağlı değil",
+            "customCc": "Özel CC email..."
         },
         "attachments": {
             "label": "Eklentiler",
@@ -792,6 +799,26 @@
             "clickRate": "Tıklama Oranı",
             "replyRate": "Yanıt Oranı"
         }
+    },
+    "campaign": {
+        "new": "Yeni Kampanya",
+        "noCampaigns": "Henüz drip kampanya yok",
+        "createFirst": "İlk kampanyanızı oluşturarak otomatik email dizileri göndermeye başlayın.",
+        "proRequired": "Drip kampanyalar Pro abonelik gerektirir.",
+        "enrolled": "Kayıtlı",
+        "saved": "Kampanya kaydedildi",
+        "activated": "Kampanya aktifleştirildi",
+        "paused": "Kampanya duraklatıldı",
+        "sent": "gönderildi",
+        "subject": "Konu",
+        "body": "Email İçeriği (HTML)",
+        "searchContacts": "Kişi ara (en az 2 karakter)...",
+        "enrollments": "Kayıtlar",
+        "emailConnection": "Email Bağlantısı",
+        "emailConnectionDesc": "Kampanya emailleri göndermek için Gmail veya Outlook hesabınızı bağlayın.",
+        "connectedTo": "Bağlı:",
+        "disconnect": "Bağlantıyı Kes",
+        "emailDisconnected": "Email bağlantısı kesildi"
     },
     "feedback": {
         "title": "Geri Bildirim",

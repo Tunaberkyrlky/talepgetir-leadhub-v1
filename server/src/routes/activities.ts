@@ -12,6 +12,8 @@ const log = createLogger('route:activities');
 
 const router = Router();
 
+const VALID_ACTIVITY_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change', 'campaign_email'];
+
 
 
 function dbClient(req: Request) {
@@ -44,8 +46,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         if (contact_id) query = query.eq('contact_id', contact_id as string);
         if (type) {
-            const VALID_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change'];
-            if (!VALID_TYPES.includes(type as string)) {
+            if (!VALID_ACTIVITY_TYPES.includes(type as string)) {
                 res.status(400).json({ error: 'The selected activity type is not valid' });
                 return;
             }
@@ -122,8 +123,7 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
             .range(offset, offset + limit - 1);
 
         if (type) {
-            const VALID_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change'];
-            if (!VALID_TYPES.includes(type as string)) {
+            if (!VALID_ACTIVITY_TYPES.includes(type as string)) {
                 res.status(400).json({ error: 'The selected activity type is not valid' });
                 return;
             }
@@ -224,8 +224,7 @@ router.get('/stats', async (req: Request, res: Response, next: NextFunction): Pr
         // Validate type
         let validType: string | null = null;
         if (type) {
-            const VALID_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change'];
-            if (!VALID_TYPES.includes(type as string)) {
+            if (!VALID_ACTIVITY_TYPES.includes(type as string)) {
                 res.status(400).json({ error: 'The selected activity type is not valid' });
                 return;
             }

@@ -4,7 +4,7 @@
  * System-generated only: 'sonlandirma_raporu' (closing-report endpoint), 'status_change' (aşama geçişi)
  * Client 5 tipin tamamını bilmeli — server'ın yarattığı timeline kayıtlarını doğru render etmek için.
  */
-export type ActivityType = 'not' | 'meeting' | 'follow_up' | 'sonlandirma_raporu' | 'status_change';
+export type ActivityType = 'not' | 'meeting' | 'follow_up' | 'sonlandirma_raporu' | 'status_change' | 'campaign_email';
 export type ActivityVisibility = 'internal' | 'client';
 export type ClosingOutcome = 'won' | 'lost' | 'on_hold' | 'cancelled';
 
@@ -23,4 +23,6 @@ export interface Activity {
     occurred_at: string;
     created_by: string;
     created_at: string;
+    campaign_id?: string | null;
+    enrollment_id?: string | null;
 }

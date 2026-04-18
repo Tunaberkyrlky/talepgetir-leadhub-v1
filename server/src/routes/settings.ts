@@ -696,4 +696,78 @@ router.put('/pipeline', async (req: Request, res: Response, next: NextFunction):
     }
 });
 
+// ── CC Addresses ───────────────────────────────────────────────────────────
+// Stored in tenants.settings.cc_addresses: Array<{ email: string; label: string }>
+// Used by both PlusVibe reply and Resend drip campaigns
+
+router.get('/cc-addresses', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { data: tenant, error } = await supabaseAdmin
+            .from('tenants')
+            .select('settings')
+            .eq('id', req.tenantId!)
+            .single();
+
+        if (error) throw new AppError('Failed to fetch CC addresses', 500);
+
+        const addresses = tenant?.settings?.cc_addresses || [];
+        res.json({ data: addresses });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Get CC addresses error');
+        res.status(500).json({ error: 'Failed to fetch CC addresses' });
+    }
+});
+
+const ccAddressesSchema = z.object({
+    addresses: z.array(z.object({
+        email: z.string().email(),
+        label: z.string().max(100).default(''),
+    })).max(20),
+});
+
+router.put('/cc-addresses', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Admin role required' });
+            return;
+        }
+
+        const result = ccAddressesSchema.safeParse(req.body);
+        if (!result.success) {
+            res.status(400).json({ error: result.error.issues[0]?.message || 'Invalid input' });
+            return;
+        }
+
+        const validated = result.data.addresses.map((a) => ({
+            email: a.email.trim().toLowerCase(),
+            label: (a.label || a.email).trim(),
+        }));
+
+        // Merge into tenant settings
+        const { data: tenant, error: fetchErr } = await supabaseAdmin
+            .from('tenants')
+            .select('settings')
+            .eq('id', req.tenantId!)
+            .single();
+
+        if (fetchErr) throw new AppError('Failed to fetch tenant', 500);
+
+        const settings = { ...(tenant?.settings || {}), cc_addresses: validated };
+
+        const { error: updateErr } = await supabaseAdmin
+            .from('tenants')
+            .update({ settings, updated_at: new Date().toISOString() })
+            .eq('id', req.tenantId!);
+
+        if (updateErr) throw new AppError('Failed to save CC addresses', 500);
+
+        res.json({ data: validated });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Update CC addresses error');
+        res.status(500).json({ error: 'Failed to update CC addresses' });
+    }
+});
+
 export default router;

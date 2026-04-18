@@ -8,6 +8,7 @@
         "start": "node dist/index.js"
     },
     "dependencies": {
+        "@nangohq/node": "^0.69.49",
         "@supabase/supabase-js": "^2.49.1",
         "compression": "^1.8.1",
         "cookie-parser": "^1.4.7",
@@ -21,6 +22,7 @@
         "papaparse": "^5.5.3",
         "pino": "^10.3.1",
         "pino-http": "^11.0.0",
+        "resend": "^6.12.0",
         "zod": "^4.3.6"
     },
     "devDependencies": {

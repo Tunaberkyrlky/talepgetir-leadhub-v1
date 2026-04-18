@@ -32,6 +32,10 @@ import plusvibeRoutes from './routes/plusvibe.js';
 import webhooksRoutes from './routes/webhooks.js';
 import feedbackRoutes from './routes/feedback.js';
 import attachmentTemplatesRoutes from './routes/attachment-templates.js';
+import campaignRoutes from './routes/campaigns.js';
+import emailConnectionRoutes from './routes/email-connections.js';
+import trackingRoutes from './routes/tracking.js';
+import { startCampaignScheduler } from './lib/campaignScheduler.js';
 
 const app = express();
 const PORT = process.env.PORT || process.env.API_PORT || 3001;
@@ -117,6 +121,14 @@ const webhookLimiter = rateLimit({
     message: { error: 'Too many webhook requests' },
 });
 
+const trackingLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 200,
+    standardHeaders: false,
+    legacyHeaders: false,
+    // Tracking endpoints return GIF/redirect — no JSON error body
+});
+
 const plusvibeImportLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     limit: 30,
@@ -150,6 +162,10 @@ app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/refresh', authLimiter);
 app.use('/api/auth', authRoutes);
 
+// Tracking routes — public (email open pixel, click redirect, unsubscribe)
+app.use('/api/t', trackingLimiter, trackingRoutes);
+app.use('/api/unsubscribe', trackingLimiter, trackingRoutes);
+
 // Webhook routes — public, validated by their own secret
 app.use('/api/webhooks', webhookLimiter, webhooksRoutes);
 
@@ -168,6 +184,8 @@ app.use('/api/plusvibe/import-replies', authMiddleware, plusvibeImportLimiter);
 app.use('/api/plusvibe', authMiddleware, dataFilter, plusvibeRoutes);
 app.use('/api/feedback', authMiddleware, feedbackRoutes);
 app.use('/api/attachment-templates', authMiddleware, attachmentTemplatesRoutes);
+app.use('/api/campaigns', authMiddleware, campaignRoutes);
+app.use('/api/email-connections', authMiddleware, emailConnectionRoutes);
 
 // Serve static client files in production (Railway/non-Vercel)
 if (!process.env.VERCEL) {
@@ -202,6 +220,7 @@ if (!process.env.PLUSVIBE_WEBHOOK_SECRET) {
 
 app.listen(PORT, () => {
     logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'TG Core API started');
+    startCampaignScheduler();
 });
 
 export default app;

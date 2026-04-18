@@ -55,6 +55,8 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [assignOpen, setAssignOpen] = useState(false);
     const [replyOpen, setReplyOpen] = useState(false);
     const [replyBody, setReplyBody] = useState('');
+    const [selectedCc, setSelectedCc] = useState<string[]>([]);
+    const [customCc, setCustomCc] = useState('');
     const [selectedAttachments, setSelectedAttachments] = useState<string[]>([]);
     const [newAttOpen, setNewAttOpen] = useState(false);
     const [newAttLabel, setNewAttLabel] = useState('');
@@ -76,6 +78,13 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     }
 
     const isMatched = !!localReply?.company_id;
+
+    // ── CC addresses (tenant-level predefined list) ──
+    const { data: ccAddresses } = useQuery<{ email: string; label: string }[]>({
+        queryKey: ['cc-addresses'],
+        queryFn: async () => (await api.get('/settings/cc-addresses')).data.data,
+        staleTime: 5 * 60 * 1000,
+    });
 
     // ── Thread history (all IN + OUT messages) ──
     const { data: threadMessages } = useQuery<ThreadHistoryItem[]>({
@@ -223,15 +232,26 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     });
 
     // ── Send reply via PlusVibe ──
+    // Build CC list from selected chips
+    const buildCcList = (): string[] => {
+        return [...new Set(selectedCc)];
+    };
+
     const sendReplyMutation = useMutation({
-        mutationFn: async () => (await api.post(`/email-replies/${localReply!.id}/reply`, {
-            body: replyBody.trim(),
-            ...(selectedAttachments.length > 0 && { attachmentIds: selectedAttachments }),
-        })).data,
+        mutationFn: async () => {
+            const ccList = buildCcList();
+            return (await api.post(`/email-replies/${localReply!.id}/reply`, {
+                body: replyBody.trim(),
+                ...(selectedAttachments.length > 0 && { attachmentIds: selectedAttachments }),
+                ...(ccList.length > 0 && { cc: ccList.join(', ') }),
+            })).data;
+        },
         onSuccess: () => {
             showSuccess(t('emailReplies.reply.success'));
             setReplyOpen(false);
             setReplyBody('');
+            setSelectedCc([]);
+            setCustomCc('');
             setSelectedAttachments([]);
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
@@ -536,9 +556,64 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                     {t('emailReplies.reply.from')}: <Text span fw={500} c="dark">{senderAddress}</Text>
                                 </Text>
                             )}
-                            <Text size="xs" c="dimmed" mb={8}>
+                            <Text size="xs" c="dimmed" mb={4}>
                                 {t('emailReplies.reply.to')}: <Text span fw={500} c="dark">{localReply.sender_email}</Text>
                             </Text>
+
+                            {/* CC selector — chip-based */}
+                            <Box mb={8}>
+                                <Text size="xs" c="dimmed" mb={4}>CC:</Text>
+                                <Group gap={4} mb={4} style={{ flexWrap: 'wrap' }}>
+                                    {/* Predefined CC'ler */}
+                                    {(ccAddresses || []).map((addr) => (
+                                        <Badge key={addr.email} size="xs"
+                                            variant={selectedCc.includes(addr.email) ? 'filled' : 'light'}
+                                            color="violet" style={{ cursor: 'pointer' }}
+                                            onClick={() => setSelectedCc((prev) =>
+                                                prev.includes(addr.email)
+                                                    ? prev.filter((e) => e !== addr.email)
+                                                    : [...prev, addr.email]
+                                            )}
+                                        >
+                                            {addr.label}
+                                        </Badge>
+                                    ))}
+                                    {/* Custom eklenen CC'ler (chip olarak) */}
+                                    {selectedCc
+                                        .filter((e) => !(ccAddresses || []).some((a) => a.email === e))
+                                        .map((email) => (
+                                            <Badge key={email} size="xs" variant="filled" color="gray"
+                                                rightSection={
+                                                    <ActionIcon size={12} variant="transparent" c="white"
+                                                        onClick={(ev) => { ev.stopPropagation(); setSelectedCc((p) => p.filter((e) => e !== email)); }}
+                                                    >
+                                                        <IconX size={10} />
+                                                    </ActionIcon>
+                                                }
+                                            >
+                                                {email}
+                                            </Badge>
+                                        ))
+                                    }
+                                </Group>
+                                {/* Custom CC input — Enter'la chip olarak ekle */}
+                                <TextInput size="xs" placeholder={t('emailReplies.reply.customCc', 'Custom CC email...')}
+                                    value={customCc}
+                                    onChange={(e) => setCustomCc(e.currentTarget.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            const email = customCc.trim().toLowerCase();
+                                            if (email && email.includes('@') && !selectedCc.includes(email)) {
+                                                setSelectedCc((prev) => [...prev, email]);
+                                                setCustomCc('');
+                                            }
+                                        }
+                                    }}
+                                    styles={{ input: { fontSize: 11 } }}
+                                />
+                            </Box>
+
                             <Textarea
                                 placeholder={t('emailReplies.reply.placeholder')}
                                 value={replyBody}

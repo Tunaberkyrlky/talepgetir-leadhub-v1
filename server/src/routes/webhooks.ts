@@ -6,6 +6,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { validateBody, webhookPayloadSchema } from '../lib/validation.js';
 import { matchSenderEmail, advanceCompanyStageOnMatch } from '../lib/emailMatcher.js';
 import { enrichCompanyFromWebhook, enrichContactFromWebhook } from '../lib/webhookEnricher.js';
+import { cancelEnrollmentOnReply } from '../lib/campaignEngine.js';
 
 const log = createLogger('route:webhooks');
 const router = Router();
@@ -165,6 +166,11 @@ router.post(
             } catch (enrichErr) {
                 log.warn({ err: enrichErr, camp_id, sender: from_email }, 'Enrichment failed (non-critical)');
             }
+
+            // Cancel active campaign enrollments for this sender (drip auto-stop on reply)
+            cancelEnrollmentOnReply(from_email, tenantId).catch((cancelErr) =>
+                log.warn({ err: cancelErr, from_email }, 'Campaign enrollment cancel check failed'),
+            );
 
             log.info({ camp_id, sender: from_email, match_status: match.match_status, label }, 'Webhook processed successfully');
             res.status(200).json({ ok: true });

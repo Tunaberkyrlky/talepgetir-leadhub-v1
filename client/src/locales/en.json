@@ -268,7 +268,12 @@
         "webhookTitle": "PlusVibe Webhook URL",
         "webhookDesc": "Add this URL to your PlusVibe webhook settings. Replies from campaigns will be automatically matched to this account.",
         "webhookCopied": "Copied!",
-        "webhookSecretHint": "Also set your Webhook Secret in PlusVibe — it must match the PLUSVIBE_WEBHOOK_SECRET value on the server."
+        "webhookSecretHint": "Also set your Webhook Secret in PlusVibe — it must match the PLUSVIBE_WEBHOOK_SECRET value on the server.",
+        "ccTitle": "CC Addresses",
+        "ccDesc": "Define CC addresses available when sending emails. Shared across PlusVibe replies and drip campaigns.",
+        "ccSaved": "CC addresses saved",
+        "ccEmail": "Email",
+        "ccLabel": "Label"
     },
     "pipelineSettings": {
         "flowPreview": "Pipeline Flow",
@@ -516,7 +521,8 @@
             "meeting": "Meeting",
             "follow_up": "Follow Up",
             "sonlandirma_raporu": "Closing Report",
-            "status_change": "Stage Change"
+            "status_change": "Stage Change",
+            "campaign_email": "Campaign Email"
         },
         "summaryPlaceholder": "What happened or what needs to be done?",
         "moreFields": "More fields (detail, outcome, visibility...)",
@@ -717,7 +723,8 @@
             "cancel": "Cancel",
             "success": "Reply sent successfully",
             "failed": "Failed to send reply",
-            "noCampaign": "Cannot reply — no campaign linked"
+            "noCampaign": "Cannot reply — no campaign linked",
+            "customCc": "Custom CC email..."
         },
         "attachments": {
             "label": "Attachments",
@@ -792,6 +799,26 @@
             "clickRate": "Click Rate",
             "replyRate": "Reply Rate"
         }
+    },
+    "campaign": {
+        "new": "New Campaign",
+        "noCampaigns": "No drip campaigns yet",
+        "createFirst": "Create your first campaign to start sending automated email sequences.",
+        "proRequired": "Drip campaigns require Pro tier.",
+        "enrolled": "Enrolled",
+        "saved": "Campaign saved",
+        "activated": "Campaign activated",
+        "paused": "Campaign paused",
+        "sent": "sent",
+        "subject": "Subject",
+        "body": "Email Body (HTML)",
+        "searchContacts": "Search contacts (min 2 chars)...",
+        "enrollments": "Enrollments",
+        "emailConnection": "Email Connection",
+        "emailConnectionDesc": "Connect your Gmail or Outlook account to send campaign emails.",
+        "connectedTo": "Connected to",
+        "disconnect": "Disconnect",
+        "emailDisconnected": "Email disconnected"
     },
     "feedback": {
         "title": "Feedback",

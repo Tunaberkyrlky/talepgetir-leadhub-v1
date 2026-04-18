@@ -299,10 +299,66 @@ export const campaignStatsQuerySchema = z.object({
 export const sendReplyBodySchema = z.object({
     body: z.string().min(1, 'Reply body is required').max(50000),
     attachmentIds: z.array(z.string().uuid()).max(3).optional(),
+    cc: z.string().max(1000).optional().refine(
+        (val) => !val || val.split(',').every((e) => e.trim().match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)),
+        { message: 'Invalid CC email address' },
+    ),
 });
 
 export const threadHistoryQuerySchema = z.object({
     sender_email: z.string().email('Invalid sender_email').max(255),
     campaign_id: z.string().max(500).optional(),
     exclude_id: uuidField('Invalid exclude_id').optional(),
+});
+
+// ── Campaign schemas ──────────────────────────────────────────────────────
+
+export const createCampaignSchema = z.object({
+    name: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    from_name: z.string().max(100).optional(),
+    settings: z.object({
+        daily_limit: z.number().int().min(1).max(500).optional(),
+        timezone: z.string().max(50).optional(),
+    }).optional(),
+});
+
+export const updateCampaignSchema = z.object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().max(2000).optional(),
+    from_name: z.string().max(100).optional(),
+    settings: z.object({
+        daily_limit: z.number().int().min(1).max(500).optional(),
+        timezone: z.string().max(50).optional(),
+    }).optional(),
+});
+
+const emailStepSchema = z.object({
+    step_type: z.literal('email'),
+    subject: z.string().min(1).max(500),
+    body_html: z.string().min(1).max(50000),
+    body_text: z.string().max(50000).nullish(),
+}).passthrough(); // allow extra fields (delay_days etc.) from client's unified Step type
+
+const delayStepSchema = z.object({
+    step_type: z.literal('delay'),
+    delay_days: z.number().int().min(0).max(90),
+    delay_hours: z.number().int().min(0).max(23),
+}).passthrough().refine(
+    (d) => d.delay_days > 0 || d.delay_hours > 0,
+    { message: 'Delay must be at least 1 hour' },
+);
+
+const campaignStepSchema = z.discriminatedUnion('step_type', [emailStepSchema, delayStepSchema]);
+
+export const saveStepsSchema = z.object({
+    steps: z.array(campaignStepSchema).min(1).max(20),
+});
+
+export const enrollLeadsSchema = z.object({
+    contacts: z.array(z.object({
+        contact_id: uuidField(),
+        company_id: uuidField(),
+        email: z.string().email(),
+    })).min(1).max(200),
 });

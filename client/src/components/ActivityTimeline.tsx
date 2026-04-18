@@ -175,6 +175,7 @@ const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProp
                     {shownList.map((activity, idx) => {
                         const isClosingReport = activity.type === 'sonlandirma_raporu';
                         const isStatusChange = activity.type === 'status_change';
+                        const isCampaignEmail = activity.type === 'campaign_email';
                         const outcomeColor = OUTCOME_COLORS[activity.outcome || ''] || 'gray';
 
                         return (
@@ -190,6 +191,8 @@ const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProp
                                             : undefined,
                                         background: isClosingReport
                                             ? `var(--mantine-color-${outcomeColor}-0)`
+                                            : isCampaignEmail
+                                            ? 'var(--mantine-color-indigo-0)'
                                             : isStatusChange
                                             ? 'var(--mantine-color-gray-0)'
                                             : undefined,
@@ -205,7 +208,14 @@ const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProp
                                             >
                                                 {t(`activity.types.${activity.type}`)}
                                             </Badge>
-                                            {activity.outcome && (
+                                            {isCampaignEmail && activity.outcome && (
+                                                <Badge size="xs" variant="dot"
+                                                    color={activity.outcome === 'sent' ? 'green' : activity.outcome === 'sending' ? 'blue' : 'red'}
+                                                >
+                                                    {activity.outcome === 'sent' ? t('campaign.sent', 'sent') : activity.outcome}
+                                                </Badge>
+                                            )}
+                                            {!isCampaignEmail && activity.outcome && (
                                                 <Badge
                                                     size="xs"
                                                     variant="filled"
@@ -230,7 +240,7 @@ const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProp
                                             <Text size="xs" c="dimmed">
                                                 {formatActivityDate(activity.occurred_at, locale)}
                                             </Text>
-                                            {canEditActivities && !isStatusChange && (
+                                            {canEditActivities && !isStatusChange && !isCampaignEmail && (
                                                 <Menu withinPortal position="bottom-end" shadow="sm">
                                                     <Menu.Target>
                                                         <ActionIcon variant="subtle" size="sm" color="gray">

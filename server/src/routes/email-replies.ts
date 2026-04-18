@@ -617,7 +617,7 @@ router.post(
                 return;
             }
             const { id } = paramResult.data;
-            const { body: replyText, attachmentIds } = req.body as { body: string; attachmentIds?: string[] };
+            const { body: replyText, attachmentIds, cc } = req.body as { body: string; attachmentIds?: string[]; cc?: string };
             const tenantId = req.tenantId!;
 
             // Fetch the inbound email reply
@@ -692,6 +692,7 @@ router.post(
                 from: context.fromAddress,
                 to: emailReply.sender_email,
                 body: htmlBody,
+                ...(cc && { cc }),
             });
 
             // Insert outbound reply record

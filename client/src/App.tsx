@@ -33,6 +33,7 @@ const ActivitiesPage = lazy(() => import('./pages/ActivitiesPage'));
 const EmailRepliesPage = lazy(() => import('./pages/EmailRepliesPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const CampaignsPage = lazy(() => import('./pages/CampaignsPage'));
+const CampaignEditorPage = lazy(() => import('./pages/CampaignEditorPage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -99,6 +100,8 @@ function App() {
                           <Route path="/activities" element={<ActivitiesPage />} />
                           <Route path="/email-replies" element={<EmailRepliesPage />} />
                           <Route path="/campaigns" element={<CampaignsPage />} />
+                          <Route path="/campaigns/drip/new" element={<CampaignEditorPage />} />
+                          <Route path="/campaigns/drip/:id/edit" element={<CampaignEditorPage />} />
                           <Route path="/import" element={<ImportPage />} />
                           <Route path="/admin" element={<AdminPage />} />
                           <Route path="/admin/:tab" element={<AdminPage />} />

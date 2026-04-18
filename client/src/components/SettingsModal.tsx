@@ -39,6 +39,8 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import PipelineSettingsEditor, { type PipelineSettingsEditorHandle } from './PipelineSettingsEditor';
 import PlusVibeSetup from './plusvibe/PlusVibeSetup';
+import EmailConnectionPanel from './settings/EmailConnectionPanel';
+import CcAddressesPanel from './settings/CcAddressesPanel';
 
 interface SettingsModalProps {
     opened: boolean;
@@ -69,6 +71,7 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
     const pipelineSaveRef = useRef<PipelineSettingsEditorHandle | null>(null);
     const { accessibleTenants, user } = useAuth();
     const isInternal = user?.role === 'superadmin' || user?.role === 'ops_agent';
+    const isAdmin = isInternal || user?.role === 'client_admin';
 
     const apiBase = (import.meta.env.VITE_API_URL as string) || `${window.location.origin}/api`;
 
@@ -110,7 +113,7 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
     const tabs = [
         { value: 'general', label: t('settings.general', 'Genel'), icon: <IconSettings size={18} /> },
         { value: 'pipeline', label: t('settings.pipelineTab', 'Pipeline'), icon: <IconColumns size={18} /> },
-        ...(isInternal ? [{ value: 'integrations', label: t('settings.integrationsTab', 'Entegrasyonlar'), icon: <IconWebhook size={18} /> }] : []),
+        ...(isAdmin ? [{ value: 'integrations', label: t('settings.integrationsTab', 'Entegrasyonlar'), icon: <IconWebhook size={18} /> }] : []),
     ];
 
     return (
@@ -237,8 +240,16 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
                                 />
                             )}
 
-                            {activeTab === 'integrations' && isInternal && (
+                            {activeTab === 'integrations' && isAdmin && (
                                 <Stack gap="lg">
+                                    {/* Email Connection — all admin roles */}
+                                    <EmailConnectionPanel />
+                                    <Divider />
+
+                                    {/* CC Addresses — all admin roles */}
+                                    <CcAddressesPanel />
+                                    <Divider />
+
                                     {/* PlusVibe API Status — superadmin/ops only */}
                                     {isInternal && (
                                         <>
