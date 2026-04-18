@@ -59,6 +59,11 @@ app.use((_req, res, next) => {
 });
 app.use(pinoHttp({
     logger,
+    customLogLevel: (_req: any, res: any, err: any) => {
+        if (err || res.statusCode >= 500) return 'error';
+        if (res.statusCode >= 400) return 'warn';
+        return 'info';
+    },
     customSuccessMessage: (req: any, res: any, responseTime: any) =>
         `${req.method} ${req.url} ${res.statusCode} ${responseTime}ms`,
     customErrorMessage: (req: any, res: any, err: any) =>

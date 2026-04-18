@@ -117,7 +117,7 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
         const db = dbClient(req);
         let query = db
             .from('activities')
-            .select('*, companies(name)', { count: 'exact' })
+            .select('*, companies(name, stage)', { count: 'exact' })
             .eq('tenant_id', tenantId)
             .order('occurred_at', { ascending: false })
             .range(offset, offset + limit - 1);
@@ -186,9 +186,10 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
 
         const mapped = (data || []).map((a: any) => {
             const company_name = a.companies?.name || null;
+            const company_stage = a.companies?.stage || null;
             const contact_name = a.contact_id ? (contactMap[a.contact_id] || null) : null;
             const { companies: _co, ...rest } = a;
-            return { ...rest, contact_name, company_name };
+            return { ...rest, contact_name, company_name, company_stage };
         });
 
         res.json({

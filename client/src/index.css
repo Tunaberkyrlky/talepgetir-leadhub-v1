@@ -41,3 +41,80 @@ button, a, input, select, textarea {
 table tbody tr {
   transition: background-color 0.15s ease;
 }
+
+/* ── Timeline Track ── */
+.timeline-track {
+  border-left: 2px solid var(--mantine-color-gray-3);
+  margin-left: 8px;
+  padding-left: 16px;
+}
+
+.tl-node {
+  position: relative;
+  padding: 4px 0;
+}
+
+.tl-node::before {
+  content: '';
+  position: absolute;
+  left: -21px;
+  top: 14px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--mantine-color-body);
+  background: var(--mantine-color-gray-4);
+}
+
+.tl-node--blue::before   { background: var(--mantine-color-blue-5); }
+.tl-node--violet::before { background: var(--mantine-color-violet-5); }
+.tl-node--orange::before { background: var(--mantine-color-orange-5); }
+.tl-node--green::before  { background: var(--mantine-color-green-5); }
+.tl-node--gray::before   { background: var(--mantine-color-gray-5); }
+.tl-node--indigo::before { background: var(--mantine-color-indigo-5); }
+
+/* Peek wrap: CSS-transitioned peek → full */
+.peek-wrap {
+  position: relative;
+  max-height: 48px;
+  overflow: hidden;
+  pointer-events: none;
+  transition: max-height 0.25s ease, opacity 0.2s ease;
+}
+
+.peek-wrap > * {
+  opacity: 0.55;
+  transition: opacity 0.2s ease;
+}
+
+.peek-wrap::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 16px;
+  background: linear-gradient(transparent, var(--mantine-color-body));
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+/* Expanded state — peek becomes full */
+.peek-wrap--open {
+  max-height: 500px;
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.peek-wrap--open > * {
+  opacity: 1;
+}
+
+.peek-wrap--open::after {
+  opacity: 0;
+}
+
+/* Company header hover */
+.company-tl-header:hover {
+  background: var(--mantine-color-gray-0) !important;
+}

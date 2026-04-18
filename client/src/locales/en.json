@@ -568,6 +568,8 @@
         "groupByDate": "By Date",
         "groupByCompany": "By Company",
         "groupByType": "By Type",
+        "moreActivities": "more activities",
+        "totalActivities": "activities",
         "periodDay": "Day",
         "periodWeek": "Week",
         "periodMonth": "Month",

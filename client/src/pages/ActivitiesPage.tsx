@@ -20,6 +20,7 @@ import api from '../lib/api';
 import StatCard from '../components/StatCard';
 import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS } from '../lib/activityConstants';
 import ActivityForm from '../components/ActivityForm';
+import CompanyTimelineGroup from '../components/CompanyTimelineGroup';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import type { Activity, ActivityType } from '../types/activity';
 
@@ -314,7 +315,7 @@ export default function ActivitiesPage() {
     const [debouncedSearch] = useDebouncedValue(search, 300);
 
     // Grouping
-    const [groupBy, setGroupBy] = useState<'none' | 'date' | 'company' | 'type'>('none');
+    const [groupBy, setGroupBy] = useState<'none' | 'date' | 'company' | 'type'>('company');
 
     // Pagination
     const [page, setPage] = useState(1);
@@ -476,9 +477,12 @@ export default function ActivitiesPage() {
                 if (!map.has(key)) map.set(key, { name: a.company_name || key, items: [] });
                 map.get(key)!.items.push(a);
             }
-            const sorted = Array.from(map.entries()).sort((a, b) =>
-                a[1].name.localeCompare(b[1].name)
-            );
+            // Sort companies by most recent activity (desc)
+            const sorted = Array.from(map.entries()).sort((a, b) => {
+                const aDate = a[1].items[0]?.occurred_at || '';
+                const bDate = b[1].items[0]?.occurred_at || '';
+                return bDate.localeCompare(aDate);
+            });
             return sorted.map(([key, { name, items }]) => ({
                 key,
                 label: name,
@@ -690,9 +694,9 @@ export default function ActivitiesPage() {
                     value={groupBy}
                     onChange={(v) => setGroupBy(v as typeof groupBy)}
                     data={[
-                        { label: t('activities.groupByNone'), value: 'none' },
-                        { label: t('activities.groupByDate'), value: 'date' },
                         { label: t('activities.groupByCompany'), value: 'company' },
+                        { label: t('activities.groupByDate'), value: 'date' },
+                        { label: t('activities.groupByNone'), value: 'none' },
                         ...(!typeFilter ? [{ label: t('activities.groupByType'), value: 'type' }] : []),
                     ]}
                 />
@@ -709,8 +713,36 @@ export default function ActivitiesPage() {
                         {t('activity.noActivities')}
                     </Text>
                 </Center>
+            ) : groupBy === 'company' && groupedSections !== null ? (
+                // Company timeline view
+                <Stack gap="sm">
+                    {groupedSections.map((section) => (
+                        <CompanyTimelineGroup
+                            key={section.key}
+                            companyId={section.key}
+                            companyName={section.label}
+                            activities={section.items}
+                            canEdit={canEditActivities}
+                            canDeleteItem={canDeleteActivities}
+                            onEdit={handleEdit}
+                            onDelete={(id) => deleteMutation.mutate(id)}
+                        />
+                    ))}
+
+                    {hasMore && (
+                        <Center>
+                            <Button
+                                variant="subtle"
+                                color="gray"
+                                onClick={() => setPage((p) => p + 1)}
+                            >
+                                {t('activity.loadMore')}
+                            </Button>
+                        </Center>
+                    )}
+                </Stack>
             ) : groupedSections !== null ? (
-                // Grouped view
+                // Date/type grouped view
                 <Stack gap="lg">
                     {groupedSections.map((section) => (
                         <Stack key={section.key} gap="xs">
