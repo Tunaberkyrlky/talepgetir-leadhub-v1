@@ -15,10 +15,11 @@ import {
     SegmentedControl,
     ThemeIcon,
     ActionIcon,
+    ScrollArea,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
-import { type DatePeriod, getDateRange, shiftPeriod, formatPeriodLabel, getCustomDateRange } from '../lib/dateUtils';
+import { type DatePeriod, getDateRange, shiftPeriod, formatPeriodLabel, getCustomDateRange, toLocalDateStr, formatAgendaDayLabel, getDateUrgencyColor, formatCountdown } from '../lib/dateUtils';
 import {
     IconBuilding,
     IconTrendingUp,
@@ -35,7 +36,9 @@ import { hasTierAccess, type Tier } from '../lib/permissions';
 import StatCard from '../components/StatCard';
 import StageVerticalBar from '../components/charts/StageVerticalBar';
 import PipelineFunnel from '../components/charts/PipelineFunnel';
+import AgendaDayGroup from '../components/AgendaDayGroup';
 import type { CompanyLocation } from '../components/GlobeMap';
+import type { Activity } from '../types/activity';
 
 const GlobeMap = lazy(() => import('../components/GlobeMap'));
 
@@ -362,21 +365,24 @@ export default function DashboardPage() {
                 />
             </SimpleGrid>
 
-            {/* Stage Distribution — always visible (basic view) */}
-            <Paper shadow="sm" radius="lg" p="lg" mb="lg" withBorder>
-                <Text size="sm" fw={700} mb="md" tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
-                    {t('dashboard.stageDistribution')}
-                </Text>
-                {Object.entries(overview?.companiesByStage || {}).some(
-                    ([stage, count]) => stage !== 'cold' && count > 0
-                ) ? (
-                    <StageVerticalBar data={overview?.companiesByStage || {}} onStageClick={handleStageClick} />
-                ) : (
-                    <Text c="dimmed" size="sm" ta="center" py="md">
-                        {t('dashboard.noStageData')}
+            {/* Stage Distribution + Upcoming Agenda */}
+            <SimpleGrid cols={{ base: 1, md: 2 }} mb="lg">
+                <Paper shadow="sm" radius="lg" p="lg" withBorder>
+                    <Text size="sm" fw={700} mb="md" tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                        {t('dashboard.stageDistribution')}
                     </Text>
-                )}
-            </Paper>
+                    {Object.entries(overview?.companiesByStage || {}).some(
+                        ([stage, count]) => stage !== 'cold' && count > 0
+                    ) ? (
+                        <StageVerticalBar data={overview?.companiesByStage || {}} onStageClick={handleStageClick} />
+                    ) : (
+                        <Text c="dimmed" size="sm" ta="center" py="md">
+                            {t('dashboard.noStageData')}
+                        </Text>
+                    )}
+                </Paper>
+                <UpcomingAgendaWidget />
+            </SimpleGrid>
 
 {/* World Map — Pro tier / Internal only */}
             {isAdvanced ? (
@@ -420,5 +426,123 @@ export default function DashboardPage() {
                 </SimpleGrid>
             )}
         </Container>
+    );
+}
+
+// ─── Upcoming Agenda Widget (Dashboard) ──────────────────────────────────────
+
+function UpcomingAgendaWidget() {
+    const { t, i18n } = useTranslation();
+    const navigate = useNavigate();
+    const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
+
+    const now = new Date();
+    const past3 = new Date(now); past3.setDate(now.getDate() - 3);
+    const future7 = new Date(now); future7.setDate(now.getDate() + 7);
+    const dateFrom = toLocalDateStr(past3);
+    const dateTo = `${toLocalDateStr(future7)}T23:59:59`;
+
+    const { data } = useQuery<{ data: Activity[] }>({
+        queryKey: ['dashboard-upcoming', dateFrom, dateTo],
+        queryFn: async () => (await api.get('/activities/all', {
+            params: { date_from: dateFrom, date_to: dateTo, limit: '30' },
+        })).data,
+        staleTime: 60_000,
+    });
+
+    const todayStr = toLocalDateStr(now);
+    const activities = data?.data || [];
+
+    // Only future + overdue, exclude system types
+    const relevant = activities.filter(a =>
+        ['not', 'meeting', 'follow_up'].includes(a.type)
+    );
+
+    // Group by day — skip overdue on dashboard
+    const dayMap = new Map<string, Activity[]>();
+    for (const a of relevant) {
+        const dk = toLocalDateStr(new Date(a.occurred_at));
+        if (dk < todayStr) continue; // skip overdue on dashboard
+        if (!dayMap.has(dk)) dayMap.set(dk, []);
+        dayMap.get(dk)!.push(a);
+    }
+
+    type Section = { key: string; label: string; color: string; items: Activity[] };
+    const sections: Section[] = [];
+    for (const [dk, items] of Array.from(dayMap.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+        sections.push({
+            key: dk,
+            label: formatAgendaDayLabel(dk, todayStr, locale, t),
+            color: getDateUrgencyColor(dk, todayStr),
+            items: items.sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)),
+        });
+    }
+
+    // Limit to ~10 activities total for widget
+    let shownCount = 0;
+    const limitedSections = sections.map(s => {
+        const remaining = Math.max(0, 10 - shownCount);
+        const limited = s.items.slice(0, remaining);
+        shownCount += limited.length;
+        return { ...s, items: limited };
+    }).filter(s => s.items.length > 0);
+
+    return (
+        <Paper shadow="sm" radius="lg" p="lg" withBorder>
+            <Group justify="space-between" mb="md">
+                <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                    {t('dashboard.upcomingActivities', 'Yaklaşan Aktiviteler')}
+                </Text>
+                <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    color="violet"
+                    onClick={() => navigate('/activities?view=agenda')}
+                >
+                    {t('activities.viewFullAgenda', 'Tüm Ajandayı Gör')} →
+                </Button>
+            </Group>
+
+            {limitedSections.length === 0 ? (
+                <Center py="lg">
+                    <Text c="dimmed" size="sm" fs="italic">
+                        {t('activity.noActivities')}
+                    </Text>
+                </Center>
+            ) : (
+                <ScrollArea.Autosize mah={360} offsetScrollbars>
+                <Stack gap={0}>
+                    {limitedSections.map((section) => {
+                        const isOverdue = section.key === '__overdue';
+                        const dateStr = isOverdue
+                            ? ''
+                            : new Date(section.key + 'T00:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short' });
+                        const countdown = isOverdue
+                            ? t('activities.overdue', 'Gecikmiş')
+                            : section.key === todayStr
+                            ? t('activities.today', 'bugün')
+                            : formatCountdown(section.key + 'T12:00:00', locale);
+
+                        return (
+                            <AgendaDayGroup
+                                key={section.key}
+                                label={section.label}
+                                dateStr={dateStr}
+                                countdown={countdown}
+                                urgencyColor={section.color}
+                                activities={section.items}
+                                locale={locale}
+                                canEdit={false}
+                                canDeleteItem={false}
+                                onEdit={() => {}}
+                                onDelete={() => {}}
+                                compact
+                            />
+                        );
+                    })}
+                </Stack>
+                </ScrollArea.Autosize>
+            )}
+        </Paper>
     );
 }

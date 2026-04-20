@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, SegmentedControl,
     Loader, Center, Button, SimpleGrid, Select, TextInput, ActionIcon,
@@ -21,6 +21,10 @@ import StatCard from '../components/StatCard';
 import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS } from '../lib/activityConstants';
 import ActivityForm from '../components/ActivityForm';
 import CompanyTimelineGroup from '../components/CompanyTimelineGroup';
+import AgendaDayGroup from '../components/AgendaDayGroup';
+import {
+    toLocalDateStr as toDateStr, formatAgendaDayLabel, getDateUrgencyColor, formatCountdown,
+} from '../lib/dateUtils';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import type { Activity, ActivityType } from '../types/activity';
 
@@ -269,6 +273,7 @@ function ActivityCard({ activity, navigate, t, locale, canEdit, canDeleteItem, o
 export default function ActivitiesPage() {
     const { t, i18n } = useTranslation();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { user } = useAuth();
     const queryClient = useQueryClient();
 
@@ -315,7 +320,10 @@ export default function ActivitiesPage() {
     const [debouncedSearch] = useDebouncedValue(search, 300);
 
     // Grouping
-    const [groupBy, setGroupBy] = useState<'none' | 'date' | 'company' | 'type'>('company');
+    const validViews = ['none', 'date', 'company', 'type', 'agenda'] as const;
+    const urlView = searchParams.get('view');
+    const initialGroupBy = urlView && validViews.includes(urlView as any) ? urlView as typeof validViews[number] : 'company';
+    const [groupBy, setGroupBy] = useState<'none' | 'date' | 'company' | 'type' | 'agenda'>(initialGroupBy);
 
     // Pagination
     const [page, setPage] = useState(1);
@@ -323,9 +331,18 @@ export default function ActivitiesPage() {
 
     // ── Derived ──
 
-    const pageLimit = groupBy !== 'none' ? 100 : 20;
+    const pageLimit = (groupBy !== 'none' || groupBy === 'agenda') ? 100 : 20;
 
     const dateRange = useMemo(() => {
+        // Agenda: fixed range — 3 days back (overdue) + 14 days forward
+        if (groupBy === 'agenda') {
+            const past = new Date(); past.setDate(past.getDate() - 3);
+            const future = new Date(); future.setDate(future.getDate() + 14);
+            return {
+                from: toLocalDateStr(past),
+                to: `${toLocalDateStr(future)}T23:59:59`,
+            };
+        }
         if (periodType === 'custom') {
             const d0 = customRange[0];
             const d1 = customRange[1];
@@ -336,10 +353,10 @@ export default function ActivitiesPage() {
             };
         }
         return getDateRange(periodType, periodAnchor);
-    }, [periodType, periodAnchor, customRange]);
+    }, [groupBy, periodType, periodAnchor, customRange]);
 
     const queryEnabled =
-        periodType !== 'custom' || (!!customRange[0] && !!customRange[1]);
+        groupBy === 'agenda' || periodType !== 'custom' || (!!customRange[0] && !!customRange[1]);
 
     // ── Queries ──
 
@@ -490,6 +507,48 @@ export default function ActivitiesPage() {
             }));
         }
 
+        if (groupBy === 'agenda') {
+            const now = new Date();
+            const todayStr = toLocalDateStr(now);
+            const dayMap = new Map<string, Activity[]>();
+            const overdueItems: Activity[] = [];
+
+            for (const a of allActivities) {
+                const dateKey = toLocalDateStr(new Date(a.occurred_at));
+                if (dateKey < todayStr) {
+                    overdueItems.push(a);
+                } else {
+                    if (!dayMap.has(dateKey)) dayMap.set(dateKey, []);
+                    dayMap.get(dateKey)!.push(a);
+                }
+            }
+
+            const sections: GroupedSection[] = [];
+
+            if (overdueItems.length > 0) {
+                sections.push({
+                    key: '__overdue',
+                    label: t('activities.overdue', 'Gecikmiş'),
+                    color: 'red',
+                    items: overdueItems.sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)),
+                });
+            }
+
+            const sorted = Array.from(dayMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+            for (const [dateKey, items] of sorted) {
+                const label = formatAgendaDayLabel(dateKey, todayStr, locale, t);
+                const color = getDateUrgencyColor(dateKey, todayStr);
+                sections.push({
+                    key: dateKey,
+                    label,
+                    color,
+                    items: items.sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)),
+                });
+            }
+
+            return sections;
+        }
+
         // type
         const map = new Map<string, Activity[]>();
         for (const a of allActivities) {
@@ -611,7 +670,7 @@ export default function ActivitiesPage() {
                             )}
                         </Group>
 
-                        <Group gap="xs" wrap="nowrap">
+                        {groupBy !== 'agenda' && <Group gap="xs" wrap="nowrap">
                             <SegmentedControl
                                 size="xs"
                                 value={periodType}
@@ -673,7 +732,7 @@ export default function ActivitiesPage() {
                                     size="xs"
                                 />
                             )}
-                        </Group>
+                        </Group>}
                     </Group>
 
                     {/* Row 2: Search bar full width */}
@@ -695,6 +754,7 @@ export default function ActivitiesPage() {
                     onChange={(v) => setGroupBy(v as typeof groupBy)}
                     data={[
                         { label: t('activities.groupByCompany'), value: 'company' },
+                        { label: t('activities.groupByAgenda', 'Ajanda'), value: 'agenda' },
                         { label: t('activities.groupByDate'), value: 'date' },
                         { label: t('activities.groupByNone'), value: 'none' },
                         ...(!typeFilter ? [{ label: t('activities.groupByType'), value: 'type' }] : []),
@@ -729,6 +789,48 @@ export default function ActivitiesPage() {
                         {t('activity.noActivities')}
                     </Text>
                 </Center>
+            ) : groupBy === 'agenda' && groupedSections !== null ? (
+                // Agenda view
+                <Stack gap={0}>
+                    {groupedSections.map((section) => {
+                        const todayStr = toLocalDateStr(new Date());
+                        const isOverdue = section.key === '__overdue';
+                        const dateStr = isOverdue
+                            ? ''
+                            : new Date(section.key + 'T00:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short' });
+                        const countdown = isOverdue
+                            ? t('activities.overdue', 'Gecikmiş')
+                            : section.key === todayStr
+                            ? t('activities.today', 'bugün')
+                            : formatCountdown(section.key + 'T12:00:00', locale);
+
+                        return (
+                            <AgendaDayGroup
+                                key={section.key}
+                                label={section.label}
+                                dateStr={dateStr}
+                                countdown={countdown}
+                                urgencyColor={section.color || 'gray'}
+                                activities={section.items}
+                                locale={locale}
+                                canEdit={canEditActivities}
+                                canDeleteItem={canDeleteActivities}
+                                onEdit={handleEdit}
+                                onDelete={(id) => deleteMutation.mutate(id)}
+                                collapsible={isOverdue}
+                                defaultCollapsed={isOverdue}
+                            />
+                        );
+                    })}
+
+                    {hasMore && (
+                        <Center>
+                            <Button variant="subtle" color="gray" onClick={() => setPage((p) => p + 1)}>
+                                {t('activity.loadMore')}
+                            </Button>
+                        </Center>
+                    )}
+                </Stack>
             ) : groupBy === 'company' && groupedSections !== null ? (
                 // Company timeline view
                 <Stack gap="sm">
