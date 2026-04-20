@@ -19,7 +19,7 @@ import {
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
-import { type DatePeriod, getDateRange, shiftPeriod, formatPeriodLabel, getCustomDateRange, toLocalDateStr, formatAgendaDayLabel, getDateUrgencyColor, formatCountdown } from '../lib/dateUtils';
+import { type DatePeriod, getDateRange, shiftPeriod, formatPeriodLabel, getCustomDateRange, toLocalDateStr, formatAgendaDayLabel, getDateUrgencyColor } from '../lib/dateUtils';
 import {
     IconBuilding,
     IconTrendingUp,
@@ -517,18 +517,11 @@ function UpcomingAgendaWidget() {
                         const dateStr = isOverdue
                             ? ''
                             : new Date(section.key + 'T00:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short' });
-                        const countdown = isOverdue
-                            ? t('activities.overdue', 'Gecikmiş')
-                            : section.key === todayStr
-                            ? t('activities.today', 'bugün')
-                            : formatCountdown(section.key + 'T12:00:00', locale);
-
                         return (
                             <AgendaDayGroup
                                 key={section.key}
                                 label={section.label}
                                 dateStr={dateStr}
-                                countdown={countdown}
                                 urgencyColor={section.color}
                                 activities={section.items}
                                 locale={locale}

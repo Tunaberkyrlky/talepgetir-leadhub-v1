@@ -111,7 +111,6 @@ function AgendaCard({ activity, locale, canEdit, canDeleteItem, onEdit, onDelete
 export interface AgendaDayGroupProps {
     label: string;
     dateStr: string;
-    countdown: string;
     urgencyColor: string;
     activities: Activity[];
     locale: string;
@@ -125,7 +124,7 @@ export interface AgendaDayGroupProps {
 }
 
 export default function AgendaDayGroup({
-    label, dateStr, countdown, urgencyColor, activities,
+    label, dateStr, urgencyColor, activities,
     locale, canEdit, canDeleteItem, onEdit, onDelete, compact,
     collapsible, defaultCollapsed = true,
 }: AgendaDayGroupProps) {

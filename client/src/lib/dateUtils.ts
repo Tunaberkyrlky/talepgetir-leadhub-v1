@@ -114,7 +114,8 @@ export function formatAgendaDayLabel(
     dateKey: string,
     todayStr: string,
     locale: string,
-    t: (key: string, fallback?: string) => string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    t: any,
 ): string {
     const d = new Date(dateKey + 'T00:00:00');
     const diffDays = Math.round((d.getTime() - new Date(todayStr + 'T00:00:00').getTime()) / 86400000);

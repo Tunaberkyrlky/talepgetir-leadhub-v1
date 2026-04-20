@@ -23,7 +23,7 @@ import ActivityForm from '../components/ActivityForm';
 import CompanyTimelineGroup from '../components/CompanyTimelineGroup';
 import AgendaDayGroup from '../components/AgendaDayGroup';
 import {
-    toLocalDateStr as toDateStr, formatAgendaDayLabel, getDateUrgencyColor, formatCountdown,
+    formatAgendaDayLabel, getDateUrgencyColor,
 } from '../lib/dateUtils';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import type { Activity, ActivityType } from '../types/activity';
@@ -331,7 +331,7 @@ export default function ActivitiesPage() {
 
     // ── Derived ──
 
-    const pageLimit = (groupBy !== 'none' || groupBy === 'agenda') ? 100 : 20;
+    const pageLimit = groupBy !== 'none' ? 100 : 20;
 
     const dateRange = useMemo(() => {
         // Agenda: fixed range — 3 days back (overdue) + 14 days forward
@@ -793,23 +793,15 @@ export default function ActivitiesPage() {
                 // Agenda view
                 <Stack gap={0}>
                     {groupedSections.map((section) => {
-                        const todayStr = toLocalDateStr(new Date());
                         const isOverdue = section.key === '__overdue';
                         const dateStr = isOverdue
                             ? ''
                             : new Date(section.key + 'T00:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short' });
-                        const countdown = isOverdue
-                            ? t('activities.overdue', 'Gecikmiş')
-                            : section.key === todayStr
-                            ? t('activities.today', 'bugün')
-                            : formatCountdown(section.key + 'T12:00:00', locale);
-
                         return (
                             <AgendaDayGroup
                                 key={section.key}
                                 label={section.label}
                                 dateStr={dateStr}
-                                countdown={countdown}
                                 urgencyColor={section.color || 'gray'}
                                 activities={section.items}
                                 locale={locale}
