@@ -66,6 +66,9 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         // When fetching for a company detail page (company_id provided), simple ordered list
         if (companyId) {
+            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(companyId)) {
+                res.status(400).json({ error: 'Invalid company ID' }); return;
+            }
             const { data, error } = await db
                 .from('contacts')
                 .select('*')
@@ -75,6 +78,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                 .order('created_at', { ascending: true });
 
             if (error) {
+                log.error({ err: error }, 'List contacts by company error');
                 res.status(500).json({ error: 'Failed to fetch contacts' });
                 return;
             }
@@ -210,11 +214,15 @@ router.post(
 
             // Ensure at most one primary per company — unset others before inserting
             if (is_primary) {
-                await supabaseAdmin
+                const { error: clearErr } = await supabaseAdmin
                     .from('contacts')
                     .update({ is_primary: false })
                     .eq('company_id', company_id)
                     .eq('tenant_id', tenantId);
+                if (clearErr) {
+                    log.error({ err: clearErr }, 'Failed to clear existing primary contacts');
+                    throw new AppError('Failed to update primary contact', 500);
+                }
             }
 
             // Build payload
@@ -302,12 +310,16 @@ router.put(
                     .single();
 
                 if (existing?.company_id) {
-                    await supabaseAdmin
+                    const { error: clearErr } = await supabaseAdmin
                         .from('contacts')
                         .update({ is_primary: false })
                         .eq('company_id', existing.company_id)
                         .eq('tenant_id', tenantId)
                         .neq('id', id);
+                    if (clearErr) {
+                        log.error({ err: clearErr }, 'Failed to clear existing primary contacts');
+                        throw new AppError('Failed to update primary contact', 500);
+                    }
                 }
             }
 

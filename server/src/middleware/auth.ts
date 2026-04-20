@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin, supabaseAuth } from '../lib/supabase.js';
 import { createLogger } from '../lib/logger.js';
@@ -68,7 +69,8 @@ export async function authMiddleware(
 
         // Check tenant override header for cache key
         const requestedTenantId = req.headers['x-tenant-id'] as string | undefined;
-        const cacheKey = requestedTenantId ? `${token}:${requestedTenantId}` : token;
+        const tokenHash = createHash('sha256').update(token).digest('hex').slice(0, 32);
+        const cacheKey = requestedTenantId ? `${tokenHash}:${requestedTenantId}` : tokenHash;
 
         // Check auth cache
         const cached = authCache.get(cacheKey);
@@ -92,11 +94,17 @@ export async function authMiddleware(
         const isPlatformSuperadmin = user.app_metadata?.is_superadmin === true;
 
         // Get memberships for tenant resolution
-        const { data: allMemberships } = await supabaseAdmin
+        const { data: allMemberships, error: membershipErr } = await supabaseAdmin
             .from('memberships')
             .select('tenant_id, role')
             .eq('user_id', user.id)
             .eq('is_active', true);
+
+        if (membershipErr) {
+            log.error({ err: membershipErr, userId: user.id }, 'Failed to fetch memberships');
+            res.status(500).json({ error: 'Internal server error' });
+            return;
+        }
 
         // Resolve default tenant — prefer JWT claim, fall back to first active membership.
         // Validate the JWT-claimed tenant exists; stale seed/deleted tenant IDs in

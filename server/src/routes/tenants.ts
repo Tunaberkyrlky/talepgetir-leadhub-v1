@@ -29,7 +29,10 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                 .eq('is_active', true)
                 .order('name');
 
-            if (error) throw error;
+            if (error) {
+                log.error({ err: error }, 'List tenants error');
+                throw new AppError('Failed to fetch tenants', 500);
+            }
 
             tenants = (data || []).map((t) => ({
                 ...t,
@@ -43,7 +46,10 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                 .eq('user_id', userId)
                 .eq('is_active', true);
 
-            if (mError) throw mError;
+            if (mError) {
+                log.error({ err: mError }, 'List memberships error');
+                throw new AppError('Failed to fetch tenants', 500);
+            }
 
             if (memberships && memberships.length > 0) {
                 const tenantIds = memberships.map((m) => m.tenant_id);
@@ -54,7 +60,10 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                     .eq('is_active', true)
                     .order('name');
 
-                if (tError) throw tError;
+                if (tError) {
+                    log.error({ err: tError }, 'List tenants by membership error');
+                    throw new AppError('Failed to fetch tenants', 500);
+                }
 
                 tenants = (tenantData || []).map((t) => {
                     const membership = memberships.find((m) => m.tenant_id === t.id);

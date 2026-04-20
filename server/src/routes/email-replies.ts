@@ -94,10 +94,12 @@ router.get(
                     supabaseAdmin
                         .from('companies')
                         .select('id, name, stage, website')
+                        .eq('tenant_id', tenantId)
                         .in('id', companyIds),
                     supabaseAdmin
                         .from('activities')
                         .select('company_id')
+                        .eq('tenant_id', tenantId)
                         .in('company_id', companyIds),
                 ]);
                 for (const c of companies || []) {
@@ -112,6 +114,7 @@ router.get(
                 const { data: contacts } = await supabaseAdmin
                     .from('contacts')
                     .select('id, first_name, last_name')
+                    .eq('tenant_id', tenantId)
                     .in('id', contactIds);
                 for (const c of contacts || []) {
                     contactMap[c.id] = [c.first_name, c.last_name].filter(Boolean).join(' ');
@@ -907,6 +910,7 @@ router.get(
                 .from('companies')
                 .select('name, stage')
                 .eq('id', companyId)
+                .eq('tenant_id', tenantId)
                 .single();
             if (companyRow) { companyName = companyRow.name; companyStage = companyRow.stage ?? null; }
 
@@ -917,6 +921,7 @@ router.get(
                 const { data: contacts } = await supabaseAdmin
                     .from('contacts')
                     .select('id, first_name, last_name')
+                    .eq('tenant_id', tenantId)
                     .in('id', contactIds);
                 for (const c of contacts || []) {
                     contactMap[c.id] = [c.first_name, c.last_name].filter(Boolean).join(' ');

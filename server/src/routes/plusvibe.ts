@@ -14,7 +14,6 @@ import {
     fetchAllReplies,
     type PlusVibeCampaign,
 } from '../lib/plusvibeClient.js';
-import { matchSenderEmail } from '../lib/emailMatcher.js';
 import { validateBody, assignCampaignSchema, campaignStatsQuerySchema } from '../lib/validation.js';
 
 const log = createLogger('route:plusvibe');

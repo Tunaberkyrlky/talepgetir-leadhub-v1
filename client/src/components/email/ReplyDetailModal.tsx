@@ -65,6 +65,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [newAttSize, setNewAttSize] = useState('');
     const [deleteAttId, setDeleteAttId] = useState<string | null>(null);
     const [draftLoaded, setDraftLoaded] = useState<string | null>(null);
+    const [ccInputOpen, setCcInputOpen] = useState(false);
     // Sync when a new reply is selected
     if (reply?.id !== localReply?.id) {
         setLocalReply(reply);
@@ -77,6 +78,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         setSelectedAttachments([]);
         setNewAttOpen(false);
         setDraftLoaded(null);
+        setCcInputOpen(false);
     }
 
     // Auto-mark as read when a decisive action is taken (activity, closing report, reply sent)
@@ -630,65 +632,96 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                 {t('emailReplies.reply.to')}: <Text span fw={500} c="dark">{localReply.sender_email}</Text>
                             </Text>
 
-                            {/* CC selector — saved badges + custom input */}
-                            <Group gap={6} mb={8} align="flex-start" wrap="nowrap">
-                                <Text size="xs" c="dimmed" mt={6} style={{ whiteSpace: 'nowrap' }}>CC:</Text>
-                                <Box style={{ flex: 1, minWidth: 0 }}>
-                                <Group gap={4} mb={4} style={{ flexWrap: 'wrap' }}>
-                                    {/* Saved CC addresses (toggle on/off) */}
-                                    {savedCcList.map((email) => (
-                                        <Badge key={email} size="xs"
-                                            variant={selectedCc.includes(email) ? 'filled' : 'light'}
-                                            color="violet" style={{ cursor: 'pointer' }}
-                                            onClick={() => setSelectedCc((prev) =>
-                                                prev.includes(email) ? prev.filter((e) => e !== email) : [...prev, email]
-                                            )}
-                                            rightSection={
-                                                <ActionIcon size={12} variant="transparent"
-                                                    c={selectedCc.includes(email) ? 'white' : 'dimmed'}
-                                                    onClick={(ev) => { ev.stopPropagation(); removeFromSavedCc(email); setSelectedCc(p => p.filter(e => e !== email)); }}
-                                                >
-                                                    <IconX size={10} />
-                                                </ActionIcon>
+                            {/* CC selector — saved badges above, input below */}
+                            <Box mb={8}>
+                                {/* Saved CC badges (if any) */}
+                                {(savedCcList.length > 0 || selectedCc.length > 0) && (
+                                    <Group gap={4} mb={6} style={{ flexWrap: 'wrap' }}>
+                                        {savedCcList.map((email) => (
+                                            <Badge key={email} size="xs"
+                                                variant={selectedCc.includes(email) ? 'filled' : 'light'}
+                                                color="violet" style={{ cursor: 'pointer' }}
+                                                onClick={() => setSelectedCc((prev) =>
+                                                    prev.includes(email) ? prev.filter((e) => e !== email) : [...prev, email]
+                                                )}
+                                                rightSection={
+                                                    <ActionIcon size={12} variant="transparent"
+                                                        c={selectedCc.includes(email) ? 'white' : 'dimmed'}
+                                                        onClick={(ev) => { ev.stopPropagation(); removeFromSavedCc(email); setSelectedCc(p => p.filter(e => e !== email)); }}
+                                                    >
+                                                        <IconX size={10} />
+                                                    </ActionIcon>
+                                                }
+                                            >
+                                                {email}
+                                            </Badge>
+                                        ))}
+                                        {/* Active CC's not in saved list */}
+                                        {selectedCc.filter(e => !savedCcList.includes(e)).map((email) => (
+                                            <Badge key={email} size="xs" variant="filled" color="gray"
+                                                rightSection={
+                                                    <ActionIcon size={12} variant="transparent" c="white"
+                                                        onClick={(ev) => { ev.stopPropagation(); setSelectedCc(p => p.filter(e => e !== email)); }}
+                                                    >
+                                                        <IconX size={10} />
+                                                    </ActionIcon>
+                                                }
+                                            >
+                                                {email}
+                                            </Badge>
+                                        ))}
+                                    </Group>
+                                )}
+
+                                {/* CC input — always visible if badges exist, otherwise show "CC Ekle" button */}
+                                {(savedCcList.length > 0 || selectedCc.length > 0 || customCc) ? (
+                                    <TextInput size="xs" placeholder={t('emailReplies.reply.customCc', 'CC ekle...')}
+                                        value={customCc}
+                                        onChange={(e) => setCustomCc(e.currentTarget.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                const email = customCc.trim().toLowerCase();
+                                                if (email && email.includes('@') && !selectedCc.includes(email)) {
+                                                    setSelectedCc((prev) => [...prev, email]);
+                                                    addToSavedCc(email);
+                                                    setCustomCc('');
+                                                }
                                             }
-                                        >
-                                            {email}
-                                        </Badge>
-                                    ))}
-                                    {/* Active CC's not in saved list */}
-                                    {selectedCc.filter(e => !savedCcList.includes(e)).map((email) => (
-                                        <Badge key={email} size="xs" variant="filled" color="gray"
-                                            rightSection={
-                                                <ActionIcon size={12} variant="transparent" c="white"
-                                                    onClick={(ev) => { ev.stopPropagation(); setSelectedCc(p => p.filter(e => e !== email)); }}
-                                                >
-                                                    <IconX size={10} />
-                                                </ActionIcon>
+                                        }}
+                                        styles={{ input: { fontSize: 11 } }}
+                                    />
+                                ) : (
+                                    <Button
+                                        size="compact-xs"
+                                        variant="subtle"
+                                        color="gray"
+                                        leftSection={<IconPlus size={12} />}
+                                        onClick={() => setCcInputOpen(true)}
+                                    >
+                                        CC {t('emailReplies.reply.addCc', 'Ekle')}
+                                    </Button>
+                                )}
+                                {ccInputOpen && savedCcList.length === 0 && selectedCc.length === 0 && !customCc && (
+                                    <TextInput size="xs" placeholder={t('emailReplies.reply.customCc', 'CC ekle...')}
+                                        value={customCc} mt={4}
+                                        onChange={(e) => setCustomCc(e.currentTarget.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                const email = customCc.trim().toLowerCase();
+                                                if (email && email.includes('@') && !selectedCc.includes(email)) {
+                                                    setSelectedCc((prev) => [...prev, email]);
+                                                    addToSavedCc(email);
+                                                    setCustomCc('');
+                                                }
                                             }
-                                        >
-                                            {email}
-                                        </Badge>
-                                    ))}
-                                </Group>
-                                {/* CC input — Enter to add + auto-save */}
-                                <TextInput size="xs" placeholder={t('emailReplies.reply.customCc', 'CC ekle...')}
-                                    value={customCc}
-                                    onChange={(e) => setCustomCc(e.currentTarget.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                            e.preventDefault();
-                                            const email = customCc.trim().toLowerCase();
-                                            if (email && email.includes('@') && !selectedCc.includes(email)) {
-                                                setSelectedCc((prev) => [...prev, email]);
-                                                addToSavedCc(email);
-                                                setCustomCc('');
-                                            }
-                                        }
-                                    }}
-                                    styles={{ input: { fontSize: 11 } }}
-                                />
-                                </Box>
-                            </Group>
+                                        }}
+                                        styles={{ input: { fontSize: 11 } }}
+                                        autoFocus
+                                    />
+                                )}
+                            </Box>
 
                             <Textarea
                                 placeholder={t('emailReplies.reply.placeholder')}

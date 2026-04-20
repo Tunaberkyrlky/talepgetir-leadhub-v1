@@ -22,19 +22,22 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
                 .select('industry')
                 .eq('tenant_id', tenantId)
                 .not('industry', 'is', null)
-                .neq('industry', ''),
+                .neq('industry', '')
+                .limit(5000),
             supabaseAdmin
                 .from('companies')
                 .select('location')
                 .eq('tenant_id', tenantId)
                 .not('location', 'is', null)
-                .neq('location', ''),
+                .neq('location', '')
+                .limit(5000),
             supabaseAdmin
                 .from('companies')
                 .select('product_services')
                 .eq('tenant_id', tenantId)
                 .not('product_services', 'is', null)
-                .neq('product_services', ''),
+                .neq('product_services', '')
+                .limit(5000),
         ]);
 
         const industries = [...new Set((industryRes.data || []).map((r) => r.industry))].sort();

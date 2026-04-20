@@ -10,6 +10,9 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, enrollLeadsSchema } from '../lib/validation.js';
 import { enrollLeads, getCampaignStats } from '../lib/campaignEngine.js';
+import { sanitizeSearch } from '../lib/queryUtils.js';
+
+const VALID_CAMPAIGN_STATUSES = ['draft', 'active', 'paused', 'completed'];
 
 const log = createLogger('route:campaigns');
 const router = Router();
@@ -34,8 +37,16 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             .order('created_at', { ascending: false })
             .range(offset, offset + limit - 1);
 
-        if (status) query = query.eq('status', String(status));
-        if (search) query = query.ilike('name', `%${String(search)}%`);
+        if (status) {
+            if (!VALID_CAMPAIGN_STATUSES.includes(String(status))) {
+                res.status(400).json({ error: 'Invalid campaign status' }); return;
+            }
+            query = query.eq('status', String(status));
+        }
+        if (search && typeof search === 'string' && search.trim()) {
+            const safe = sanitizeSearch(search.trim());
+            if (safe.length > 0) query = query.ilike('name', `%${safe}%`);
+        }
 
         const { data, count, error } = await query;
         if (error) throw new AppError('Failed to fetch campaigns', 500);
@@ -143,7 +154,7 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction): P
             res.status(422).json({ error: 'Only draft campaigns can be deleted' }); return;
         }
 
-        await supabaseAdmin.from('campaigns').delete().eq('id', (req.params.id as string));
+        await supabaseAdmin.from('campaigns').delete().eq('id', (req.params.id as string)).eq('tenant_id', req.tenantId!);
         res.status(204).send();
     } catch (err) {
         log.error({ err }, 'Delete campaign error');

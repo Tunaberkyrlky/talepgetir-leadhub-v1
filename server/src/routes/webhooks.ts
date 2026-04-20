@@ -110,6 +110,13 @@ router.post(
                 return;
             }
 
+            // Verify tenant consistency — match should belong to the same tenant
+            if (match.tenant_id !== tenantId) {
+                log.warn({ tenantId, matchTenantId: match.tenant_id, from_email }, 'Webhook tenant mismatch');
+                res.status(422).json({ error: 'Tenant mismatch', code: 'TENANT_MISMATCH' });
+                return;
+            }
+
             // Insert email reply
             // Deduplication: partial unique index on (campaign_id, sender_email, replied_at) WHERE campaign_id IS NOT NULL
             const row = {

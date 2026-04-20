@@ -10,6 +10,7 @@ const log = createLogger('campaignScheduler');
 const TICK_MS = 60_000;
 
 let _interval: ReturnType<typeof setInterval> | null = null;
+let _running = false;
 
 export function startCampaignScheduler(): void {
     if (_interval) {
@@ -20,10 +21,17 @@ export function startCampaignScheduler(): void {
     log.info({ intervalMs: TICK_MS }, 'Campaign scheduler started');
 
     _interval = setInterval(async () => {
+        if (_running) {
+            log.warn('Previous scheduler tick still running, skipping');
+            return;
+        }
+        _running = true;
         try {
             await processScheduledEmails();
         } catch (err) {
             log.error({ err }, 'Campaign scheduler tick failed');
+        } finally {
+            _running = false;
         }
     }, TICK_MS);
 

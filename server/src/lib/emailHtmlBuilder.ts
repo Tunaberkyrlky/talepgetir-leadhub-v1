@@ -12,10 +12,15 @@ interface AttachmentTemplate {
 
 const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
 
+function isSafeUrl(url: string): boolean {
+    return /^https?:\/\//i.test(url);
+}
+
 function buildCard(t: AttachmentTemplate): string {
+    const safeUrl = isSafeUrl(t.file_url) ? t.file_url : '#';
     return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 8px;">
   <tr><td>
-    <a href="${escapeAttr(t.file_url)}" target="_blank" style="display: block; text-decoration: none; border: 1px solid #e8e8f0; border-radius: 10px; padding: 14px 16px; background: #fafafe;">
+    <a href="${escapeAttr(safeUrl)}" target="_blank" style="display: block; text-decoration: none; border: 1px solid #e8e8f0; border-radius: 10px; padding: 14px 16px; background: #fafafe;">
       <table cellpadding="0" cellspacing="0" border="0" width="100%">
         <tr>
           <td valign="middle" style="font-family: ${FONT};">

@@ -37,7 +37,7 @@ interface TenantRateState {
 }
 
 const tenantRates = new Map<string, TenantRateState>();
-const MAX_PER_SECOND = 2;       // Resend allows 10/sec, we stay conservative
+const MAX_PER_SECOND = 3;       // Resend allows 10/sec, we stay conservative
 const DAILY_LIMIT = 2900;       // Resend free tier: 3000/month, ~100/day safe
 
 async function waitForRateLimit(tenantId: string): Promise<void> {
@@ -48,6 +48,10 @@ async function waitForRateLimit(tenantId: string): Promise<void> {
     if (!state || state.dailyResetAt < todayStart) {
         state = { timestamps: [], dailyCount: 0, dailyResetAt: todayStart };
         tenantRates.set(tenantId, state);
+        // Evict stale entries from other tenants on daily reset
+        for (const [key, val] of tenantRates) {
+            if (val.dailyResetAt < todayStart) tenantRates.delete(key);
+        }
     }
 
     if (state.dailyCount >= DAILY_LIMIT) {

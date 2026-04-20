@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { validateBody } from '../lib/validation.js';
+import { sanitizeSearch } from '../lib/queryUtils.js';
 
 const log = createLogger('route:feedback');
 const router = Router();
@@ -93,8 +94,11 @@ router.get(
             if (status && typeof status === 'string') {
                 query = query.eq('status', status);
             }
-            if (search && typeof search === 'string') {
-                query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,user_email.ilike.%${search}%`);
+            if (search && typeof search === 'string' && search.trim()) {
+                const safe = sanitizeSearch(search.trim());
+                if (safe.length > 0) {
+                    query = query.or(`title.ilike.%${safe}%,description.ilike.%${safe}%,user_email.ilike.%${safe}%`);
+                }
             }
 
             const { data, error, count } = await query;

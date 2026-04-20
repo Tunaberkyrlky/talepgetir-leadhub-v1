@@ -82,14 +82,14 @@ function applyTemplate(template: string, ctx: TemplateCtx): string {
 // ── Tracking ───────────────────────────────────────────────────────────────
 
 function createTrackingToken(id: string): string {
-    const hmac = crypto.createHmac('sha256', TRACKING_SECRET).update(id).digest('hex').slice(0, 16);
+    const hmac = crypto.createHmac('sha256', TRACKING_SECRET).update(id).digest('hex');
     return `${id}:${hmac}`;
 }
 
 export function verifyTrackingToken(token: string): string | null {
     const [id, hmac] = token.split(':');
     if (!id || !hmac) return null;
-    const expected = crypto.createHmac('sha256', TRACKING_SECRET).update(id).digest('hex').slice(0, 16);
+    const expected = crypto.createHmac('sha256', TRACKING_SECRET).update(id).digest('hex');
     try {
         if (crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(expected))) return id;
     } catch { /* length mismatch */ }
@@ -207,11 +207,15 @@ export async function enrollLeads(
         skipped = contacts.length - enrolled;
     }
 
-    // Update denormalized counter
+    // Update denormalized counter (derive from actual count to avoid race conditions)
     if (enrolled > 0) {
+        const { count } = await supabaseAdmin
+            .from('campaign_enrollments')
+            .select('id', { count: 'exact', head: true })
+            .eq('campaign_id', campaignId);
         await supabaseAdmin
             .from('campaigns')
-            .update({ total_enrolled: (campaign.total_enrolled || 0) + enrolled })
+            .update({ total_enrolled: count || 0 })
             .eq('id', campaignId);
     }
 
@@ -369,7 +373,11 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         .eq('id', activity.id);
                     failed++;
                     log.error({ err: sendErr, enrollmentId: enrollment.id }, 'Campaign email send failed');
-                    // Don't stop enrollment — advance to next step anyway
+                    // Keep enrollment on current step — retry on next scheduler tick
+                    await supabaseAdmin.from('campaign_enrollments')
+                        .update({ next_scheduled_at: new Date(Date.now() + 5 * 60_000).toISOString() })
+                        .eq('id', enrollment.id);
+                    continue;
                 }
             } else if (currentStep.step_type === 'delay') {
                 // Delay step — time has elapsed, just advance
@@ -403,6 +411,14 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
 
         } catch (err) {
             log.error({ err, enrollmentId: enrollment.id }, 'Enrollment processing error');
+            // Restore next_scheduled_at so enrollment isn't stuck forever
+            try {
+                await supabaseAdmin.from('campaign_enrollments')
+                    .update({ next_scheduled_at: new Date(Date.now() + 5 * 60_000).toISOString() })
+                    .eq('id', enrollment.id);
+            } catch (retryErr) {
+                log.error({ err: retryErr }, 'Failed to restore enrollment schedule');
+            }
             failed++;
         }
     }

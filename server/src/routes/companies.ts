@@ -583,6 +583,7 @@ router.put(
                 .single();
 
             if (error) {
+                log.error({ err: error }, 'Update company error');
                 throw new AppError('Failed to update company', 500);
             }
 

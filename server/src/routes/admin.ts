@@ -19,9 +19,18 @@ const router = Router();
 const USER_EMAIL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const userEmailCache = new Map<string, { email: string; ts: number }>();
 
+const MAX_CACHE_SIZE = 500;
+
 async function getUserEmail(userId: string): Promise<string> {
     const cached = userEmailCache.get(userId);
     if (cached && Date.now() - cached.ts < USER_EMAIL_CACHE_TTL) return cached.email;
+    // Evict expired entries when cache grows too large
+    if (userEmailCache.size >= MAX_CACHE_SIZE) {
+        const now = Date.now();
+        for (const [key, val] of userEmailCache) {
+            if (now - val.ts > USER_EMAIL_CACHE_TTL) userEmailCache.delete(key);
+        }
+    }
     const { data } = await supabaseAdmin.auth.admin.getUserById(userId);
     const email = data?.user?.email || '';
     userEmailCache.set(userId, { email, ts: Date.now() });
@@ -306,6 +315,10 @@ router.delete('/users/:id', async (req: Request, res: Response, next: NextFuncti
         }
 
         if (hard) {
+            if (req.query.confirm !== 'true') {
+                res.status(400).json({ error: 'Hard delete requires ?confirm=true', code: 'CONFIRMATION_REQUIRED' });
+                return;
+            }
             const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
             if (error) {
                 log.error({ err: error }, 'Delete user error');
@@ -891,6 +904,23 @@ router.put('/memberships/:id', validateBody(updateMembershipSchema), async (req:
 router.delete('/memberships/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const id = req.params.id as string;
+
+        // Verify membership exists and prevent self-delete
+        const { data: membership } = await supabaseAdmin
+            .from('memberships')
+            .select('id, user_id')
+            .eq('id', id)
+            .single();
+
+        if (!membership) {
+            res.status(404).json({ error: 'Membership not found' });
+            return;
+        }
+
+        if (membership.user_id === req.user!.id) {
+            res.status(400).json({ error: 'Cannot delete your own membership' });
+            return;
+        }
 
         const { error } = await supabaseAdmin
             .from('memberships')

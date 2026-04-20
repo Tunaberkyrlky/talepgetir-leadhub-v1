@@ -165,7 +165,12 @@ export const updateTenantSchema = z.object({
     slug: z.string().min(1).max(100).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/).optional(),
     tier: z.enum(VALID_TIERS).optional(),
     is_active: z.boolean().optional(),
-    settings: z.record(z.string(), z.unknown()).optional(),
+    settings: z.object({
+        cc_addresses: z.array(z.object({ email: z.string().max(255), label: z.string().max(100) })).max(50).optional(),
+        custom_field_1_label: z.string().max(100).optional(),
+        custom_field_2_label: z.string().max(100).optional(),
+        custom_field_3_label: z.string().max(100).optional(),
+    }).passthrough().optional(),
 });
 
 export const createMembershipSchema = z.object({
@@ -230,8 +235,8 @@ export const emailRepliesQuerySchema = z.object({
     campaign_id: z.string().max(500).optional(),
     match_status: z.enum(['matched', 'unmatched']).optional(),
     read_status: z.enum(['unread', 'read']).optional(),
-    date_from: z.string().optional(),
-    date_to: z.string().optional(),
+    date_from: z.string().refine(v => !v || !isNaN(Date.parse(v)), { message: 'Invalid date format' }).optional(),
+    date_to: z.string().refine(v => !v || !isNaN(Date.parse(v)), { message: 'Invalid date format' }).optional(),
     search: z.string().max(255).optional(),
     label: z.string().max(100).optional(),
     sentiment: z.string().max(50).optional(),

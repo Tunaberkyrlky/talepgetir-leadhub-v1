@@ -14,6 +14,9 @@ const router = Router();
 
 const VALID_ACTIVITY_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change', 'campaign_email'];
 
+// User lookup cache (5 min TTL) — avoids N+1 auth API calls in /users endpoint
+const userLookupCache = new Map<string, { data: { email: string; name?: string }; ts: number }>();
+
 
 
 function dbClient(req: Request) {
@@ -328,23 +331,36 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction): Pr
             return;
         }
 
-        // Resolve emails via targeted user lookups
+        // Resolve emails with in-process cache (avoid N+1 auth lookups)
         const userMap = new Map<string, { email: string; name?: string }>();
-        await Promise.all(
-            uniqueIds.map(async (uid) => {
-                try {
-                    const { data: { user }, error } = await supabaseAdmin.auth.admin.getUserById(uid);
-                    if (!error && user) {
-                        userMap.set(uid, {
-                            email: user.email || uid,
-                            name: user.user_metadata?.full_name || user.user_metadata?.name,
-                        });
+        const uncachedIds = uniqueIds.filter(id => {
+            const cached = userLookupCache.get(id);
+            if (cached && Date.now() - cached.ts < 5 * 60_000) {
+                userMap.set(id, cached.data);
+                return false;
+            }
+            return true;
+        });
+
+        if (uncachedIds.length > 0) {
+            await Promise.all(
+                uncachedIds.map(async (uid) => {
+                    try {
+                        const { data: { user }, error } = await supabaseAdmin.auth.admin.getUserById(uid);
+                        if (!error && user) {
+                            const info = {
+                                email: user.email || uid,
+                                name: user.user_metadata?.full_name || user.user_metadata?.name,
+                            };
+                            userMap.set(uid, info);
+                            userLookupCache.set(uid, { data: info, ts: Date.now() });
+                        }
+                    } catch {
+                        // skip unresolvable users
                     }
-                } catch {
-                    // skip unresolvable users
-                }
-            })
-        );
+                })
+            );
+        }
 
         const users = uniqueIds
             .filter(id => userMap.has(id))

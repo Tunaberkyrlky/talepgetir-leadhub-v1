@@ -35,7 +35,7 @@ router.get('/o/:token', async (req: Request<{ token: string }>, res: Response): 
             });
         }
     } catch (err) {
-        log.warn({ err, token: req.params.token }, 'Open tracking error');
+        log.warn({ err }, 'Open tracking error');
     }
 
     res.end(TRANSPARENT_GIF);
@@ -49,15 +49,16 @@ router.get('/c/:token', async (req: Request<{ token: string }>, res: Response): 
 
     try {
         const activityId = verifyTrackingToken(req.params.token);
-        if (activityId) {
-            await supabaseAdmin.from('campaign_email_events').insert({
-                activity_id: activityId,
-                event_type: 'click',
-                event_data: { url: targetUrl.slice(0, 2000), ip: req.ip },
-            });
-        }
+        if (!activityId) { res.status(400).send('Invalid tracking link'); return; }
+
+        await supabaseAdmin.from('campaign_email_events').insert({
+            activity_id: activityId,
+            event_type: 'click',
+            event_data: { url: targetUrl.slice(0, 2000), ip: req.ip },
+        });
     } catch (err) {
         log.warn({ err }, 'Click tracking error');
+        res.status(400).send('Invalid tracking link'); return;
     }
 
     res.redirect(302, targetUrl);
