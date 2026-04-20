@@ -7,6 +7,32 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.8.0',
+        date: '2026-04-20',
+        title: {
+            tr: 'Ajanda Gorunumu',
+            en: 'Agenda View',
+        },
+        features: [
+            {
+                tr: 'Aktiviteler sayfasina Ajanda gorunumu eklendi — gelecek toplanti, takip ve notlarinizi gun bazli gorebilirsiniz',
+                en: 'Agenda view added to Activities page — see your upcoming meetings, follow-ups and notes grouped by day',
+            },
+            {
+                tr: 'Her aktivitede kalan sure ve aciliyet rengi gorunur (kirmizi: bugun, turuncu: 1-3 gun, yesil: 3+ gun)',
+                en: 'Each activity shows countdown and urgency color (red: today, orange: 1-3 days, green: 3+ days)',
+            },
+            {
+                tr: 'Gecmis aktiviteler kapali grupta listelenir — tiklayarak acabilirsiniz',
+                en: 'Overdue activities listed in a collapsed group — click to expand',
+            },
+            {
+                tr: 'Dashboard\'a Yaklasan Aktiviteler widget\'i eklendi — asama dagilimi grafigiGinin yaninda',
+                en: 'Upcoming Activities widget added to Dashboard — next to stage distribution chart',
+            },
+        ],
+    },
+    {
         version: '1.7.6',
         date: '2026-04-20',
         title: {
