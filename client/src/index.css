@@ -118,3 +118,42 @@ table tbody tr {
 .company-tl-header:hover {
   background: var(--mantine-color-gray-0) !important;
 }
+
+/* ── Agenda View ── */
+.agenda-day {
+  margin-bottom: 16px;
+}
+
+.agenda-day-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.agenda-day-body {
+  display: flex;
+  gap: 12px;
+  margin-left: 14px;
+}
+
+.agenda-day-label {
+  min-width: 56px;
+  text-align: right;
+  padding-top: 6px;
+  flex-shrink: 0;
+}
+
+.agenda-card {
+  border-left-width: 3px;
+  border-left-style: solid;
+  transition: box-shadow 0.15s ease;
+}
+
+.agenda-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.agenda-card--overdue {
+  opacity: 0.7;
+}
