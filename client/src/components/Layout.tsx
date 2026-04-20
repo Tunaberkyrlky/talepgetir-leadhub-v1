@@ -35,6 +35,7 @@ import {
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
 import FeedbackModal from './FeedbackModal';
+import ChangelogModal, { getHasNewChangelog, markChangelogSeen } from './ChangelogModal';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import { hasRolePermission } from '../lib/permissions';
@@ -55,6 +56,8 @@ export default function Layout() {
     const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
     const [navbarOpened, { toggle: toggleNavbar, close: closeNavbar }] = useDisclosure(false);
     const [feedbackOpened, { open: openFeedback, close: closeFeedback }] = useDisclosure(false);
+    const [changelogOpened, setChangelogOpened] = useState(false);
+    const [hasNewChangelog, setHasNewChangelog] = useState(getHasNewChangelog);
     const [settingsDefaultTab, setSettingsDefaultTab] = useState('general');
 
     const openSettingsTab = useCallback((tab: string) => {
@@ -300,9 +303,25 @@ export default function Layout() {
                         );
                     })}
                 </Stack>
-                <Text size="xs" c="dimmed" ta={isIconOnly ? 'center' : 'left'} py="xs" px="sm">
-                    {isIconOnly ? `v${__APP_VERSION__}` : `TG Core v${__APP_VERSION__}`}
-                </Text>
+                <UnstyledButton
+                    py="xs"
+                    px="sm"
+                    w="100%"
+                    onClick={() => { setChangelogOpened(true); markChangelogSeen(); setHasNewChangelog(false); }}
+                    style={{ borderRadius: 8 }}
+                    className={classes.versionButton}
+                >
+                    <Group gap={6} justify={isIconOnly ? 'center' : 'flex-start'}>
+                        <Text size="xs" c="dimmed">
+                            {isIconOnly ? `v${__APP_VERSION__}` : `TG Core v${__APP_VERSION__}`}
+                        </Text>
+                        {hasNewChangelog && (
+                            <Badge size="xs" variant="filled" color="violet" radius="xl">
+                                {isIconOnly ? '!' : t('layout.new', 'Yeni')}
+                            </Badge>
+                        )}
+                    </Group>
+                </UnstyledButton>
             </AppShell.Navbar>
 
             <AppShell.Main>
@@ -311,6 +330,7 @@ export default function Layout() {
 
             <SettingsModal opened={settingsOpened} onClose={closeSettings} defaultTab={settingsDefaultTab} />
             <FeedbackModal opened={feedbackOpened} onClose={closeFeedback} />
+            <ChangelogModal opened={changelogOpened} onClose={() => setChangelogOpened(false)} />
         </AppShell>
     );
 }

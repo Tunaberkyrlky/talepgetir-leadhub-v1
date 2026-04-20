@@ -74,3 +74,15 @@ Geçici dosyalar (test scriptleri, deneme CSV'leri, tek seferlik araçlar vb.) i
 - **Pipeline stages:** Per-tenant configuration stored in `pipeline_stages` table, Turkish stage name aliases supported
 - **Translations:** i18next with `client/src/i18n/locales/{tr,en}.json`. Companies have a `translations` JSONB column for multi-language content (DeepL API).
 - **Environment:** Copy `.env.example` to `.env` in both root and client directories. Supabase credentials required.
+
+## Versioning
+
+Kullanıcı "versiyonla" veya "commit at versiyonla" dediğinde şu adımları uygula:
+
+1. **3 package.json güncelle** — `package.json`, `client/package.json`, `server/package.json` içindeki `"version"` alanını yeni versiyona çek (hepsi aynı olmalı)
+2. **Changelog güncelle** — `client/src/lib/changelog.ts` dosyasının `changelog` dizisinin **başına** yeni entry ekle:
+   - Kullanıcıyı etkileyen özellikleri ön plana çıkart (yeni ekran, yeni buton, davranış değişikliği)
+   - Teknik/arka plan değişikliklerini (güvenlik, performans, refactor) tek satırda özetle
+   - Her feature açıklaması kullanıcının "bununla ne yapabilirim" sorusuna cevap vermeli
+   - TR ve EN dil desteği zorunlu
+3. **Commit at** — değişiklikleri commit et

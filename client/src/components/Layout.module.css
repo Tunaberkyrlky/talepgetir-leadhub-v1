@@ -6,3 +6,7 @@
 .tenantOption[data-hovered] {
     background: rgba(108, 99, 255, 0.3);
 }
+
+.versionButton:hover {
+    background: var(--mantine-color-gray-1);
+}
