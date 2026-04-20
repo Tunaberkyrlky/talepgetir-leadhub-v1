@@ -34,6 +34,8 @@ export async function translateTexts(
     params.append('target_lang', TARGET_LANG);
 
     try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10_000);
         const res = await fetch(DEEPL_URL, {
             method: 'POST',
             headers: {
@@ -41,7 +43,9 @@ export async function translateTexts(
                 'Content-Type': 'application/x-www-form-urlencoded',
             },
             body: params.toString(),
+            signal: controller.signal,
         });
+        clearTimeout(timeout);
 
         if (!res.ok) {
             const body = await res.text();

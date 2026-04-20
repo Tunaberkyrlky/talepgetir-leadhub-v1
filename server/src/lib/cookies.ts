@@ -5,7 +5,7 @@ const IS_PROD = process.env.NODE_ENV === 'production' || !!process.env.VERCEL;
 const COOKIE_OPTIONS = {
     httpOnly: true,
     secure: IS_PROD,
-    sameSite: IS_PROD ? 'strict' as const : 'lax' as const,
+    sameSite: 'lax' as const,
     path: '/',
 };
 

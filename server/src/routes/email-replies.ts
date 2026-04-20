@@ -14,6 +14,10 @@ import {
 } from '../lib/validation.js';
 import { z } from 'zod/v4';
 import { isInternalRole } from '../lib/roles.js';
+import { matchSenderEmail, advanceCompanyStageOnMatch } from '../lib/emailMatcher.js';
+import { resolveReplyContext } from '../lib/plusvibeReplyResolver.js';
+import { buildAttachmentCardsHtml } from '../lib/emailHtmlBuilder.js';
+import { replyToEmail } from '../lib/plusvibeClient.js';
 
 const log = createLogger('route:email-replies');
 const router = Router();
@@ -385,7 +389,7 @@ router.patch(
                 throw new AppError('Email reply not found', 404);
             }
 
-            const { advanceCompanyStageOnMatch } = await import('../lib/emailMatcher.js');
+
             await advanceCompanyStageOnMatch(company_id);
 
             res.json(data);
@@ -433,7 +437,7 @@ router.post(
                 bySender.set(r.sender_email, arr);
             }
 
-            const { matchSenderEmail, advanceCompanyStageOnMatch } = await import('../lib/emailMatcher.js');
+
             let matched = 0;
 
             for (const [senderEmail, senderIds] of bySender) {
@@ -500,7 +504,7 @@ router.post(
                 bySender.set(r.sender_email, ids);
             }
 
-            const { matchSenderEmail, advanceCompanyStageOnMatch } = await import('../lib/emailMatcher.js');
+
 
             let matchedCount = 0;
             let stillUnmatched = 0;
@@ -577,7 +581,7 @@ router.post(
             }
 
             // Re-run matching
-            const { matchSenderEmail, advanceCompanyStageOnMatch } = await import('../lib/emailMatcher.js');
+
             const match = await matchSenderEmail(existing.sender_email, tenantId);
 
             const { data, error } = await db
@@ -661,7 +665,7 @@ router.post(
             }
 
             // Resolve PlusVibe email ID, from-address, and subject
-            const { resolveReplyContext } = await import('../lib/plusvibeReplyResolver.js');
+
             const context = await resolveReplyContext(emailReply, tenantId);
 
             // Convert plain text to simple HTML
@@ -680,7 +684,7 @@ router.post(
                     .eq('is_active', true);
 
                 if (templates?.length) {
-                    const { buildAttachmentCardsHtml } = await import('../lib/emailHtmlBuilder.js');
+
                     htmlBody += buildAttachmentCardsHtml(templates);
                 }
             }
@@ -691,7 +695,7 @@ router.post(
                 : `Re: ${context.subject}`;
 
             // Send via PlusVibe API
-            const { replyToEmail } = await import('../lib/plusvibeClient.js');
+
             const pvResponse = await replyToEmail({
                 reply_to_id: context.plusvibeEmailId,
                 subject,
