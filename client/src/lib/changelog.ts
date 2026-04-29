@@ -12,12 +12,8 @@ export const changelog: ChangelogEntry[] = [
         title: { tr: 'Kullanıcı Davranış Analitiği', en: 'User Behavior Analytics' },
         features: [
             {
-                tr: 'PostHog entegrasyonu ile hangi sayfaların kullanıldığı, hangi butonlara tıklandığı ve kullanıcıların uygulama içinde nasıl gezindiği artık takip ediliyor',
-                en: 'PostHog integration now tracks which pages are visited, which buttons are clicked, and how users navigate through the app',
-            },
-            {
-                tr: 'Session replay ile kullanıcıların uygulama deneyimi kayıt altına alınıyor — tüm hassas veriler (input içerikleri, metinler) maskelenmiş şekilde',
-                en: 'Session replay records user experiences in the app — all sensitive data (input contents, text) is masked for privacy',
+                tr: 'Uygulama performansı ve kullanıcı deneyimi iyileştirmeleri',
+                en: 'Application performance and user experience improvements',
             },
         ],
     },
