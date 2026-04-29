@@ -43,3 +43,7 @@ CRM_EXPANSION_PLAN.md
 plans/
 CLAUDE.md
 .claude/settings.local.json
+.claude/skills/
+
+# PostHog wizard output
+posthog-setup-report.md
