@@ -1,5 +1,6 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import posthog from 'posthog-js';
 import { MantineProvider, createTheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { ModalsProvider } from '@mantine/modals';
@@ -71,6 +72,16 @@ const theme = createTheme({
   defaultRadius: 'md',
 });
 
+function PostHogPageTracker() {
+  const location = useLocation();
+  useEffect(() => {
+    if (import.meta.env.VITE_POSTHOG_KEY) {
+      posthog.capture('$pageview', { path: location.pathname });
+    }
+  }, [location.pathname]);
+  return null;
+}
+
 function App() {
   const { i18n } = useTranslation();
 
@@ -81,6 +92,7 @@ function App() {
         <Notifications position="top-right" />
         <ModalsProvider>
           <BrowserRouter>
+            <PostHogPageTracker />
             <ImportProgressProvider>
               <ImportProgressBar />
               <ErrorBoundary>

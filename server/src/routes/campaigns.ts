@@ -11,6 +11,7 @@ import { createLogger } from '../lib/logger.js';
 import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, enrollLeadsSchema } from '../lib/validation.js';
 import { enrollLeads, getCampaignStats } from '../lib/campaignEngine.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
+import posthog from '../lib/posthog.js';
 
 const VALID_CAMPAIGN_STATUSES = ['draft', 'active', 'paused', 'completed'];
 
@@ -85,6 +86,15 @@ router.post('/', validateBody(createCampaignSchema), async (req: Request, res: R
             .single();
 
         if (error) throw new AppError('Failed to create campaign', 500);
+        posthog.capture({
+            distinctId: req.user!.id,
+            event: 'campaign_created',
+            properties: {
+                campaign_id: data.id,
+                campaign_name: data.name,
+                tenant_id: req.tenantId!,
+            },
+        });
         res.status(201).json({ data });
     } catch (err) {
         if (err instanceof AppError) return next(err);
@@ -281,6 +291,15 @@ router.post('/:id/pause', async (req: Request, res: Response, next: NextFunction
 router.post('/:id/enroll', validateBody(enrollLeadsSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const result = await enrollLeads((req.params.id as string), req.tenantId!, req.user!.id, req.body.contacts);
+        posthog.capture({
+            distinctId: req.user!.id,
+            event: 'campaign_leads_enrolled',
+            properties: {
+                campaign_id: req.params.id,
+                contacts_count: Array.isArray(req.body.contacts) ? req.body.contacts.length : 0,
+                tenant_id: req.tenantId!,
+            },
+        });
         res.json(result);
     } catch (err) {
         if (err instanceof AppError) return next(err);

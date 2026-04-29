@@ -7,28 +7,43 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.0',
+        date: '2026-04-27',
+        title: { tr: 'Kullanıcı Davranış Analitiği', en: 'User Behavior Analytics' },
+        features: [
+            {
+                tr: 'PostHog entegrasyonu ile hangi sayfaların kullanıldığı, hangi butonlara tıklandığı ve kullanıcıların uygulama içinde nasıl gezindiği artık takip ediliyor',
+                en: 'PostHog integration now tracks which pages are visited, which buttons are clicked, and how users navigate through the app',
+            },
+            {
+                tr: 'Session replay ile kullanıcıların uygulama deneyimi kayıt altına alınıyor — tüm hassas veriler (input içerikleri, metinler) maskelenmiş şekilde',
+                en: 'Session replay records user experiences in the app — all sensitive data (input contents, text) is masked for privacy',
+            },
+        ],
+    },
+    {
         version: '1.8.0',
         date: '2026-04-20',
         title: {
-            tr: 'Ajanda Gorunumu',
+            tr: 'Ajanda Görünümü',
             en: 'Agenda View',
         },
         features: [
             {
-                tr: 'Aktiviteler sayfasina Ajanda gorunumu eklendi — gelecek toplanti, takip ve notlarinizi gun bazli gorebilirsiniz',
-                en: 'Agenda view added to Activities page — see your upcoming meetings, follow-ups and notes grouped by day',
+                tr: 'Aktiviteler sayfasina Ajanda gorunumu eklendi gelecek toplantı, takip ve notlarinizi gün bazlı görebilirsiniz',
+                en: 'Agenda view added to Activities page  see your upcoming meetings, follow-ups and notes grouped by day',
             },
             {
-                tr: 'Her aktivitede kalan sure ve aciliyet rengi gorunur (kirmizi: bugun, turuncu: 1-3 gun, yesil: 3+ gun)',
+                tr: 'Her aktivitede kalan süre ve aciliyet rengi görünürr (kırmızı: bugünn, turuncu: 1-3 gün, yeşil: 3+ gün)',
                 en: 'Each activity shows countdown and urgency color (red: today, orange: 1-3 days, green: 3+ days)',
             },
             {
-                tr: 'Gecmis aktiviteler kapali grupta listelenir — tiklayarak acabilirsiniz',
-                en: 'Overdue activities listed in a collapsed group — click to expand',
+                tr: 'Geçmiş aktiviteler kapalı grupta listelenir  tiklayarak açabilirsiniz',
+                en: 'Overdue activities listed in a collapsed group  click to expand',
             },
             {
-                tr: 'Dashboard\'a Yaklasan Aktiviteler widget\'i eklendi — asama dagilimi grafigiGinin yaninda',
-                en: 'Upcoming Activities widget added to Dashboard — next to stage distribution chart',
+                tr: 'Dashboard\'a Yaklaşan Aktiviteler widget\'i eklendi  aşama dağılım grafiğinin yanında',
+                en: 'Upcoming Activities widget added to Dashboard  next to stage distribution chart',
             },
         ],
     },
@@ -36,16 +51,16 @@ export const changelog: ChangelogEntry[] = [
         version: '1.7.6',
         date: '2026-04-20',
         title: {
-            tr: 'Aktiviteler Yeni Gorunum',
+            tr: 'Aktiviteler Yeni Görünüm',
             en: 'Activities New View',
         },
         features: [
             {
-                tr: 'Aktiviteler sayfasi artik sirket bazli gruplu gorunumde aciliyor — her sirketin aktivitelerini tek bakista gorebilirsiniz',
-                en: 'Activities page now opens in company-grouped view — see all activities per company at a glance',
+                tr: 'Aktiviteler sayfası artık şirket bazlı gruplu görünümde açılıyor, her bir şirketin aktivitelerini tek bakışta görebilirsiniz',
+                en: 'Activities page now opens in company-grouped view, see all activities per company at a glance',
             },
             {
-                tr: 'Sirketler en son aktiviteye gore siralanir, en aktif sirket ustte',
+                tr: 'Şirketler en son aktiviteye göre sıralanır, en aktif şirket üstte görünür',
                 en: 'Companies sorted by most recent activity, most active on top',
             },
         ],
@@ -54,16 +69,16 @@ export const changelog: ChangelogEntry[] = [
         version: '1.7.4',
         date: '2026-04-19',
         title: {
-            tr: 'Email Yanit Paneli Yenilikleri',
+            tr: 'Email Yanıt Paneli Yenilikleri',
             en: 'Email Reply Panel Updates',
         },
         features: [
             {
-                tr: 'CC adresleri artik yanit panelinden eklenebiliyor — bir kez eklediginiz adres sonraki yanitlarda hazir badge olarak cikiyor',
+                tr: 'CC adresleri artik yanıt panelinden eklenebiliyor bir kez eklediğiniz adres sonraki yanıtlarda hazır badge olarak çıkıyor',
                 en: 'Add CC addresses directly from the reply panel — once added, they appear as ready-to-use badges in future replies',
             },
             {
-                tr: 'Bir maile yanit yazdiginizda, aktivite eklediginizde veya stage degistirdiginizde o mail otomatik okundu olarak isaretlenir',
+                tr: 'Bir maile yanıt yazdiginizda, aktivite eklediginizde veya stage degistirdiginizde o mail otomatik okundu olarak isaretlenir',
                 en: 'When you reply to an email, add an activity, or change a stage, that email is automatically marked as read',
             },
             {

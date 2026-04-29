@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { createLogger } from '../lib/logger.js';
+import posthog from '../lib/posthog.js';
 
 const log = createLogger('errorHandler');
 
@@ -16,11 +17,14 @@ export class AppError extends Error {
 
 export function errorHandler(
     err: Error,
-    _req: Request,
+    req: Request,
     res: Response,
     _next: NextFunction
 ): void {
     log.error({ err }, err.message);
+
+    const distinctId = (req as any).user?.id ?? 'anonymous';
+    posthog.captureException(err, distinctId);
 
     if (err instanceof AppError) {
         res.status(err.statusCode).json({

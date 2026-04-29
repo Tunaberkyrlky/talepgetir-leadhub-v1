@@ -7,6 +7,7 @@ import { translateTexts } from '../lib/deepl.js';
 import { validateBody, createContactSchema, updateContactSchema } from '../lib/validation.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
+import posthog from '../lib/posthog.js';
 
 const log = createLogger('route:contacts');
 
@@ -252,6 +253,16 @@ router.post(
                 return;
             }
 
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'contact_created',
+                properties: {
+                    contact_id: data.id,
+                    company_id,
+                    is_primary: is_primary || false,
+                    tenant_id: req.tenantId!,
+                },
+            });
             res.status(201).json({ data });
         } catch (err) {
             if (err instanceof AppError) return next(err);
@@ -427,6 +438,14 @@ router.delete(
                 return;
             }
 
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'contact_deleted',
+                properties: {
+                    contact_id: req.params.id,
+                    tenant_id: req.tenantId!,
+                },
+            });
             res.status(204).send();
         } catch (err) {
             if (err instanceof AppError) return next(err);

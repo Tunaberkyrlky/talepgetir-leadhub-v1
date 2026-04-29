@@ -10,6 +10,7 @@ import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
 import { invalidateOverviewCache, invalidatePipelineStatsCache } from './statistics.js';
+import posthog from '../lib/posthog.js';
 
 const log = createLogger('route:companies');
 
@@ -469,6 +470,18 @@ router.post(
                 }
             }
 
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'company_created',
+                properties: {
+                    company_id: company.id,
+                    company_name: company.name,
+                    stage: company.stage,
+                    industry: company.industry,
+                    tenant_id: tenantId,
+                    has_contact: !!contact,
+                },
+            });
             res.status(201).json({ data: { ...company, contacts: contact ? [contact] : [] } });
         } catch (err) {
             if (err instanceof AppError) return next(err);
@@ -793,6 +806,15 @@ router.patch(
 
             invalidateOverviewCache(tenantId);
             invalidatePipelineStatsCache(tenantId);
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'company_bulk_stage_updated',
+                properties: {
+                    new_stage: stage,
+                    count: data?.length || 0,
+                    tenant_id: tenantId,
+                },
+            });
             res.json({ updated: data?.length || 0 });
         } catch (err) {
             if (err instanceof AppError) return next(err);
@@ -856,6 +878,16 @@ router.patch(
 
             invalidateOverviewCache(tenantId);
             invalidatePipelineStatsCache(tenantId);
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'company_stage_changed',
+                properties: {
+                    company_id: data.id,
+                    company_name: data.name,
+                    new_stage: data.stage,
+                    tenant_id: tenantId,
+                },
+            });
             res.json({ data });
         } catch (err) {
             if (err instanceof AppError) return next(err);
@@ -945,6 +977,14 @@ router.delete(
                 throw new AppError('Failed to delete company', 500);
             }
 
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'company_deleted',
+                properties: {
+                    company_id: id,
+                    tenant_id: tenantId,
+                },
+            });
             res.status(204).send();
         } catch (err) {
             if (err instanceof AppError) return next(err);

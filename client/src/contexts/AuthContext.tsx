@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import posthog from 'posthog-js';
 import api from '../lib/api';
 import { createLogger } from '../lib/logger';
 
@@ -64,6 +65,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const { data } = await api.get('/auth/me');
                 setUser(data.user);
 
+                if (import.meta.env.VITE_POSTHOG_KEY) {
+                    posthog.identify(data.user.id, {
+                        email: data.user.email,
+                        tenant_id: data.user.tenantId,
+                        role: data.user.role,
+                    });
+                }
+
                 // Validate saved tenant against accessible tenants — clears stale IDs
                 // (e.g. seed tenant deleted from DB but still in app_metadata / localStorage).
                 const savedTenantId = localStorage.getItem('activeTenantId');
@@ -122,6 +131,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (defaultTenantId) {
             localStorage.setItem('activeTenantId', defaultTenantId);
         }
+
+        if (import.meta.env.VITE_POSTHOG_KEY) {
+            posthog.identify(data.user.id, {
+                email: data.user.email,
+                tenant_id: defaultTenantId,
+                role: data.user.role,
+            });
+        }
     }, []);
 
     const logout = useCallback(async () => {
@@ -131,6 +148,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             log.warn('Logout request failed (best-effort)', { err });
         }
         log.info('User logged out');
+        if (import.meta.env.VITE_POSTHOG_KEY) {
+            posthog.reset();
+        }
         localStorage.removeItem('activeTenantId');
         setUser(null);
         setActiveTenantId(null);

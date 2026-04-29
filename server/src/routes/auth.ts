@@ -4,6 +4,7 @@ import { createLogger } from '../lib/logger.js';
 import { setAuthCookies, clearAuthCookies } from '../lib/cookies.js';
 import { validateBody, loginSchema } from '../lib/validation.js';
 import { resolveUserContext } from '../lib/authResolver.js';
+import posthog from '../lib/posthog.js';
 
 const log = createLogger('route:auth');
 
@@ -32,6 +33,30 @@ router.post('/login', validateBody(loginSchema), async (req: Request, res: Respo
 
         // Set httpOnly cookies for secure token storage
         setAuthCookies(res, data.session.access_token, data.session.refresh_token);
+
+        posthog.identify({
+            distinctId: user.id,
+            properties: {
+                $set: {
+                    email: user.email,
+                    role: ctx.role,
+                    tenant_id: ctx.tenantId,
+                    tenant_name: ctx.tenantName,
+                    tenant_tier: ctx.tenantTier,
+                },
+                $set_once: { first_login: new Date().toISOString() },
+            },
+        });
+        posthog.capture({
+            distinctId: user.id,
+            event: 'user_logged_in',
+            properties: {
+                email: user.email,
+                role: ctx.role,
+                tenant_id: ctx.tenantId,
+                tenant_name: ctx.tenantName,
+            },
+        });
 
         res.json({
             user: {

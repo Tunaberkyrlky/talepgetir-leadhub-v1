@@ -7,6 +7,7 @@ import { validateBody, createActivitySchema, updateActivitySchema, closingReport
 import { invalidateOverviewCache, invalidatePipelineStatsCache } from './statistics.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
+import posthog from '../lib/posthog.js';
 
 const log = createLogger('route:activities');
 
@@ -441,6 +442,18 @@ router.post(
                 throw new AppError('Failed to create activity', 500);
             }
 
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'activity_created',
+                properties: {
+                    activity_id: data.id,
+                    activity_type: type,
+                    company_id,
+                    has_contact: !!contact_id,
+                    visibility,
+                    tenant_id: tenantId,
+                },
+            });
             res.status(201).json({ data });
         } catch (err) {
             if (err instanceof AppError) return next(err);
@@ -486,6 +499,16 @@ router.post(
             invalidateOverviewCache(tenantId);
             invalidatePipelineStatsCache(tenantId);
 
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'closing_report_created',
+                properties: {
+                    company_id,
+                    outcome,
+                    visibility,
+                    tenant_id: tenantId,
+                },
+            });
             res.status(201).json({ data: activity });
         } catch (err) {
             if (err instanceof AppError) return next(err);

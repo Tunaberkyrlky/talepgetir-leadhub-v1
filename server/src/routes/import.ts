@@ -12,6 +12,7 @@ import { autoMapHeaders, getAvailableDbFields } from '../lib/importMapper.js';
 import { parseCSV, parseXLSX, executeImport, createImportJob } from '../lib/importProcessor.js';
 import { detectMatchStrategy, matchFiles } from '../lib/dataMatcher.js';
 import { supabaseAdmin } from '../lib/supabase.js';
+import posthog from '../lib/posthog.js';
 
 const router = Router();
 
@@ -393,6 +394,19 @@ router.post(
             );
 
             log.info({ jobId, successCount: result.successCount, errorCount: result.errorCount }, 'Import execute completed');
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'import_completed',
+                properties: {
+                    job_id: jobId,
+                    file_name: fileName,
+                    file_type: fileType,
+                    total_rows: rows.length,
+                    success_count: result.successCount,
+                    error_count: result.errorCount,
+                    tenant_id: req.tenantId!,
+                },
+            });
             res.json(result);
         } catch (err: any) {
             if (err instanceof AppError) return next(err);
