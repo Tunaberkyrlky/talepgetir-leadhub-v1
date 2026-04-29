@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.1',
+        date: '2026-04-27',
+        title: { tr: 'Hata Düzeltmeleri', en: 'Bug Fixes' },
+        features: [
+            {
+                tr: 'Staging ortamında beyaz ekran sorunu giderildi',
+                en: 'Fixed white screen issue in staging environment',
+            },
+        ],
+    },
+    {
         version: '1.9.0',
         date: '2026-04-27',
         title: { tr: 'Kullanıcı Davranış Analitiği', en: 'User Behavior Analytics' },

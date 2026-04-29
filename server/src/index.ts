@@ -204,14 +204,6 @@ if (!process.env.VERCEL) {
     }
 }
 
-// Serve static client build (Railway: single-service deployment)
-const CLIENT_DIST = path.join(__dirname, '..', '..', 'client', 'dist');
-app.use(express.static(CLIENT_DIST));
-// SPA fallback — serve index.html for any non-API route
-app.get(/^(?!\/api).*/, (_req, res) => {
-    res.sendFile(path.join(CLIENT_DIST, 'index.html'));
-});
-
 // Error handler (must be last)
 app.use(errorHandler);
 
