@@ -152,10 +152,9 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         staleTime: 60_000,
     });
 
-    // Sort oldest-first for conversation flow
     const sortedThread = useMemo(() =>
         [...(threadMessages || [])].sort((a, b) =>
-            new Date(a.replied_at).getTime() - new Date(b.replied_at).getTime()
+            new Date(b.replied_at).getTime() - new Date(a.replied_at).getTime()
         ), [threadMessages]);
 
     const formatDate = (iso: string) =>

@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-    Stack, Alert, Select, Button, Group,
+    Stack, Alert, Select, Button, Group, Box, TextInput,
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
-import { IconAlertTriangle } from '@tabler/icons-react';
+import { IconAlertTriangle, IconPlus, IconX } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showSuccess, showErrorFromApi } from '../../lib/notifications';
@@ -33,10 +33,14 @@ export default function AssignCompanyForm({ replyId, onAssigned, hideWarning }: 
     const [companySearch, setCompanySearch] = useState('');
     const [debouncedCompanySearch] = useDebouncedValue(companySearch, 300);
     const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+    const [quickCreatedCompany, setQuickCreatedCompany] = useState<CompanyOption | null>(null);
 
     const [contactSearch, setContactSearch] = useState('');
     const [debouncedContactSearch] = useDebouncedValue(contactSearch, 300);
     const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+
+    const [createOpen, setCreateOpen] = useState(false);
+    const [newCompanyName, setNewCompanyName] = useState('');
 
     // ── Company search query ──
     const { data: companies, isLoading: companiesLoading } = useQuery<CompanyOption[]>({
@@ -62,6 +66,23 @@ export default function AssignCompanyForm({ replyId, onAssigned, hideWarning }: 
         enabled: !!selectedCompanyId,
     });
 
+    // ── Quick create company ──
+    const createCompanyMutation = useMutation({
+        mutationFn: async () => {
+            const res = await api.post('/companies', { name: newCompanyName.trim() });
+            return (res.data.data || res.data) as CompanyOption;
+        },
+        onSuccess: (data) => {
+            setQuickCreatedCompany(data);
+            setSelectedCompanyId(data.id);
+            setCreateOpen(false);
+            setNewCompanyName('');
+            showSuccess(t('emailReplies.assign.createSuccess'));
+            queryClient.invalidateQueries({ queryKey: ['companies'] });
+        },
+        onError: (err) => showErrorFromApi(err, t('emailReplies.assign.createFailed')),
+    });
+
     // ── Assign mutation ──
     const assignMutation = useMutation({
         mutationFn: async () => {
@@ -82,11 +103,13 @@ export default function AssignCompanyForm({ replyId, onAssigned, hideWarning }: 
         },
     });
 
-    // ── Select data ──
-    const companySelectData = (companies || []).map((c) => ({
-        value: c.id,
-        label: c.name,
-    }));
+    // ── Select data — inject quick-created company so it appears immediately ──
+    const companySelectData = [
+        ...(quickCreatedCompany ? [{ value: quickCreatedCompany.id, label: quickCreatedCompany.name }] : []),
+        ...(companies || [])
+            .filter((c) => c.id !== quickCreatedCompany?.id)
+            .map((c) => ({ value: c.id, label: c.name })),
+    ];
 
     const contactSelectData = (contacts || []).map((c) => ({
         value: c.id,
@@ -116,6 +139,67 @@ export default function AssignCompanyForm({ replyId, onAssigned, hideWarning }: 
                 searchValue={companySearch}
                 nothingFoundMessage={companiesLoading ? '...' : undefined}
             />
+
+            {/* ── Quick create company ── */}
+            {!createOpen ? (
+                <Button
+                    size="xs"
+                    variant="subtle"
+                    color="violet"
+                    leftSection={<IconPlus size={12} />}
+                    onClick={() => {
+                        setNewCompanyName(companySearch);
+                        setCreateOpen(true);
+                    }}
+                    style={{ alignSelf: 'flex-start', marginTop: -8 }}
+                >
+                    {t('emailReplies.assign.createNew')}
+                </Button>
+            ) : (
+                <Box
+                    p={12}
+                    style={{
+                        border: '1px solid #c4b5fd',
+                        borderRadius: 8,
+                        background: '#f9f8ff',
+                        marginTop: -8,
+                    }}
+                >
+                    <TextInput
+                        size="xs"
+                        label={t('emailReplies.assign.companyName')}
+                        placeholder={t('emailReplies.assign.companyNamePlaceholder')}
+                        value={newCompanyName}
+                        onChange={(e) => setNewCompanyName(e.currentTarget.value)}
+                        mb={10}
+                        autoFocus
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && newCompanyName.trim()) createCompanyMutation.mutate();
+                            if (e.key === 'Escape') setCreateOpen(false);
+                        }}
+                    />
+                    <Group justify="flex-end" gap={6}>
+                        <Button
+                            size="xs"
+                            variant="subtle"
+                            color="gray"
+                            leftSection={<IconX size={11} />}
+                            onClick={() => setCreateOpen(false)}
+                        >
+                            {t('common.cancel')}
+                        </Button>
+                        <Button
+                            size="xs"
+                            color="violet"
+                            loading={createCompanyMutation.isPending}
+                            disabled={!newCompanyName.trim()}
+                            onClick={() => createCompanyMutation.mutate()}
+                        >
+                            {t('emailReplies.assign.createAndSelect')}
+                        </Button>
+                    </Group>
+                </Box>
+            )}
 
             <Select
                 label={t('emailReplies.detail.contact')}

@@ -686,7 +686,13 @@
             "searchCompany": "Search company...",
             "searchContact": "Search contact (optional)...",
             "assignButton": "Assign",
-            "manualMatch": "Manual Match"
+            "manualMatch": "Manual Match",
+            "createNew": "Create New Company",
+            "companyName": "Company Name",
+            "companyNamePlaceholder": "e.g. ABC Technologies Ltd.",
+            "createAndSelect": "Create & Select",
+            "createSuccess": "Company created and selected",
+            "createFailed": "Could not create company"
         },
         "aiCategory": {
             "title": "AI Category",

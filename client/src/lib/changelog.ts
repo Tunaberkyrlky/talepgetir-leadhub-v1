@@ -7,6 +7,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.2',
+        date: '2026-04-30',
+        title: { tr: 'Mail Eşleştirme İyileştirmeleri', en: 'Email Matching Improvements' },
+        features: [
+            {
+                tr: 'Eşleşmemiş bir mail için şirket ararken bulunamazsa doğrudan popup içinden yeni şirket oluşturabilirsiniz',
+                en: 'When no matching company is found for an email, you can now create a new company directly from the email popup',
+            },
+            {
+                tr: 'Mail geçmişi en yeni mesaj üstte olacak şekilde sıralanıyor',
+                en: 'Email thread history is now sorted with the most recent message at the top',
+            },
+        ],
+    },
+    {
         version: '1.9.1',
         date: '2026-04-27',
         title: { tr: 'Hata Düzeltmeleri', en: 'Bug Fixes' },

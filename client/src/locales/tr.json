@@ -686,7 +686,13 @@
             "searchCompany": "Şirket ara...",
             "searchContact": "Kişi ara (opsiyonel)...",
             "assignButton": "Ata",
-            "manualMatch": "Manuel Eşle"
+            "manualMatch": "Manuel Eşle",
+            "createNew": "Yeni Şirket Oluştur",
+            "companyName": "Şirket Adı",
+            "companyNamePlaceholder": "Örn: ABC Teknoloji A.Ş.",
+            "createAndSelect": "Oluştur ve Seç",
+            "createSuccess": "Şirket oluşturuldu ve seçildi",
+            "createFailed": "Şirket oluşturulamadı"
         },
         "aiCategory": {
             "title": "AI Kategori",
