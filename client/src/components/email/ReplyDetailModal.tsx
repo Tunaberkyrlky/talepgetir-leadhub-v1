@@ -29,6 +29,27 @@ interface ReplyDetailModalProps {
     onClose: () => void;
 }
 
+function splitEmailBody(body: string): { fresh: string; quoted: string | null } {
+    if (!body) return { fresh: '', quoted: null };
+    const patterns = [
+        /^From:[ \t]+\S/m,
+        /^On .+?wrote:/m,
+        /^-{3,}[ \t]*(?:original|forwarded)/im,
+        /^[ \t]*>/m,
+    ];
+    let splitIndex = body.length;
+    for (const pattern of patterns) {
+        const match = body.match(pattern);
+        if (match?.index !== undefined && match.index > 10) {
+            splitIndex = Math.min(splitIndex, match.index);
+        }
+    }
+    if (splitIndex === body.length) return { fresh: body, quoted: null };
+    const fresh = body.slice(0, splitIndex).trimEnd();
+    if (!fresh) return { fresh: body, quoted: null };
+    return { fresh, quoted: body.slice(splitIndex) };
+}
+
 function getInitials(name: string | null, email: string): string {
     if (name) {
         const parts = name.trim().split(/\s+/);
@@ -66,6 +87,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [deleteAttId, setDeleteAttId] = useState<string | null>(null);
     const [draftLoaded, setDraftLoaded] = useState<string | null>(null);
     const [ccInputOpen, setCcInputOpen] = useState(false);
+    const [expandedQuotes, setExpandedQuotes] = useState<Set<string>>(new Set());
 
     // Sync all UI state when a different reply is selected
     useEffect(() => {
@@ -505,33 +527,81 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                         {formatDate(msg.replied_at)}
                                     </Text>
                                 </Group>
-                                <Text
-                                    size="sm"
-                                    style={{
-                                        lineHeight: 1.7,
-                                        color: isOut ? '#4c1d95' : '#252540',
-                                        fontFamily: 'Georgia, "Times New Roman", serif',
-                                        whiteSpace: 'pre-wrap',
-                                    }}
-                                >
-                                    {msg.reply_body || '—'}
-                                </Text>
+                                {(() => {
+                                    const { fresh, quoted } = splitEmailBody(msg.reply_body || '');
+                                    const isQuoteExpanded = expandedQuotes.has(msg.id);
+                                    return (
+                                        <>
+                                            <Text size="sm" style={{ lineHeight: 1.7, color: isOut ? '#4c1d95' : '#252540', fontFamily: 'Georgia, "Times New Roman", serif', whiteSpace: 'pre-wrap' }}>
+                                                {fresh || '—'}
+                                            </Text>
+                                            {quoted && (
+                                                <>
+                                                    <Box
+                                                        mt={8}
+                                                        style={{ display: 'inline-flex', cursor: 'pointer' }}
+                                                        onClick={() => setExpandedQuotes(prev => {
+                                                            const s = new Set(prev);
+                                                            s.has(msg.id) ? s.delete(msg.id) : s.add(msg.id);
+                                                            return s;
+                                                        })}
+                                                    >
+                                                        <Box style={{ padding: '1px 7px', borderRadius: 4, background: '#e8e8f0', color: '#888', fontSize: 13, letterSpacing: 2, userSelect: 'none' }}>
+                                                            ···
+                                                        </Box>
+                                                    </Box>
+                                                    {isQuoteExpanded && (
+                                                        <Box mt={8} pl={12} style={{ borderLeft: '2px solid #d8d8ec' }}>
+                                                            <Text size="xs" style={{ color: '#999', whiteSpace: 'pre-wrap', lineHeight: 1.6, fontFamily: 'Georgia, "Times New Roman", serif' }}>
+                                                                {quoted}
+                                                            </Text>
+                                                        </Box>
+                                                    )}
+                                                </>
+                                            )}
+                                        </>
+                                    );
+                                })()}
                             </Box>
                         </Box>
                     );
                 }) : (
                     <Box px={24} py={20}>
-                        <Text
-                            size="sm"
-                            style={{
-                                lineHeight: 1.8,
-                                color: '#252540',
-                                fontFamily: 'Georgia, "Times New Roman", serif',
-                                whiteSpace: 'pre-wrap',
-                            }}
-                        >
-                            {localReply.reply_body || '—'}
-                        </Text>
+                        {(() => {
+                            const { fresh, quoted } = splitEmailBody(localReply.reply_body || '');
+                            const isQuoteExpanded = expandedQuotes.has(localReply.id);
+                            return (
+                                <>
+                                    <Text size="sm" style={{ lineHeight: 1.8, color: '#252540', fontFamily: 'Georgia, "Times New Roman", serif', whiteSpace: 'pre-wrap' }}>
+                                        {fresh || '—'}
+                                    </Text>
+                                    {quoted && (
+                                        <>
+                                            <Box
+                                                mt={8}
+                                                style={{ display: 'inline-flex', cursor: 'pointer' }}
+                                                onClick={() => setExpandedQuotes(prev => {
+                                                    const s = new Set(prev);
+                                                    s.has(localReply.id) ? s.delete(localReply.id) : s.add(localReply.id);
+                                                    return s;
+                                                })}
+                                            >
+                                                <Box style={{ padding: '1px 7px', borderRadius: 4, background: '#e8e8f0', color: '#888', fontSize: 13, letterSpacing: 2, userSelect: 'none' }}>
+                                                    ···
+                                                </Box>
+                                            </Box>
+                                            {isQuoteExpanded && (
+                                                <Box mt={8} pl={12} style={{ borderLeft: '2px solid #d8d8ec' }}>
+                                                    <Text size="xs" style={{ color: '#999', whiteSpace: 'pre-wrap', lineHeight: 1.6, fontFamily: 'Georgia, "Times New Roman", serif' }}>
+                                                        {quoted}
+                                                    </Text>
+                                                </Box>
+                                            )}
+                                        </>
+                                    )}
+                                </>
+                            );
+                        })()}
                     </Box>
                 )}
             </ScrollArea.Autosize>

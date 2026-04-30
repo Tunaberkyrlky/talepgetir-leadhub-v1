@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.4',
+        date: '2026-04-30',
+        title: { tr: 'Mail Okuma Deneyimi', en: 'Email Reading Experience' },
+        features: [
+            {
+                tr: 'Mail geçmişinde alıntılanan (quoted) eski mesajlar artık gizli — "···" butonuna tıklayarak açabilirsiniz',
+                en: 'Quoted previous messages in email threads are now collapsed — click "···" to expand them',
+            },
+        ],
+    },
+    {
         version: '1.9.3',
         date: '2026-04-30',
         title: { tr: 'Kararlılık İyileştirmeleri', en: 'Stability Improvements' },
