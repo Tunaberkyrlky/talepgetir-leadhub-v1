@@ -927,7 +927,7 @@ export default function CompanyDetailPage() {
                             color="red"
                             leftSection={<IconTrash size={14} />}
                             loading={deleteContactMutation.isPending}
-                            onClick={() => deleteContactMutation.mutate(deleteContactTarget?.id ?? '')}
+                            onClick={() => { if (deleteContactTarget) deleteContactMutation.mutate(deleteContactTarget.id); }}
                         >
                             {t('common.delete')}
                         </Button>

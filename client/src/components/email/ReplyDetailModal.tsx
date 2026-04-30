@@ -66,8 +66,9 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [deleteAttId, setDeleteAttId] = useState<string | null>(null);
     const [draftLoaded, setDraftLoaded] = useState<string | null>(null);
     const [ccInputOpen, setCcInputOpen] = useState(false);
-    // Sync when a new reply is selected
-    if (reply?.id !== localReply?.id) {
+
+    // Sync all UI state when a different reply is selected
+    useEffect(() => {
         setLocalReply(reply);
         setConfirmDelete(false);
         setActivityOpen(false);
@@ -79,7 +80,8 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         setNewAttOpen(false);
         setDraftLoaded(null);
         setCcInputOpen(false);
-    }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [reply?.id]);
 
     // Auto-mark as read when a decisive action is taken (activity, closing report, reply sent)
     const markAsRead = useCallback(() => {
@@ -166,7 +168,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     // ── Stage update ──
     const stageUpdateMutation = useMutation({
         mutationFn: async (newStage: string) =>
-            (await api.put(`/companies/${localReply!.company_id}`, { stage: newStage })).data,
+            (await api.patch(`/companies/${localReply!.company_id}/stage`, { stage: newStage })).data,
         onSuccess: () => {
             showSuccess(t('emailReplies.stageUpdated'));
             markAsRead();

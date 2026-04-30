@@ -395,15 +395,13 @@ export default function EmailRepliesPage() {
 
     const resetPage = () => setPage(1);
 
-    // Issue 14: close modal when filters change to prevent showing stale data.
-    // Render-phase state comparison (same pattern as ReplyDetailModal localReply sync).
+    // Close modal and collapse rows when filters change to prevent showing stale data
     const filterSig = `${campaignFilter}|${matchStatusFilter}|${readStatusFilter}|${labelFilter}|${debouncedSearch}|${dateFrom}|${dateTo}`;
-    const [prevFilterSig, setPrevFilterSig] = useState(filterSig);
-    if (prevFilterSig !== filterSig) {
-        setPrevFilterSig(filterSig);
-        if (selectedReply !== null) setSelectedReply(null);
-        if (expandedIds.size > 0) setExpandedIds(new Set());
-    }
+    useEffect(() => {
+        setSelectedReply(null);
+        setExpandedIds(new Set());
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filterSig]);
 
     // ── Displayed replies ──
 

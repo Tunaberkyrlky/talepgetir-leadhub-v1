@@ -7,6 +7,25 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.3',
+        date: '2026-04-30',
+        title: { tr: 'Kararlılık İyileştirmeleri', en: 'Stability Improvements' },
+        features: [
+            {
+                tr: 'Mail panelinden aşama değiştirme artık daha güvenilir — önceki yöntem tüm şirket verisini gönderiyordu, şimdi sadece aşama güncelleniyor',
+                en: 'Changing stage from the email panel is now more reliable — the previous method sent the full company payload, now only the stage is updated',
+            },
+            {
+                tr: 'Toplu aşama değiştirme başarısız olursa artık hata bildirimi gösteriliyor',
+                en: 'Bulk stage update now shows an error notification if the request fails',
+            },
+            {
+                tr: 'Kişi silme onay ekranındaki güvenlik açığı giderildi — boş ID ile API çağrısı gitmesi önlendi',
+                en: 'Fixed a safety gap in the contact delete confirmation — prevented API calls with an empty ID',
+            },
+        ],
+    },
+    {
         version: '1.9.2',
         date: '2026-04-30',
         title: { tr: 'Mail Eşleştirme İyileştirmeleri', en: 'Email Matching Improvements' },

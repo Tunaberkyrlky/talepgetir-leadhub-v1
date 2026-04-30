@@ -789,7 +789,7 @@ export default function LeadsPage() {
                                                 });
                                                 if (selectedIds.size > 0) setSelectedIds(new Set());
                                                 showSuccess(t('company.updated'));
-                                            });
+                                            }).catch((err) => showErrorFromApi(err));
                                         }}
                                         leftSection={
                                             <Badge color={s.color} variant="light" size="xs" radius="sm">
