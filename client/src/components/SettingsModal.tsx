@@ -34,6 +34,7 @@ import {
     IconCopy,
     IconCheck,
     IconInfoCircle,
+    IconReport,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
@@ -41,6 +42,7 @@ import PipelineSettingsEditor, { type PipelineSettingsEditorHandle } from './Pip
 import PlusVibeSetup from './plusvibe/PlusVibeSetup';
 import EmailConnectionPanel from './settings/EmailConnectionPanel';
 import CcAddressesPanel from './settings/CcAddressesPanel';
+import ReportsPanel from './settings/ReportsPanel';
 
 interface SettingsModalProps {
     opened: boolean;
@@ -113,6 +115,7 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
     const tabs = [
         { value: 'general', label: t('settings.general', 'Genel'), icon: <IconSettings size={18} /> },
         { value: 'pipeline', label: t('settings.pipelineTab', 'Pipeline'), icon: <IconColumns size={18} /> },
+        ...(isAdmin ? [{ value: 'reports', label: t('settings.reportsTab', 'Raporlar'), icon: <IconReport size={18} /> }] : []),
         ...(isAdmin ? [{ value: 'integrations', label: t('settings.integrationsTab', 'Entegrasyonlar'), icon: <IconWebhook size={18} /> }] : []),
     ];
 
@@ -238,6 +241,10 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
                                     saveRef={pipelineSaveRef}
                                     onSaveSuccess={() => { setPipelineDirty(false); }}
                                 />
+                            )}
+
+                            {activeTab === 'reports' && isAdmin && (
+                                <ReportsPanel />
                             )}
 
                             {activeTab === 'integrations' && isAdmin && (

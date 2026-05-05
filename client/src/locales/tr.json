@@ -265,6 +265,7 @@
         "general": "Genel",
         "pipelineTab": "Pipeline Aşamaları",
         "integrationsTab": "Entegrasyonlar",
+        "reportsTab": "Raporlar",
         "webhookTitle": "PlusVibe Webhook URL",
         "webhookDesc": "Bu URL'i PlusVibe webhook ayarlarına ekleyin. Kampanya yanıtları otomatik olarak bu hesaba eşleştirilecektir.",
         "webhookCopied": "Kopyalandı!",
@@ -895,5 +896,15 @@
     },
     "shortcuts": {
         "undone": "Geri alındı"
+    },
+    "report": {
+        "downloadBtn": "Rapor İndir",
+        "modalTitle": "Aylık Rapor",
+        "panelDesc": "Seçilen ay için XLSX formatında özet rapor indirir.",
+        "year": "Yıl",
+        "month": "Ay",
+        "downloadButton": "XLSX İndir",
+        "downloadSuccess": "Rapor başarıyla indirildi",
+        "downloadError": "Rapor indirilemedi"
     }
 }

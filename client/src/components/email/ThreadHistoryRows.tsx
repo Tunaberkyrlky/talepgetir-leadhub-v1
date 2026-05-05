@@ -83,9 +83,9 @@ export default function ThreadHistoryRows({
                 onClick={onClickRow ? () => onClickRow(h) : undefined}
             >
                 <Table.Td style={{ padding: '0 4px', width: 20 }}>
-                    <Text size="xs" c={isOut ? 'violet' : 'dimmed'} ta="center">
-                        {isOut ? '↑' : '↓'}
-                    </Text>
+                    {!isOut && (
+                        <Text size="xs" c="dimmed" ta="center">↓</Text>
+                    )}
                 </Table.Td>
                 <Table.Td colSpan={2}>
                     <Group gap={6} wrap="nowrap">
@@ -95,7 +95,7 @@ export default function ThreadHistoryRows({
                             color={isOut ? 'violet' : 'gray'}
                             style={{ flexShrink: 0 }}
                         >
-                            {isOut ? 'Sent' : 'Received'}
+                            {isOut ? 'Gönderildi' : 'Alındı'}
                         </Badge>
                         <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
                             {formatDate(h.replied_at, locale)}

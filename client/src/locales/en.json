@@ -265,6 +265,7 @@
         "general": "General",
         "pipelineTab": "Pipeline Stages",
         "integrationsTab": "Integrations",
+        "reportsTab": "Reports",
         "webhookTitle": "PlusVibe Webhook URL",
         "webhookDesc": "Add this URL to your PlusVibe webhook settings. Replies from campaigns will be automatically matched to this account.",
         "webhookCopied": "Copied!",
@@ -895,5 +896,15 @@
     },
     "shortcuts": {
         "undone": "Undone"
+    },
+    "report": {
+        "downloadBtn": "Download Report",
+        "modalTitle": "Monthly Report",
+        "panelDesc": "Downloads a summary XLSX report for the selected month.",
+        "year": "Year",
+        "month": "Month",
+        "downloadButton": "Download XLSX",
+        "downloadSuccess": "Report downloaded successfully",
+        "downloadError": "Failed to download report"
     }
 }

@@ -7,6 +7,25 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.6',
+        date: '2026-05-05',
+        title: { tr: 'Aylık Rapor Ayarlara Taşındı', en: 'Monthly Report Moved to Settings' },
+        features: [
+            {
+                tr: 'Aylık rapor indirme özelliğine artık Ayarlar > Raporlar sekmesinden ulaşabilirsiniz',
+                en: 'The monthly report download button has been removed from Dashboard; it is now accessible via Settings > Reports tab',
+            },
+            {
+                tr: 'Rapor indirme yetkisi yönetici rollerine (yönetici, ops, müşteri yöneticisi) sınırlandı; izleyici rolündeki kullanıcılar bu özelliği göremez',
+                en: 'Report download is now restricted to admin roles (superadmin, ops, client admin); viewer roles can no longer see this feature',
+            },
+            {
+                tr: 'Sahne Dağılımı sayfası raporda artık pipeline aşama sıralamasına göre listeleniyor',
+                en: 'The Stage Distribution sheet in the report is now ordered by the pipeline stage order',
+            },
+        ],
+    },
+    {
         version: '1.9.4',
         date: '2026-04-30',
         title: { tr: 'Mail Okuma Deneyimi', en: 'Email Reading Experience' },
