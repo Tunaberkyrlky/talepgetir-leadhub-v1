@@ -9,15 +9,11 @@ export const changelog: ChangelogEntry[] = [
     {
         version: '1.9.10',
         date: '2026-05-06',
-        title: { tr: 'Konum Filtresi İyileştirmeleri', en: 'Location Filter Improvements' },
+        title: { tr: 'Konum Filtresinde Türkçe Arama', en: 'Turkish Search in Location Filter' },
         features: [
             {
                 tr: 'Konum filtresinde Türkçe ülke adıyla arama yapılabiliyor (örn. "Türkiye" yazınca Turkey kayıtları gelir)',
                 en: 'Location filter now supports Turkish country names (e.g. typing "Türkiye" finds Turkey records)',
-            },
-            {
-                tr: '"Konumları çöz" butonu artık tüm şirketleri kapsıyor — daha önce sadece pipeline aşamasındakiler işleniyordu',
-                en: '"Resolve locations" button now processes every company, not just pipeline-stage ones',
             },
         ],
     },
