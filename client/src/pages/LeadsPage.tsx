@@ -129,6 +129,7 @@ interface FilterOptions {
     industries: string[];
     locations: string[];
     products: string[];
+    countries: string[];
 }
 
 // Sortable columns
@@ -157,6 +158,7 @@ interface LeadsTableState {
     selectedStages: string[];
     selectedIndustries: string[];
     selectedLocations: string[];
+    selectedCountries: string[];
     selectedProducts: string[];
     periodType: PeriodType;
     periodAnchor: string;
@@ -352,15 +354,16 @@ export default function LeadsPage() {
         }
         return savedState?.selectedLocations ?? [];
     });
-    // Country filter — only populated when navigating from the globe map; UI for
-    // selecting/clearing countries from the filter bar is phase 2.
-    const [selectedCountries] = useState<string[]>(() => {
+    // Country filter — combined with locations into the single "Konum" dropdown.
+    // Initial value comes from globe-map URL param (?country=) or restored sessionStorage.
+    const [selectedCountries, setSelectedCountries] = useState<string[]>(() => {
         if (fromMap) {
             const c = searchParams.get('country');
             return c ? c.split(',').filter(Boolean) : [];
         }
-        return [];
+        return savedState?.selectedCountries ?? [];
     });
+    const [locationSearchValue, setLocationSearchValue] = useState('');
     const [selectedProducts, setSelectedProducts] = useState<string[]>(() => savedState?.selectedProducts ?? []);
     const [periodType, setPeriodType] = useState<PeriodType>(() => savedState?.periodType ?? 'month');
     const [periodAnchor, setPeriodAnchor] = useState<Date>(() =>
@@ -419,6 +422,7 @@ export default function LeadsPage() {
             selectedStages,
             selectedIndustries,
             selectedLocations,
+            selectedCountries,
             selectedProducts,
             periodType,
             periodAnchor: periodAnchor.toISOString(),
@@ -430,7 +434,7 @@ export default function LeadsPage() {
             sortOrder,
         } satisfies LeadsTableState));
         navigate(`/companies/${id}`);
-    }, [page, search, selectedStages, selectedIndustries, selectedLocations, selectedProducts, periodType, periodAnchor, customRange, sortBy, sortOrder, navigate]);
+    }, [page, search, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, periodType, periodAnchor, customRange, sortBy, sortOrder, navigate]);
 
     // Build query params (moved up so useQuery can be before handleRowSelect)
     const buildQueryParams = useCallback(() => {
@@ -513,7 +517,7 @@ export default function LeadsPage() {
     // Clear selection when page/filters change
     useEffect(() => {
         setSelectedIds(new Set());
-    }, [page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
+    }, [page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts]);
 
     // Bulk stage update mutation with undo support
     const columnLabels: Record<ColumnKey, string> = {
@@ -579,7 +583,7 @@ export default function LeadsPage() {
     // Reset page when filters change
     useEffect(() => {
         setPage(1);
-    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts]);
+    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts]);
 
     useEffect(() => {
         setPage(1);
@@ -647,13 +651,14 @@ export default function LeadsPage() {
         });
     };
 
-    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedProducts.length);
+    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedCountries.length || selectedProducts.length);
 
     const clearAllFilters = () => {
         setSearch('');
         setSelectedStages([]);
         setSelectedIndustries([]);
         setSelectedLocations([]);
+        setSelectedCountries([]);
         setSelectedProducts([]);
         setPeriodType('month');
         setPeriodAnchor(new Date());
@@ -932,11 +937,53 @@ export default function LeadsPage() {
     const industryOptions = (filterOptions?.industries || []).map((s) => ({
         value: s, label: s,
     }));
-    const locationOptions = [
-        { value: '__empty__', label: t('filter.emptyLocation') },
-        { value: '__not_geocoded__', label: t('filter.notGeocoded') },
-        ...(filterOptions?.locations || []).map((s) => ({ value: s, label: s })),
-    ];
+    // Combined "Konum" dropdown — countries always visible; specific location strings
+    // appear only when the user starts typing (≥2 chars) so the default list stays short.
+    // Values are prefixed (c:Turkey / l:Istanbul) so onChange can split them back into
+    // selectedCountries vs selectedLocations. Special tokens (__empty__, __not_geocoded__)
+    // remain unprefixed.
+    const locationGroupedData = useMemo(() => {
+        const countryNames = new Set(filterOptions?.countries || []);
+        const groups: { group: string; items: { value: string; label: string }[] }[] = [
+            {
+                group: t('filter.specialGroup', 'Özel'),
+                items: [
+                    { value: '__empty__', label: t('filter.emptyLocation') },
+                    { value: '__not_geocoded__', label: t('filter.notGeocoded') },
+                ],
+            },
+        ];
+        const countryItems = (filterOptions?.countries || []).map((c) => ({ value: `c:${c}`, label: c }));
+        if (countryItems.length > 0) {
+            groups.push({ group: t('filter.countriesGroup', 'Ülkeler'), items: countryItems });
+        }
+        if (locationSearchValue.trim().length >= 2) {
+            const cityItems = (filterOptions?.locations || [])
+                .filter((l) => !countryNames.has(l))
+                .map((l) => ({ value: `l:${l}`, label: l }));
+            if (cityItems.length > 0) {
+                groups.push({ group: t('filter.locationsGroup', 'Konumlar'), items: cityItems });
+            }
+        }
+        return groups;
+    }, [filterOptions, locationSearchValue, t]);
+
+    const locationSelectValue = useMemo(() => [
+        ...selectedCountries.map((c) => `c:${c}`),
+        ...selectedLocations.map((l) => (l.startsWith('__') ? l : `l:${l}`)),
+    ], [selectedCountries, selectedLocations]);
+
+    const handleLocationChange = useCallback((values: string[]) => {
+        const cs: string[] = [];
+        const ls: string[] = [];
+        for (const v of values) {
+            if (v.startsWith('c:')) cs.push(v.slice(2));
+            else if (v.startsWith('l:')) ls.push(v.slice(2));
+            else ls.push(v); // __empty__, __not_geocoded__
+        }
+        setSelectedCountries(cs);
+        setSelectedLocations(ls);
+    }, []);
     const productOptions = (filterOptions?.products || []).map((s) => ({
         value: s, label: s,
     }));
@@ -1048,13 +1095,17 @@ export default function LeadsPage() {
                         maxDropdownHeight={200}
                     />
                     <MultiSelect
-                        placeholder={selectedLocations.length === 0 ? t('filter.location') : undefined}
-                        data={locationOptions}
-                        value={selectedLocations}
-                        onChange={setSelectedLocations}
+                        placeholder={locationSelectValue.length === 0 ? t('filter.locationOrCountry', 'Konum veya ülke ara') : undefined}
+                        data={locationGroupedData}
+                        value={locationSelectValue}
+                        onChange={handleLocationChange}
+                        searchable
+                        searchValue={locationSearchValue}
+                        onSearchChange={setLocationSearchValue}
+                        nothingFoundMessage={locationSearchValue.trim().length >= 2 ? t('filter.noMatch', 'Sonuç bulunamadı') : t('filter.typeToSearchCity', 'Şehir aramak için yazın')}
                         clearable
                         radius="md"
-                        maxDropdownHeight={200}
+                        maxDropdownHeight={260}
                     />
                     <MultiSelect
                         placeholder={selectedProducts.length === 0 ? t('filter.product') : undefined}

@@ -120,8 +120,10 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             dataQuery = dataQuery.in('industry', industries);
         }
 
-        // Apply location filter
-        if (locations.length > 0) {
+        // Apply combined location/country filter (single dropdown in the UI; OR'd together).
+        // Locations support special tokens __empty__ (location IS NULL) and __not_geocoded__
+        // (latitude IS NULL); these are also OR'd into the same expression.
+        if (locations.length > 0 || countries.length > 0) {
             const includesEmpty = locations.includes('__empty__');
             const includesNotGeocoded = locations.includes('__not_geocoded__');
             const namedLocations = locations.filter(l => l !== '__empty__' && l !== '__not_geocoded__');
@@ -130,6 +132,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             if (includesEmpty) orParts.push('location.is.null');
             if (includesNotGeocoded) orParts.push('latitude.is.null');
             if (namedLocations.length > 0) orParts.push(`location.in.(${namedLocations.join(',')})`);
+            if (countries.length > 0) orParts.push(`country.in.(${countries.join(',')})`);
 
             if (orParts.length > 1) {
                 const orFilter = orParts.join(',');
@@ -141,17 +144,13 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             } else if (includesNotGeocoded) {
                 countQuery = countQuery.is('latitude', null);
                 dataQuery = dataQuery.is('latitude', null);
-            } else {
+            } else if (namedLocations.length > 0) {
                 countQuery = countQuery.in('location', namedLocations);
                 dataQuery = dataQuery.in('location', namedLocations);
+            } else {
+                countQuery = countQuery.in('country', countries);
+                dataQuery = dataQuery.in('country', countries);
             }
-        }
-
-        // Apply country filter (used by globe map drill-down so city-only locations
-        // still show up under their derived country)
-        if (countries.length > 0) {
-            countQuery = countQuery.in('country', countries);
-            dataQuery = dataQuery.in('country', countries);
         }
 
         // Apply product_services filter

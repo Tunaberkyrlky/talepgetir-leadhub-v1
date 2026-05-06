@@ -7,6 +7,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.9',
+        date: '2026-05-06',
+        title: { tr: 'Konum Filtresinde Ülke Aramayı Yenidik', en: 'Reworked Location Filter with Country Search' },
+        features: [
+            {
+                tr: 'Şirket tablosundaki "Konum" filtresi artık varsayılan olarak ülkeleri gösteriyor; şehir bazlı arama için filtreye yazmaya başlayınca eşleşen konumlar açılıyor',
+                en: 'The "Location" filter on the leads table now shows countries by default; typing 2+ characters reveals matching city-level locations',
+            },
+            {
+                tr: 'Aynı filtreden hem ülke (örn. Türkiye) hem de spesifik bir şehir (örn. Berlin) seçebilirsiniz — sonuçlar her ikisinin birleşimi olarak gelir',
+                en: 'Select both a country (e.g. Turkey) and a specific city (e.g. Berlin) in one filter — results combine both sources',
+            },
+        ],
+    },
+    {
         version: '1.9.8',
         date: '2026-05-06',
         title: { tr: 'Haritada Şehir Bazlı Konum Filtresi', en: 'City-Based Location Filtering on Map' },

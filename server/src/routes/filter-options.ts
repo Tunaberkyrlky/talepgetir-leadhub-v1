@@ -15,8 +15,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         const allStages = await getTenantStages(tenantId);
         const stages = allStages.map((s) => s.slug);
 
-        // Get distinct industries, locations, products in parallel
-        const [industryRes, locationRes, productRes] = await Promise.all([
+        // Get distinct industries, locations, products, countries in parallel
+        const [industryRes, locationRes, productRes, countryRes] = await Promise.all([
             supabaseAdmin
                 .from('companies')
                 .select('industry')
@@ -38,13 +38,21 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
                 .not('product_services', 'is', null)
                 .neq('product_services', '')
                 .limit(5000),
+            supabaseAdmin
+                .from('companies')
+                .select('country')
+                .eq('tenant_id', tenantId)
+                .not('country', 'is', null)
+                .neq('country', '')
+                .limit(5000),
         ]);
 
         const industries = [...new Set((industryRes.data || []).map((r) => r.industry))].sort();
         const locations = [...new Set((locationRes.data || []).map((r) => r.location))].sort();
         const products = [...new Set((productRes.data || []).map((r) => r.product_services))].sort();
+        const countries = [...new Set((countryRes.data || []).map((r) => r.country))].sort();
 
-        res.json({ stages, industries, locations, products });
+        res.json({ stages, industries, locations, products, countries });
     } catch (err) {
         log.error({ err }, 'Filter options error');
         res.status(500).json({ error: 'Failed to fetch filter options' });
