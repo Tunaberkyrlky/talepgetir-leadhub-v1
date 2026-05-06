@@ -130,6 +130,7 @@ router.post(
                 contact_id: match.contact_id,
                 match_status: match.match_status,
                 read_status: 'unread',
+                direction: 'IN' as const,
                 raw_payload: sanitizePayload(req.body),
                 label: label || null,
                 sentiment: sentiment || null,

@@ -340,6 +340,7 @@ router.post(
                             contact_id: match.contact_id,
                             match_status: match.match_status,
                             read_status: reply.is_unread ? 'unread' : 'read',
+                            direction: 'IN' as const,
                             raw_payload: { source: 'plusvibe_api_import', plusvibe_email_id: reply.id, label: reply.label, subject: reply.subject || null, from_address: reply.to_address_email_list || null },
                         });
                         existingKeys.add(key);
@@ -475,6 +476,7 @@ router.post(
                     contact_id: match.contact_id,
                     match_status: match.match_status,
                     read_status: reply.is_unread ? 'unread' : 'read',
+                    direction: 'IN' as const,
                     label: reply.label || null,
                     sentiment: ((pvLead as Record<string, unknown>).sentiment as string) ?? null,
                     subject: reply.subject || null,
