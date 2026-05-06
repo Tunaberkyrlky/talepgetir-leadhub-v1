@@ -7,17 +7,28 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
-        version: '1.9.9',
+        version: '1.9.10',
         date: '2026-05-06',
-        title: { tr: 'Konum Filtresinde Ülke Aramayı Yenidik', en: 'Reworked Location Filter with Country Search' },
+        title: { tr: 'Konum Filtresi İyileştirmeleri', en: 'Location Filter Improvements' },
         features: [
             {
-                tr: 'Şirket tablosundaki "Konum" filtresi artık varsayılan olarak ülkeleri gösteriyor; şehir bazlı arama için filtreye yazmaya başlayınca eşleşen konumlar açılıyor',
-                en: 'The "Location" filter on the leads table now shows countries by default; typing 2+ characters reveals matching city-level locations',
+                tr: 'Konum filtresinde Türkçe ülke adıyla arama yapılabiliyor (örn. "Türkiye" yazınca Turkey kayıtları gelir)',
+                en: 'Location filter now supports Turkish country names (e.g. typing "Türkiye" finds Turkey records)',
             },
             {
-                tr: 'Aynı filtreden hem ülke (örn. Türkiye) hem de spesifik bir şehir (örn. Berlin) seçebilirsiniz — sonuçlar her ikisinin birleşimi olarak gelir',
-                en: 'Select both a country (e.g. Turkey) and a specific city (e.g. Berlin) in one filter — results combine both sources',
+                tr: '"Konumları çöz" butonu artık tüm şirketleri kapsıyor — daha önce sadece pipeline aşamasındakiler işleniyordu',
+                en: '"Resolve locations" button now processes every company, not just pipeline-stage ones',
+            },
+        ],
+    },
+    {
+        version: '1.9.9',
+        date: '2026-05-06',
+        title: { tr: 'Konum Filtresi Yenilendi', en: 'Location Filter Rework' },
+        features: [
+            {
+                tr: 'Konum filtresi varsayılan olarak ülkeleri gösteriyor; şehir aramak için yazmaya başlayın',
+                en: 'Location filter shows countries by default; start typing to search cities',
             },
         ],
     },

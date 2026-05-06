@@ -647,44 +647,32 @@ router.post(
 
             send({ type: 'progress', message: 'Hazırlanıyor...' });
 
-            // Only geocode companies visible on the map: pipeline + terminal stages
-            const allStages = await getTenantStages(tenantId);
-            const targetStages = allStages
-                .filter((s) => s.stage_type === 'pipeline' || s.stage_type === 'terminal')
-                .map((s) => s.slug);
-
-            if (targetStages.length === 0) {
-                send({ type: 'result', total: 0, geocoded: 0, skipped: 0 });
-                res.end();
-                return;
-            }
-
             send({ type: 'progress', message: 'Konumları eksik şirketler aranıyor...' });
 
-            // Count total pipeline companies and those missing location text
+            // Process every stage so the country column gets backfilled for the whole
+            // tenant (filter dropdown needs every company's country, not just pipeline
+            // ones). Coordinates are also written; the globe map separately filters to
+            // pipeline+terminal stages, so writing lat/lng on cold-stage rows is a no-op
+            // for the visible map.
             const [totalPipelineRes, noLocationRes, companiesRes] = await Promise.all([
                 supabaseAdmin
                     .from('companies')
                     .select('*', { count: 'exact', head: true })
-                    .eq('tenant_id', tenantId)
-                    .in('stage', targetStages),
+                    .eq('tenant_id', tenantId),
                 supabaseAdmin
                     .from('companies')
                     .select('*', { count: 'exact', head: true })
                     .eq('tenant_id', tenantId)
-                    .in('stage', targetStages)
                     .is('location', null)
                     .is('latitude', null),
-                // Fetch pipeline companies with a location but missing coordinates OR country.
-                // Country may be missing on rows geocoded before the country column existed —
-                // re-running the batch backfills them.
+                // Fetch every company with a location but missing coordinates OR country.
                 supabaseAdmin
                     .from('companies')
                     .select('id, location')
                     .eq('tenant_id', tenantId)
-                    .in('stage', targetStages)
                     .not('location', 'is', null)
-                    .or('latitude.is.null,country.is.null'),
+                    .or('latitude.is.null,country.is.null')
+                    .limit(10000),
             ]);
 
             if (companiesRes.error) {
@@ -757,7 +745,7 @@ router.post(
                 if (!updateError) geocoded += ids.length;
             }
 
-            log.info({ tenantId, targetStages, total, geocoded, skipped, noLocation, totalPipeline }, 'Batch geocode complete');
+            log.info({ tenantId, total, geocoded, skipped, noLocation, totalPipeline }, 'Batch geocode complete');
             send({ type: 'result', total, geocoded, skipped, noLocation, totalPipeline });
             res.end();
         } catch (err) {

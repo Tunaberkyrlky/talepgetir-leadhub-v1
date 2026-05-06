@@ -75,6 +75,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import api from '../lib/api';
+import { localizeCountry } from '../lib/countryNamesTr';
 import { useAuth } from '../contexts/AuthContext';
 import { canWrite } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
@@ -942,8 +943,17 @@ export default function LeadsPage() {
     // Values are prefixed (c:Turkey / l:Istanbul) so onChange can split them back into
     // selectedCountries vs selectedLocations. Special tokens (__empty__, __not_geocoded__)
     // remain unprefixed.
-    const locationGroupedData = useMemo(() => {
-        const countryNames = new Set(filterOptions?.countries || []);
+    //
+    // Country labels are localized: in Turkish locale we display "Türkiye" while the
+    // value stays "Turkey" (the canonical English form stored in the DB). The Mantine
+    // searchable filter then matches against the display label, so users can type in
+    // their own language. The localizedToCanonical map lets us also match the canonical
+    // form so EN typists searching in a TR locale (or vice versa) still find results.
+    const { locationGroupedData, locationSearchHaystack } = useMemo(() => {
+        const lang = i18n.language;
+        const countrySet = new Set(filterOptions?.countries || []);
+        const haystack: Record<string, string> = {};
+
         const groups: { group: string; items: { value: string; label: string }[] }[] = [
             {
                 group: t('filter.specialGroup', 'Özel'),
@@ -953,20 +963,32 @@ export default function LeadsPage() {
                 ],
             },
         ];
-        const countryItems = (filterOptions?.countries || []).map((c) => ({ value: `c:${c}`, label: c }));
+
+        const countryItems = (filterOptions?.countries || []).map((c) => {
+            const value = `c:${c}`;
+            const localized = localizeCountry(c, lang);
+            haystack[value] = `${localized} ${c}`.toLowerCase();
+            return { value, label: localized };
+        });
         if (countryItems.length > 0) {
             groups.push({ group: t('filter.countriesGroup', 'Ülkeler'), items: countryItems });
         }
+
         if (locationSearchValue.trim().length >= 2) {
             const cityItems = (filterOptions?.locations || [])
-                .filter((l) => !countryNames.has(l))
-                .map((l) => ({ value: `l:${l}`, label: l }));
+                .filter((l) => !countrySet.has(l))
+                .map((l) => {
+                    const value = `l:${l}`;
+                    haystack[value] = l.toLowerCase();
+                    return { value, label: l };
+                });
             if (cityItems.length > 0) {
                 groups.push({ group: t('filter.locationsGroup', 'Konumlar'), items: cityItems });
             }
         }
-        return groups;
-    }, [filterOptions, locationSearchValue, t]);
+
+        return { locationGroupedData: groups, locationSearchHaystack: haystack };
+    }, [filterOptions, locationSearchValue, t, i18n.language]);
 
     const locationSelectValue = useMemo(() => [
         ...selectedCountries.map((c) => `c:${c}`),
@@ -1102,6 +1124,26 @@ export default function LeadsPage() {
                         searchable
                         searchValue={locationSearchValue}
                         onSearchChange={setLocationSearchValue}
+                        // Match against both the localized label and the canonical English
+                        // form (e.g. "Türkiye" + "Turkey"), so search works regardless of
+                        // which language the user types in.
+                        filter={({ options, search }) => {
+                            const q = search.trim().toLowerCase();
+                            if (!q) return options;
+                            const matches = (value: string, label: string) => {
+                                const hay = locationSearchHaystack[value] ?? label.toLowerCase();
+                                return hay.includes(q);
+                            };
+                            return options
+                                .map((opt) => {
+                                    if ('group' in opt) {
+                                        const items = opt.items.filter((it) => matches(it.value, it.label));
+                                        return items.length > 0 ? { ...opt, items } : null;
+                                    }
+                                    return matches(opt.value, opt.label) ? opt : null;
+                                })
+                                .filter((o): o is NonNullable<typeof o> => o !== null);
+                        }}
                         nothingFoundMessage={locationSearchValue.trim().length >= 2 ? t('filter.noMatch', 'Sonuç bulunamadı') : t('filter.typeToSearchCity', 'Şehir aramak için yazın')}
                         clearable
                         radius="md"
