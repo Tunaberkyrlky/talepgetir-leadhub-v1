@@ -7,6 +7,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.8',
+        date: '2026-05-06',
+        title: { tr: 'Haritada Şehir Bazlı Konum Filtresi', en: 'City-Based Location Filtering on Map' },
+        features: [
+            {
+                tr: 'Haritada bir ülkeye tıklayınca, konumu sadece şehir olarak girilmiş şirketler de (örn. "Istanbul" → Türkiye) artık tabloda ve modalda görünüyor — daha önce yalnızca konumu doğrudan ülke yazılan kayıtlar listeleniyordu',
+                en: 'Clicking a country on the map now also shows companies whose location was entered as a city only (e.g. "Istanbul" → Turkey) — previously only records whose location field literally contained the country name appeared',
+            },
+            {
+                tr: 'Mevcut şirketler için ülke eşlemesini doldurmak isterseniz Dashboard\'daki "Konumları çöz" butonu eski kayıtları da güncelliyor',
+                en: 'To populate the country mapping for existing companies, the "Resolve locations" button on the Dashboard now also backfills older records',
+            },
+        ],
+    },
+    {
         version: '1.9.7',
         date: '2026-05-06',
         title: { tr: 'Tam Ekran Harita Düzeltmesi', en: 'Fullscreen Map Fix' },

@@ -352,6 +352,15 @@ export default function LeadsPage() {
         }
         return savedState?.selectedLocations ?? [];
     });
+    // Country filter — only populated when navigating from the globe map; UI for
+    // selecting/clearing countries from the filter bar is phase 2.
+    const [selectedCountries] = useState<string[]>(() => {
+        if (fromMap) {
+            const c = searchParams.get('country');
+            return c ? c.split(',').filter(Boolean) : [];
+        }
+        return [];
+    });
     const [selectedProducts, setSelectedProducts] = useState<string[]>(() => savedState?.selectedProducts ?? []);
     const [periodType, setPeriodType] = useState<PeriodType>(() => savedState?.periodType ?? 'month');
     const [periodAnchor, setPeriodAnchor] = useState<Date>(() =>
@@ -434,15 +443,16 @@ export default function LeadsPage() {
         if (selectedStages.length) params.set('stages', selectedStages.join(','));
         if (selectedIndustries.length) params.set('industries', selectedIndustries.join(','));
         if (selectedLocations.length) params.set('locations', selectedLocations.join(','));
+        if (selectedCountries.length) params.set('country', selectedCountries.join(','));
         if (selectedProducts.length) params.set('products', selectedProducts.join(','));
         if (dateParams?.dateFrom) params.set('dateFrom', dateParams.dateFrom);
         if (dateParams?.dateTo) params.set('dateTo', dateParams.dateTo);
         return params.toString();
-    }, [page, sortBy, sortOrder, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts, dateParams]);
+    }, [page, sortBy, sortOrder, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, dateParams]);
 
     // Fetch companies (moved up so data is available for handleRowSelect and useHotkeys)
     const { data, isLoading, error } = useQuery<PaginatedResponse>({
-        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedProducts, sortBy, sortOrder, dateParams],
+        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, sortBy, sortOrder, dateParams],
         queryFn: async () => {
             const res = await api.get(`/companies?${buildQueryParams()}`);
             return res.data;
@@ -965,6 +975,11 @@ export default function LeadsPage() {
                     {search && (
                         <Badge variant="light" color="blue" size="md" radius="md">
                             {search}
+                        </Badge>
+                    )}
+                    {selectedCountries.length > 0 && (
+                        <Badge variant="light" color="violet" size="md" radius="md">
+                            {selectedCountries.join(', ')}
                         </Badge>
                     )}
                 </Group>

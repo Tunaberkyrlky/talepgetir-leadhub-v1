@@ -97,7 +97,7 @@ function CountryCompaniesModal({
 
     const { data, isLoading } = useQuery<{ data: ModalCompany[] }>({
         queryKey: ['companies', 'map', countryName],
-        queryFn: async () => (await api.get(`/companies?search=${encodeURIComponent(countryName)}&limit=100`)).data,
+        queryFn: async () => (await api.get(`/companies?country=${encodeURIComponent(countryName)}&limit=100`)).data,
         enabled: !!countryName,
     });
 
@@ -118,7 +118,7 @@ function CountryCompaniesModal({
                         variant="light"
                         size="compact-xs"
                         rightSection={<IconExternalLink size={12} />}
-                        onClick={() => navigate(`/companies?locations=${encodeURIComponent(countryName)}&fromMap=true`)}
+                        onClick={() => navigate(`/companies?country=${encodeURIComponent(countryName)}&fromMap=true`)}
                     >
                         {t('dashboard.goToTable', 'Tabloda göster')}
                     </Button>

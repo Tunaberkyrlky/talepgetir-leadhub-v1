@@ -60,6 +60,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const stages = (req.query.stages as string || '').split(',').filter(Boolean);
         const industries = (req.query.industries as string || '').split(',').filter(Boolean);
         const locations = (req.query.locations as string || '').split(',').filter(Boolean);
+        const countries = (req.query.country as string || '').split(',').map(c => c.trim()).filter(Boolean);
         const products = (req.query.products as string || '').split(',').filter(Boolean);
 
         const dateFrom = req.query.dateFrom as string | undefined;
@@ -144,6 +145,13 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                 countQuery = countQuery.in('location', namedLocations);
                 dataQuery = dataQuery.in('location', namedLocations);
             }
+        }
+
+        // Apply country filter (used by globe map drill-down so city-only locations
+        // still show up under their derived country)
+        if (countries.length > 0) {
+            countQuery = countQuery.in('country', countries);
+            dataQuery = dataQuery.in('country', countries);
         }
 
         // Apply product_services filter
@@ -465,7 +473,7 @@ router.post(
                 if (coords) {
                     await supabaseAdmin
                         .from('companies')
-                        .update({ latitude: coords.lat, longitude: coords.lng })
+                        .update({ latitude: coords.lat, longitude: coords.lng, country: coords.country })
                         .eq('id', company.id);
                 }
             }
@@ -570,6 +578,7 @@ router.put(
                 const coords = location ? lookupCoordinates(location) : null;
                 updateData.latitude  = coords?.lat ?? null;
                 updateData.longitude = coords?.lng ?? null;
+                updateData.country   = coords?.country ?? null;
             }
 
             // Auto-geocode when stage moves into pipeline/terminal and location exists but no coords yet
@@ -583,6 +592,7 @@ router.put(
                     if (coords) {
                         updateData.latitude  = coords.lat;
                         updateData.longitude = coords.lng;
+                        updateData.country   = coords.country;
                     }
                 }
             }
@@ -666,14 +676,16 @@ router.post(
                     .in('stage', targetStages)
                     .is('location', null)
                     .is('latitude', null),
-                // Fetch pipeline companies that have a location but no coordinates
+                // Fetch pipeline companies with a location but missing coordinates OR country.
+                // Country may be missing on rows geocoded before the country column existed —
+                // re-running the batch backfills them.
                 supabaseAdmin
                     .from('companies')
                     .select('id, location')
                     .eq('tenant_id', tenantId)
                     .in('stage', targetStages)
                     .not('location', 'is', null)
-                    .is('latitude', null),
+                    .or('latitude.is.null,country.is.null'),
             ]);
 
             if (companiesRes.error) {
@@ -700,17 +712,20 @@ router.post(
 
             send({ type: 'progress', message: `${total} şirket için koordinatlar çözümleniyor...` });
 
-            // Resolve coordinates for each company and batch by coordinate value
-            const updates = new Map<string, string[]>(); // "lat,lng" → [company_id, ...]
+            // Resolve coordinates for each company and batch by (lat, lng, country) value
+            const updates = new Map<string, { lat: number; lng: number; country: string | null; ids: string[] }>();
             let skipped = 0;
             for (const company of companies || []) {
                 if (!company.location) continue;
                 const coords = lookupCoordinates(company.location);
                 if (coords) {
-                    const key = `${coords.lat},${coords.lng}`;
-                    const group = updates.get(key) || [];
-                    group.push(company.id);
-                    updates.set(key, group);
+                    const key = `${coords.lat},${coords.lng},${coords.country ?? ''}`;
+                    const group = updates.get(key);
+                    if (group) {
+                        group.ids.push(company.id);
+                    } else {
+                        updates.set(key, { lat: coords.lat, lng: coords.lng, country: coords.country, ids: [company.id] });
+                    }
                 } else {
                     skipped++;
                 }
@@ -732,13 +747,12 @@ router.post(
 
             send({ type: 'progress', message: 'Veritabanı güncelleniyor...' });
 
-            // Write coordinates — one UPDATE per unique coordinate pair (bulk by id list)
+            // Write coordinates — one UPDATE per unique (lat, lng, country) triple (bulk by id list)
             let geocoded = 0;
-            for (const [coordKey, ids] of updates) {
-                const [lat, lng] = coordKey.split(',').map(Number);
+            for (const { lat, lng, country, ids } of updates.values()) {
                 const { error: updateError } = await supabaseAdmin
                     .from('companies')
-                    .update({ latitude: lat, longitude: lng })
+                    .update({ latitude: lat, longitude: lng, country })
                     .in('id', ids)
                     .eq('tenant_id', tenantId);
                 if (!updateError) geocoded += ids.length;
@@ -845,7 +859,7 @@ router.patch(
             }
 
             // Auto-geocode when entering pipeline/terminal and location exists but no coords yet
-            const geocodeData: { latitude?: number; longitude?: number } = {};
+            const geocodeData: { latitude?: number; longitude?: number; country?: string | null } = {};
             if (pipelineSlugs.includes(stage) || terminalSlugs.includes(stage)) {
                 const { data: companyData } = await supabaseAdmin
                     .from('companies')
@@ -858,6 +872,7 @@ router.patch(
                     if (coords) {
                         geocodeData.latitude = coords.lat;
                         geocodeData.longitude = coords.lng;
+                        geocodeData.country = coords.country;
                     }
                 }
             }
