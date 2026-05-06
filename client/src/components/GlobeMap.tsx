@@ -85,9 +85,11 @@ interface ModalCompany {
 function CountryCompaniesModal({
     countryName,
     onClose,
+    portalTarget,
 }: {
     countryName: string;
     onClose: () => void;
+    portalTarget?: HTMLElement | null;
 }) {
     const { t } = useTranslation();
     const navigate = useNavigate();
@@ -105,6 +107,7 @@ function CountryCompaniesModal({
         <Modal
             opened
             onClose={onClose}
+            portalProps={portalTarget ? { target: portalTarget } : undefined}
             title={
                 <Group gap="xs" justify="space-between" style={{ flex: 1, marginRight: 32 }}>
                     <Group gap="xs">
@@ -592,47 +595,47 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                     </Geographies>
                                 </ZoomableGroup>
                             </ComposableMap>
-                        </Box>
 
-                        {/* Tooltip */}
-                        {hoveredMarker && (
-                            <div
-                                style={{
-                                    position: 'fixed',
-                                    top: tooltipPos.y,
-                                    left: tooltipPos.x,
-                                    background: '#1f2937',
-                                    color: '#f9fafb',
-                                    padding: '11px 16px',
-                                    borderRadius: 8,
-                                    fontSize: 14,
-                                    fontFamily: 'sans-serif',
-                                    whiteSpace: 'nowrap',
-                                    lineHeight: 1.75,
-                                    pointerEvents: 'none',
-                                    boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
-                                    border: '1px solid #374151',
-                                    zIndex: 99999,
-                                    transform: 'translateY(-50%)',
-                                }}
-                            >
-                                <div style={{ fontSize: 17, fontWeight: 700, color: '#f9fafb', marginBottom: 7, paddingBottom: 6, borderBottom: '1px solid #374151' }}>
-                                    {hoveredMarker.name || String(hoveredMarker.id)}
-                                </div>
-                                <div style={{ color: '#9ca3af', marginBottom: 6, fontSize: 15 }}>
-                                    {t('dashboard.totalCompanies')}: <strong style={{ color: '#ffffff', fontSize: 16 }}>{hoveredMarker.stats.total}</strong> {t('dashboard.companies').toLowerCase()}
-                                </div>
-                                <div style={{ borderTop: '1px solid #374151', margin: '4px 0 7px' }} />
-                                {STAGE_COLORS.map(({ key, color, labelKey }) => (
-                                    <div key={key} style={{ display: 'flex', alignItems: 'center' }}>
-                                        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 7, flexShrink: 0 }} />
-                                        <span style={{ color: '#d1d5db' }}>
-                                            {t(labelKey)}: <strong style={{ color: '#f9fafb' }}>{hoveredMarker.stats[key]}</strong> {t('dashboard.companies').toLowerCase()}
-                                        </span>
+                            {/* Tooltip — kept inside the fullscreen container so it stays visible in fullscreen */}
+                            {hoveredMarker && (
+                                <div
+                                    style={{
+                                        position: 'fixed',
+                                        top: tooltipPos.y,
+                                        left: tooltipPos.x,
+                                        background: '#1f2937',
+                                        color: '#f9fafb',
+                                        padding: '11px 16px',
+                                        borderRadius: 8,
+                                        fontSize: 14,
+                                        fontFamily: 'sans-serif',
+                                        whiteSpace: 'nowrap',
+                                        lineHeight: 1.75,
+                                        pointerEvents: 'none',
+                                        boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+                                        border: '1px solid #374151',
+                                        zIndex: 99999,
+                                        transform: 'translateY(-50%)',
+                                    }}
+                                >
+                                    <div style={{ fontSize: 17, fontWeight: 700, color: '#f9fafb', marginBottom: 7, paddingBottom: 6, borderBottom: '1px solid #374151' }}>
+                                        {hoveredMarker.name || String(hoveredMarker.id)}
                                     </div>
-                                ))}
-                            </div>
-                        )}
+                                    <div style={{ color: '#9ca3af', marginBottom: 6, fontSize: 15 }}>
+                                        {t('dashboard.totalCompanies')}: <strong style={{ color: '#ffffff', fontSize: 16 }}>{hoveredMarker.stats.total}</strong> {t('dashboard.companies').toLowerCase()}
+                                    </div>
+                                    <div style={{ borderTop: '1px solid #374151', margin: '4px 0 7px' }} />
+                                    {STAGE_COLORS.map(({ key, color, labelKey }) => (
+                                        <div key={key} style={{ display: 'flex', alignItems: 'center' }}>
+                                            <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 7, flexShrink: 0 }} />
+                                            <span style={{ color: '#d1d5db' }}>
+                                                {t(labelKey)}: <strong style={{ color: '#f9fafb' }}>{hoveredMarker.stats[key]}</strong> {t('dashboard.companies').toLowerCase()}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </Box>
 
                         {!isLoading && data.length === 0 && (
                             <Center mt="xs">
@@ -695,6 +698,7 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                 <CountryCompaniesModal
                     countryName={selectedCountry}
                     onClose={() => setSelectedCountry(null)}
+                    portalTarget={isFullscreen ? mapContainerRef.current : null}
                 />
             )}
         </Paper>

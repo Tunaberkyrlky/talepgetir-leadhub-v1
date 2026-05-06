@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.7',
+        date: '2026-05-06',
+        title: { tr: 'Tam Ekran Harita Düzeltmesi', en: 'Fullscreen Map Fix' },
+        features: [
+            {
+                tr: 'Dashboard\'daki dünya haritasını tam ekrana aldığınızda ülke üzerine geldiğinizde açılan bilgi balonu ve ülkeye tıklayınca açılan şirket tablosu artık çalışıyor',
+                en: 'When the dashboard world map is enlarged to fullscreen, the hover tooltip and the company table that opens on country click now work correctly',
+            },
+        ],
+    },
+    {
         version: '1.9.6',
         date: '2026-05-05',
         title: { tr: 'Aylık Rapor Ayarlara Taşındı', en: 'Monthly Report Moved to Settings' },
@@ -15,14 +26,7 @@ export const changelog: ChangelogEntry[] = [
                 tr: 'Aylık rapor indirme özelliğine artık Ayarlar > Raporlar sekmesinden ulaşabilirsiniz',
                 en: 'The monthly report download button has been removed from Dashboard; it is now accessible via Settings > Reports tab',
             },
-            {
-                tr: 'Rapor indirme yetkisi yönetici rollerine (yönetici, ops, müşteri yöneticisi) sınırlandı; izleyici rolündeki kullanıcılar bu özelliği göremez',
-                en: 'Report download is now restricted to admin roles (superadmin, ops, client admin); viewer roles can no longer see this feature',
-            },
-            {
-                tr: 'Sahne Dağılımı sayfası raporda artık pipeline aşama sıralamasına göre listeleniyor',
-                en: 'The Stage Distribution sheet in the report is now ordered by the pipeline stage order',
-            },
+
         ],
     },
     {
