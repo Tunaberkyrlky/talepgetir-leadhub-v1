@@ -48,6 +48,11 @@ export interface ThreadHistoryItem {
     read_status: ReadStatus;
     campaign_id: string | null;
     direction?: EmailDirection;
+    raw_payload?: {
+        source?: string;
+        forwarded_to?: string;
+        [key: string]: unknown;
+    } | null;
 }
 
 export interface EmailReplyStats {

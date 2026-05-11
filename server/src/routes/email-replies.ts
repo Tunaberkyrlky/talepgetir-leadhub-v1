@@ -9,6 +9,7 @@ import {
     emailRepliesQuerySchema,
     readStatusBodySchema,
     sendReplyBodySchema,
+    forwardEmailBodySchema,
     threadHistoryQuerySchema,
     uuidField,
 } from '../lib/validation.js';
@@ -17,7 +18,7 @@ import { isInternalRole } from '../lib/roles.js';
 import { matchSenderEmail, advanceCompanyStageOnMatch } from '../lib/emailMatcher.js';
 import { resolveReplyContext } from '../lib/plusvibeReplyResolver.js';
 import { buildAttachmentCardsHtml } from '../lib/emailHtmlBuilder.js';
-import { replyToEmail } from '../lib/plusvibeClient.js';
+import { replyToEmail, forwardEmail } from '../lib/plusvibeClient.js';
 
 const log = createLogger('route:email-replies');
 const router = Router();
@@ -171,7 +172,7 @@ router.get(
 
             let query = supabaseAdmin
                 .from('email_replies')
-                .select('id, sender_email, reply_body, replied_at, read_status, campaign_id, direction')
+                .select('id, sender_email, reply_body, replied_at, read_status, campaign_id, direction, raw_payload')
                 .eq('tenant_id', tenantId)
                 .eq('sender_email', sender_email)
                 .order('replied_at', { ascending: false })
@@ -748,6 +749,131 @@ router.post(
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Send reply error');
             next(new AppError('Failed to send reply', 500));
+        }
+    }
+);
+
+// POST /api/email-replies/:id/forward — forward an email to a new recipient via PlusVibe
+router.post(
+    '/:id/forward',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    validateBody(forwardEmailBodySchema),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const paramResult = idParamSchema.safeParse(req.params);
+            if (!paramResult.success) {
+                res.status(400).json({ error: 'Invalid reply ID' });
+                return;
+            }
+            const { id } = paramResult.data;
+            const { to, note, attachmentIds, cc } = req.body as {
+                to: string;
+                note: string;
+                attachmentIds?: string[];
+                cc?: string;
+            };
+            const tenantId = req.tenantId!;
+
+            const { data: emailReply, error: fetchErr } = await supabaseAdmin
+                .from('email_replies')
+                .select('id, campaign_id, sender_email, replied_at, raw_payload, company_id, contact_id, campaign_name, direction')
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .single();
+
+            if (fetchErr || !emailReply) {
+                throw new AppError('Email reply not found', 404);
+            }
+
+            if (!emailReply.campaign_id) {
+                throw new AppError('Cannot forward — no campaign linked to this email', 400);
+            }
+
+            const { data: campaign } = await supabaseAdmin
+                .from('plusvibe_campaigns')
+                .select('id, tenant_id')
+                .eq('pv_campaign_id', emailReply.campaign_id)
+                .single();
+
+            if (!campaign) {
+                throw new AppError('Campaign not found. Please sync campaigns first.', 404);
+            }
+            if (campaign.tenant_id && campaign.tenant_id !== tenantId) {
+                throw new AppError('Campaign does not belong to this tenant', 403);
+            }
+
+            const context = await resolveReplyContext(emailReply, tenantId);
+
+            // Note becomes the body PlusVibe appends ABOVE the forwarded message
+            let htmlBody = note
+                .split('\n')
+                .map((line: string) => `<p>${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
+                .join('');
+
+            if (attachmentIds?.length) {
+                const { data: templates } = await supabaseAdmin
+                    .from('email_attachment_templates')
+                    .select('label, file_type, file_url, file_size')
+                    .in('id', attachmentIds)
+                    .eq('tenant_id', tenantId)
+                    .eq('is_active', true);
+
+                if (templates?.length) {
+                    htmlBody += buildAttachmentCardsHtml(templates);
+                }
+            }
+
+            const pvResponse = await forwardEmail({
+                reply_to_id: context.plusvibeEmailId,
+                from: context.fromAddress,
+                to,
+                body: htmlBody,
+                ...(cc && { cc }),
+            });
+
+            // Outbound record — sender_email kept as ORIGINAL sender so the forward
+            // stays under the same thread in the UI. forwarded_to is in raw_payload.
+            const outRow = {
+                tenant_id: tenantId,
+                campaign_id: emailReply.campaign_id,
+                campaign_name: emailReply.campaign_name,
+                sender_email: emailReply.sender_email,
+                reply_body: note,
+                replied_at: new Date().toISOString(),
+                company_id: emailReply.company_id,
+                contact_id: emailReply.contact_id,
+                match_status: emailReply.company_id ? 'matched' : 'unmatched',
+                read_status: 'read' as const,
+                direction: 'OUT' as const,
+                parent_reply_id: id,
+                raw_payload: {
+                    source: 'user_forward',
+                    plusvibe_forward_id: pvResponse.id,
+                    from_address: context.fromAddress,
+                    forwarded_to: to,
+                    ...(cc && { cc }),
+                    ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
+                },
+            };
+
+            const { data: inserted, error: insertErr } = await supabaseAdmin
+                .from('email_replies')
+                .insert(outRow)
+                .select('id, direction, reply_body, replied_at, sender_email, campaign_id')
+                .single();
+
+            if (insertErr) {
+                log.error({ err: insertErr }, 'Failed to store outbound forward');
+                res.json({ sent: true, stored: false, plusvibe_id: pvResponse.id });
+                return;
+            }
+
+            log.info({ replyId: id, outboundId: inserted.id, forwardedTo: to }, 'Email forwarded via PlusVibe');
+            res.json({ sent: true, stored: true, data: inserted });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Forward error');
+            next(new AppError('Failed to forward email', 500));
         }
     }
 );

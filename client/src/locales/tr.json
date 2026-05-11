@@ -733,7 +733,9 @@
             "expand": "{{count}} önceki mesajı göster",
             "collapse": "Önceki mesajları gizle",
             "sent": "Gönderildi",
-            "received": "Alındı"
+            "received": "Alındı",
+            "forwarded": "Yönlendirildi",
+            "forwardedTo": "Hedef"
         },
         "reply": {
             "button": "Yanıtla",
@@ -750,6 +752,17 @@
             "draftFailed": "Taslak kaydedilemedi",
             "noCampaign": "Yanıt gönderilemez — kampanya bağlı değil",
             "customCc": "Özel CC email..."
+        },
+        "forward": {
+            "button": "Yönlendir",
+            "title": "Mail Yönlendir",
+            "to": "Yönlendirilecek adres",
+            "toPlaceholder": "hedef@example.com",
+            "notePlaceholder": "Eklemek istediğin not (orijinal mesajın üstüne eklenir)",
+            "hint": "Orijinal mail otomatik olarak notun altında iletilir.",
+            "send": "Yönlendir",
+            "success": "Mail yönlendirildi",
+            "failed": "Yönlendirme başarısız"
         },
         "attachments": {
             "label": "Eklentiler",

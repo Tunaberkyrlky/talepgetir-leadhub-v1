@@ -310,6 +310,16 @@ export const sendReplyBodySchema = z.object({
     ),
 });
 
+export const forwardEmailBodySchema = z.object({
+    to: z.string().email('Invalid recipient email').max(255),
+    note: z.string().min(1, 'Note is required').max(50000),
+    attachmentIds: z.array(z.string().uuid()).max(3).optional(),
+    cc: z.string().max(1000).optional().refine(
+        (val) => !val || val.split(',').every((e) => e.trim().match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)),
+        { message: 'Invalid CC email address' },
+    ),
+});
+
 export const threadHistoryQuerySchema = z.object({
     sender_email: z.string().email('Invalid sender_email').max(255),
     campaign_id: z.string().max(500).optional(),

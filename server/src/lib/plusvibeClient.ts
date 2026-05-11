@@ -238,6 +238,25 @@ export async function replyToEmail(params: {
     );
 }
 
+/**
+ * Forward an existing email to a new recipient.
+ * PlusVibe appends the original message body below the note automatically.
+ */
+export async function forwardEmail(params: {
+    reply_to_id: string;
+    from: string;
+    to: string;
+    body: string;
+    cc?: string;
+    bcc?: string;
+}): Promise<{ status: string; id: string }> {
+    return plusVibeFetch<{ status: string; id: string }>(
+        'POST',
+        '/unibox/emails/forward',
+        params,
+    );
+}
+
 /** Fetch ALL incoming reply emails for a campaign (paginated). */
 export async function fetchAllReplies(campaignId: string): Promise<PlusVibeEmail[]> {
     const allReplies: PlusVibeEmail[] = [];

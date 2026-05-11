@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Table, Text, Center, Loader, Badge, Group } from '@mantine/core';
+import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import type { ThreadHistoryItem } from '../../types/emailReply';
 
@@ -35,6 +36,7 @@ export default function ThreadHistoryRows({
     colSpan,
     onClickRow,
 }: ThreadHistoryRowsProps) {
+    const { t } = useTranslation();
     const { data, isLoading } = useQuery<ThreadHistoryItem[]>({
         queryKey: ['email-reply-thread', senderEmail, campaignId],
         queryFn: async () => {
@@ -73,11 +75,15 @@ export default function ThreadHistoryRows({
     return items.map((h) => {
         const isOut = h.direction === 'OUT';
         const isCurrent = h.id === parentReplyId;
+        const isForward = h.raw_payload?.source === 'user_forward';
+        const forwardedTo = h.raw_payload?.forwarded_to;
         return (
             <Table.Tr
                 key={h.id}
                 style={{
-                    backgroundColor: isOut ? 'var(--mantine-color-violet-0)' : 'var(--mantine-color-gray-0)',
+                    backgroundColor: isForward
+                        ? 'var(--mantine-color-yellow-0)'
+                        : (isOut ? 'var(--mantine-color-violet-0)' : 'var(--mantine-color-gray-0)'),
                     cursor: onClickRow ? 'pointer' : undefined,
                 }}
                 onClick={onClickRow ? () => onClickRow(h) : undefined}
@@ -91,22 +97,34 @@ export default function ThreadHistoryRows({
                     <Group gap={6} wrap="nowrap">
                         <Badge
                             size="xs"
-                            variant={isOut ? 'filled' : 'light'}
-                            color={isOut ? 'violet' : 'gray'}
+                            variant={isForward || isOut ? 'filled' : 'light'}
+                            color={isForward ? 'yellow' : (isOut ? 'violet' : 'gray')}
                             style={{ flexShrink: 0 }}
                         >
-                            {isOut ? 'Gönderildi' : 'Alındı'}
+                            {isForward
+                                ? t('emailReplies.thread.forwarded')
+                                : (isOut ? t('emailReplies.thread.sent') : t('emailReplies.thread.received'))}
                         </Badge>
                         <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
                             {formatDate(h.replied_at, locale)}
                         </Text>
+                        {isForward && forwardedTo && (
+                            <Text size="xs" c="#92400e" fw={500} style={{ whiteSpace: 'nowrap' }}>
+                                → {forwardedTo}
+                            </Text>
+                        )}
                         {isCurrent && (
                             <Badge size="xs" variant="outline" color="blue" style={{ flexShrink: 0 }}>●</Badge>
                         )}
                     </Group>
                 </Table.Td>
                 <Table.Td colSpan={colSpan - 3}>
-                    <Text size="xs" c={isOut ? 'violet.6' : 'dimmed'} lineClamp={1} fw={isCurrent ? 500 : 400}>
+                    <Text
+                        size="xs"
+                        c={isForward ? '#92400e' : (isOut ? 'violet.6' : 'dimmed')}
+                        lineClamp={1}
+                        fw={isCurrent ? 500 : 400}
+                    >
                         {truncate(h.reply_body, 120)}
                     </Text>
                 </Table.Td>

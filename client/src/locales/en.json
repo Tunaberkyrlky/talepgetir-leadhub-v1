@@ -733,7 +733,9 @@
             "expand": "Show {{count}} previous messages",
             "collapse": "Hide previous messages",
             "sent": "Sent",
-            "received": "Received"
+            "received": "Received",
+            "forwarded": "Forwarded",
+            "forwardedTo": "To"
         },
         "reply": {
             "button": "Reply",
@@ -750,6 +752,17 @@
             "draftFailed": "Failed to save draft",
             "noCampaign": "Cannot reply — no campaign linked",
             "customCc": "Custom CC email..."
+        },
+        "forward": {
+            "button": "Forward",
+            "title": "Forward Email",
+            "to": "Forward to",
+            "toPlaceholder": "recipient@example.com",
+            "notePlaceholder": "Note to add (appears above the original message)",
+            "hint": "The original email is automatically appended below your note.",
+            "send": "Forward",
+            "success": "Email forwarded",
+            "failed": "Forward failed"
         },
         "attachments": {
             "label": "Attachments",

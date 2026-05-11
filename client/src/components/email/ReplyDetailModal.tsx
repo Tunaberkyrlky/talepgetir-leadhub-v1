@@ -9,7 +9,7 @@ import {
 import {
     IconMail, IconMailOpened, IconTrash, IconRefresh,
     IconExternalLink, IconPlus, IconChevronDown, IconX, IconCheck,
-    IconArrowBackUp, IconSend, IconPaperclip, IconDeviceFloppy,
+    IconArrowBackUp, IconArrowForwardUp, IconSend, IconPaperclip, IconDeviceFloppy,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
@@ -89,6 +89,11 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [ccInputOpen, setCcInputOpen] = useState(false);
     const [expandedQuotes, setExpandedQuotes] = useState<Set<string>>(new Set());
 
+    // Forward panel state
+    const [forwardOpen, setForwardOpen] = useState(false);
+    const [forwardTo, setForwardTo] = useState('');
+    const [forwardNote, setForwardNote] = useState('');
+
     // Sync all UI state when a different reply is selected
     useEffect(() => {
         setLocalReply(reply);
@@ -102,6 +107,9 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         setNewAttOpen(false);
         setDraftLoaded(null);
         setCcInputOpen(false);
+        setForwardOpen(false);
+        setForwardTo('');
+        setForwardNote('');
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [reply?.id]);
 
@@ -353,6 +361,25 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         onError: (err) => showErrorFromApi(err, t('emailReplies.reply.draftFailed')),
     });
 
+    // ── Forward via PlusVibe ──
+    const forwardMutation = useMutation({
+        mutationFn: async () =>
+            (await api.post(`/email-replies/${localReply!.id}/forward`, {
+                to: forwardTo.trim(),
+                note: forwardNote.trim(),
+            })).data,
+        onSuccess: () => {
+            showSuccess(t('emailReplies.forward.success', 'Email yönlendirildi'));
+            setForwardOpen(false);
+            setForwardTo('');
+            setForwardNote('');
+            markAsRead();
+            queryClient.invalidateQueries({ queryKey: ['email-replies'] });
+            queryClient.invalidateQueries({ queryKey: ['email-reply-thread-modal'] });
+        },
+        onError: (err) => showErrorFromApi(err, t('emailReplies.forward.failed', 'Yönlendirme başarısız')),
+    });
+
     if (!localReply) return null;
 
     const initials = getInitials(localReply.contact_name, localReply.sender_email);
@@ -504,6 +531,8 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 {sortedThread.length > 0 ? sortedThread.map((msg, idx) => {
                     const isOut = msg.direction === 'OUT';
                     const isCurrent = msg.id === localReply.id;
+                    const isForward = msg.raw_payload?.source === 'user_forward';
+                    const forwardedTo = msg.raw_payload?.forwarded_to;
                     return (
                         <Box key={msg.id}>
                             {idx > 0 && <Divider color="#ededf8" />}
@@ -511,18 +540,25 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                 px={24}
                                 py={14}
                                 style={{
-                                    background: isOut ? '#f8f5ff' : '#fff',
+                                    background: isForward ? '#fffbeb' : (isOut ? '#f8f5ff' : '#fff'),
                                     ...(isCurrent ? { borderLeft: '3px solid #7c3aed' } : {}),
                                 }}
                             >
                                 <Group gap={8} mb={6}>
                                     <Badge
                                         size="xs"
-                                        variant={isOut ? 'filled' : 'light'}
-                                        color={isOut ? 'violet' : 'gray'}
+                                        variant={isForward || isOut ? 'filled' : 'light'}
+                                        color={isForward ? 'yellow' : (isOut ? 'violet' : 'gray')}
                                     >
-                                        {isOut ? t('emailReplies.thread.sent') : t('emailReplies.thread.received')}
+                                        {isForward
+                                            ? t('emailReplies.thread.forwarded')
+                                            : (isOut ? t('emailReplies.thread.sent') : t('emailReplies.thread.received'))}
                                     </Badge>
+                                    {isForward && forwardedTo && (
+                                        <Text size="xs" c="#92400e" fw={500}>
+                                            → {forwardedTo}
+                                        </Text>
+                                    )}
                                     <Text size="xs" c="dimmed">
                                         {formatDate(msg.replied_at)}
                                     </Text>
@@ -988,6 +1024,94 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 </Box>
             </Collapse>
 
+            {/* ── FORWARD PANEL ──────────────────────────── */}
+            <Collapse in={forwardOpen}>
+                <Box mx={24} mb={12}>
+                    <Box
+                        style={{
+                            border: '1px solid #fde68a',
+                            borderRadius: 10,
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <Group
+                            px={14} py={10}
+                            style={{ background: '#fffbeb', borderBottom: '1px solid #fde68a' }}
+                            justify="space-between"
+                        >
+                            <Group gap={6}>
+                                <IconArrowForwardUp size={13} color="#92400e" />
+                                <Text size="xs" fw={600} c="#92400e">
+                                    {t('emailReplies.forward.title', 'Yönlendir')}
+                                </Text>
+                            </Group>
+                            <ActionIcon
+                                size="sm"
+                                variant="subtle"
+                                color="gray"
+                                onClick={() => setForwardOpen(false)}
+                            >
+                                <IconX size={12} />
+                            </ActionIcon>
+                        </Group>
+
+                        <Box p={14} style={{ background: '#fff' }}>
+                            {senderAddress && (
+                                <Text size="xs" c="dimmed" mb={4}>
+                                    {t('emailReplies.reply.from')}: <Text span fw={500} c="dark">{senderAddress}</Text>
+                                </Text>
+                            )}
+                            <TextInput
+                                size="xs"
+                                placeholder={t('emailReplies.forward.toPlaceholder', 'hedef@example.com')}
+                                label={t('emailReplies.forward.to', 'Yönlendirilecek adres')}
+                                value={forwardTo}
+                                onChange={(e) => setForwardTo(e.currentTarget.value)}
+                                mb={10}
+                                styles={{ input: { fontSize: 12 }, label: { fontSize: 11, fontWeight: 600 } }}
+                            />
+                            <Textarea
+                                placeholder={t('emailReplies.forward.notePlaceholder', 'Eklemek istediğin not (orijinal mesajın üstüne eklenir)')}
+                                value={forwardNote}
+                                onChange={(e) => setForwardNote(e.currentTarget.value)}
+                                minRows={3}
+                                maxRows={8}
+                                autosize
+                                styles={{ input: { fontSize: 13, lineHeight: 1.6 } }}
+                            />
+                            <Text size="xs" c="dimmed" mt={6}>
+                                {t('emailReplies.forward.hint', 'Orijinal mail otomatik olarak notun altında iletilir.')}
+                            </Text>
+
+                            <Group justify="flex-end" mt={10} gap="xs">
+                                <Button
+                                    size="xs"
+                                    variant="subtle"
+                                    color="gray"
+                                    onClick={() => setForwardOpen(false)}
+                                >
+                                    {t('emailReplies.reply.cancel')}
+                                </Button>
+                                <Button
+                                    size="xs"
+                                    color="yellow"
+                                    leftSection={<IconSend size={12} />}
+                                    loading={forwardMutation.isPending}
+                                    disabled={
+                                        !forwardTo.trim() ||
+                                        !forwardTo.includes('@') ||
+                                        !forwardNote.trim()
+                                    }
+                                    onClick={() => forwardMutation.mutate()}
+                                >
+                                    {t('emailReplies.forward.send', 'Yönlendir')}
+                                </Button>
+                            </Group>
+                        </Box>
+                    </Box>
+                </Box>
+            </Collapse>
+
             {/* ── TOOLBAR ────────────────────────────────── */}
             <Box
                 px={18}
@@ -1080,9 +1204,24 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                     color={replyOpen ? 'violet' : 'gray'}
                                     size="xs"
                                     leftSection={<IconArrowBackUp size={13} />}
-                                    onClick={() => setReplyOpen((v) => !v)}
+                                    onClick={() => {
+                                        setForwardOpen(false);
+                                        setReplyOpen((v) => !v);
+                                    }}
                                 >
                                     {t('emailReplies.reply.button')}
+                                </Button>
+                                <Button
+                                    variant={forwardOpen ? 'light' : 'subtle'}
+                                    color={forwardOpen ? 'yellow' : 'gray'}
+                                    size="xs"
+                                    leftSection={<IconArrowForwardUp size={13} />}
+                                    onClick={() => {
+                                        setReplyOpen(false);
+                                        setForwardOpen((v) => !v);
+                                    }}
+                                >
+                                    {t('emailReplies.forward.button', 'Yönlendir')}
                                 </Button>
                                 <Divider orientation="vertical" h={18} my="auto" />
                             </>

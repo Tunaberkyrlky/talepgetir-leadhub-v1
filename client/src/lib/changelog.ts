@@ -7,39 +7,32 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.11',
+        date: '2026-05-11',
+        title: { tr: 'Mail Yönlendirme', en: 'Email Forwarding' },
+        features: [
+            {
+                tr: 'Mail detayında artık "Yönlendir" butonu var — bir maili istediğiniz adrese, üstüne kendi notunuzu ekleyerek iletebilirsiniz; orijinal mail otomatik olarak notunuzun altında ekleniyor',
+                en: 'The email detail view now has a "Forward" button — forward any email to a recipient of your choice with your own note on top; the original message is appended automatically below',
+            },
+            {
+                tr: 'Yönlendirilmiş mailler thread görünümünde sarı "Yönlendirildi" rozeti ve hedef adresle birlikte görünüyor; gönderilen ve yönlendirilen mailleri tek bakışta ayırt edebilirsiniz',
+                en: 'Forwarded messages appear with a yellow "Forwarded" badge and the target address in the thread view, so you can tell sent and forwarded emails apart at a glance',
+            },
+        ],
+    },
+    {
         version: '1.9.10',
-        date: '2026-05-06',
-        title: { tr: 'Konum Filtresinde Türkçe Arama', en: 'Turkish Search in Location Filter' },
+        date: '2026-05-07',
+        title: { tr: 'Konum Filtresi & Harita Akışı', en: 'Location Filter & Map Drill-Down' },
         features: [
             {
-                tr: 'Konum filtresinde Türkçe ülke adıyla arama yapılabiliyor (örn. "Türkiye" yazınca Turkey kayıtları gelir)',
-                en: 'Location filter now supports Turkish country names (e.g. typing "Türkiye" finds Turkey records)',
-            },
-        ],
-    },
-    {
-        version: '1.9.9',
-        date: '2026-05-06',
-        title: { tr: 'Konum Filtresi Yenilendi', en: 'Location Filter Rework' },
-        features: [
-            {
-                tr: 'Konum filtresi varsayılan olarak ülkeleri gösteriyor; şehir aramak için yazmaya başlayın',
-                en: 'Location filter shows countries by default; start typing to search cities',
-            },
-        ],
-    },
-    {
-        version: '1.9.8',
-        date: '2026-05-06',
-        title: { tr: 'Haritada Şehir Bazlı Konum Filtresi', en: 'City-Based Location Filtering on Map' },
-        features: [
-            {
-                tr: 'Haritada bir ülkeye tıklayınca, konumu sadece şehir olarak girilmiş şirketler de (örn. "Istanbul" → Türkiye) artık tabloda ve modalda görünüyor — daha önce yalnızca konumu doğrudan ülke yazılan kayıtlar listeleniyordu',
-                en: 'Clicking a country on the map now also shows companies whose location was entered as a city only (e.g. "Istanbul" → Turkey) — previously only records whose location field literally contained the country name appeared',
+                tr: 'Haritada ülkeye tıklayınca, konumu sadece şehir olarak girilmiş şirketler de tabloda görünür',
+                en: 'Clicking a country on the map also shows companies whose location was entered as a city only',
             },
             {
-                tr: 'Mevcut şirketler için ülke eşlemesini doldurmak isterseniz Dashboard\'daki "Konumları çöz" butonu eski kayıtları da güncelliyor',
-                en: 'To populate the country mapping for existing companies, the "Resolve locations" button on the Dashboard now also backfills older records',
+                tr: 'Konum filtresi Türkçe ülke adıyla arama desteklendi, şehir aramak için yazmaya başlayın',
+                en: 'Location filter shows countries by default with Turkish search support; start typing to look up cities',
             },
         ],
     },
