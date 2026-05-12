@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.12',
+        date: '2026-05-12',
+        title: { tr: 'Yanıt Gönderici Adresi Düzeltmesi', en: 'Reply Sender Address Fix' },
+        features: [
+            {
+                tr: 'Bir maile yanıt yazarken "Kimden" alanı artık o mailin geldiği gerçek hesabı gösteriyor; daha önce kampanyanın ilk hesabını sabit gösteriyordu',
+                en: 'When replying to an email, the "From" field now shows the actual mailbox the lead replied to, not the campaign\'s first account',
+            },
+        ],
+    },
+    {
         version: '1.9.11',
         date: '2026-05-11',
         title: { tr: 'Mail Yönlendirme', en: 'Email Forwarding' },

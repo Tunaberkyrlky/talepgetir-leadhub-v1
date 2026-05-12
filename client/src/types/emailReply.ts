@@ -38,6 +38,25 @@ export interface EmailReply {
     // Threading fields (present on threaded list responses)
     thread_count?: number;
     has_unread?: boolean;
+    raw_payload?: {
+        from_address?: string;
+        plusvibe_email_id?: string;
+        subject?: string;
+        source?: string;
+        forwarded_to?: string;
+        [key: string]: unknown;
+    } | null;
+}
+
+/**
+ * Parse a raw "from" string (may be "Name <email@x.com>" or just "email@x.com").
+ * Returns the bare email address, or the input unchanged if no angle brackets.
+ */
+export function extractEmailAddress(raw: string | null | undefined): string | null {
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    const match = trimmed.match(/<([^>]+)>/);
+    return match ? match[1].trim() : trimmed;
 }
 
 export interface ThreadHistoryItem {
