@@ -1,11 +1,35 @@
+export type ChangelogType = 'feature' | 'fix' | 'improvement' | 'security';
+
 export interface ChangelogEntry {
     version: string;
     date: string;
+    /** Baskın değişiklik tipi — başlıkta renkli badge olarak görünür. Eski entry'ler için opsiyonel (varsayılan: 'feature'). */
+    type?: ChangelogType;
     title: { tr: string; en: string };
     features: { tr: string; en: string }[];
 }
 
 export const changelog: ChangelogEntry[] = [
+    {
+        version: '1.9.13',
+        date: '2026-05-13',
+        type: 'improvement',
+        title: { tr: 'Pipeline Sadeleştirildi & Karar Akışı', en: 'Pipeline Simplified & Closing Flow' },
+        features: [
+            {
+                tr: 'Pipeline için 6 temel aşama kurgulandı (Cold → Bağlantı Kuruldu → Görüşmede → Takipte → Kazanıldı / Kaybedildi); fazlasına ihtiyacın olursa Ayarlar > Pipeline\'dan istediğin aşamayı ekleyebilirsin',
+                en: 'New tenants now start with a leaner 6-stage pipeline (Cold → Connected → In Meeting → Follow Up → Won / Lost); add more from Settings > Pipeline whenever you need them',
+            },
+            {
+                tr: 'Müşterilere özel aşama ekleme artık daha güvenli: aşama listesindeki teknik kısıtlamalar kaldırıldı, istediğin slug\'la özel aşama oluşturabilirsin',
+                en: 'Adding custom stages is more reliable: the underlying database constraint that blocked some slugs has been removed, so any slug you create now works',
+            },
+            {
+                tr: 'Arka planda: veritabanı güvenliği sertleştirildi (RLS politikaları, fonksiyon yetkileri, audit log koruması) ve kullanıcı silmeyi engelleyen FK kısıtlamaları gevşetildi',
+                en: 'Behind the scenes: database security hardening (RLS policies, function execute grants, audit log lockdown) and FK constraints relaxed to allow user deletion',
+            },
+        ],
+    },
     {
         version: '1.9.12',
         date: '2026-05-12',

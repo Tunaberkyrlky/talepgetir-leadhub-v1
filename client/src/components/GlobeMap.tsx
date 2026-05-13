@@ -54,7 +54,9 @@ interface GlobeMapProps {
     geocodeStages?: GeocodeStageItem[];
 }
 
-// Stage group definitions
+// Stage group definitions.
+// Terminal stages bucket under "karar" so the closing badge always reflects
+// the count of finished companies, even when the closing group is empty.
 const STAGE_GROUPS = {
     ilkTemas:      ['in_queue', 'first_contact', 'connected'],
     kalifikasyon:  ['qualified', 'in_meeting', 'follow_up'],

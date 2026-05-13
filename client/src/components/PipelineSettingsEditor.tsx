@@ -410,10 +410,24 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveS
                                     {group.stages.length} {t('pipelineSettings.stagesCount')}
                                 </Text>
                             </Paper>
-                            {index < groups.length - 1 && <IconArrowRight size={18} color="var(--mantine-color-dimmed)" />}
+                            {(index < groups.length - 1 || terminalStages.length > 0) && <IconArrowRight size={18} color="var(--mantine-color-dimmed)" />}
                         </Box>
                     ))}
-                    {groups.length === 0 && <Text size="sm" c="dimmed" py="md">{t('pipelineSettings.noGroups')}</Text>}
+                    {terminalStages.length > 0 && (
+                        <Paper p="sm" radius="md" style={{
+                            background: 'var(--mantine-color-green-light)',
+                            border: '2px solid var(--mantine-color-green-4)',
+                            minWidth: 120, textAlign: 'center',
+                        }}>
+                            <Text size="xs" fw={700} c="green.7">
+                                {t('stageGroups.closing')}
+                            </Text>
+                            <Text size="xs" c="dimmed" mt={2}>
+                                {terminalStages.length} {t('pipelineSettings.stagesCount')}
+                            </Text>
+                        </Paper>
+                    )}
+                    {groups.length === 0 && terminalStages.length === 0 && <Text size="sm" c="dimmed" py="md">{t('pipelineSettings.noGroups')}</Text>}
                 </Box>
             </Paper>
 
@@ -536,13 +550,28 @@ export default function PipelineSettingsEditor({ onDirtyChange, saveRef, onSaveS
                 {t('pipelineSettings.addGroup')}
             </Button>
 
-            <Divider />
-
-            {/* ═══ Terminal Stages ═══ */}
-            <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
-                {t('pipelineSettings.terminalStages')}
-            </Text>
-            {terminalStages.map((s) => renderSimpleStageRow(s))}
+            {/* ═══ Karar (terminal stages rendered as a virtual group) ═══ */}
+            {terminalStages.length > 0 && (
+                <Paper p="md" radius="md" withBorder>
+                    <Group gap="sm" mb="md" align="center" wrap="nowrap">
+                        <Box style={{
+                            width: 4, height: 28, borderRadius: 2,
+                            background: 'var(--mantine-color-green-6)',
+                        }} />
+                        <Stack gap={0} style={{ flex: 1 }}>
+                            <Text size="sm" fw={600} c="green.7">
+                                {t('stageGroups.closing')}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                                {t('pipelineSettings.terminalStages')}
+                            </Text>
+                        </Stack>
+                    </Group>
+                    <Stack gap={4}>
+                        {terminalStages.map((s) => renderSimpleStageRow(s))}
+                    </Stack>
+                </Paper>
+            )}
 
             <Divider />
 

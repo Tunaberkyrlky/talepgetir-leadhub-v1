@@ -114,7 +114,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                 company_phone: company.company_phone || '',
                 company_email: sanitizeEmail(company.company_email),
                 email_status: company.email_status || null,
-                stage: company.stage || 'in_queue',
+                stage: company.stage || 'cold',
                 company_summary: company.company_summary || '',
                 next_step: company.next_step || '',
                 fit_score: company.fit_score || '',

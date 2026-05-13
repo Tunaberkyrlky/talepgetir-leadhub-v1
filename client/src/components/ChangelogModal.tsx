@@ -1,7 +1,14 @@
 import { Modal, Stack, Group, Text, Badge, Timeline, ThemeIcon, ScrollArea } from '@mantine/core';
 import { IconSparkles, IconRocket } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
-import { changelog } from '../lib/changelog';
+import { changelog, type ChangelogType } from '../lib/changelog';
+
+const TYPE_META: Record<ChangelogType, { color: string; tr: string; en: string }> = {
+    feature:     { color: 'violet', tr: 'Özellik',     en: 'Feature' },
+    fix:         { color: 'red',    tr: 'Düzeltme',    en: 'Fix' },
+    improvement: { color: 'blue',   tr: 'İyileştirme', en: 'Improvement' },
+    security:    { color: 'orange', tr: 'Güvenlik',    en: 'Security' },
+};
 
 interface ChangelogModalProps {
     opened: boolean;
@@ -54,6 +61,14 @@ export default function ChangelogModal({ opened, onClose }: ChangelogModalProps)
                                     <Badge size="xs" variant="light" color={idx === 0 ? 'violet' : 'gray'}>
                                         {entry.date}
                                     </Badge>
+                                    {(() => {
+                                        const meta = TYPE_META[entry.type ?? 'feature'];
+                                        return (
+                                            <Badge size="xs" variant="filled" color={meta.color}>
+                                                {meta[lang]}
+                                            </Badge>
+                                        );
+                                    })()}
                                 </Group>
                             }
                         >

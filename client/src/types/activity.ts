@@ -6,7 +6,8 @@
  */
 export type ActivityType = 'not' | 'meeting' | 'follow_up' | 'sonlandirma_raporu' | 'status_change' | 'campaign_email';
 export type ActivityVisibility = 'internal' | 'client';
-export type ClosingOutcome = 'won' | 'lost' | 'on_hold' | 'cancelled';
+/** Terminal stage slug — per-tenant (e.g. won, lost, plus any tenant-defined terminal). */
+export type ClosingOutcome = string;
 
 export interface Activity {
     id: string;
@@ -17,7 +18,7 @@ export interface Activity {
     company_name?: string | null;
     company_stage?: string | null;
     type: ActivityType;
-    outcome: string | null;          // sonlandırma raporu: won/lost/on_hold/cancelled
+    outcome: string | null;          // sonlandırma raporu: tenant'ın terminal stage slug'ı
     summary: string;
     detail: string | null;           // sonlandırma raporu: reason/açıklama
     visibility: ActivityVisibility;

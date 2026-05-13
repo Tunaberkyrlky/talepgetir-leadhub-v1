@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useForm } from '@mantine/form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -17,15 +17,15 @@ import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { useAuth } from '../contexts/AuthContext';
+import { useStages } from '../contexts/StagesContext';
 import { hasRolePermission } from '../lib/permissions';
-import type { ClosingOutcome } from '../types/activity';
 
 interface ClosingReportModalProps {
     opened: boolean;
     onClose: () => void;         // iptal → stage değişmez
     companyId: string;
     companyName: string;
-    targetStage: ClosingOutcome; // hangi terminal stage'e gidiliyor (pre-selected)
+    targetStage: string;         // tenant'ın terminal stage slug'larından biri (pre-selected)
     onSuccess: () => void;       // rapor kaydedildi → cache invalidate
 }
 
@@ -40,7 +40,13 @@ export default function ClosingReportModal({
     const { t } = useTranslation();
     const queryClient = useQueryClient();
     const { user } = useAuth();
+    const { terminalStages, getStageLabel } = useStages();
     const canUseInternalNotes = hasRolePermission(user?.role ?? '', 'internal_notes');
+
+    const outcomeOptions = useMemo(
+        () => terminalStages.map((s) => ({ value: s.slug, label: getStageLabel(s.slug) })),
+        [terminalStages, getStageLabel],
+    );
 
     const form = useForm({
         initialValues: {
@@ -96,12 +102,6 @@ export default function ClosingReportModal({
     const handleSubmit = form.onSubmit((values) => {
         mutation.mutate(values);
     });
-
-    const outcomeOptions = [
-        { value: 'won', label: t('activity.closingReport.won') },
-        { value: 'lost', label: t('activity.closingReport.lost') },
-        { value: 'on_hold', label: t('activity.closingReport.on_hold') },
-    ];
 
     const visibilityOptions = [
         { value: 'client', label: t('activity.visibility_options.client') },

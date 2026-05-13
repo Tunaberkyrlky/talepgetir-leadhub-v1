@@ -10,32 +10,13 @@ export interface PipelineStageGroup {
     stages: string[];
 }
 
-// NOTE: Canonical defaults live in server/src/routes/settings.ts — keep in sync
+// NOTE: Canonical defaults live in server/src/routes/settings.ts — keep in sync.
+// Groups contain only pipeline-type stages. Terminal stages (won/lost) are
+// rendered as a visual "Karar" group in the UI but live outside the group data model.
 export const DEFAULT_PIPELINE_GROUPS: PipelineStageGroup[] = [
-    {
-        id: 'first_contact',
-        label: 'firstContact',
-        color: 'blue',
-        stages: ['in_queue', 'first_contact', 'connected'],
-    },
-    {
-        id: 'qualification',
-        label: 'qualification',
-        color: 'orange',
-        stages: ['qualified', 'in_meeting'],
-    },
-    {
-        id: 'evaluation',
-        label: 'evaluation',
-        color: 'grape',
-        stages: ['follow_up', 'proposal_sent'],
-    },
-    {
-        id: 'closing',
-        label: 'closing',
-        color: 'green',
-        stages: ['negotiation'],
-    },
+    { id: 'first_contact', label: 'firstContact',  color: 'blue',   stages: ['connected'] },
+    { id: 'qualification', label: 'qualification', color: 'orange', stages: ['follow_up'] },
+    { id: 'evaluation',    label: 'evaluation',    color: 'grape',  stages: ['in_meeting'] },
 ];
 
 /** All available colors for pipeline groups */

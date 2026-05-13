@@ -81,8 +81,10 @@ Kullanıcı "versiyonla" veya "commit at versiyonla" dediğinde şu adımları u
 
 1. **3 package.json güncelle** — `package.json`, `client/package.json`, `server/package.json` içindeki `"version"` alanını yeni versiyona çek (hepsi aynı olmalı)
 2. **Changelog güncelle** — `client/src/lib/changelog.ts` dosyasının `changelog` dizisinin **başına** yeni entry ekle:
+   - **`type` alanını zorunlu doldur**: `'feature' | 'fix' | 'improvement' | 'security'` — başlıkta renkli badge olarak görünür. Versiyon karma içerikse en baskın olanı seç (feature > improvement > fix > security önceliğiyle).
    - Kullanıcıyı etkileyen özellikleri ön plana çıkart (yeni ekran, yeni buton, davranış değişikliği)
    - Teknik/arka plan değişikliklerini (güvenlik, performans, refactor) tek satırda özetle
    - Her feature açıklaması kullanıcının "bununla ne yapabilirim" sorusuna cevap vermeli
    - TR ve EN dil desteği zorunlu
-3. **Commit at** — değişiklikleri commit et
+3. **DURAKLA — commit ETME**. Kullanıcıya "değişiklikler hazır, kontrol et" de ve onun "tamam"/"devam" onayını bekle. Bu noktada kullanıcı kelime seçimi, tip ayarı, satır ekleme/silme gibi küçük düzenlemeler yapabilir.
+4. **Onay sonrası commit at** — kullanıcı onayladıktan sonra değişiklikleri commit et.
