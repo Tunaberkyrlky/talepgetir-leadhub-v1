@@ -145,8 +145,10 @@ async function main() {
     const raw   = fs.readFileSync(TMP_TXT, 'utf-8');
     const lines = raw.split('\n');
 
-    // tempIndex: normalizedName → { lat, lng, country, population }
-    // When the same normalized name appears multiple times, keep highest population.
+    // tempIndex: normalizedName → array of { lat, lng, country, population }
+    // Collect ALL entries per name (multiple cities can share a name in different countries),
+    // then later dedupe by (country, coords) and keep top-N by population. This lets the
+    // geocoder disambiguate "Katy, Texas, USA" → Katy, TX instead of Katy, Mali.
     const tempIndex = new Map();
     let unknownCountryCount = 0;
 
@@ -174,18 +176,30 @@ async function main() {
         for (const c of candidates) {
             const key = normalize(c);
             if (!key || key.length < 2) continue;
-            const existing = tempIndex.get(key);
-            if (!existing || population > existing.population) {
-                tempIndex.set(key, { lat, lng, country, population });
-            }
+            const arr = tempIndex.get(key) || [];
+            arr.push({ lat, lng, country, population });
+            tempIndex.set(key, arr);
         }
     }
 
-    // Build compact output: { name: [lat, lng, "Country"], ... }
-    // Country is omitted (entry length 2) when ISO2 code is unknown.
+    // Build compact output: { name: [[lat, lng, "Country"], ...] }
+    // Dedupe by (country, rounded coords) — alternate name variants point to the same
+    // physical city. Sort by population desc, keep top-5 to bound file size.
+    const TOP_N = 5;
     const index = {};
-    for (const [key, val] of tempIndex) {
-        index[key] = val.country ? [val.lat, val.lng, val.country] : [val.lat, val.lng];
+    for (const [key, entries] of tempIndex) {
+        const dedup = new Map();
+        for (const e of entries) {
+            const dedupKey = `${e.country || '_'}|${e.lat.toFixed(3)},${e.lng.toFixed(3)}`;
+            const existing = dedup.get(dedupKey);
+            if (!existing || e.population > existing.population) {
+                dedup.set(dedupKey, e);
+            }
+        }
+        const unique = [...dedup.values()]
+            .sort((a, b) => b.population - a.population)
+            .slice(0, TOP_N);
+        index[key] = unique.map((e) => (e.country ? [e.lat, e.lng, e.country] : [e.lat, e.lng]));
     }
     if (unknownCountryCount > 0) {
         console.log(`ℹ️   ${unknownCountryCount} rows had unknown ISO2 — country left null`);

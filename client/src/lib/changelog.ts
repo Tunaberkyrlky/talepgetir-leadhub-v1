@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.14',
+        date: '2026-05-14',
+        type: 'fix',
+        title: { tr: 'Konum Eşlemesi Daha İsabetli', en: 'Smarter Location Matching' },
+        features: [
+            {
+                tr: 'Aynı isimli farklı ülke şehirleri artık virgülle belirtilen ülkeye göre doğru eşleniyor (örn. "Katy, Texas, USA" → Mali değil ABD\'deki Katy)',
+                en: 'Cities sharing a name across countries now resolve to the country specified in the string (e.g. "Katy, Texas, USA" → Katy in the US, not Mali)',
+            },
+            {
+                tr: '"Greater Indianapolis" veya "Dayton Metropolitan Area" gibi yazımlar artık şehir koordinatına oturuyor — daha önce ülke merkezine pinleniyordu',
+                en: '"Greater Indianapolis" or "Dayton Metropolitan Area" style entries now resolve to city-level coordinates instead of falling back to the country centroid',
+            },
+        ],
+    },
+    {
         version: '1.9.13',
         date: '2026-05-13',
         type: 'improvement',

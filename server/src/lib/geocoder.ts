@@ -4,10 +4,12 @@ import { createLogger } from './logger.js';
 
 const log = createLogger('geocoder');
 
-// Index entries are [lat, lng] for legacy data or [lat, lng, country] post-rebuild.
-// Older citiesIndex.json (built before country embedding) still works — country is just null.
+// Each name maps to an array of candidate entries (sorted by population desc).
+// Tuple is [lat, lng] or [lat, lng, country]. Multiple entries enable disambiguation
+// like "Katy, Texas, USA" — without the country preference we'd pick the most populous
+// Katy worldwide (Mali); with it we find Katy in the USA.
 type CityEntry = [number, number] | [number, number, string];
-type CityIndex = Record<string, CityEntry>;
+type CityIndex = Record<string, CityEntry[]>;
 
 let _index: CityIndex | null = null;
 let _missing = false; // avoid repeated warnings
@@ -127,13 +129,18 @@ export interface GeocodeResult {
 /**
  * Lookup coordinates and country for a free-text location string.
  *
- * Strategy (in order):
- * 1. Full normalized string against COUNTRIES (e.g. "Albania" → Albania centroid)
- * 2. Full normalized string against cities index
- * 3. Each comma-separated part: country first, then city
- * 4. Progressive prefix reduction on first part (cities only)
+ * Strategy:
+ * 1. If the full string is itself a country name → return that country.
+ *    (Keeps "Albania" → Albania, not a small US town named Albania.)
+ * 2. Detect a "preferred country" by scanning comma-separated parts for any
+ *    COUNTRIES key. This biases subsequent city lookups toward that country.
+ * 3. Try to find a city — full string, each part, then sub-words of the first
+ *    part (for "Greater X", "X Metropolitan Area" patterns). Whenever multiple
+ *    cities share a normalized name, prefer the one in the detected country.
+ * 4. If no city is found but a country was detected, fall back to that country
+ *    centroid so at least the country column gets filled.
  *
- * Returns null if no match found.
+ * Returns null if nothing matches.
  */
 export function lookupCoordinates(location: string): GeocodeResult | null {
     if (!location?.trim()) return null;
@@ -149,35 +156,65 @@ export function lookupCoordinates(location: string): GeocodeResult | null {
     const fromCountry = (entry: CountryEntry): GeocodeResult => ({
         lat: entry[0], lng: entry[1], country: entry[2],
     });
+    const pickCity = (entries: CityEntry[] | undefined, preferred: string | null): CityEntry | undefined => {
+        if (!entries || entries.length === 0) return undefined;
+        if (preferred) {
+            const match = entries.find((e) => e.length === 3 && e[2] === preferred);
+            if (match) return match;
+        }
+        return entries[0]; // sorted by population desc at build time
+    };
 
     // Split by comma/slash BEFORE normalizing (normalize strips commas)
     const rawParts = location.split(/[,\/]/).map((p) => p.trim()).filter(Boolean);
     const normalizedParts = rawParts.map(normalize).filter(Boolean);
     const normalized = normalizedParts.join(' ');
 
-    // 1. Full string: country names take priority over same-named cities
+    // 1. Full string country match — "Albania" / "Türkiye" / "USA"
     const exactCountry = COUNTRIES[normalized];
     if (exactCountry) return fromCountry(exactCountry);
 
-    // 2. Exact match on full string in cities index
-    const exact = index[normalized];
-    if (exact) return fromCity(exact);
+    // 2. Detect a preferred country from any part
+    let preferredCountry: string | null = null;
+    let preferredCountryEntry: CountryEntry | null = null;
+    for (const p of normalizedParts) {
+        const c = COUNTRIES[p];
+        if (c) {
+            preferredCountry = c[2];
+            preferredCountryEntry = c;
+            break;
+        }
+    }
 
-    // 3. Each comma/slash-separated part — country first per part, then city
+    // 3a. Full string as a city (country-aware)
+    const exactCity = pickCity(index[normalized], preferredCountry);
+    if (exactCity) return fromCity(exactCity);
+
+    // 3b. Each part as a city (country-aware)
     for (const part of normalizedParts) {
-        const country = COUNTRIES[part];
-        if (country) return fromCountry(country);
-        const hit = index[part];
+        const hit = pickCity(index[part], preferredCountry);
         if (hit) return fromCity(hit);
     }
 
-    // 4. Progressive word-prefix reduction on the first part (cities index only)
+    // 3c. Sub-words of the first part — handles "Greater Indianapolis" → "indianapolis",
+    //     "Dayton Metropolitan Area" → "dayton". Try multi-word prefixes first (more
+    //     specific), then individual words >= 3 chars.
     const words = (normalizedParts[0] || normalized).split(' ').filter(Boolean);
-    for (let len = words.length - 1; len >= 2; len--) {
-        const candidate = words.slice(0, len).join(' ');
-        const hit = index[candidate];
-        if (hit) return fromCity(hit);
+    if (words.length > 1) {
+        for (let len = words.length - 1; len >= 2; len--) {
+            const candidate = words.slice(0, len).join(' ');
+            const hit = pickCity(index[candidate], preferredCountry);
+            if (hit) return fromCity(hit);
+        }
+        for (const w of words) {
+            if (w.length < 3) continue;
+            const hit = pickCity(index[w], preferredCountry);
+            if (hit) return fromCity(hit);
+        }
     }
+
+    // 4. Country centroid fallback when we detected one but no city resolved
+    if (preferredCountryEntry) return fromCountry(preferredCountryEntry);
 
     return null;
 }
