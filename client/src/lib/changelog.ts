@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.15',
+        date: '2026-05-18',
+        type: 'improvement',
+        title: { tr: 'Eklenti Akışı İyileştirmeleri', en: 'Attachment Workflow Improvements' },
+        features: [
+            {
+                tr: 'Mail yanıtlarken ve yönlendirirken aynı anda 10 ek dosyaya kadar seçebilirsiniz; önceki 3 dosya sınırı kaldırıldı',
+                en: 'You can now attach up to 10 files when replying or forwarding emails; the previous 3-file limit has been lifted',
+            },
+            {
+                tr: 'Eklentileri artık düzenleyebilirsiniz, eklenti üzerindeki kalem ikonuna tıklayın, ad/URL/tip/boyut alanlarını güncelleyin.',
+                en: 'Attachments can now be edited — click the pencil icon on any attachment to update its name, URL, type or size in place; no need to delete and re-create from scratch',
+            },
+        ],
+    },
+    {
         version: '1.9.14',
         date: '2026-05-14',
         type: 'fix',

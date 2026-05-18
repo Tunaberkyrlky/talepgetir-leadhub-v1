@@ -10,6 +10,7 @@ import {
     IconMail, IconMailOpened, IconTrash, IconRefresh,
     IconExternalLink, IconPlus, IconChevronDown, IconX, IconCheck,
     IconArrowBackUp, IconArrowForwardUp, IconSend, IconPaperclip, IconDeviceFloppy,
+    IconPencil,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
@@ -81,6 +82,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [customCc, setCustomCc] = useState('');
     const [selectedAttachments, setSelectedAttachments] = useState<string[]>([]);
     const [newAttOpen, setNewAttOpen] = useState(false);
+    const [editingAttId, setEditingAttId] = useState<string | null>(null);
     const [newAttLabel, setNewAttLabel] = useState('');
     const [newAttUrl, setNewAttUrl] = useState('');
     const [newAttType, setNewAttType] = useState('PDF');
@@ -279,6 +281,15 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         staleTime: 5 * 60_000,
     });
 
+    const resetAttForm = () => {
+        setNewAttOpen(false);
+        setEditingAttId(null);
+        setNewAttLabel('');
+        setNewAttUrl('');
+        setNewAttType('PDF');
+        setNewAttSize('');
+    };
+
     // ── Create new attachment template ──
     const createTemplateMutation = useMutation({
         mutationFn: async () => (await api.post('/attachment-templates', {
@@ -290,14 +301,37 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         onSuccess: (result: { data: AttachmentTemplate }) => {
             queryClient.invalidateQueries({ queryKey: ['attachment-templates'] });
             setSelectedAttachments((prev) => [...prev, result.data.id]);
-            setNewAttOpen(false);
-            setNewAttLabel('');
-            setNewAttUrl('');
-            setNewAttType('PDF');
-            setNewAttSize('');
+            resetAttForm();
         },
         onError: (err) => showErrorFromApi(err, t('emailReplies.attachments.createFailed')),
     });
+
+    // ── Update existing attachment template ──
+    const updateTemplateMutation = useMutation({
+        mutationFn: async () => {
+            if (!editingAttId) throw new Error('No template selected for edit');
+            return (await api.put(`/attachment-templates/${editingAttId}`, {
+                label: newAttLabel.trim(),
+                file_url: newAttUrl.trim(),
+                file_type: newAttType.toLowerCase(),
+                file_size: newAttSize.trim(),
+            })).data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['attachment-templates'] });
+            resetAttForm();
+        },
+        onError: (err) => showErrorFromApi(err, t('emailReplies.attachments.updateFailed', t('emailReplies.attachments.createFailed'))),
+    });
+
+    const startEditTemplate = (tmpl: AttachmentTemplate) => {
+        setEditingAttId(tmpl.id);
+        setNewAttLabel(tmpl.label);
+        setNewAttUrl(tmpl.file_url);
+        setNewAttType(tmpl.file_type.toUpperCase());
+        setNewAttSize(tmpl.file_size || '');
+        setNewAttOpen(true);
+    };
 
     // ── Delete attachment template ──
     const deleteTemplateMutation = useMutation({
@@ -887,6 +921,22 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                                     <ActionIcon
                                                         size={16}
                                                         variant="subtle"
+                                                        color="gray"
+                                                        radius="xl"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            startEditTemplate(tmpl);
+                                                        }}
+                                                        style={{ flexShrink: 0, opacity: 0.4 }}
+                                                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+                                                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.4'; }}
+                                                        aria-label={t('emailReplies.attachments.edit', 'Düzenle')}
+                                                    >
+                                                        <IconPencil size={10} />
+                                                    </ActionIcon>
+                                                    <ActionIcon
+                                                        size={16}
+                                                        variant="subtle"
                                                         color="red"
                                                         radius="xl"
                                                         onClick={(e) => {
@@ -904,11 +954,13 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                         })}
                                     </Group>
 
-                                    {/* New attachment form */}
+                                    {/* New / edit attachment form */}
                                     <Collapse in={newAttOpen}>
                                         <Box mt={10} p={12} style={{ border: '1px solid #e8e8f0', borderRadius: 10, background: '#f9f9fd' }}>
                                             <Text size="xs" fw={600} c="#495057" mb={8}>
-                                                {t('emailReplies.attachments.createTitle')}
+                                                {editingAttId
+                                                    ? t('emailReplies.attachments.editTitle', 'Eki Düzenle')
+                                                    : t('emailReplies.attachments.createTitle')}
                                             </Text>
                                             <TextInput
                                                 size="xs"
@@ -946,15 +998,15 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                                 />
                                             </Group>
                                             <Group justify="flex-end" mt={10} gap={6}>
-                                                <Button size="xs" variant="subtle" color="gray" onClick={() => setNewAttOpen(false)}>
+                                                <Button size="xs" variant="subtle" color="gray" onClick={resetAttForm}>
                                                     {t('emailReplies.reply.cancel')}
                                                 </Button>
                                                 <Button
                                                     size="xs"
                                                     color="violet"
-                                                    loading={createTemplateMutation.isPending}
+                                                    loading={createTemplateMutation.isPending || updateTemplateMutation.isPending}
                                                     disabled={!newAttLabel.trim() || !newAttUrl.trim()}
-                                                    onClick={() => createTemplateMutation.mutate()}
+                                                    onClick={() => (editingAttId ? updateTemplateMutation.mutate() : createTemplateMutation.mutate())}
                                                 >
                                                     {t('emailReplies.attachments.save')}
                                                 </Button>
@@ -969,7 +1021,14 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                         variant="subtle"
                                         color="gray"
                                         leftSection={<IconPaperclip size={12} />}
-                                        onClick={() => setNewAttOpen(true)}
+                                        onClick={() => {
+                                            setEditingAttId(null);
+                                            setNewAttLabel('');
+                                            setNewAttUrl('');
+                                            setNewAttType('PDF');
+                                            setNewAttSize('');
+                                            setNewAttOpen(true);
+                                        }}
                                         styles={{ root: { fontSize: 11 } }}
                                     >
                                         {t('emailReplies.attachments.addNew')}

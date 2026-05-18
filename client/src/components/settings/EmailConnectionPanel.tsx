@@ -5,14 +5,15 @@ import {
     IconMail, IconBrandGoogle, IconBrandWindows, IconPlugConnectedX, IconCheck, IconAlertCircle,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import Nango from '@nangohq/frontend';
 import api from '../../lib/api';
-import { showSuccess, showErrorFromApi } from '../../lib/notifications';
+import { showSuccess, showError, showErrorFromApi } from '../../lib/notifications';
 import { useAuth } from '../../contexts/AuthContext';
 import type { EmailConnectionStatus } from '../../types/campaign';
 
 export default function EmailConnectionPanel() {
     const { t } = useTranslation();
-    useAuth(); // activeTenantId will be used as Nango connectionId when OAuth is deployed
+    const { activeTenantId } = useAuth();
     const qc = useQueryClient();
     const [connecting, setConnecting] = useState(false);
 
@@ -28,16 +29,28 @@ export default function EmailConnectionPanel() {
     });
 
     const handleConnect = async (provider: 'google-mail' | 'microsoft-outlook') => {
+        if (!activeTenantId) {
+            showError(t('campaign.noActiveTenant', 'No active tenant selected'));
+            return;
+        }
+
         setConnecting(true);
         try {
-            // In production: Nango frontend SDK opens OAuth popup
-            // const nangoFrontend = new Nango({ publicKey: import.meta.env.VITE_NANGO_PUBLIC_KEY });
-            // await nangoFrontend.auth(provider, activeTenantId);
-            // await api.post('/email-connections/callback', { provider });
-            // qc.invalidateQueries({ queryKey: ['email-connection-status'] });
+            // 1. Backend'den short-lived Connect session token al
+            const { data: session } = await api.post('/email-connections/start-session', { provider });
+            const token = session?.token as string | undefined;
+            if (!token) throw new Error('No session token returned');
 
-            // Placeholder until Nango is deployed:
-            alert(`OAuth popup would open for ${provider}.\nConfigure VITE_NANGO_PUBLIC_KEY to enable.`);
+            // 2. Nango SDK'yı token'la başlat, auth popup'ı aç
+            const nango = new Nango({ connectSessionToken: token });
+            const result = await nango.auth(provider);
+            const connectionId = (result as { connectionId?: string } | undefined)?.connectionId;
+            if (!connectionId) throw new Error('Nango auth did not return a connectionId');
+
+            // 3. Backend'e callback — connection bilgilerini email_connections'a yazsın
+            await api.post('/email-connections/callback', { provider, connectionId });
+            qc.invalidateQueries({ queryKey: ['email-connection-status'] });
+            showSuccess(t('campaign.emailConnected', 'Email connected'));
         } catch (err) {
             showErrorFromApi(err);
         } finally {

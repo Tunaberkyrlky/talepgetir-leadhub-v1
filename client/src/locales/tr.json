@@ -768,6 +768,8 @@
             "label": "Eklentiler",
             "addNew": "Yeni Ekle",
             "createTitle": "Yeni Eklenti Oluştur",
+            "editTitle": "Eklentiyi Düzenle",
+            "edit": "Düzenle",
             "nameLabel": "Eklenti Adı",
             "namePlaceholder": "örn: Firma Tanıtım 2026",
             "urlLabel": "Dosya URL'i",
@@ -775,6 +777,7 @@
             "sizeLabel": "Boyut",
             "save": "Kaydet",
             "createFailed": "Eklenti oluşturulamadı",
+            "updateFailed": "Eklenti güncellenemedi",
             "deleteFailed": "Eklenti silinemedi",
             "deleteTitle": "Eklentiyi Sil",
             "deleteConfirm": "Bu eklentiyi silmek istediğinizden emin misiniz? Tüm kullanıcılar için kaldırılacak."

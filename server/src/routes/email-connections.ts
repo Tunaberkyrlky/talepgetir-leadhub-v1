@@ -1,5 +1,12 @@
 /**
  * Email Connections — Nango OAuth bağlantı yönetimi
+ *
+ * Akış (Mart 2025'ten itibaren Nango session token pattern'i):
+ *   1. Frontend POST /start-session → backend, Nango'dan short-lived session token üretir
+ *   2. Frontend, token'la new Nango({ connectSessionToken }).auth(provider) çağırır → popup
+ *   3. Popup tamamlanınca SDK auto-generated connectionId döner
+ *   4. Frontend POST /callback { provider, connectionId } → backend Nango'dan bilgileri çeker,
+ *      kullanıcının mail adresini çıkarır, email_connections tablosuna yazar
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
@@ -11,11 +18,16 @@ import { createLogger } from '../lib/logger.js';
 const log = createLogger('route:email-connections');
 const router = Router();
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _nango: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getNango(): Promise<any> {
     if (_nango) return _nango;
+    if (!process.env.NANGO_SECRET_KEY) {
+        throw new AppError('NANGO_SECRET_KEY not configured', 500);
+    }
     const { Nango } = await import('@nangohq/node');
-    _nango = new Nango({ secretKey: process.env.NANGO_SECRET_KEY || '' });
+    _nango = new Nango({ secretKey: process.env.NANGO_SECRET_KEY });
     return _nango;
 }
 
@@ -44,21 +56,54 @@ router.get('/status', async (req: Request, res: Response): Promise<void> => {
     }
 });
 
-// POST /api/email-connections/callback — after Nango frontend OAuth popup
-router.post('/callback', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+// POST /api/email-connections/start-session — Nango Connect session token üret
+router.post('/start-session', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
-        const { provider } = req.body;
+        const { provider } = req.body as { provider?: string };
 
-        if (!['google-mail', 'microsoft-outlook'].includes(provider)) {
+        if (!provider || !['google-mail', 'microsoft-outlook'].includes(provider)) {
             res.status(400).json({ error: 'Invalid provider. Use google-mail or microsoft-outlook.' });
             return;
         }
 
-        const connectionId = tenantId;
+        const nango = await getNango();
+        const result = await nango.createConnectSession({
+            end_user: { id: tenantId },
+            allowed_integrations: [provider],
+        });
+
+        const token = result?.data?.token;
+        if (!token) {
+            throw new AppError('Nango did not return a session token', 502);
+        }
+
+        res.json({ token });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Start session error');
+        res.status(500).json({ error: 'Failed to start OAuth session' });
+    }
+});
+
+// POST /api/email-connections/callback — Nango popup sonrası connectionId ile çağrılır
+router.post('/callback', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const { provider, connectionId } = req.body as { provider?: string; connectionId?: string };
+
+        if (!provider || !['google-mail', 'microsoft-outlook'].includes(provider)) {
+            res.status(400).json({ error: 'Invalid provider. Use google-mail or microsoft-outlook.' });
+            return;
+        }
+        if (!connectionId || typeof connectionId !== 'string' || connectionId.length > 200) {
+            res.status(400).json({ error: 'Missing or invalid connectionId' });
+            return;
+        }
+
+        const nango = await getNango();
         let connection;
         try {
-            const nango = await getNango();
             connection = await nango.getConnection(provider, connectionId);
         } catch {
             res.status(422).json({ error: 'OAuth connection not found. Please try again.' });
@@ -67,7 +112,13 @@ router.post('/callback', async (req: Request, res: Response, next: NextFunction)
 
         // Resolve email address from provider
         let emailAddress = '';
-        const accessToken = (connection.credentials as any).access_token;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const accessToken = (connection.credentials as any)?.access_token;
+
+        if (!accessToken) {
+            res.status(422).json({ error: 'OAuth connection missing access token' });
+            return;
+        }
 
         if (provider === 'google-mail') {
             const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
@@ -110,8 +161,9 @@ router.post('/callback', async (req: Request, res: Response, next: NextFunction)
             throw new AppError('Failed to save email connection', 500);
         }
 
-        log.info({ tenantId, provider, email: emailAddress }, 'Email connected');
+        log.info({ tenantId, provider, email: emailAddress, connectionId }, 'Email connected');
         res.json({ connected: true, provider, email: emailAddress });
+        void data;
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Connection callback error');
