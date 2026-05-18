@@ -15,20 +15,65 @@ export class AppError extends Error {
     }
 }
 
+/** Truncate large strings to keep log payloads bounded. */
+function truncate(value: unknown, max = 500): unknown {
+    if (typeof value !== 'string') return value;
+    return value.length > max ? `${value.slice(0, max)}…(truncated ${value.length - max})` : value;
+}
+
+function summarizeBody(body: unknown): unknown {
+    if (!body || typeof body !== 'object') return body;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
+        out[k] = truncate(v);
+    }
+    return out;
+}
+
 export function errorHandler(
     err: Error,
     req: Request,
     res: Response,
     _next: NextFunction
 ): void {
-    log.error({ err }, err.message);
+    const anyReq = req as any;
+    const requestId = (anyReq.id as string) ?? (res.getHeader('X-Request-ID') as string) ?? null;
+    const statusCode = err instanceof AppError ? err.statusCode : 500;
 
-    const distinctId = (req as any).user?.id ?? 'anonymous';
-    posthog.captureException(err, distinctId);
+    const context = {
+        err,
+        request_id: requestId,
+        user_id: anyReq.user?.id ?? null,
+        user_email: anyReq.user?.email ?? null,
+        tenant_id: anyReq.tenantId ?? null,
+        role: anyReq.user?.role ?? null,
+        method: req.method,
+        url: req.originalUrl ?? req.url,
+        query: req.query,
+        body: summarizeBody(req.body),
+        status: statusCode,
+    };
+
+    // 4xx are warnings (user/input errors), 5xx are errors (server faults)
+    if (statusCode >= 500) log.error(context, err.message);
+    else log.warn(context, err.message);
+
+    // PostHog: only capture 5xx (real exceptions); 4xx are expected app flows
+    if (statusCode >= 500) {
+        const distinctId = anyReq.user?.id ?? 'anonymous';
+        posthog.captureException(err, distinctId, {
+            request_id: requestId,
+            tenant_id: anyReq.tenantId ?? null,
+            method: req.method,
+            url: req.originalUrl ?? req.url,
+            status: statusCode,
+        });
+    }
 
     if (err instanceof AppError) {
         res.status(err.statusCode).json({
             error: err.message,
+            request_id: requestId,
         });
         return;
     }
@@ -41,5 +86,6 @@ export function errorHandler(
 
     res.status(500).json({
         error: message,
+        request_id: requestId,
     });
 }

@@ -803,7 +803,8 @@
         "notFound": "Kayıt bulunamadı",
         "conflict": "Bu kayıt zaten mevcut",
         "validationFailed": "Lütfen formu kontrol edin",
-        "generic": "Bir sorun oluştu, lütfen tekrar deneyin"
+        "generic": "Bir sorun oluştu, lütfen tekrar deneyin",
+        "requestId": "İstek No"
     },
     "campaigns": {
         "pageTitle": "Kampanyalar",

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import classes from './Layout.module.css';
 import {
@@ -39,6 +39,7 @@ import ChangelogModal, { getHasNewChangelog, markChangelogSeen } from './Changel
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import { hasRolePermission } from '../lib/permissions';
+import { FEEDBACK_OPEN_EVENT, buildFeedbackPrefill, clearLastError } from '../lib/lastError';
 
 export default function Layout() {
     const {
@@ -56,9 +57,28 @@ export default function Layout() {
     const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
     const [navbarOpened, { toggle: toggleNavbar, close: closeNavbar }] = useDisclosure(false);
     const [feedbackOpened, { open: openFeedback, close: closeFeedback }] = useDisclosure(false);
+    const [feedbackPrefill, setFeedbackPrefill] = useState<ReturnType<typeof buildFeedbackPrefill>>(null);
     const [changelogOpened, setChangelogOpened] = useState(false);
     const [hasNewChangelog, setHasNewChangelog] = useState(getHasNewChangelog);
     const [settingsDefaultTab, setSettingsDefaultTab] = useState('general');
+
+    // Listen for "open feedback with last error" requests dispatched from the error toast.
+    // Pre-fills the modal with request id, endpoint, status, server message and timestamp
+    // so the user only has to describe what they were doing.
+    useEffect(() => {
+        const handler = () => {
+            setFeedbackPrefill(buildFeedbackPrefill());
+            openFeedback();
+        };
+        window.addEventListener(FEEDBACK_OPEN_EVENT, handler);
+        return () => window.removeEventListener(FEEDBACK_OPEN_EVENT, handler);
+    }, [openFeedback]);
+
+    const handleFeedbackClose = () => {
+        closeFeedback();
+        setFeedbackPrefill(null);
+        clearLastError();
+    };
 
     const openSettingsTab = useCallback((tab: string) => {
         setSettingsDefaultTab(tab);
@@ -329,7 +349,7 @@ export default function Layout() {
             </AppShell.Main>
 
             <SettingsModal opened={settingsOpened} onClose={closeSettings} defaultTab={settingsDefaultTab} />
-            <FeedbackModal opened={feedbackOpened} onClose={closeFeedback} />
+            <FeedbackModal opened={feedbackOpened} onClose={handleFeedbackClose} prefill={feedbackPrefill ?? undefined} />
             <ChangelogModal opened={changelogOpened} onClose={() => setChangelogOpened(false)} />
         </AppShell>
     );

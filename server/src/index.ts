@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import pinoHttp from 'pino-http';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 
 // Load env for local development (Railway/Vercel inject env vars directly)
 dotenv.config({ path: path.join(__dirname, '..', '..', '..', '.env') });
@@ -57,17 +58,33 @@ app.use((_req, res, next) => {
     res.setHeader('Permissions-Policy', 'window-management=(), protocol-handler=()');
     next();
 });
+// Echo request id back to the client so bug reports can quote a correlation token.
+// Accepts an upstream X-Request-ID if present (eg. from a CDN); otherwise mints one.
+app.use((req: any, res, next) => {
+    const incoming = req.headers['x-request-id'];
+    const reqId = (typeof incoming === 'string' && incoming.length > 0 && incoming.length <= 128)
+        ? incoming
+        : randomUUID();
+    req.id = reqId;
+    res.setHeader('X-Request-ID', reqId);
+    next();
+});
+
 app.use(pinoHttp({
     logger,
-    customLogLevel: (_req: any, res: any, err: any) => {
+    genReqId: (req: any) => req.id,
+    customLogLevel: (req: any, res: any, err: any) => {
         if (err || res.statusCode >= 500) return 'error';
         if (res.statusCode >= 400) return 'warn';
+        // Quiet noise: health checks silenced, read-only GETs to debug (hidden at LOG_LEVEL=info)
+        if (req.url === '/api/health') return 'silent';
+        if (req.method === 'GET') return 'debug';
         return 'info';
     },
     customSuccessMessage: (req: any, res: any, responseTime: any) =>
-        `${req.method} ${req.url} ${res.statusCode} ${responseTime}ms`,
+        `${req.method} ${req.url} ${res.statusCode} ${responseTime}ms [${req.id}]`,
     customErrorMessage: (req: any, res: any, err: any) =>
-        `${req.method} ${req.url} ${res.statusCode} — ${err.message}`,
+        `${req.method} ${req.url} ${res.statusCode} — ${err.message} [${req.id}]`,
     serializers: {
         req: () => undefined as never,
         res: () => undefined as never,

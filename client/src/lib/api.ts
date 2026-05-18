@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { createLogger } from './logger';
+import { recordLastError } from './lastError';
 
 const log = createLogger('api');
 
@@ -79,7 +80,19 @@ api.interceptors.response.use(
                 return Promise.reject(error);
             }
         } else if (status !== 401) {
-            log.error('API error', { status, url, message: error.message });
+            const requestId = (error.response?.headers?.['x-request-id'] as string | undefined) ?? null;
+            const serverMessage = (error.response?.data?.error as string | undefined) ?? null;
+            log.error('API error', { status, url, requestId, message: error.message });
+            recordLastError({
+                requestId,
+                method: (error.config?.method ?? 'GET').toUpperCase(),
+                url: url ?? '(unknown)',
+                status: status ?? null,
+                serverMessage,
+                message: error.message,
+                timestamp: new Date().toISOString(),
+                page: window.location.pathname + window.location.search,
+            });
         }
         return Promise.reject(error);
     }

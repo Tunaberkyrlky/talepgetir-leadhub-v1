@@ -1,6 +1,6 @@
 {
     "name": "leadhub-server",
-    "version": "1.9.16",
+    "version": "1.9.17",
     "private": true,
     "scripts": {
         "dev": "tsx watch src/index.ts",

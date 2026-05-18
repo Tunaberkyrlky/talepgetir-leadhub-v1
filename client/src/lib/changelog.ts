@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.17',
+        date: '2026-05-18',
+        type: 'feature',
+        title: { tr: 'Hata Bildirmek Artık Tek Tık', en: 'Reporting Errors Is Now One Click' },
+        features: [
+            {
+                tr: 'Bir işlem hata verdiğinde sağ alttaki bildirimde artık saat ve "İstek No" görünüyor, yanındaki "Hata Bildir" linkine tıklayınca geri bildirim formu hatanın tüm bilgileriyle otomatik dolu açılıyor — sadece ne yapmaya çalıştığını birkaç cümleyle eklemen yeterli',
+                en: 'When an action fails, the toast in the bottom-right now shows the time and a "Request ID", and clicking the new "Report Error" link opens the feedback form pre-filled with all the details (page, time, request, status, server message, request ID) — you only have to add a sentence about what you were doing',
+            },
+        ],
+    },
+    {
         version: '1.9.16',
         date: '2026-05-18',
         type: 'fix',

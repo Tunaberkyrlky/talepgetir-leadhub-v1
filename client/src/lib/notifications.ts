@@ -1,6 +1,7 @@
 import { notifications } from '@mantine/notifications';
 import { AxiosError } from 'axios';
 import i18n from '../i18n';
+import { openFeedbackForLastError } from './lastError';
 
 function t(key: string): string {
     return i18n.t(key);
@@ -79,5 +80,58 @@ export function getErrorMessage(error: unknown, fallback?: string): string {
 
 /** Convenience: show an error notification from an Axios/unknown error */
 export function showErrorFromApi(error: unknown, fallback?: string) {
-    showError(getErrorMessage(error, fallback));
+    const message = getErrorMessage(error, fallback);
+
+    // For Axios errors with a real response (i.e. the server responded with an error),
+    // augment the toast with the request id and a "Report this error" CTA so the user
+    // can ship a fully-contextualized bug report in one click.
+    if (error instanceof AxiosError && error.response) {
+        const requestId = (error.response.headers?.['x-request-id'] as string | undefined) ?? null;
+        notifications.show({
+            color: 'red',
+            autoClose: 8000,
+            withCloseButton: true,
+            message: (() => {
+                const time = new Date().toLocaleTimeString('tr-TR');
+                const reportLabel = i18n.t('feedback.reportError', 'Hata Bildir');
+                const meta = requestId
+                    ? `${time} · ${i18n.t('errors.requestId', 'İstek No')}: ${requestId.slice(0, 8)}`
+                    : time;
+                // We render plain DOM here to avoid pulling JSX into a .ts file. The host
+                // page already uses Mantine notifications, so styling stays consistent.
+                const container = document.createElement('div');
+                container.style.display = 'flex';
+                container.style.flexDirection = 'column';
+                container.style.gap = '6px';
+
+                const top = document.createElement('div');
+                top.textContent = message;
+                container.appendChild(top);
+
+                const bottom = document.createElement('div');
+                bottom.style.display = 'flex';
+                bottom.style.alignItems = 'center';
+                bottom.style.justifyContent = 'space-between';
+                bottom.style.fontSize = '11px';
+                bottom.style.opacity = '0.8';
+
+                const metaSpan = document.createElement('span');
+                metaSpan.textContent = meta;
+                bottom.appendChild(metaSpan);
+
+                const reportBtn = document.createElement('button');
+                reportBtn.type = 'button';
+                reportBtn.textContent = reportLabel;
+                reportBtn.style.cssText = 'border:0;background:transparent;color:#fff;text-decoration:underline;cursor:pointer;font-size:11px;padding:0;';
+                reportBtn.onclick = () => openFeedbackForLastError();
+                bottom.appendChild(reportBtn);
+
+                container.appendChild(bottom);
+                return container;
+            })(),
+        });
+        return;
+    }
+
+    showError(message);
 }

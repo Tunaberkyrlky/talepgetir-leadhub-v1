@@ -803,7 +803,8 @@
         "notFound": "Record not found",
         "conflict": "This record already exists",
         "validationFailed": "Please check the form",
-        "generic": "Something went wrong, please try again"
+        "generic": "Something went wrong, please try again",
+        "requestId": "Request ID"
     },
     "campaigns": {
         "pageTitle": "Campaigns",
