@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.16',
+        date: '2026-05-18',
+        type: 'fix',
+        title: { tr: 'İstek Limiti Rahatlatıldı', en: 'Request Limit Relaxed' },
+        features: [
+            {
+                tr: 'Hata bildirim formu ve diğer butonlar yoğun kullanımda "Çok fazla istek" hatası veriyordu; dakikalık istek limiti artırıldı, aktif kullanım sırasında butonlar engelleme yapmıyor',
+                en: 'The bug report form and other buttons occasionally surfaced a "Too many requests" error under heavy use; the per-minute request limit has been raised so active sessions no longer hit the wall',
+            },
+        ],
+    },
+    {
         version: '1.9.15',
         date: '2026-05-18',
         type: 'improvement',
