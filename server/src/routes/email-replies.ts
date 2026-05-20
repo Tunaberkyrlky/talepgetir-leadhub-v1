@@ -373,6 +373,7 @@ router.patch(
                     company_id,
                     contact_id: contact_id || null,
                     match_status: 'matched',
+                    match_method: 'manual',
                 })
                 .eq('id', id)
                 .eq('tenant_id', tenantId)
@@ -452,7 +453,12 @@ router.post(
 
                 const { error: updateErr } = await supabaseAdmin
                     .from('email_replies')
-                    .update({ company_id: match.company_id, contact_id: match.contact_id, match_status: 'matched' })
+                    .update({
+                        company_id: match.company_id,
+                        contact_id: match.contact_id,
+                        match_status: 'matched',
+                        match_method: match.match_method,
+                    })
                     .in('id', senderIds)
                     .eq('tenant_id', tenantId);
 
@@ -528,6 +534,7 @@ router.post(
                             company_id: match.company_id,
                             contact_id: match.contact_id,
                             match_status: 'matched',
+                            match_method: match.match_method,
                         })
                         .in('id', ids)
                         .eq('tenant_id', tenantId);
@@ -591,6 +598,7 @@ router.post(
                     company_id: match.company_id,
                     contact_id: match.contact_id,
                     match_status: match.match_status,
+                    match_method: match.match_method,
                 })
                 .eq('id', id)
                 .eq('tenant_id', tenantId)

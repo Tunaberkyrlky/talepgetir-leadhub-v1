@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.18',
+        date: '2026-05-20',
+        type: 'improvement',
+        title: { tr: 'E-posta Eşleştirmesi Düzeltildi', en: 'Email Matching Fixed' },
+        features: [
+            {
+                tr: 'Gelen e-posta yanıtları ile şirketlerin eşleme algoritması iyileştirildi, benzer isimli farklı şirketler (örn. "Pharma" ile "NomPharma") arasındaki karışıklık önlendi. Geçmişteki yanlış eşleşmeler de toplu olarak düzeltildi, mailler doğru şirket kartlarına taşındı.',
+                en: 'Incoming email replies now match to the correct company — confusion between similarly named companies (e.g. "Pharma" vs "NomPharma") is prevented. Past mismatches were also fixed in bulk; mails have been moved to the correct company cards.',
+            },
+        ],
+    },
+    {
         version: '1.9.17',
         date: '2026-05-18',
         type: 'feature',

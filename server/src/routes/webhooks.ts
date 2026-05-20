@@ -129,6 +129,7 @@ router.post(
                 company_id: match.company_id,
                 contact_id: match.contact_id,
                 match_status: match.match_status,
+                match_method: match.match_method,
                 read_status: 'unread',
                 direction: 'IN' as const,
                 raw_payload: sanitizePayload(req.body),
