@@ -56,19 +56,17 @@ export default function ChangelogModal({ opened, onClose }: ChangelogModalProps)
                                 </ThemeIcon>
                             }
                             title={
-                                <Group gap="xs">
+                                <Group gap={8} align="center">
                                     <Text fw={600} size="sm">v{entry.version}</Text>
-                                    <Badge size="xs" variant="light" color={idx === 0 ? 'violet' : 'gray'}>
-                                        {entry.date}
-                                    </Badge>
                                     {(() => {
                                         const meta = TYPE_META[entry.type ?? 'feature'];
                                         return (
-                                            <Badge size="xs" variant="filled" color={meta.color}>
+                                            <Badge size="xs" variant="dot" color={meta.color} styles={{ root: { fontWeight: 500, textTransform: 'none', borderColor: 'transparent', paddingLeft: 6, paddingRight: 8 } }}>
                                                 {meta[lang]}
                                             </Badge>
                                         );
                                     })()}
+                                    <Text size="xs" c="dimmed">{entry.date}</Text>
                                 </Group>
                             }
                         >

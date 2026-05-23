@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.21',
+        date: '2026-05-23',
+        type: 'improvement',
+        title: { tr: 'Yönlendirmeye Dosya Eki', en: 'Attachments on Forward' },
+        features: [
+            {
+                tr: 'E-posta yanıtlarını yönlendirirken artık dosya eki de seçebilirsiniz. Yanıtlama ekranındakiyle aynı şablon listesinden istediğiniz dosyaları işaretleyip yönlendirme mesajınıza otomatik kart olarak ekleyebilirsiniz. Önceden bu akış yalnızca doğrudan yanıtlarda mevcuttu.',
+                en: 'When forwarding email replies, you can now attach files too. Pick from the same template list used in replies; the selected files are appended as cards on the forwarded message. Previously, attachments were limited to direct replies only.',
+            },
+            {
+                tr: 'Yenilikler panelinde versiyonun yanındaki tip rozetleri (Özellik / Düzeltme / İyileştirme / Güvenlik) sadeleştirildi; artık küçük renkli bir nokta ve ince yazı şeklinde, görsel olarak daha az dikkat çeker.',
+                en: 'The type badges (Feature/Fix/Improvement/Security) next to each version in the What\'s New panel are now minimal — a small colored dot with light text, less visually noisy.',
+            },
+        ],
+    },
+    {
         version: '1.9.20',
         date: '2026-05-20',
         type: 'fix',

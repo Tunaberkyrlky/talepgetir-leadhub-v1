@@ -96,6 +96,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [forwardOpen, setForwardOpen] = useState(false);
     const [forwardTo, setForwardTo] = useState('');
     const [forwardNote, setForwardNote] = useState('');
+    const [selectedForwardAttachments, setSelectedForwardAttachments] = useState<string[]>([]);
 
     // Sync all UI state when a different reply is selected
     useEffect(() => {
@@ -113,6 +114,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         setForwardOpen(false);
         setForwardTo('');
         setForwardNote('');
+        setSelectedForwardAttachments([]);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [reply?.id]);
 
@@ -277,7 +279,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             const { data } = await api.get('/attachment-templates');
             return data.data || [];
         },
-        enabled: replyOpen,
+        enabled: replyOpen || forwardOpen,
         staleTime: 5 * 60_000,
     });
 
@@ -300,7 +302,11 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         })).data,
         onSuccess: (result: { data: AttachmentTemplate }) => {
             queryClient.invalidateQueries({ queryKey: ['attachment-templates'] });
-            setSelectedAttachments((prev) => [...prev, result.data.id]);
+            if (forwardOpen) {
+                setSelectedForwardAttachments((prev) => [...prev, result.data.id]);
+            } else {
+                setSelectedAttachments((prev) => [...prev, result.data.id]);
+            }
             resetAttForm();
         },
         onError: (err) => showErrorFromApi(err, t('emailReplies.attachments.createFailed')),
@@ -339,6 +345,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         onSuccess: (_data, deletedId) => {
             queryClient.invalidateQueries({ queryKey: ['attachment-templates'] });
             setSelectedAttachments((prev) => prev.filter((x) => x !== deletedId));
+            setSelectedForwardAttachments((prev) => prev.filter((x) => x !== deletedId));
         },
         onError: (err) => showErrorFromApi(err, t('emailReplies.attachments.deleteFailed')),
     });
@@ -395,12 +402,14 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             (await api.post(`/email-replies/${localReply!.id}/forward`, {
                 to: forwardTo.trim(),
                 note: forwardNote.trim(),
+                ...(selectedForwardAttachments.length > 0 && { attachmentIds: selectedForwardAttachments }),
             })).data,
         onSuccess: () => {
             showSuccess(t('emailReplies.forward.success', 'Email yönlendirildi'));
             setForwardOpen(false);
             setForwardTo('');
             setForwardNote('');
+            setSelectedForwardAttachments([]);
             markAsRead();
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-reply-thread-modal'] });
@@ -1136,12 +1145,181 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                 {t('emailReplies.forward.hint', 'Orijinal mail otomatik olarak notun altında iletilir.')}
                             </Text>
 
+                            {/* ── Attachment selector ── */}
+                            {attachmentTemplates.length > 0 || newAttOpen ? (
+                                <Box mt={12} pt={12} style={{ borderTop: '1px solid #f1f3f5' }}>
+                                    <Group justify="space-between" mb={8}>
+                                        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em', fontSize: 10 }}>
+                                            {t('emailReplies.attachments.label')}
+                                        </Text>
+                                        <Button
+                                            size="compact-xs"
+                                            variant="subtle"
+                                            color="yellow"
+                                            leftSection={<IconPlus size={11} />}
+                                            onClick={() => setNewAttOpen((v) => !v)}
+                                            styles={{ root: { fontSize: 11, fontWeight: 600, border: '1px dashed #fcd34d', borderRadius: 6, padding: '2px 8px' } }}
+                                        >
+                                            {t('emailReplies.attachments.addNew')}
+                                        </Button>
+                                    </Group>
+
+                                    {/* Chips */}
+                                    <Group gap={6} mb={newAttOpen ? 0 : undefined}>
+                                        {attachmentTemplates.map((tmpl) => {
+                                            const isSelected = selectedForwardAttachments.includes(tmpl.id);
+                                            return (
+                                                <Box
+                                                    key={tmpl.id}
+                                                    onClick={() => setSelectedForwardAttachments((prev) =>
+                                                        isSelected ? prev.filter((x) => x !== tmpl.id) : [...prev, tmpl.id]
+                                                    )}
+                                                    style={{
+                                                        display: 'flex', alignItems: 'center', gap: 6,
+                                                        border: `1px solid ${isSelected ? '#d97706' : '#e8e8f0'}`,
+                                                        borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+                                                        background: isSelected ? '#fffbeb' : '#fafafe',
+                                                        transition: 'all 0.15s', userSelect: 'none',
+                                                        position: 'relative',
+                                                    }}
+                                                >
+                                                    <Checkbox
+                                                        checked={isSelected}
+                                                        onChange={() => {}}
+                                                        size="xs"
+                                                        color="yellow"
+                                                        styles={{ input: { cursor: 'pointer' } }}
+                                                    />
+                                                    <Box style={{ flex: 1 }}>
+                                                        <Text size="xs" fw={600} c="#252540">{tmpl.label}</Text>
+                                                        <Text size="xs" c="dimmed" style={{ fontSize: 10 }}>
+                                                            {tmpl.file_type.toUpperCase()}{tmpl.file_size ? ` · ${tmpl.file_size}` : ''}
+                                                        </Text>
+                                                    </Box>
+                                                    <ActionIcon
+                                                        size={16}
+                                                        variant="subtle"
+                                                        color="gray"
+                                                        radius="xl"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            startEditTemplate(tmpl);
+                                                        }}
+                                                        style={{ flexShrink: 0, opacity: 0.4 }}
+                                                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+                                                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.4'; }}
+                                                        aria-label={t('emailReplies.attachments.edit', 'Düzenle')}
+                                                    >
+                                                        <IconPencil size={10} />
+                                                    </ActionIcon>
+                                                    <ActionIcon
+                                                        size={16}
+                                                        variant="subtle"
+                                                        color="red"
+                                                        radius="xl"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setDeleteAttId(tmpl.id);
+                                                        }}
+                                                        style={{ flexShrink: 0, opacity: 0.4 }}
+                                                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+                                                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.4'; }}
+                                                    >
+                                                        <IconX size={10} />
+                                                    </ActionIcon>
+                                                </Box>
+                                            );
+                                        })}
+                                    </Group>
+
+                                    {/* New / edit attachment form */}
+                                    <Collapse in={newAttOpen}>
+                                        <Box mt={10} p={12} style={{ border: '1px solid #e8e8f0', borderRadius: 10, background: '#f9f9fd' }}>
+                                            <Text size="xs" fw={600} c="#495057" mb={8}>
+                                                {editingAttId
+                                                    ? t('emailReplies.attachments.editTitle', 'Eki Düzenle')
+                                                    : t('emailReplies.attachments.createTitle')}
+                                            </Text>
+                                            <TextInput
+                                                size="xs"
+                                                label={t('emailReplies.attachments.nameLabel')}
+                                                placeholder={t('emailReplies.attachments.namePlaceholder')}
+                                                value={newAttLabel}
+                                                onChange={(e) => setNewAttLabel(e.currentTarget.value)}
+                                                mb={6}
+                                            />
+                                            <TextInput
+                                                size="xs"
+                                                label={t('emailReplies.attachments.urlLabel')}
+                                                placeholder="https://drive.google.com/..."
+                                                value={newAttUrl}
+                                                onChange={(e) => setNewAttUrl(e.currentTarget.value)}
+                                                mb={6}
+                                                styles={{ input: { fontFamily: 'monospace', fontSize: 11 } }}
+                                            />
+                                            <Group gap={8}>
+                                                <TextInput
+                                                    size="xs"
+                                                    label={t('emailReplies.attachments.typeLabel')}
+                                                    placeholder="PDF"
+                                                    value={newAttType}
+                                                    onChange={(e) => setNewAttType(e.currentTarget.value)}
+                                                    style={{ flex: '0 0 100px' }}
+                                                />
+                                                <TextInput
+                                                    size="xs"
+                                                    label={t('emailReplies.attachments.sizeLabel')}
+                                                    placeholder="2.4 MB"
+                                                    value={newAttSize}
+                                                    onChange={(e) => setNewAttSize(e.currentTarget.value)}
+                                                    style={{ flex: '0 0 100px' }}
+                                                />
+                                            </Group>
+                                            <Group justify="flex-end" mt={10} gap={6}>
+                                                <Button size="xs" variant="subtle" color="gray" onClick={resetAttForm}>
+                                                    {t('emailReplies.reply.cancel')}
+                                                </Button>
+                                                <Button
+                                                    size="xs"
+                                                    color="yellow"
+                                                    loading={createTemplateMutation.isPending || updateTemplateMutation.isPending}
+                                                    disabled={!newAttLabel.trim() || !newAttUrl.trim()}
+                                                    onClick={() => (editingAttId ? updateTemplateMutation.mutate() : createTemplateMutation.mutate())}
+                                                >
+                                                    {t('emailReplies.attachments.save')}
+                                                </Button>
+                                            </Group>
+                                        </Box>
+                                    </Collapse>
+                                </Box>
+                            ) : (
+                                <Box mt={8}>
+                                    <Button
+                                        size="compact-xs"
+                                        variant="subtle"
+                                        color="gray"
+                                        leftSection={<IconPaperclip size={12} />}
+                                        onClick={() => {
+                                            setEditingAttId(null);
+                                            setNewAttLabel('');
+                                            setNewAttUrl('');
+                                            setNewAttType('PDF');
+                                            setNewAttSize('');
+                                            setNewAttOpen(true);
+                                        }}
+                                        styles={{ root: { fontSize: 11 } }}
+                                    >
+                                        {t('emailReplies.attachments.addNew')}
+                                    </Button>
+                                </Box>
+                            )}
+
                             <Group justify="flex-end" mt={10} gap="xs">
                                 <Button
                                     size="xs"
                                     variant="subtle"
                                     color="gray"
-                                    onClick={() => setForwardOpen(false)}
+                                    onClick={() => { setForwardOpen(false); setSelectedForwardAttachments([]); }}
                                 >
                                     {t('emailReplies.reply.cancel')}
                                 </Button>
@@ -1158,6 +1336,11 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                     onClick={() => forwardMutation.mutate()}
                                 >
                                     {t('emailReplies.forward.send', 'Yönlendir')}
+                                    {selectedForwardAttachments.length > 0 && (
+                                        <Badge size="xs" variant="filled" color="white" c="yellow" ml={4}>
+                                            +{selectedForwardAttachments.length}
+                                        </Badge>
+                                    )}
                                 </Button>
                             </Group>
                         </Box>
