@@ -584,6 +584,7 @@
         "moreActivities": "more activities",
         "totalActivities": "activities",
         "loadError": "Failed to load activities",
+        "periodAll": "All",
         "periodDay": "Day",
         "periodWeek": "Week",
         "periodMonth": "Month",

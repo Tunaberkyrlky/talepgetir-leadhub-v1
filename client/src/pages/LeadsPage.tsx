@@ -270,7 +270,7 @@ function SortableColumnItem({
 
 // ─── Period Filter Helpers ────────────────────────────────────────────────────
 
-type PeriodType = 'day' | 'week' | 'month' | 'custom';
+type PeriodType = 'all' | 'day' | 'week' | 'month' | 'custom';
 
 function toLocalDateStr(d: Date): string {
     const y = d.getFullYear();
@@ -366,7 +366,7 @@ export default function LeadsPage() {
     });
     const [locationSearchValue, setLocationSearchValue] = useState('');
     const [selectedProducts, setSelectedProducts] = useState<string[]>(() => savedState?.selectedProducts ?? []);
-    const [periodType, setPeriodType] = useState<PeriodType>(() => savedState?.periodType ?? 'month');
+    const [periodType, setPeriodType] = useState<PeriodType>(() => savedState?.periodType ?? 'all');
     const [periodAnchor, setPeriodAnchor] = useState<Date>(() =>
         savedState?.periodAnchor ? new Date(savedState.periodAnchor) : new Date()
     );
@@ -405,6 +405,7 @@ export default function LeadsPage() {
     const periodLabel = formatPeriodLabel(periodType, periodAnchor, locale);
 
     const dateParams = useMemo(() => {
+        if (periodType === 'all') return null;
         if (periodType === 'custom') {
             if (!customRange[0] || !customRange[1]) return null;
             return {
@@ -661,7 +662,7 @@ export default function LeadsPage() {
         setSelectedLocations([]);
         setSelectedCountries([]);
         setSelectedProducts([]);
-        setPeriodType('month');
+        setPeriodType('all');
         setPeriodAnchor(new Date());
         setCustomRange([null, null]);
     };
@@ -1171,6 +1172,7 @@ export default function LeadsPage() {
                             setPage(1);
                         }}
                         data={[
+                            { label: t('activities.periodAll'), value: 'all' },
                             { label: t('activities.periodDay'), value: 'day' },
                             { label: t('activities.periodWeek'), value: 'week' },
                             { label: t('activities.periodMonth'), value: 'month' },
@@ -1178,7 +1180,7 @@ export default function LeadsPage() {
                         ]}
                     />
 
-                    {periodType !== 'custom' && (
+                    {periodType !== 'custom' && periodType !== 'all' && (
                         <Group gap={4} wrap="nowrap">
                             <ActionIcon
                                 variant="subtle"

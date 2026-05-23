@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.19',
+        date: '2026-05-20',
+        type: 'improvement',
+        title: { tr: 'Arama Sıralaması & Zaman Filtresi', en: 'Search Ranking & Time Filter' },
+        features: [
+            {
+                tr: 'Şirket ve kişi listelerinde arama yaparken tam eşleşen sonuç artık en üstte; "Pharma" yazınca tam isimli kayıt birinci sırada, sonra adında "Pharma" geçen diğer şirketler. Eskiden tam eşleşme aşağılarda kalıyordu.',
+                en: 'When searching companies and people, exact matches now rank first — typing "Pharma" puts the exact match on top, followed by other entries containing "Pharma". Previously, exact matches were buried further down the list.',
+            },
+            {
+                tr: 'Şirketler sayfasındaki zaman filtresi varsayılan olarak "Tümü" oldu (eskiden "Bu Ay"dı). Tüm geçmiş kayıtlar açılışta görünüyor, istersen Gün/Hafta/Ay/Özel ile daraltabilirsin.',
+                en: 'The time filter on the Companies page now defaults to "All" (previously "This Month"). All historical records are visible on load; narrow with Day/Week/Month/Custom whenever you need to.',
+            },
+        ],
+    },
+    {
         version: '1.9.18',
         date: '2026-05-20',
         type: 'improvement',

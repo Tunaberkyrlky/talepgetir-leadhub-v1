@@ -86,6 +86,56 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         const db = dbClient(req);
 
+        // ── Ranked search path ────────────────────────────────────────────
+        // When a search query is present, defer to the search_companies RPC
+        // which returns rows ordered by match strength (exact name match first,
+        // then prefix, then substring across name/website/industry/location/next_step).
+        // User-selected sortBy is ignored in this path — relevance dominates.
+        if (search.length > 0) {
+            const safe = sanitizeSearch(search);
+            const namedLocations = locations.filter(l => l !== '__empty__' && l !== '__not_geocoded__');
+            const locationsParam = locations.length > 0 ? locations : null;
+
+            const { data: rows, error: rpcErr } = await db.rpc('search_companies', {
+                p_tenant_id:  tenantId,
+                p_search:     safe,
+                p_stages:     stages.length > 0 ? stages : null,
+                p_industries: industries.length > 0 ? industries : null,
+                p_locations:  locationsParam,
+                p_countries:  countries.length > 0 ? countries : null,
+                p_products:   products.length > 0 ? products : null,
+                p_date_from:  dateFrom || null,
+                p_date_to:    dateTo || null,
+                p_limit:      limit,
+                p_offset:     offset,
+            });
+            void namedLocations; // resolved inside the RPC
+
+            if (rpcErr) {
+                log.error({ err: rpcErr }, 'search_companies RPC failed');
+                throw new AppError('Failed to search companies', 500);
+            }
+
+            const list = (rows ?? []) as Array<Record<string, unknown> & { total_count: number }>;
+            const total = list.length > 0 ? Number(list[0].total_count) : 0;
+            const data = list.map(({ total_count: _ignore, ...rest }) => rest);
+            const totalPages = Math.ceil(total / limit);
+
+            res.json({
+                data,
+                pagination: {
+                    page,
+                    limit,
+                    total,
+                    totalPages,
+                    hasNext: page < totalPages,
+                    hasPrev: page > 1,
+                },
+            });
+            return;
+        }
+
+        // ── No-search path: original filter+sortBy listing ────────────────
         // Build count query with filters
         let countQuery = db
             .from('companies')
@@ -97,16 +147,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             .select('id, name, website, location, latitude, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at')
             .eq('tenant_id', tenantId);
 
-        // Apply search (ILIKE on multiple columns)
-        if (search) {
-            const safe = sanitizeSearch(search);
-            if (safe.length > 0) {
-                const pattern = `%${safe}%`;
-                const searchFilter = `name.ilike.${pattern},website.ilike.${pattern},industry.ilike.${pattern},next_step.ilike.${pattern},location.ilike.${pattern}`;
-                countQuery = countQuery.or(searchFilter);
-                dataQuery = dataQuery.or(searchFilter);
-            }
-        }
+        // (search handled via RPC in the ranked path above — no ILIKE here)
 
         // Apply stage filter
         if (stages.length > 0) {

@@ -108,6 +108,58 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const allowedSortFields = ['first_name', 'last_name', 'email', 'country', 'seniority', 'created_at', 'updated_at'];
         const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'updated_at';
 
+        // ── Ranked search path ────────────────────────────────────────────
+        // When a search query is present, defer to the search_contacts RPC which
+        // ranks: full-name / email exact → first/last exact → email prefix
+        // → first/last prefix → contains across first/last/email → title contains.
+        if (search.length > 0) {
+            const safe = sanitizeSearch(search);
+            const { data: rows, error: rpcErr } = await db.rpc('search_contacts', {
+                p_tenant_id:   tenantId,
+                p_search:      safe,
+                p_company_ids: filterCompanyIds.length > 0 ? filterCompanyIds : null,
+                p_seniorities: filterSeniorities.length > 0 ? filterSeniorities : null,
+                p_countries:   filterCountries.length > 0 ? filterCountries : null,
+                p_limit:       limit,
+                p_offset:      offset,
+            });
+
+            if (rpcErr) {
+                log.error({ err: rpcErr }, 'search_contacts RPC failed');
+                res.status(500).json({ error: 'Failed to search contacts' });
+                return;
+            }
+
+            const list = (rows ?? []) as Array<{
+                id: string; first_name: string; last_name: string | null; email: string | null;
+                phone_e164: string | null; title: string | null; country: string | null;
+                seniority: string | null; is_primary: boolean; linkedin: string | null;
+                company_id: string; company_name: string | null; company_stage: string | null;
+                created_at: string; updated_at: string; total_count: number;
+            }>;
+            const total = list.length > 0 ? Number(list[0].total_count) : 0;
+            const data = list.map(({ total_count: _ignore, company_name, company_stage, company_id, ...rest }) => ({
+                ...rest,
+                company_id,
+                companies: company_id ? { id: company_id, name: company_name, stage: company_stage } : null,
+            }));
+            const totalPages = Math.ceil(total / limit);
+
+            res.json({
+                data,
+                pagination: {
+                    page,
+                    limit,
+                    total,
+                    totalPages,
+                    hasNext: page < totalPages,
+                    hasPrev: page > 1,
+                },
+            });
+            return;
+        }
+
+        // ── No-search path: original filter+sortBy listing ────────────────
         let query = db
             .from('contacts')
             .select(
@@ -118,14 +170,6 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             )
             .eq('tenant_id', tenantId);
 
-        if (search) {
-            const safe = sanitizeSearch(search);
-            if (safe.length > 0) {
-                query = query.or(
-                    `first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,email.ilike.%${safe}%,title.ilike.%${safe}%`
-                );
-            }
-        }
         if (filterCompanyIds.length > 0) query = query.in('company_id', filterCompanyIds);
         if (filterSeniorities.length > 0) query = query.in('seniority', filterSeniorities);
         if (filterCountries.length > 0) query = query.in('country', filterCountries);
