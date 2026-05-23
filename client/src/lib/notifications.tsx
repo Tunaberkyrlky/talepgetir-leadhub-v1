@@ -87,48 +87,47 @@ export function showErrorFromApi(error: unknown, fallback?: string) {
     // can ship a fully-contextualized bug report in one click.
     if (error instanceof AxiosError && error.response) {
         const requestId = (error.response.headers?.['x-request-id'] as string | undefined) ?? null;
+        const time = new Date().toLocaleTimeString('tr-TR');
+        const reportLabel = i18n.t('feedback.reportError', 'Hata Bildir');
+        const meta = requestId
+            ? `${time} · ${i18n.t('errors.requestId', 'İstek No')}: ${requestId.slice(0, 8)}`
+            : time;
+
         notifications.show({
             color: 'red',
             autoClose: 8000,
             withCloseButton: true,
-            message: (() => {
-                const time = new Date().toLocaleTimeString('tr-TR');
-                const reportLabel = i18n.t('feedback.reportError', 'Hata Bildir');
-                const meta = requestId
-                    ? `${time} · ${i18n.t('errors.requestId', 'İstek No')}: ${requestId.slice(0, 8)}`
-                    : time;
-                // We render plain DOM here to avoid pulling JSX into a .ts file. The host
-                // page already uses Mantine notifications, so styling stays consistent.
-                const container = document.createElement('div');
-                container.style.display = 'flex';
-                container.style.flexDirection = 'column';
-                container.style.gap = '6px';
-
-                const top = document.createElement('div');
-                top.textContent = message;
-                container.appendChild(top);
-
-                const bottom = document.createElement('div');
-                bottom.style.display = 'flex';
-                bottom.style.alignItems = 'center';
-                bottom.style.justifyContent = 'space-between';
-                bottom.style.fontSize = '11px';
-                bottom.style.opacity = '0.8';
-
-                const metaSpan = document.createElement('span');
-                metaSpan.textContent = meta;
-                bottom.appendChild(metaSpan);
-
-                const reportBtn = document.createElement('button');
-                reportBtn.type = 'button';
-                reportBtn.textContent = reportLabel;
-                reportBtn.style.cssText = 'border:0;background:transparent;color:#fff;text-decoration:underline;cursor:pointer;font-size:11px;padding:0;';
-                reportBtn.onclick = () => openFeedbackForLastError();
-                bottom.appendChild(reportBtn);
-
-                container.appendChild(bottom);
-                return container;
-            })(),
+            message: (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div>{message}</div>
+                    <div
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            fontSize: 11,
+                            opacity: 0.8,
+                        }}
+                    >
+                        <span>{meta}</span>
+                        <button
+                            type="button"
+                            onClick={() => openFeedbackForLastError()}
+                            style={{
+                                border: 0,
+                                background: 'transparent',
+                                color: 'inherit',
+                                textDecoration: 'underline',
+                                cursor: 'pointer',
+                                fontSize: 11,
+                                padding: 0,
+                            }}
+                        >
+                            {reportLabel}
+                        </button>
+                    </div>
+                </div>
+            ),
         });
         return;
     }

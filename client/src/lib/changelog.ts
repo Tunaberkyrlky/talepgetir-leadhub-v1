@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.20',
+        date: '2026-05-20',
+        type: 'fix',
+        title: { tr: 'Hata Bildirim Toast\'ı Düzeltildi', en: 'Error Notification Toast Fixed' },
+        features: [
+            {
+                tr: 'API hataları geldiğinde sağ alttaki kırmızı bildirim artık doğru gözüküyor; hata mesajı, saat, "İstek No" ve "Hata Bildir" linki tekrar görünür durumda. Eski sürümde bu bilgileri render eden kod React ile uyumsuz olduğu için toast içeriği boş kalıyordu.',
+                en: 'When an API error occurs, the red toast in the bottom-right is no longer empty — the error message, time, "Request ID" and "Report Error" link are visible again. The previous renderer was incompatible with React and silently dropped the content.',
+            },
+        ],
+    },
+    {
         version: '1.9.19',
         date: '2026-05-20',
         type: 'improvement',
