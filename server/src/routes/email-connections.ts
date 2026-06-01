@@ -121,12 +121,17 @@ router.post('/callback', async (req: Request, res: Response, next: NextFunction)
         }
 
         if (provider === 'google-mail') {
-            const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+            // OpenID userinfo endpoint — works with `userinfo.email` scope.
+            // Gmail's /users/me/profile would require `gmail.readonly`, which is broader than we need.
+            const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
                 headers: { Authorization: `Bearer ${accessToken}` },
             });
             if (profileRes.ok) {
-                const profile = await profileRes.json() as { emailAddress: string };
-                emailAddress = profile.emailAddress;
+                const profile = await profileRes.json() as { email?: string };
+                emailAddress = profile.email || '';
+            } else {
+                const errBody = await profileRes.text();
+                log.warn({ status: profileRes.status, body: errBody.slice(0, 200) }, 'Google userinfo fetch failed');
             }
         } else {
             const profileRes = await fetch('https://graph.microsoft.com/v1.0/me', {

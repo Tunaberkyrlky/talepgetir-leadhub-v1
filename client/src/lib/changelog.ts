@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.23',
+        date: '2026-05-24',
+        type: 'feature',
+        title: { tr: 'Gmail Bağlantısı', en: 'Gmail Connection' },
+        features: [
+            {
+                tr: 'Ayarlar > E-posta Bağlantısı\'ndan Gmail hesabınızı bağlayabilirsiniz; drip kampanya mailleri artık sizin Gmail adresinizden gönderilip Gönderildi klasörünüze düşüyor',
+                en: 'Connect Gmail from Settings > Email Connection; drip campaign emails are now sent from your own Gmail account and land in your Sent folder',
+            },
+        ],
+    },
+    {
         version: '1.9.22',
         date: '2026-05-24',
         type: 'improvement',
