@@ -7,23 +7,61 @@ interface StatCardProps {
     icon: ReactNode;
     color: string;
     description?: string;
+    /** When provided, the card becomes clickable (pointer + hover) */
+    onClick?: () => void;
+    /** Visually marks the card as currently active (used when card doubles as a filter) */
+    selected?: boolean;
+    /** Tighter spacing + smaller text. Use when the card is one of many on a dense page. */
+    compact?: boolean;
 }
 
-export default function StatCard({ title, value, icon, color, description }: StatCardProps) {
+export default function StatCard({ title, value, icon, color, description, onClick, selected, compact }: StatCardProps) {
+    const interactive = typeof onClick === 'function';
     return (
         <Tooltip label={description} disabled={!description} withArrow position="bottom" multiline maw={260} styles={{ tooltip: { fontSize: 11 } }}>
-            <div style={{ height: '100%' }}>
-                <Paper shadow="sm" radius="lg" p="lg" withBorder h="100%">
-                    <Group justify="space-between" align="flex-start">
-                        <Stack gap={4}>
-                            <Text size="xs" tt="uppercase" fw={700} c="dimmed" style={{ letterSpacing: '0.5px' }}>
+            <div
+                style={{ height: '100%', cursor: interactive ? 'pointer' : 'default' }}
+                onClick={onClick}
+                role={interactive ? 'button' : undefined}
+                tabIndex={interactive ? 0 : undefined}
+                onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick!(); } } : undefined}
+            >
+                <Paper
+                    shadow={selected ? 'md' : 'sm'}
+                    radius={compact ? 'md' : 'lg'}
+                    p={compact ? 'sm' : 'lg'}
+                    withBorder
+                    h="100%"
+                    style={
+                        selected
+                            ? { borderColor: `var(--mantine-color-${color}-5)`, borderWidth: 2, background: `var(--mantine-color-${color}-0)` }
+                            : undefined
+                    }
+                >
+                    <Group justify="space-between" align="center" wrap="nowrap" gap="xs">
+                        <Stack gap={compact ? 0 : 4}>
+                            <Text
+                                size={compact ? '10px' : 'xs'}
+                                tt="uppercase"
+                                fw={700}
+                                c="dimmed"
+                                style={{ letterSpacing: '0.5px' }}
+                            >
                                 {title}
                             </Text>
-                            <Text size="xl" fw={800} style={{ fontSize: '2rem', lineHeight: 1.1 }}>
+                            <Text
+                                fw={800}
+                                style={{ fontSize: compact ? '1.4rem' : '2rem', lineHeight: 1.1 }}
+                            >
                                 {value}
                             </Text>
                         </Stack>
-                        <ThemeIcon color={color} variant="light" size="xl" radius="md">
+                        <ThemeIcon
+                            color={color}
+                            variant={selected ? 'filled' : 'light'}
+                            size={compact ? 'md' : 'xl'}
+                            radius="md"
+                        >
                             {icon}
                         </ThemeIcon>
                     </Group>

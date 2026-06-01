@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.22',
+        date: '2026-05-24',
+        type: 'improvement',
+        title: { tr: 'Aktiviteler Sayfası Sadeleştirildi', en: 'Activities Page Simplified' },
+        features: [
+            {
+                tr: 'Aktiviteler sayfasındaki stat kartlarına tıklayarak listeyi tipe göre filtreleyebilirsiniz. Şirkete göre filtre kutusu da eklendi, şirket adıyla doğru kayda hızlıca ulaşabilirsiniz.',
+                en: 'On the Activities page, you can now click the stat cards to filter the list by type. A company filter was also added, so you can quickly find the right record by typing a company name.',
+            },
+            {
+                tr: 'Yeni aktivite ekleme formu sadeleşti. Varsayılan tür artık "Not". Detay, kişi ve görünürlük alanları doğrudan görünür durumda. Telefonda form tam ekran açılıyor.',
+                en: 'The new activity form is now simpler. Default type is "Note". Detail, contact and visibility fields are visible by default. On mobile the form opens fullscreen.',
+            },
+        ],
+    },
+    {
         version: '1.9.21',
         date: '2026-05-23',
         type: 'improvement',

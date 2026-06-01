@@ -104,7 +104,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 router.get('/all', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
-        const { type, date_from, date_to, search, visibility, created_by } = req.query;
+        const { type, date_from, date_to, search, visibility, created_by, company_id } = req.query;
         const page = Math.max(1, parseInt(req.query.page as string) || 1);
         const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
         const offset = (page - 1) * limit;
@@ -165,6 +165,14 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
             const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
             if (uuidRegex.test(created_by)) {
                 query = query.eq('created_by', created_by);
+            }
+        }
+
+        // Company filter
+        if (company_id && typeof company_id === 'string') {
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (uuidRegex.test(company_id)) {
+                query = query.eq('company_id', company_id);
             }
         }
 

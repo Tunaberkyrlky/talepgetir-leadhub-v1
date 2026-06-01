@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useForm } from '@mantine/form';
+import { useMediaQuery } from '@mantine/hooks';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Modal,
@@ -12,9 +13,8 @@ import {
     Text,
     Alert,
     Collapse,
-    UnstyledButton,
 } from '@mantine/core';
-import { IconAlertCircle, IconChevronDown, IconChevronRight } from '@tabler/icons-react';
+import { IconAlertCircle } from '@tabler/icons-react';
 import { DateTimePicker } from '@mantine/dates';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -35,9 +35,9 @@ interface ActivityFormProps {
 }
 
 const TYPE_CONFIG: { value: ActivityType; emoji: string; labelKey: string; showDate: boolean }[] = [
+    { value: 'not',       emoji: '\u{1F4DD}', labelKey: 'activity.types.not',       showDate: false },
     { value: 'follow_up', emoji: '\u{1F4DE}', labelKey: 'activity.types.follow_up', showDate: true },
     { value: 'meeting',   emoji: '\u{1F91D}', labelKey: 'activity.types.meeting',   showDate: true },
-    { value: 'not',       emoji: '\u{1F4DD}', labelKey: 'activity.types.not',       showDate: false },
 ];
 
 export default function ActivityForm({ opened, onClose, onSuccess, companyId, contactId, contacts, activity, inline }: ActivityFormProps) {
@@ -45,15 +45,13 @@ export default function ActivityForm({ opened, onClose, onSuccess, companyId, co
     const { user } = useAuth();
     const queryClient = useQueryClient();
     const isEdit = !!activity;
-
-    const [moreOpen, setMoreOpen] = useState(false);
+    const isMobile = useMediaQuery('(max-width: 48em)') ?? false;
 
     const form = useForm({
         initialValues: {
-            type: 'follow_up' as string,
+            type: 'not' as string,
             summary: '',
             detail: '',
-            outcome: '',
             visibility: 'client' as string,
             occurred_at: new Date(),
             contact_id: '' as string,
@@ -91,22 +89,19 @@ export default function ActivityForm({ opened, onClose, onSuccess, companyId, co
 
     useEffect(() => {
         if (opened) {
-            setMoreOpen(false);
             if (activity) {
                 form.setValues({
                     type: activity.type,
                     summary: activity.summary,
                     detail: activity.detail || '',
-                    outcome: activity.outcome || '',
                     visibility: activity.visibility,
                     occurred_at: new Date(activity.occurred_at),
                     contact_id: activity?.contact_id || contactId || '',
                 });
                 form.resetDirty();
-                if (activity.detail || activity.outcome) setMoreOpen(true);
             } else {
                 form.reset();
-                form.setFieldValue('type', 'follow_up');
+                form.setFieldValue('type', 'not');
                 form.setFieldValue('occurred_at', new Date());
                 form.setFieldValue('contact_id', contactId || '');
                 form.resetDirty();
@@ -124,7 +119,6 @@ export default function ActivityForm({ opened, onClose, onSuccess, companyId, co
                 type: values.type,
                 summary: values.summary,
                 detail: values.detail || null,
-                outcome: values.outcome || null,
                 visibility: values.visibility,
                 occurred_at: cfg?.showDate ? new Date(values.occurred_at).toISOString() : new Date().toISOString(),
             });
@@ -148,7 +142,6 @@ export default function ActivityForm({ opened, onClose, onSuccess, companyId, co
                 contact_id: contacts ? (values.contact_id || null) : (contactId || null),
                 summary: values.summary,
                 detail: values.detail || null,
-                outcome: values.outcome || null,
                 visibility: values.visibility,
                 occurred_at: new Date(values.occurred_at).toISOString(),
             });
@@ -241,57 +234,39 @@ export default function ActivityForm({ opened, onClose, onSuccess, companyId, co
                     />
                 )}
 
-                {/* More fields toggle */}
-                <UnstyledButton onClick={() => setMoreOpen(v => !v)}>
-                    <Group gap={4}>
-                        {moreOpen ? <IconChevronDown size={14} color="gray" /> : <IconChevronRight size={14} color="gray" />}
-                        <Text size="xs" c="dimmed">{t('activity.moreFields')}</Text>
-                    </Group>
-                </UnstyledButton>
+                {/* Contact (only if multiple contacts available) */}
+                {contacts && contacts.length > 0 && (
+                    <Select
+                        label={t('activities.contact')}
+                        placeholder={t('activities.selectContact')}
+                        size="sm"
+                        data={contacts.map(c => ({
+                            value: c.id,
+                            label: [c.first_name, c.last_name].filter(Boolean).join(' '),
+                        }))}
+                        value={form.values.contact_id || null}
+                        onChange={(v) => form.setFieldValue('contact_id', v || '')}
+                        clearable
+                        searchable
+                    />
+                )}
 
-                <Collapse in={moreOpen}>
-                    <Stack gap="sm">
-                        {contacts && contacts.length > 0 && (
-                            <Select
-                                label={t('activities.contact')}
-                                placeholder={t('activities.selectContact')}
-                                size="sm"
-                                data={contacts.map(c => ({
-                                    value: c.id,
-                                    label: [c.first_name, c.last_name].filter(Boolean).join(' '),
-                                }))}
-                                value={form.values.contact_id || null}
-                                onChange={(v) => form.setFieldValue('contact_id', v || '')}
-                                clearable
-                                searchable
-                            />
-                        )}
+                <TextInput
+                    label={t('activity.detail')}
+                    size="sm"
+                    radius="md"
+                    {...form.getInputProps('detail')}
+                />
 
-                        <TextInput
-                            label={t('activity.detail')}
-                            size="sm"
-                            radius="md"
-                            {...form.getInputProps('detail')}
-                        />
-
-                        <TextInput
-                            label={t('activity.outcome')}
-                            size="sm"
-                            radius="md"
-                            {...form.getInputProps('outcome')}
-                        />
-
-                        {isInternal(user?.role || '') && (
-                            <Select
-                                label={t('activity.visibility')}
-                                data={visibilityOptions}
-                                size="sm"
-                                radius="md"
-                                {...form.getInputProps('visibility')}
-                            />
-                        )}
-                    </Stack>
-                </Collapse>
+                {isInternal(user?.role || '') && (
+                    <Select
+                        label={t('activity.visibility')}
+                        data={visibilityOptions}
+                        size="sm"
+                        radius="md"
+                        {...form.getInputProps('visibility')}
+                    />
+                )}
 
                 <Group justify="flex-end" mt="xs">
                     <Button variant="default" radius="md" size="sm" onClick={inline ? onClose : handleClose}>
@@ -342,8 +317,9 @@ export default function ActivityForm({ opened, onClose, onSuccess, companyId, co
             onClose={handleClose}
             title={isEdit ? t('activity.editActivity') : t('activity.addActivity')}
             size="md"
-            radius="lg"
+            radius={isMobile ? 0 : 'lg'}
             centered
+            fullScreen={isMobile}
             overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}
             styles={{ title: { fontWeight: 700, fontSize: '1.1rem' } }}
         >

@@ -79,12 +79,28 @@ Geçici dosyalar (test scriptleri, deneme CSV'leri, tek seferlik araçlar vb.) i
 
 Kullanıcı "versiyonla" veya "commit at versiyonla" dediğinde şu adımları uygula:
 
-1. **3 package.json güncelle** — `package.json`, `client/package.json`, `server/package.json` içindeki `"version"` alanını yeni versiyona çek (hepsi aynı olmalı)
-2. **Changelog güncelle** — `client/src/lib/changelog.ts` dosyasının `changelog` dizisinin **başına** yeni entry ekle:
-   - **`type` alanını zorunlu doldur**: `'feature' | 'fix' | 'improvement' | 'security'` — başlıkta renkli badge olarak görünür. Versiyon karma içerikse en baskın olanı seç (feature > improvement > fix > security önceliğiyle).
-   - Kullanıcıyı etkileyen özellikleri ön plana çıkart (yeni ekran, yeni buton, davranış değişikliği)
-   - Teknik/arka plan değişikliklerini (güvenlik, performans, refactor) tek satırda özetle
-   - Her feature açıklaması kullanıcının "bununla ne yapabilirim" sorusuna cevap vermeli
-   - TR ve EN dil desteği zorunlu
-3. **DURAKLA — commit ETME**. Kullanıcıya "değişiklikler hazır, kontrol et" de ve onun "tamam"/"devam" onayını bekle. Bu noktada kullanıcı kelime seçimi, tip ayarı, satır ekleme/silme gibi küçük düzenlemeler yapabilir.
-4. **Onay sonrası commit at** — kullanıcı onayladıktan sonra değişiklikleri commit et.
+1. **3 package.json güncelle**: `package.json`, `client/package.json`, `server/package.json` içindeki `"version"` alanını yeni versiyona çek (hepsi aynı olmalı).
+2. **Changelog güncelle**: `client/src/lib/changelog.ts` dosyasının `changelog` dizisinin **başına** yeni entry ekle.
+3. **DURAKLA, commit ETME**. Kullanıcıya "değişiklikler hazır, kontrol et" de ve "tamam" / "devam" onayını bekle. Bu noktada kullanıcı kelime seçimi, tip ayarı, satır ekleme veya silme gibi küçük düzenlemeler yapabilir.
+4. **Onay sonrası commit at**.
+
+### Changelog yazım kuralları
+
+- **Type alanı zorunlu**: `'feature' | 'fix' | 'improvement' | 'security'`. Başlıkta renkli rozet olarak görünür. Karma içerikse en baskın olanı seç (öncelik: feature > improvement > fix > security).
+- **Özet tut**. Her özellik 1, en fazla 2 cümle. Sadece kullanıcının bilmesi gerekeni yaz; arka plandaki teknik değişiklikleri (refactor, RPC, migration, type fix) yazma.
+- **Saygılı 2. çoğul (siz) + öneri kipi kullan**. "Filtreliyorsun" değil, "filtreleyebilirsiniz". "Tıklayarak yapıyorsun" değil, "tıklayarak yapabilirsiniz". İkinci tekil ve emir kipinden kaçın; imkân sun.
+- **Dash (—, –, -) yok**. Cümleleri nokta veya virgülle bağla. Listelerken bullet kullanma; akıcı cümle yaz.
+- **TR ve EN ikisi de zorunlu**, anlam aynı kalmalı.
+- **"Bununla ne yapabilirim?"** sorusuna cevap olsun. Yeni ekran, yeni buton, davranış değişikliği gibi kullanıcıya görünür şeyleri öne çıkar.
+
+### Örnek
+
+İyi:
+```
+tr: 'Aktiviteler sayfasındaki stat kartlarına tıklayarak listeyi tipe göre filtreleyebilirsiniz. Şirkete göre arama kutusu da eklendi, şirket adıyla aradığınızda doğru kayda hızlıca ulaşabilirsiniz.'
+```
+
+Kötü (dash + emir kipi + teknik detay + uzun):
+```
+tr: 'Stat kartları artık tıklanabilir — tip filtre SegmentedControl kaldırıldı, kartlar görevi alıyor. Şirket filtresi yeni search_companies RPC ile çalışıyor. Layout 4 satırdan 3 satıra indi.'
+```

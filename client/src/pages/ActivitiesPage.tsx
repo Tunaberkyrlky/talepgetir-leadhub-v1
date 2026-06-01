@@ -3,14 +3,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, SegmentedControl,
-    Loader, Center, Button, SimpleGrid, Select, TextInput, ActionIcon,
-    Skeleton, Divider, Menu,
+    Loader, Center, Button, SimpleGrid, Select, ActionIcon,
+    Skeleton, Divider, Menu, Combobox, useCombobox, InputBase, Input, CloseButton,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
 import {
     IconNotes, IconCalendar, IconClock,
-    IconUser, IconSearch, IconChevronLeft, IconChevronRight,
+    IconUser, IconChevronLeft, IconChevronRight,
     IconDotsVertical, IconPencil, IconTrash, IconWifiOff, IconRefresh,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
@@ -316,8 +316,33 @@ export default function ActivitiesPage() {
     const [typeFilter, setTypeFilter] = useState('');
     const [visibilityFilter, setVisibilityFilter] = useState('');
     const [createdByFilter, setCreatedByFilter] = useState('');
-    const [search, setSearch] = useState('');
-    const [debouncedSearch] = useDebouncedValue(search, 300);
+    // Company filter — Combobox styled like the user Select. Async search calls
+    // /api/companies (which uses the relevance-ranked search_companies RPC).
+    const [companyFilter, setCompanyFilter] = useState<{ id: string; name: string } | null>(null);
+    const [companySearchQuery, setCompanySearchQuery] = useState('');
+    const [debouncedCompanySearch] = useDebouncedValue(companySearchQuery, 250);
+    const [companyDropdownOpened, setCompanyDropdownOpened] = useState(false);
+
+    const companyCombobox = useCombobox({
+        onDropdownOpen: () => setCompanyDropdownOpened(true),
+        onDropdownClose: () => {
+            setCompanyDropdownOpened(false);
+            companyCombobox.resetSelectedOption();
+        },
+    });
+
+    const { data: companyOptions, isLoading: companyOptionsLoading } = useQuery<{
+        data: { id: string; name: string }[];
+    }>({
+        queryKey: ['activities-company-picker', debouncedCompanySearch],
+        queryFn: async () => {
+            const params: Record<string, string> = { limit: '20' };
+            if (debouncedCompanySearch.trim()) params.search = debouncedCompanySearch.trim();
+            return (await api.get('/companies', { params })).data;
+        },
+        enabled: companyDropdownOpened,
+        staleTime: 30_000,
+    });
 
     // Grouping
     const validViews = ['none', 'date', 'company', 'type', 'agenda'] as const;
@@ -368,7 +393,7 @@ export default function ActivitiesPage() {
             typeFilter,
             visibilityFilter,
             createdByFilter,
-            debouncedSearch,
+            companyFilter?.id ?? '',
             dateRange.from,
             dateRange.to,
         ],
@@ -380,7 +405,7 @@ export default function ActivitiesPage() {
             if (typeFilter) params.type = typeFilter;
             if (visibilityFilter) params.visibility = visibilityFilter;
             if (createdByFilter) params.created_by = createdByFilter;
-            if (debouncedSearch) params.search = debouncedSearch;
+            if (companyFilter?.id) params.company_id = companyFilter.id;
             if (dateRange.from) params.date_from = dateRange.from;
             if (dateRange.to) params.date_to = dateRange.to;
             return (await api.get('/activities/all', { params })).data;
@@ -396,7 +421,6 @@ export default function ActivitiesPage() {
             'activities-stats',
             visibilityFilter,
             createdByFilter,
-            debouncedSearch,
             dateRange.from,
             dateRange.to,
         ],
@@ -404,7 +428,6 @@ export default function ActivitiesPage() {
             const params: Record<string, string> = {};
             if (visibilityFilter) params.visibility = visibilityFilter;
             if (createdByFilter) params.created_by = createdByFilter;
-            if (debouncedSearch) params.search = debouncedSearch;
             if (dateRange.from) params.date_from = dateRange.from;
             if (dateRange.to) params.date_to = dateRange.to;
             return (await api.get('/activities/stats', { params })).data;
@@ -430,7 +453,7 @@ export default function ActivitiesPage() {
         typeFilter,
         visibilityFilter,
         createdByFilter,
-        debouncedSearch,
+        companyFilter?.id,
         dateRange.from,
         dateRange.to,
     ]);
@@ -576,190 +599,239 @@ export default function ActivitiesPage() {
 
     return (
         <Container size="lg" py="xl">
-            {/* Header */}
-            <Group justify="space-between" mb="lg">
+            {/* Row 1: Header + Period nav */}
+            <Group justify="space-between" align="center" mb="md" wrap="wrap" gap="sm">
                 <Group gap="xs">
                     <Title order={2}>{t('activities.pageTitle')}</Title>
                     <Badge size="lg" variant="light" color="violet" circle>
                         {total}
                     </Badge>
                 </Group>
+
+                {groupBy !== 'agenda' && (
+                    <Group gap="xs" wrap="wrap" align="center">
+                        <SegmentedControl
+                            size="xs"
+                            value={periodType}
+                            onChange={(v) => {
+                                setPeriodType(v as PeriodType);
+                                setPeriodAnchor(new Date());
+                            }}
+                            data={[
+                                { label: t('activities.periodDay'), value: 'day' },
+                                { label: t('activities.periodWeek'), value: 'week' },
+                                { label: t('activities.periodMonth'), value: 'month' },
+                                { label: t('activities.periodCustom'), value: 'custom' },
+                            ]}
+                        />
+
+                        {periodType !== 'custom' && (
+                            <Group gap={4} wrap="nowrap">
+                                <ActionIcon
+                                    variant="subtle"
+                                    color="gray"
+                                    size="sm"
+                                    onClick={() => setPeriodAnchor((prev) => shiftPeriod(periodType, prev, -1))}
+                                >
+                                    <IconChevronLeft size={14} />
+                                </ActionIcon>
+                                <Text size="xs" fw={600} miw={120} ta="center">
+                                    {periodLabel}
+                                </Text>
+                                <ActionIcon
+                                    variant="subtle"
+                                    color="gray"
+                                    size="sm"
+                                    onClick={() => setPeriodAnchor((prev) => shiftPeriod(periodType, prev, 1))}
+                                >
+                                    <IconChevronRight size={14} />
+                                </ActionIcon>
+                                <Button
+                                    size="compact-xs"
+                                    variant="light"
+                                    color="violet"
+                                    onClick={() => setPeriodAnchor(new Date())}
+                                >
+                                    {t('activities.today')}
+                                </Button>
+                            </Group>
+                        )}
+
+                        {periodType === 'custom' && (
+                            <DatePickerInput
+                                type="range"
+                                placeholder={t('activities.dateRange')}
+                                value={customRange}
+                                onChange={(v) => setCustomRange(v as [Date | null, Date | null])}
+                                clearable
+                                size="xs"
+                            />
+                        )}
+                    </Group>
+                )}
             </Group>
 
-            {/* Stats Cards */}
-            <SimpleGrid cols={{ base: 2, sm: 4 }} mb="lg">
+            {/* Row 2: Stat cards — eşit 4 sütun */}
+            <SimpleGrid cols={{ base: 2, sm: 4 }} mb="md">
                 {statsLoading ? (
                     <>
-                        <Skeleton height={100} radius="lg" />
-                        <Skeleton height={100} radius="lg" />
-                        <Skeleton height={100} radius="lg" />
-                        <Skeleton height={100} radius="lg" />
+                        <Skeleton height={86} radius="lg" />
+                        <Skeleton height={86} radius="lg" />
+                        <Skeleton height={86} radius="lg" />
+                        <Skeleton height={86} radius="lg" />
                     </>
                 ) : (
                     <>
                         <StatCard
                             title={t('activities.statsTotal')}
                             value={stats?.total ?? 0}
-                            icon={<IconCalendar size={22} />}
+                            icon={<IconCalendar size={20} />}
                             color="violet"
+                            compact
+                            selected={typeFilter === ''}
+                            onClick={() => { setTypeFilter(''); setPage(1); }}
                         />
                         <StatCard
                             title={t('activities.types.meeting')}
                             value={stats?.meeting ?? 0}
-                            icon={<IconCalendar size={22} />}
+                            icon={<IconCalendar size={20} />}
                             color="violet"
+                            compact
+                            selected={typeFilter === 'meeting'}
+                            onClick={() => { setTypeFilter('meeting'); setPage(1); }}
                         />
                         <StatCard
                             title={t('activities.types.not')}
                             value={stats?.not ?? 0}
-                            icon={<IconNotes size={22} />}
+                            icon={<IconNotes size={20} />}
                             color="blue"
+                            compact
+                            selected={typeFilter === 'not'}
+                            onClick={() => { setTypeFilter('not'); setPage(1); }}
                         />
                         <StatCard
                             title={t('activities.types.follow_up')}
                             value={stats?.follow_up ?? 0}
-                            icon={<IconClock size={22} />}
+                            icon={<IconClock size={20} />}
                             color="orange"
+                            compact
+                            selected={typeFilter === 'follow_up'}
+                            onClick={() => { setTypeFilter('follow_up'); setPage(1); }}
                         />
                     </>
                 )}
             </SimpleGrid>
 
-            {/* Filters + Date Navigation */}
-            <Paper p="md" radius="md" withBorder mb="sm">
-                <Stack gap="sm">
-                    {/* Row 1: Filters (left) + Date Navigation (right) */}
-                    <Group justify="space-between" wrap="wrap" gap="sm">
-                        <Group gap="sm" wrap="wrap">
-                            <SegmentedControl
+            {/* Row 3: Filter chips — tek satır (Kullanıcı + Şirket [sol] · Grouping + Görünürlük [sağ]) */}
+            <Group justify="space-between" mb="md" wrap="wrap" gap="sm">
+                <Group gap="sm" wrap="wrap" align="center">
+                    {userSelectData.length > 0 && (
+                        <Select
+                            size="sm"
+                            placeholder={t('activities.allUsers')}
+                            clearable
+                            searchable
+                            value={createdByFilter}
+                            onChange={(v) => setCreatedByFilter(v || '')}
+                            data={userSelectData}
+                            style={{ minWidth: 180 }}
+                        />
+                    )}
+
+                    {/* Şirket Filtresi — Combobox, görsel olarak Kullanıcı Select ile aynı */}
+                    <Combobox
+                        store={companyCombobox}
+                        width={280}
+                        position="bottom-start"
+                        onOptionSubmit={(val) => {
+                            const picked = companyOptions?.data.find((c) => c.id === val);
+                            if (picked) {
+                                setCompanyFilter({ id: picked.id, name: picked.name });
+                                setPage(1);
+                            }
+                            setCompanySearchQuery('');
+                            companyCombobox.closeDropdown();
+                        }}
+                    >
+                        <Combobox.Target>
+                            <InputBase
+                                component="button"
+                                type="button"
+                                pointer
                                 size="sm"
-                                value={typeFilter}
-                                onChange={(v) => { setTypeFilter(v); if (v && groupBy === 'type') setGroupBy('none'); }}
-                                data={[
-                                    { label: t('activities.all'), value: '' },
-                                    { label: t('activities.types.not'), value: 'not' },
-                                    { label: t('activities.types.meeting'), value: 'meeting' },
-                                    { label: t('activities.types.follow_up'), value: 'follow_up' },
-                                ]}
+                                rightSection={
+                                    companyFilter ? (
+                                        <CloseButton
+                                            size="sm"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => { setCompanyFilter(null); setPage(1); }}
+                                        />
+                                    ) : (
+                                        <Combobox.Chevron />
+                                    )
+                                }
+                                rightSectionPointerEvents={companyFilter ? 'all' : 'none'}
+                                onClick={() => companyCombobox.toggleDropdown()}
+                                style={{ minWidth: 200 }}
+                            >
+                                {companyFilter?.name ?? (
+                                    <Input.Placeholder>{t('activities.filterCompany', 'Şirkete göre')}</Input.Placeholder>
+                                )}
+                            </InputBase>
+                        </Combobox.Target>
+                        <Combobox.Dropdown>
+                            <Combobox.Search
+                                value={companySearchQuery}
+                                onChange={(e) => setCompanySearchQuery(e.currentTarget.value)}
+                                placeholder={t('activities.searchCompanyPlaceholder', 'Şirket ara...')}
                             />
+                            <Combobox.Options mah={280} style={{ overflowY: 'auto' }}>
+                                {companyOptionsLoading ? (
+                                    <Combobox.Empty>
+                                        <Loader size="xs" color="violet" />
+                                    </Combobox.Empty>
+                                ) : (companyOptions?.data?.length ?? 0) === 0 ? (
+                                    <Combobox.Empty>
+                                        {debouncedCompanySearch
+                                            ? t('filter.noResults', 'Sonuç yok')
+                                            : t('activities.searchCompanyHint', 'Aramaya başla')}
+                                    </Combobox.Empty>
+                                ) : (
+                                    companyOptions!.data.map((c) => (
+                                        <Combobox.Option value={c.id} key={c.id}>
+                                            {c.name}
+                                        </Combobox.Option>
+                                    ))
+                                )}
+                            </Combobox.Options>
+                        </Combobox.Dropdown>
+                    </Combobox>
+                </Group>
 
-                            {isInternal(user?.role || '') && (
-                                <SegmentedControl
-                                    size="sm"
-                                    value={visibilityFilter}
-                                    onChange={(v) => setVisibilityFilter(v)}
-                                    data={[
-                                        { label: t('activities.allVisibility'), value: '' },
-                                        { label: t('activity.visibility_options.internal'), value: 'internal' },
-                                        { label: t('activity.visibility_options.client'), value: 'client' },
-                                    ]}
-                                />
-                            )}
-
-                            {userSelectData.length > 0 && (
-                                <Select
-                                    size="sm"
-                                    placeholder={t('activities.allUsers')}
-                                    clearable
-                                    searchable
-                                    value={createdByFilter}
-                                    onChange={(v) => setCreatedByFilter(v || '')}
-                                    data={userSelectData}
-                                    style={{ minWidth: 180 }}
-                                />
-                            )}
-                        </Group>
-
-                        {groupBy !== 'agenda' && <Group gap="xs" wrap="nowrap">
-                            <SegmentedControl
-                                size="xs"
-                                value={periodType}
-                                onChange={(v) => {
-                                    setPeriodType(v as PeriodType);
-                                    setPeriodAnchor(new Date());
-                                }}
-                                data={[
-                                    { label: t('activities.periodDay'), value: 'day' },
-                                    { label: t('activities.periodWeek'), value: 'week' },
-                                    { label: t('activities.periodMonth'), value: 'month' },
-                                    { label: t('activities.periodCustom'), value: 'custom' },
-                                ]}
-                            />
-
-                            {periodType !== 'custom' && (
-                                <Group gap={4} wrap="nowrap">
-                                    <ActionIcon
-                                        variant="subtle"
-                                        color="gray"
-                                        size="sm"
-                                        onClick={() =>
-                                            setPeriodAnchor((prev) => shiftPeriod(periodType, prev, -1))
-                                        }
-                                    >
-                                        <IconChevronLeft size={14} />
-                                    </ActionIcon>
-                                    <Text size="xs" fw={600} miw={120} ta="center">
-                                        {periodLabel}
-                                    </Text>
-                                    <ActionIcon
-                                        variant="subtle"
-                                        color="gray"
-                                        size="sm"
-                                        onClick={() =>
-                                            setPeriodAnchor((prev) => shiftPeriod(periodType, prev, 1))
-                                        }
-                                    >
-                                        <IconChevronRight size={14} />
-                                    </ActionIcon>
-                                    <Button
-                                        size="compact-xs"
-                                        variant="light"
-                                        color="violet"
-                                        onClick={() => setPeriodAnchor(new Date())}
-                                    >
-                                        {t('activities.today')}
-                                    </Button>
-                                </Group>
-                            )}
-
-                            {periodType === 'custom' && (
-                                <DatePickerInput
-                                    type="range"
-                                    placeholder={t('activities.dateRange')}
-                                    value={customRange}
-                                    onChange={(v) => setCustomRange(v as [Date | null, Date | null])}
-                                    clearable
-                                    size="xs"
-                                />
-                            )}
-                        </Group>}
-                    </Group>
-
-                    {/* Row 2: Search bar full width */}
-                    <TextInput
+                <Group gap="sm" wrap="wrap" align="center">
+                    <SegmentedControl
                         size="sm"
-                        placeholder={t('activities.search')}
-                        leftSection={<IconSearch size={16} />}
-                        value={search}
-                        onChange={(e) => setSearch(e.currentTarget.value)}
+                        value={groupBy}
+                        onChange={(v) => setGroupBy(v as typeof groupBy)}
+                        data={[
+                            { label: t('activities.groupByCompany'), value: 'company' },
+                            { label: t('activities.groupByAgenda', 'Ajanda'), value: 'agenda' },
+                            { label: t('activities.groupByDate'), value: 'date' },
+                        ]}
                     />
-                </Stack>
-            </Paper>
-
-            {/* Grouping Control */}
-            <Group mb="md">
-                <SegmentedControl
-                    size="xs"
-                    value={groupBy}
-                    onChange={(v) => setGroupBy(v as typeof groupBy)}
-                    data={[
-                        { label: t('activities.groupByCompany'), value: 'company' },
-                        { label: t('activities.groupByAgenda', 'Ajanda'), value: 'agenda' },
-                        { label: t('activities.groupByDate'), value: 'date' },
-                        { label: t('activities.groupByNone'), value: 'none' },
-                        ...(!typeFilter ? [{ label: t('activities.groupByType'), value: 'type' }] : []),
-                    ]}
-                />
+                    {isInternal(user?.role || '') && (
+                        <SegmentedControl
+                            size="sm"
+                            value={visibilityFilter}
+                            onChange={(v) => setVisibilityFilter(v)}
+                            data={[
+                                { label: t('activities.allVisibility'), value: '' },
+                                { label: t('activity.visibility_options.internal'), value: 'internal' },
+                                { label: t('activity.visibility_options.client'), value: 'client' },
+                            ]}
+                        />
+                    )}
+                </Group>
             </Group>
 
             {/* Activity List */}
