@@ -22,7 +22,7 @@ import AssignCompanyForm from './AssignCompanyForm';
 import ActivityForm from '../ActivityForm';
 import ClosingReportModal from '../ClosingReportModal';
 import type { EmailReply, ThreadHistoryItem } from '../../types/emailReply';
-import { extractEmailAddress } from '../../types/emailReply';
+import { resolveOurMailbox } from '../../types/emailReply';
 import type { ClosingOutcome } from '../../types/activity';
 
 interface ReplyDetailModalProps {
@@ -265,11 +265,11 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         onError: (err) => showErrorFromApi(err, t('emailReplies.errors.readToggleFailed')),
     });
 
-    // Sender (from) address — read directly from this reply's raw_payload.
-    // PlusVibe campaigns rotate across many mailboxes; each inbound reply records
-    // which of OUR mailboxes the lead replied to. campaign.sender_emails[0] would
-    // always be the first (admin) account, which is wrong for multi-mailbox campaigns.
-    const senderAddress = extractEmailAddress(localReply?.raw_payload?.from_address);
+    // Sender (from) address shown in the reply compose panel = OUR mailbox for
+    // this thread. Resolved source-aware (SMTP/webhook/api-import/OUT) so the
+    // legacy mis-labeled `from_address` (which sometimes held the recipient list)
+    // no longer leaks the lead/recipient into the "From" slot.
+    const senderAddress = resolveOurMailbox(localReply);
 
     // ── Fetch attachment templates ──
     interface AttachmentTemplate { id: string; label: string; file_type: string; file_url: string; file_size: string; }

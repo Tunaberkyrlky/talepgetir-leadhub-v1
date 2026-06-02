@@ -59,6 +59,60 @@ export function extractEmailAddress(raw: string | null | undefined): string | nu
     return match ? match[1].trim() : trimmed;
 }
 
+/** Extract every email address from a comma/whitespace-separated address-list string. */
+function extractAllEmailAddresses(raw: string | null | undefined): string[] {
+    if (!raw) return [];
+    const angled = [...raw.matchAll(/<([^>]+)>/g)].map((m) => m[1].trim()).filter(Boolean);
+    if (angled.length > 0) return angled;
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * Resolve WHICH OF OUR MAILBOXES a reply belongs to (the "From" shown in the
+ * reply compose panel). PlusVibe stores this differently per source, and the
+ * legacy api-import path mis-labeled the recipient list as `from_address`.
+ *
+ *  - OUT row:            raw_payload.from_address = our mailbox (correct)
+ *  - SMTP webhook (IN):  raw_payload.to_email / to = our mailbox
+ *  - old webhook (IN):   raw_payload.from_address = our mailbox (single address)
+ *  - api-import (IN):    raw_payload.from_address actually held the recipient list;
+ *                        our mailbox is the recipient whose domain isn't the lead's
+ *
+ * Returns null when it cannot be determined (panel then hides the "From" line).
+ */
+export function resolveOurMailbox(reply: {
+    direction?: EmailDirection;
+    sender_email?: string;
+    raw_payload?: Record<string, unknown> | null;
+} | null | undefined): string | null {
+    if (!reply) return null;
+    const rp = (reply.raw_payload || {}) as Record<string, unknown>;
+    const leadDomain = reply.sender_email?.split('@')[1]?.toLowerCase();
+
+    // OUT: from_address is our mailbox
+    if (reply.direction === 'OUT') {
+        return extractEmailAddress(rp.from_address as string | null);
+    }
+
+    // SMTP webhook: to_email / to is our mailbox
+    if (rp.source === 'SMTP') {
+        return extractEmailAddress((rp.to_email as string | null) ?? (rp.to as string | null));
+    }
+
+    // Old webhook / fallback: from_address holds our mailbox, UNLESS it's a
+    // recipient list (legacy api-import) — then pick the non-lead-domain address.
+    const addrs = extractAllEmailAddresses(rp.from_address as string | null);
+    if (addrs.length === 1) {
+        // Single clean mailbox (old webhook). Guard: if it equals the lead, ignore.
+        return addrs[0].split('@')[1]?.toLowerCase() !== leadDomain ? addrs[0] : null;
+    }
+    if (addrs.length > 1) {
+        // Recipient list — our mailbox is the one not on the lead's domain.
+        return addrs.find((a) => a.split('@')[1]?.toLowerCase() !== leadDomain) ?? null;
+    }
+    return null;
+}
+
 export interface ThreadHistoryItem {
     id: string;
     sender_email: string;

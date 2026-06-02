@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.24',
+        date: '2026-06-02',
+        type: 'fix',
+        title: { tr: 'Yanıtta "Kimden" Düzeltmesi', en: 'Reply "From" Fix' },
+        features: [
+            {
+                tr: 'Bir maile yanıt verirken "Kimden" alanı artık doğru hesabınızı gösteriyor. Bazı maillerde karşı tarafın adresi görünüyordu.',
+                en: 'When replying to an email, the "From" field now shows your correct account. On some emails it was showing the other side\'s address.',
+            },
+        ],
+    },
+    {
         version: '1.9.23',
         date: '2026-05-24',
         type: 'feature',
