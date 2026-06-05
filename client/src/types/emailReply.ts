@@ -35,6 +35,13 @@ export interface EmailReply {
     created_at: string;
     direction?: EmailDirection;
     parent_reply_id?: string | null;
+    // Canonical mail columns (first-class; replace raw_payload heuristics)
+    provider?: string | null;
+    provider_thread_id?: string | null;
+    account_email?: string | null;   // OUR mailbox on this thread
+    from_address?: string | null;    // who sent THIS message
+    to_address?: string | null;      // recipient(s)
+    cc_address?: string | null;
     // Threading fields (present on threaded list responses)
     thread_count?: number;
     has_unread?: boolean;
@@ -83,9 +90,15 @@ function extractAllEmailAddresses(raw: string | null | undefined): string[] {
 export function resolveOurMailbox(reply: {
     direction?: EmailDirection;
     sender_email?: string;
+    account_email?: string | null;
     raw_payload?: Record<string, unknown> | null;
 } | null | undefined): string | null {
     if (!reply) return null;
+
+    // 1. Canonical column wins (set by the mail adapters going forward)
+    if (reply.account_email) return reply.account_email;
+
+    // 2. Legacy raw_payload fallback (rows backfill couldn't fully populate)
     const rp = (reply.raw_payload || {}) as Record<string, unknown>;
     const leadDomain = reply.sender_email?.split('@')[1]?.toLowerCase();
 
@@ -121,6 +134,12 @@ export interface ThreadHistoryItem {
     read_status: ReadStatus;
     campaign_id: string | null;
     direction?: EmailDirection;
+    // Canonical address columns
+    provider?: string | null;
+    account_email?: string | null;
+    from_address?: string | null;
+    to_address?: string | null;
+    cc_address?: string | null;
     raw_payload?: {
         source?: string;
         forwarded_to?: string;

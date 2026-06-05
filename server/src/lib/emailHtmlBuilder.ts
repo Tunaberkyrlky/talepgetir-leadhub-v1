@@ -3,6 +3,8 @@
  * Compatible with Gmail, Outlook, Apple Mail.
  */
 
+import { escapeHtml } from './htmlEscape.js';
+
 interface AttachmentTemplate {
     label: string;
     file_type: string;
@@ -45,14 +47,6 @@ export function buildAttachmentCardsHtml(templates: AttachmentTemplate[]): strin
 </table>`;
 
     return header + templates.map(buildCard).join('');
-}
-
-function escapeHtml(str: string): string {
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
 }
 
 function escapeAttr(str: string): string {

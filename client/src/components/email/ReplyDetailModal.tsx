@@ -601,6 +601,31 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                     </Text>
                                 </Group>
                                 {(() => {
+                                    // Per-message From/To from canonical columns (fallback to legacy).
+                                    // IN:  from = lead (sender_email),  to = our mailbox (account_email)
+                                    // OUT: from = our mailbox,          to = lead
+                                    const ourMailbox = resolveOurMailbox(msg);
+                                    const fromAddr = msg.from_address
+                                        ?? (isOut ? ourMailbox : msg.sender_email);
+                                    const toAddr = msg.to_address
+                                        ?? (isOut ? msg.sender_email : ourMailbox);
+                                    if (!fromAddr && !toAddr) return null;
+                                    return (
+                                        <Stack gap={1} mb={6}>
+                                            {fromAddr && (
+                                                <Text size="xs" c="dimmed">
+                                                    <Text span fw={600} c="#525266">{t('emailReplies.reply.from')}:</Text>{' '}{fromAddr}
+                                                </Text>
+                                            )}
+                                            {toAddr && (
+                                                <Text size="xs" c="dimmed">
+                                                    <Text span fw={600} c="#525266">{t('emailReplies.reply.to')}:</Text>{' '}{toAddr}
+                                                </Text>
+                                            )}
+                                        </Stack>
+                                    );
+                                })()}
+                                {(() => {
                                     const { fresh, quoted } = splitEmailBody(msg.reply_body || '');
                                     const isQuoteExpanded = expandedQuotes.has(msg.id);
                                     return (

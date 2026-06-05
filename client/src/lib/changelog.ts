@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.25',
+        date: '2026-06-05',
+        type: 'improvement',
+        title: { tr: 'Mail Altyapısı Güçlendirildi', en: 'Stronger Email Infrastructure' },
+        features: [
+            {
+                tr: 'Mail altyapısı güçlendirildi. Farklı kaynaklardan kurulan mail bağlantıları tek bir standart yapıda toplanarak yanıtlarınızın her zaman doğru hesaptan gönderilmesi ve gelen maillerin şirketlerle tutarlı biçimde eşleşmesi sağlandı.',
+                en: 'The email infrastructure has been strengthened. Mail connections set up from different sources are now unified under a single standard, so your replies always go out from the correct account and incoming emails match to companies consistently.',
+            },
+            {
+                tr: 'Kampanya yanıtlarını yeniden içe aktardığınızda kayıtlar tekrar oluşmuyor, eksik kalan gönderen bilgileri de tamamlanıyor.',
+                en: 'Re-importing campaign replies no longer creates duplicate records, and any missing sender details are filled in.',
+            },
+        ],
+    },
+    {
         version: '1.9.24',
         date: '2026-06-02',
         type: 'fix',

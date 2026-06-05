@@ -7,6 +7,8 @@ import { validateBody, webhookPayloadSchema } from '../lib/validation.js';
 import { matchSenderEmail, advanceCompanyStageOnMatch } from '../lib/emailMatcher.js';
 import { enrichCompanyFromWebhook, enrichContactFromWebhook } from '../lib/webhookEnricher.js';
 import { cancelEnrollmentOnReply } from '../lib/campaignEngine.js';
+import { parseWebhookInbound } from '../lib/mail/plusvibeAdapter.js';
+import { canonicalToReplyRow, splitEmailBody } from '../lib/mail/types.js';
 
 const log = createLogger('route:webhooks');
 const router = Router();
@@ -58,14 +60,27 @@ function verifyWebhookSecret(req: Request, res: Response, next: NextFunction): v
     next();
 }
 
-/** Trim raw_payload to prevent storing oversized bodies */
-const MAX_RAW_PAYLOAD_SIZE = 10_000; // characters
-function sanitizePayload(body: unknown): unknown {
-    const json = JSON.stringify(body);
-    if (json.length > MAX_RAW_PAYLOAD_SIZE) {
-        return { _truncated: true, _size: json.length };
-    }
-    return body;
+/**
+ * Trim raw_payload to avoid storing oversized bodies — WITHOUT losing the
+ * canonical fields (those are now in dedicated columns, populated before this).
+ * Strategy: if the body is large, drop only the bulky content fields
+ * (body/text_body/html); keep all metadata. Only if still huge, keep essentials.
+ */
+const MAX_RAW_PAYLOAD_SIZE = 20_000; // characters
+function sanitizePayload(body: Record<string, unknown>): unknown {
+    if (JSON.stringify(body).length <= MAX_RAW_PAYLOAD_SIZE) return body;
+
+    const { body: _b, text_body: _t, html: _h, snippet: _s, ...rest } = body;
+    const trimmed = { ...rest, _body_trimmed: true };
+    if (JSON.stringify(trimmed).length <= MAX_RAW_PAYLOAD_SIZE) return trimmed;
+
+    return {
+        _truncated: true,
+        _size: JSON.stringify(body).length,
+        source: body.source ?? null,
+        thread_id: body.thread_id ?? null,
+        message_id: body.message_id ?? null,
+    };
 }
 
 // POST /api/webhooks/plusvibe/:tenantId — receive PlusVibe reply events
@@ -87,18 +102,18 @@ router.post(
                 return;
             }
 
-            const {
-                from_email, camp_id, campaign_name, text_body, replied_date,
-                label, sentiment, subject, lead_id, step,
-                company_name: pv_company_name, company_website,
-            } = req.body;
+            const { from_email, step } = req.body;
+
+            // Normalize the webhook into a CanonicalMessage (extracts from/to/account
+            // into first-class fields BEFORE any body trimming).
+            const canonical = parseWebhookInbound(req.body, tenantId);
 
             // Match sender email to contact/company within this tenant
             let match;
             try {
-                match = await matchSenderEmail(from_email, tenantId, {
-                    company_name: pv_company_name,
-                    company_website,
+                match = await matchSenderEmail(canonical.senderEmail, tenantId, {
+                    company_name: canonical.hints?.companyName,
+                    company_website: canonical.hints?.companyWebsite,
                 });
             } catch (matchErr) {
                 log.error({ err: matchErr, from_email }, 'Email matching failed — database may be unavailable');
@@ -117,26 +132,21 @@ router.post(
                 return;
             }
 
+            // Keep only the fresh reply text (drop quoted history) for the body column.
+            canonical.bodyText = canonical.bodyText ? splitEmailBody(canonical.bodyText).fresh : null;
+            canonical.bodyHtml = null; // bulky HTML stays out of columns; raw_payload keeps it if small
+            canonical.occurredAt = canonical.occurredAt || new Date().toISOString();
+            canonical.rawPayload = sanitizePayload(req.body) as Record<string, unknown>;
+
             // Insert email reply
             // Deduplication: partial unique index on (campaign_id, sender_email, replied_at) WHERE campaign_id IS NOT NULL
             const row = {
-                tenant_id: match.tenant_id,
-                campaign_id: camp_id || null,
-                campaign_name: campaign_name || null,
-                sender_email: from_email.toLowerCase().trim(),
-                reply_body: text_body || null,
-                replied_at: replied_date || new Date().toISOString(),
+                ...canonicalToReplyRow(canonical),
                 company_id: match.company_id,
                 contact_id: match.contact_id,
                 match_status: match.match_status,
                 match_method: match.match_method,
                 read_status: 'unread',
-                direction: 'IN' as const,
-                raw_payload: sanitizePayload(req.body),
-                label: label || null,
-                sentiment: sentiment || null,
-                subject: subject || null,
-                plusvibe_lead_id: lead_id || null,
                 step: step ?? null,
             };
 
@@ -147,11 +157,11 @@ router.post(
             if (error) {
                 // Partial unique index handles dedup — treat unique violation as success
                 if (error.code === '23505') {
-                    log.info({ camp_id, sender: from_email }, 'Duplicate webhook ignored');
+                    log.info({ camp_id: canonical.campaignId, sender: from_email }, 'Duplicate webhook ignored');
                     res.status(200).json({ ok: true, duplicate: true });
                     return;
                 }
-                log.error({ err: error, camp_id, sender: from_email }, 'Failed to insert email reply into database');
+                log.error({ err: error, camp_id: canonical.campaignId, sender: from_email }, 'Failed to insert email reply into database');
                 res.status(500).json({
                     error: 'Failed to store email reply',
                     code: 'DB_INSERT_FAILED',
@@ -173,7 +183,7 @@ router.post(
                     await enrichContactFromWebhook(match.contact_id, req.body);
                 }
             } catch (enrichErr) {
-                log.warn({ err: enrichErr, camp_id, sender: from_email }, 'Enrichment failed (non-critical)');
+                log.warn({ err: enrichErr, camp_id: canonical.campaignId, sender: from_email }, 'Enrichment failed (non-critical)');
             }
 
             // Cancel active campaign enrollments for this sender (drip auto-stop on reply)
@@ -181,7 +191,7 @@ router.post(
                 log.warn({ err: cancelErr, from_email }, 'Campaign enrollment cancel check failed'),
             );
 
-            log.info({ camp_id, sender: from_email, match_status: match.match_status, label }, 'Webhook processed successfully');
+            log.info({ camp_id: canonical.campaignId, sender: from_email, match_status: match.match_status, label: canonical.label }, 'Webhook processed successfully');
             res.status(200).json({ ok: true });
         } catch (err) {
             if (err instanceof AppError) return next(err);

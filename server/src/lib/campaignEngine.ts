@@ -226,8 +226,9 @@ export async function enrollLeads(
 // ── Scheduled Email Processing ─────────────────────────────────────────────
 
 export async function processScheduledEmails(): Promise<{ sent: number; failed: number; advanced: number }> {
-    // Skip if no email sending capability is configured
-    if (!process.env.RESEND_API_KEY) return { sent: 0, failed: 0, advanced: 0 };
+    // Drip emails go out via Nango (user's own Gmail/Outlook), not Resend.
+    // If Nango is not configured, no tenant can have an active connection — skip the tick.
+    if (!process.env.NANGO_SECRET_KEY) return { sent: 0, failed: 0, advanced: 0 };
 
     const { data: dueEnrollments, error } = await supabaseAdmin
         .from('campaign_enrollments')

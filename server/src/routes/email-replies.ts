@@ -18,7 +18,8 @@ import { isInternalRole } from '../lib/roles.js';
 import { matchSenderEmail, advanceCompanyStageOnMatch } from '../lib/emailMatcher.js';
 import { resolveReplyContext } from '../lib/plusvibeReplyResolver.js';
 import { buildAttachmentCardsHtml } from '../lib/emailHtmlBuilder.js';
-import { replyToEmail, forwardEmail } from '../lib/plusvibeClient.js';
+import { sendMail } from '../lib/mail/router.js';
+import { resolveThreadMailbox } from '../lib/mail/resolveThreadMailbox.js';
 
 const log = createLogger('route:email-replies');
 const router = Router();
@@ -172,7 +173,7 @@ router.get(
 
             let query = supabaseAdmin
                 .from('email_replies')
-                .select('id, sender_email, reply_body, replied_at, read_status, campaign_id, direction, raw_payload')
+                .select('id, sender_email, reply_body, replied_at, read_status, campaign_id, direction, raw_payload, account_email, from_address, to_address, cc_address, provider')
                 .eq('tenant_id', tenantId)
                 .eq('sender_email', sender_email)
                 .order('replied_at', { ascending: false })
@@ -642,7 +643,7 @@ router.post(
             // Fetch the inbound email reply
             const { data: emailReply, error: fetchErr } = await supabaseAdmin
                 .from('email_replies')
-                .select('id, campaign_id, sender_email, replied_at, raw_payload, company_id, contact_id, campaign_name, direction')
+                .select('id, campaign_id, sender_email, replied_at, raw_payload, company_id, contact_id, campaign_name, direction, account_email')
                 .eq('id', id)
                 .eq('tenant_id', tenantId)
                 .single();
@@ -703,18 +704,24 @@ router.post(
                 ? context.subject
                 : `Re: ${context.subject}`;
 
-            // Send via PlusVibe API
+            // Canonical "our mailbox" for this thread (account_email column → fallback to resolver).
+            // This fixes replies going out from the wrong (sender_emails[0]) mailbox.
+            const accountEmail = resolveThreadMailbox(emailReply) ?? context.fromAddress;
 
-            const pvResponse = await replyToEmail({
-                reply_to_id: context.plusvibeEmailId,
-                subject,
-                from: context.fromAddress,
+            // Send via the canonical mail router (reply → PlusVibe for a PlusVibe thread)
+            const sendResult = await sendMail({
+                channel: 'reply',
+                tenantId,
+                originProvider: 'plusvibe',
+                inReplyToMessageId: context.plusvibeEmailId,
+                accountEmail,
                 to: emailReply.sender_email,
-                body: htmlBody,
-                ...(cc && { cc }),
+                subject,
+                bodyHtml: htmlBody,
+                ...(cc && { cc: [cc] }),
             });
 
-            // Insert outbound reply record
+            // Insert outbound reply record (canonical columns + legacy raw_payload)
             const outRow = {
                 tenant_id: tenantId,
                 campaign_id: emailReply.campaign_id,
@@ -728,10 +735,18 @@ router.post(
                 read_status: 'read' as const,
                 direction: 'OUT' as const,
                 parent_reply_id: id,
+                provider: 'plusvibe',
+                channel: 'reply',
+                provider_message_id: sendResult.providerMessageId,
+                account_email: accountEmail,
+                from_address: accountEmail,
+                to_address: emailReply.sender_email,
+                cc_address: cc || null,
+                subject,
                 raw_payload: {
                     source: 'user_reply',
-                    plusvibe_reply_id: pvResponse.id,
-                    from_address: context.fromAddress,
+                    plusvibe_reply_id: sendResult.providerMessageId,
+                    from_address: accountEmail,
                     subject,
                     ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
                 },
@@ -747,7 +762,7 @@ router.post(
                 log.error({ err: insertErr }, 'Failed to store outbound reply');
                 // Reply was sent via PlusVibe successfully, but local storage failed
                 // Return success with warning
-                res.json({ sent: true, stored: false, plusvibe_id: pvResponse.id });
+                res.json({ sent: true, stored: false, plusvibe_id: sendResult.providerMessageId });
                 return;
             }
 
@@ -784,7 +799,7 @@ router.post(
 
             const { data: emailReply, error: fetchErr } = await supabaseAdmin
                 .from('email_replies')
-                .select('id, campaign_id, sender_email, replied_at, raw_payload, company_id, contact_id, campaign_name, direction')
+                .select('id, campaign_id, sender_email, replied_at, raw_payload, company_id, contact_id, campaign_name, direction, account_email')
                 .eq('id', id)
                 .eq('tenant_id', tenantId)
                 .single();
@@ -831,12 +846,18 @@ router.post(
                 }
             }
 
-            const pvResponse = await forwardEmail({
-                reply_to_id: context.plusvibeEmailId,
-                from: context.fromAddress,
+            const accountEmail = resolveThreadMailbox(emailReply) ?? context.fromAddress;
+
+            const sendResult = await sendMail({
+                channel: 'forward',
+                tenantId,
+                originProvider: 'plusvibe',
+                inReplyToMessageId: context.plusvibeEmailId,
+                accountEmail,
                 to,
-                body: htmlBody,
-                ...(cc && { cc }),
+                subject: context.subject,
+                bodyHtml: htmlBody,
+                ...(cc && { cc: [cc] }),
             });
 
             // Outbound record — sender_email kept as ORIGINAL sender so the forward
@@ -854,10 +875,17 @@ router.post(
                 read_status: 'read' as const,
                 direction: 'OUT' as const,
                 parent_reply_id: id,
+                provider: 'plusvibe',
+                channel: 'forward',
+                provider_message_id: sendResult.providerMessageId,
+                account_email: accountEmail,
+                from_address: accountEmail,
+                to_address: to,
+                cc_address: cc || null,
                 raw_payload: {
                     source: 'user_forward',
-                    plusvibe_forward_id: pvResponse.id,
-                    from_address: context.fromAddress,
+                    plusvibe_forward_id: sendResult.providerMessageId,
+                    from_address: accountEmail,
                     forwarded_to: to,
                     ...(cc && { cc }),
                     ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
@@ -872,7 +900,7 @@ router.post(
 
             if (insertErr) {
                 log.error({ err: insertErr }, 'Failed to store outbound forward');
-                res.json({ sent: true, stored: false, plusvibe_id: pvResponse.id });
+                res.json({ sent: true, stored: false, plusvibe_id: sendResult.providerMessageId });
                 return;
             }
 
