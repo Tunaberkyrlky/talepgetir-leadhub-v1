@@ -23,6 +23,7 @@ import {
     Badge,
     Tooltip,
     Skeleton,
+    Modal,
 } from '@mantine/core';
 import { Dropzone, MIME_TYPES } from '@mantine/dropzone';
 import { useDisclosure } from '@mantine/hooks';
@@ -47,9 +48,10 @@ import api from '../lib/api';
 import { showErrorFromApi, getErrorMessage } from '../lib/notifications';
 import DataMatchFlow from '../components/DataMatchFlow';
 import MappingEditor from '../components/MappingEditor';
+import ImportMatchReport from '../components/import/ImportMatchReport';
 import { useImportProgress } from '../contexts/ImportProgressContext';
 import { useAuth } from '../contexts/AuthContext';
-import type { MappingSuggestion, AvailableField, ImportResult } from '../types/import';
+import type { MappingSuggestion, AvailableField, ImportResult, MatchReport } from '../types/import';
 
 interface ImportJob {
     id: string;
@@ -61,6 +63,11 @@ interface ImportJob {
     error_count: number;
     created_at: string;
     completed_at: string | null;
+}
+
+interface ImportJobDetail extends ImportJob {
+    match_report: MatchReport | null;
+    error_details: { row: number; field: string; error: string }[] | null;
 }
 
 interface PreviewData {
@@ -87,6 +94,7 @@ export default function ImportPage() {
     const { startImport, finishImport, cancelImport } = useImportProgress();
     const { activeTenantId } = useAuth();
     const [historyOpened, { toggle: toggleHistory }] = useDisclosure(false);
+    const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
     const { data: importJobs, isLoading: jobsLoading } = useQuery({
         queryKey: ['import', 'jobs', activeTenantId],
@@ -94,6 +102,15 @@ export default function ImportPage() {
             const res = await api.get('/import/jobs');
             return res.data.data as ImportJob[];
         },
+    });
+
+    const { data: jobDetail, isLoading: jobDetailLoading } = useQuery({
+        queryKey: ['import', 'job', selectedJobId],
+        queryFn: async () => {
+            const res = await api.get(`/import/jobs/${selectedJobId}`);
+            return res.data.data as ImportJobDetail;
+        },
+        enabled: !!selectedJobId,
     });
 
     const missingRequired = useMemo(() =>
@@ -484,6 +501,14 @@ export default function ImportPage() {
                                 </Card>
                             </SimpleGrid>
 
+                            {/* Match audit — who got linked to whom */}
+                            {importResult.matchReport && (
+                                <ImportMatchReport
+                                    report={importResult.matchReport}
+                                    fileName={previewData?.fileName}
+                                />
+                            )}
+
                             {/* Errors */}
                             {importResult.errors.length > 0 && (
                                 <Paper shadow="sm" radius="lg" p="lg" withBorder>
@@ -581,7 +606,11 @@ export default function ImportPage() {
                                 </Table.Thead>
                                 <Table.Tbody>
                                     {importJobs.map((job) => (
-                                        <Table.Tr key={job.id}>
+                                        <Table.Tr
+                                            key={job.id}
+                                            style={{ cursor: 'pointer' }}
+                                            onClick={() => setSelectedJobId(job.id)}
+                                        >
                                             <Table.Td>
                                                 <Tooltip label={job.file_name} openDelay={300}>
                                                     <Text size="sm" fw={500} lineClamp={1} maw={300}>{job.file_name}</Text>
@@ -623,6 +652,75 @@ export default function ImportPage() {
                     </Box>
                 )}
             </Paper>
+
+            {/* Import detail modal — match audit for a past import */}
+            <Modal
+                opened={!!selectedJobId}
+                onClose={() => setSelectedJobId(null)}
+                size="xl"
+                radius="lg"
+                title={
+                    <Group gap="xs">
+                        <IconHistory size={18} />
+                        <Text fw={600} lineClamp={1} maw={460}>{jobDetail?.file_name || t('import.historyTitle')}</Text>
+                    </Group>
+                }
+            >
+                {jobDetailLoading ? (
+                    <Stack gap="xs">
+                        {[...Array(4)].map((_, i) => <Skeleton key={i} height={40} radius="sm" />)}
+                    </Stack>
+                ) : !jobDetail ? (
+                    <Text size="sm" c="dimmed">{t('import.historyEmpty')}</Text>
+                ) : (
+                    <Stack gap="md">
+                        <Group gap="xs">
+                            <Badge variant="light" color={
+                                jobDetail.status === 'completed' ? 'green' :
+                                jobDetail.status === 'failed' ? 'red' :
+                                jobDetail.status === 'cancelled' ? 'gray' : 'yellow'
+                            }>
+                                {t(`import.status_${jobDetail.status}`, jobDetail.status)}
+                            </Badge>
+                            <Text size="sm" c="dimmed">
+                                {jobDetail.success_count}/{jobDetail.total_rows} {t('import.totalRows').toLowerCase()}
+                            </Text>
+                        </Group>
+
+                        {jobDetail.match_report ? (
+                            <ImportMatchReport report={jobDetail.match_report} fileName={jobDetail.file_name} />
+                        ) : (
+                            <Text size="sm" c="dimmed">{t('import.report.legacyNoReport')}</Text>
+                        )}
+
+                        {jobDetail.error_details && jobDetail.error_details.length > 0 && (
+                            <Paper shadow="sm" radius="lg" p="lg" withBorder>
+                                <Text fw={600} mb="md" c="red">
+                                    {t('import.errors')} ({jobDetail.error_count})
+                                </Text>
+                                <Table striped>
+                                    <Table.Thead>
+                                        <Table.Tr>
+                                            <Table.Th>{t('import.errorRow')}</Table.Th>
+                                            <Table.Th>{t('import.errorField')}</Table.Th>
+                                            <Table.Th>{t('import.errorMessage')}</Table.Th>
+                                        </Table.Tr>
+                                    </Table.Thead>
+                                    <Table.Tbody>
+                                        {jobDetail.error_details.slice(0, 50).map((err, i) => (
+                                            <Table.Tr key={i}>
+                                                <Table.Td>{err.row}</Table.Td>
+                                                <Table.Td>{err.field}</Table.Td>
+                                                <Table.Td><Text size="sm" c="red">{err.error}</Text></Table.Td>
+                                            </Table.Tr>
+                                        ))}
+                                    </Table.Tbody>
+                                </Table>
+                            </Paper>
+                        )}
+                    </Stack>
+                )}
+            </Modal>
         </Container>
     );
 }

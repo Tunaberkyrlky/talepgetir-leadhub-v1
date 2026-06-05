@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.26',
+        date: '2026-06-05',
+        type: 'feature',
+        title: { tr: 'İçe Aktarma Eşleşme Denetimi', en: 'Import Match Audit' },
+        features: [
+            {
+                tr: 'İçe aktarma sonuç ekranına Eşleşme Denetimi bölümü eklendi. Hangi kişinin hangi şirkete bağlandığını, şirketin yeni mi oluşturulduğunu yoksa mevcut bir şirketle mi eşleştiğini ve mükerrer olduğu için atlanan kişileri tek bir tabloda görebilirsiniz.',
+                en: 'A Match Audit section was added to the import result screen. You can see which contact was linked to which company, whether the company was newly created or matched to an existing one, and which contacts were skipped as duplicates, all in a single table.',
+            },
+            {
+                tr: 'İçe aktarma geçmişinde herhangi bir kayda tıklayarak o içe aktarmanın eşleşme detayını açabilir, tüm listeyi CSV olarak indirebilirsiniz.',
+                en: 'In the import history you can click any record to open that import\'s match detail, and download the full list as CSV.',
+            },
+        ],
+    },
+    {
         version: '1.9.25',
         date: '2026-06-05',
         type: 'improvement',

@@ -191,7 +191,29 @@
         "status_processing": "Processing",
         "status_completed": "Completed",
         "status_failed": "Failed",
-        "status_cancelled": "Cancelled"
+        "status_cancelled": "Cancelled",
+        "report": {
+            "title": "Match Audit",
+            "downloadCsv": "Download audit CSV",
+            "empty": "No matched records in this import.",
+            "legacyNoReport": "No match details were stored for this import. The detailed audit is available for imports made after this feature.",
+            "companyCreated": "New company",
+            "companyMatched": "Matched company",
+            "contactCreated": "New contact",
+            "contactDuplicate": "Duplicate contact (skipped)",
+            "contactNone": "Row without contact",
+            "rowsErrored": "Errored rows",
+            "filterAll": "All",
+            "filterCreatedCompany": "New company",
+            "filterMatchedCompany": "Matched company",
+            "filterDuplicates": "Duplicate contact",
+            "filterNoContact": "No contact",
+            "colRow": "Row",
+            "colCompany": "Company",
+            "colContact": "Contact",
+            "colStatus": "Status",
+            "truncatedNote": "Showing {{shown}} / {{total}} rows. Download the CSV for the full list."
+        }
     },
     "stages": {
         "cold": "Cold",

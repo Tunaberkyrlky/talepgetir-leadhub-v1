@@ -20,6 +20,31 @@ export interface AvailableField {
     required: boolean;
 }
 
+export interface MatchEntry {
+    row: number;
+    company: string;
+    website: string | null;
+    companyAction: 'created' | 'matched';
+    companyId: string;
+    contact: string | null;
+    email: string | null;
+    contactAction: 'created' | 'skipped_duplicate' | 'none';
+}
+
+export interface MatchReport {
+    version: 1;
+    summary: {
+        companiesCreated: number;
+        companiesMatched: number;
+        contactsCreated: number;
+        contactsSkippedDuplicate: number;
+        contactsWithoutName: number;
+        rowsErrored: number;
+    };
+    entries: MatchEntry[];
+    entriesTruncated: boolean;
+}
+
 export interface ImportResult {
     importJobId?: string;
     totalRows: number;
@@ -29,5 +54,6 @@ export interface ImportResult {
     createdCompanies: number;
     updatedCompanies: number;
     createdContacts: number;
+    matchReport?: MatchReport;
     cancelled?: boolean;
 }

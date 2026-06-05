@@ -98,6 +98,35 @@ interface ImportError {
     error: string;
 }
 
+// Per-row matching ledger entry — "who got linked to whom" for the import audit.
+interface MatchEntry {
+    row: number;                                          // source row number (1-based, header = row 1)
+    company: string;                                      // resolved company name
+    website: string | null;
+    companyAction: 'created' | 'matched';                // matched = reused an existing company (dedup by website)
+    companyId: string;                                   // links to the company detail page
+    contact: string | null;                              // "First Last" or null when the row carried no contact
+    email: string | null;
+    contactAction: 'created' | 'skipped_duplicate' | 'none';
+}
+
+interface MatchReport {
+    version: 1;
+    summary: {
+        companiesCreated: number;
+        companiesMatched: number;
+        contactsCreated: number;
+        contactsSkippedDuplicate: number;
+        contactsWithoutName: number;
+        rowsErrored: number;
+    };
+    entries: MatchEntry[];
+    entriesTruncated: boolean;                           // entries list capped for very large imports
+}
+
+// Cap the persisted/returned per-row ledger so huge imports don't bloat the job row or response.
+const MATCH_ENTRIES_CAP = 5000;
+
 interface ImportResult {
     importJobId: string;
     totalRows: number;
@@ -107,6 +136,7 @@ interface ImportResult {
     createdCompanies: number;
     updatedCompanies: number;
     createdContacts: number;
+    matchReport?: MatchReport;
     cancelled?: boolean;
 }
 
@@ -328,6 +358,10 @@ async function _executeImportInner(
     const updateCompanyMap = new Map<string, Record<string, unknown> & { id: string }>();
     const rowValid: boolean[] = new Array(rows.length).fill(false);
     const rowCompanyKey: string[] = new Array(rows.length).fill('');
+    // Per-row data captured for the match ledger
+    const rowCompanyExisting: boolean[] = new Array(rows.length).fill(false);
+    const rowCompanyName: string[] = new Array(rows.length).fill('');
+    const rowWebsite: (string | null)[] = new Array(rows.length).fill(null);
 
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -408,6 +442,9 @@ async function _executeImportInner(
 
         rowValid[i] = true;
         rowCompanyKey[i] = mapKey;
+        rowCompanyExisting[i] = !!existing;
+        rowCompanyName[i] = companyName;
+        rowWebsite[i] = rawWebsite || null;
     }
 
     log.info({
@@ -492,9 +529,12 @@ async function _executeImportInner(
         return { importJobId: jobId, totalRows: rows.length, successCount: createdCompanies + updatedCompanies, errorCount: errors.length, errors, createdCompanies, updatedCompanies, createdContacts: 0, cancelled: true };
     }
 
-    // ── Phase 5: Collect and batch insert contacts ──
+    // ── Phase 5: Collect and batch insert contacts (+ build match ledger) ──
     const contactsToInsert: Record<string, unknown>[] = [];
+    const matchEntries: MatchEntry[] = [];
     let successCount = 0;
+    let contactsSkippedDuplicate = 0;
+    let contactsWithoutName = 0;
 
     for (let i = 0; i < rows.length; i++) {
         if (!rowValid[i]) continue;
@@ -512,26 +552,51 @@ async function _executeImportInner(
 
         const row = rows[i];
         const contactFirstName = getValue(row, 'contacts.first_name');
-        if (!contactFirstName) continue;
-
         const contactEmail = getValue(row, 'contacts.email');
-        const contactKey = contactEmail ? `${contactEmail.toLowerCase()}::${companyInfo.id}` : null;
-        if (contactKey && contactKeySet.has(contactKey)) continue;
-        if (contactKey) contactKeySet.add(contactKey);
+        const contactLastName = getValue(row, 'contacts.last_name');
 
-        contactsToInsert.push({
-            tenant_id: tenantId,
-            company_id: companyInfo.id,
-            first_name: contactFirstName,
-            last_name: getValue(row, 'contacts.last_name') || null,
-            title: getValue(row, 'contacts.title') || null,
-            email: contactEmail || null,
-            phone_e164: getValue(row, 'contacts.phone_e164') || null,
-            linkedin: getValue(row, 'contacts.linkedin') || null,
-            country: getValue(row, 'contacts.country') || null,
-            seniority: getValue(row, 'contacts.seniority') || null,
-            department: getValue(row, 'contacts.department') || null,
-        });
+        let contactAction: MatchEntry['contactAction'];
+        if (!contactFirstName) {
+            contactAction = 'none';
+            contactsWithoutName++;
+        } else {
+            const contactKey = contactEmail ? `${contactEmail.toLowerCase()}::${companyInfo.id}` : null;
+            if (contactKey && contactKeySet.has(contactKey)) {
+                contactAction = 'skipped_duplicate';
+                contactsSkippedDuplicate++;
+            } else {
+                if (contactKey) contactKeySet.add(contactKey);
+                contactAction = 'created';
+                contactsToInsert.push({
+                    tenant_id: tenantId,
+                    company_id: companyInfo.id,
+                    first_name: contactFirstName,
+                    last_name: contactLastName || null,
+                    title: getValue(row, 'contacts.title') || null,
+                    email: contactEmail || null,
+                    phone_e164: getValue(row, 'contacts.phone_e164') || null,
+                    linkedin: getValue(row, 'contacts.linkedin') || null,
+                    country: getValue(row, 'contacts.country') || null,
+                    seniority: getValue(row, 'contacts.seniority') || null,
+                    department: getValue(row, 'contacts.department') || null,
+                });
+            }
+        }
+
+        if (matchEntries.length < MATCH_ENTRIES_CAP) {
+            matchEntries.push({
+                row: i + 2,
+                company: rowCompanyName[i],
+                website: rowWebsite[i],
+                companyAction: rowCompanyExisting[i] ? 'matched' : 'created',
+                companyId: companyInfo.id,
+                contact: contactFirstName
+                    ? `${contactFirstName}${contactLastName ? ' ' + contactLastName : ''}`
+                    : null,
+                email: contactEmail || null,
+                contactAction,
+            });
+        }
     }
 
     let createdContacts = 0;
@@ -559,6 +624,20 @@ async function _executeImportInner(
     // Invalidate company cache so email matching picks up newly imported companies
     clearCompanyCache(tenantId);
 
+    const matchReport: MatchReport = {
+        version: 1,
+        summary: {
+            companiesCreated: createdCompanies,
+            companiesMatched: updatedCompanies,
+            contactsCreated: createdContacts,
+            contactsSkippedDuplicate,
+            contactsWithoutName,
+            rowsErrored: errors.length,
+        },
+        entries: matchEntries,
+        entriesTruncated: successCount > MATCH_ENTRIES_CAP,
+    };
+
     await supabaseAdmin
         .from('import_jobs')
         .update({
@@ -566,6 +645,7 @@ async function _executeImportInner(
             success_count: successCount,
             error_count: errors.length,
             error_details: errors,
+            match_report: matchReport,
             progress_count: rows.length,
             completed_at: new Date().toISOString(),
         })
@@ -580,5 +660,6 @@ async function _executeImportInner(
         createdCompanies,
         updatedCompanies,
         createdContacts,
+        matchReport,
     };
 }

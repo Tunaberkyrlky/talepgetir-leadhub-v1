@@ -191,7 +191,29 @@
         "status_processing": "İşleniyor",
         "status_completed": "Tamamlandı",
         "status_failed": "Başarısız",
-        "status_cancelled": "İptal Edildi"
+        "status_cancelled": "İptal Edildi",
+        "report": {
+            "title": "Eşleşme Denetimi",
+            "downloadCsv": "Denetim CSV indir",
+            "empty": "Bu içe aktarmada eşleşen kayıt bulunmuyor.",
+            "legacyNoReport": "Bu içe aktarma için eşleşme detayı tutulmamış. Detaylı denetim, bu özellikten sonra yapılan içe aktarmalarda görüntülenir.",
+            "companyCreated": "Yeni şirket",
+            "companyMatched": "Eşleşen şirket",
+            "contactCreated": "Yeni kişi",
+            "contactDuplicate": "Mükerrer kişi (atlandı)",
+            "contactNone": "Kişisiz satır",
+            "rowsErrored": "Hatalı satır",
+            "filterAll": "Tümü",
+            "filterCreatedCompany": "Yeni şirket",
+            "filterMatchedCompany": "Eşleşen şirket",
+            "filterDuplicates": "Mükerrer kişi",
+            "filterNoContact": "Kişisiz",
+            "colRow": "Satır",
+            "colCompany": "Şirket",
+            "colContact": "Kişi",
+            "colStatus": "Durum",
+            "truncatedNote": "{{shown}} / {{total}} satır gösteriliyor. Tamamı için CSV'yi indirin."
+        }
     },
     "stages": {
         "cold": "Soğuk",

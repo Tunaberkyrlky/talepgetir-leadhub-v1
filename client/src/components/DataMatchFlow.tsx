@@ -37,6 +37,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useImportProgress } from '../contexts/ImportProgressContext';
 import MappingEditor from './MappingEditor';
+import ImportMatchReport from './import/ImportMatchReport';
 import type { MappingSuggestion, AvailableField, ImportResult } from '../types/import';
 
 interface MatchStrategy {
@@ -554,6 +555,14 @@ export default function DataMatchFlow() {
                                 </Group>
                             </Card>
                         </SimpleGrid>
+
+                        {/* Match audit — who got linked to whom */}
+                        {importResult.matchReport && (
+                            <ImportMatchReport
+                                report={importResult.matchReport}
+                                fileName={previewData?.fileName}
+                            />
+                        )}
 
                         {importResult.errors.length > 0 && (
                             <Paper shadow="sm" radius="lg" p="lg" withBorder>
