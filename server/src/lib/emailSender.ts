@@ -255,8 +255,12 @@ export async function sendEmail(
         return { success: true, messageId, provider: connection.provider };
     } catch (err) {
         if (err instanceof AppError) throw err;
-        const message = err instanceof Error ? err.message : String(err);
-        log.error({ err, to, provider: connection.provider }, 'Email send failed');
+        // Surface the provider's real error message (Gmail/Graph put it in response.data.error.message)
+        // instead of the generic axios "Request failed with status code 403".
+        const providerMsg =
+            (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+        const message = providerMsg || (err instanceof Error ? err.message : String(err));
+        log.error({ err, to, provider: connection.provider, providerMsg }, 'Email send failed');
         throw new AppError(`Email send failed: ${message}`, 502);
     }
 }

@@ -13,7 +13,7 @@ import {
     IconMail, IconMailOpened, IconSearch,
     IconCircleFilled, IconLink, IconLinkOff, IconAlertCircle,
     IconSpeakerphone, IconDownload, IconChevronDown, IconChevronRight,
-    IconChevronLeft, IconRefresh, IconAdjustments,
+    IconChevronLeft, IconRefresh, IconAdjustments, IconPencilPlus,
 } from '@tabler/icons-react';
 import ThreadHistoryRows from '../components/email/ThreadHistoryRows';
 import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
@@ -23,6 +23,7 @@ import api from '../lib/api';
 import { showErrorFromApi } from '../lib/notifications';
 import StatCard from '../components/StatCard';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
+import ComposeMailModal from '../components/email/ComposeMailModal';
 import type { EmailReply, EmailReplyStats, Campaign } from '../types/emailReply';
 import type { CampaignsResponse } from '../types/plusvibe';
 import { useStages } from '../contexts/StagesContext';
@@ -168,6 +169,9 @@ export default function EmailRepliesPage() {
     const queryClient = useQueryClient();
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
     const { getStageColor, getStageLabel } = useStages();
+
+    // Compose modal
+    const [composeOpen, setComposeOpen] = useState(false);
 
     // Filters
     const [campaignFilter, setCampaignFilter] = useState('');
@@ -443,6 +447,14 @@ export default function EmailRepliesPage() {
                     </Badge>
                 </Group>
                 <Group gap="xs">
+                    <Button
+                        size="sm"
+                        color="violet"
+                        leftSection={<IconPencilPlus size={16} />}
+                        onClick={() => setComposeOpen(true)}
+                    >
+                        {t('emailReplies.compose.button', 'Yeni Mail')}
+                    </Button>
                     {((stats?.unmatched ?? 0) > 0 || rematchState.phase !== 'idle') && (() => {
                         const isBusy = rematchState.phase === 'fetching' || rematchState.phase === 'matching';
                         const label = rematchState.phase === 'idle'
@@ -1019,6 +1031,12 @@ export default function EmailRepliesPage() {
                 reply={selectedReply}
                 opened={!!selectedReply}
                 onClose={() => setSelectedReply(null)}
+            />
+
+            {/* Compose Mail Modal */}
+            <ComposeMailModal
+                opened={composeOpen}
+                onClose={() => setComposeOpen(false)}
             />
         </Container>
     );

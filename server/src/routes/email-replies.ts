@@ -10,6 +10,7 @@ import {
     readStatusBodySchema,
     sendReplyBodySchema,
     forwardEmailBodySchema,
+    composeEmailBodySchema,
     threadHistoryQuerySchema,
     uuidField,
 } from '../lib/validation.js';
@@ -910,6 +911,141 @@ router.post(
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Forward error');
             next(new AppError('Failed to forward email', 500));
+        }
+    }
+);
+
+// POST /api/email-replies/compose — send a brand-new email from the connected Gmail
+router.post(
+    '/compose',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    validateBody(composeEmailBodySchema),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { to, subject, body, attachmentIds, cc, companyId, contactId } = req.body as {
+                to: string;
+                subject: string;
+                body: string;
+                attachmentIds?: string[];
+                cc?: string;
+                companyId?: string | null;
+                contactId?: string | null;
+            };
+            const tenantId = req.tenantId!;
+
+            // Resolve sender mailbox from the tenant's active email connection
+            const { data: connection } = await supabaseAdmin
+                .from('email_connections')
+                .select('provider, email_address')
+                .eq('tenant_id', tenantId)
+                .eq('is_active', true)
+                .single();
+
+            if (!connection?.email_address) {
+                throw new AppError(
+                    'No active email connection. Connect Gmail or Outlook in Settings before composing.',
+                    412,
+                );
+            }
+            const accountEmail = connection.email_address as string;
+
+            // Plain text body → simple HTML (same pattern as reply/forward)
+            let htmlBody = body
+                .split('\n')
+                .map((line: string) => `<p>${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
+                .join('');
+
+            if (attachmentIds?.length) {
+                const { data: templates } = await supabaseAdmin
+                    .from('email_attachment_templates')
+                    .select('label, file_type, file_url, file_size')
+                    .in('id', attachmentIds)
+                    .eq('tenant_id', tenantId)
+                    .eq('is_active', true);
+
+                if (templates?.length) {
+                    htmlBody += buildAttachmentCardsHtml(templates);
+                }
+            }
+
+            const sendResult = await sendMail({
+                channel: 'compose',
+                tenantId,
+                accountEmail,
+                to,
+                subject,
+                bodyHtml: htmlBody,
+                ...(cc && { cc: [cc] }),
+            });
+
+            // Outbound record — new thread, no parent, no campaign
+            const outRow = {
+                tenant_id: tenantId,
+                campaign_id: null as string | null,
+                campaign_name: null as string | null,
+                sender_email: to.toLowerCase().trim(),
+                reply_body: body,
+                subject,
+                replied_at: new Date().toISOString(),
+                company_id: companyId || null,
+                contact_id: contactId || null,
+                match_status: companyId ? 'matched' : 'unmatched',
+                read_status: 'read' as const,
+                direction: 'OUT' as const,
+                parent_reply_id: null as string | null,
+                provider: sendResult.provider,
+                channel: 'compose',
+                provider_message_id: sendResult.providerMessageId,
+                account_email: accountEmail,
+                from_address: accountEmail,
+                to_address: to,
+                cc_address: cc || null,
+                raw_payload: {
+                    source: 'user_compose',
+                    subject,
+                    from_address: accountEmail,
+                    ...(cc && { cc }),
+                    ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
+                },
+            };
+
+            const { data: inserted, error: insertErr } = await supabaseAdmin
+                .from('email_replies')
+                .insert(outRow)
+                .select('id, direction, reply_body, replied_at, sender_email, subject')
+                .single();
+
+            if (insertErr) {
+                log.error({ err: insertErr }, 'Failed to store outbound compose');
+                res.json({ sent: true, stored: false, message_id: sendResult.providerMessageId });
+                return;
+            }
+
+            // Activity log (only if matched to a company — unmatched mails have no timeline target)
+            if (companyId) {
+                try {
+                    await supabaseAdmin.from('activities').insert({
+                        tenant_id: tenantId,
+                        company_id: companyId,
+                        contact_id: contactId || null,
+                        created_by: req.user?.id || null,
+                        type: 'follow_up',
+                        summary: `Mail gönderildi: ${subject}`,
+                        detail: body.slice(0, 500),
+                        visibility: 'client',
+                        occurred_at: new Date().toISOString(),
+                    });
+                } catch (actErr) {
+                    log.warn({ err: actErr, companyId }, 'Compose activity log failed (non-critical)');
+                }
+            }
+
+            log.info({ outboundId: inserted.id, to, subject: subject.slice(0, 50) }, 'Compose email sent via Nango');
+            res.json({ sent: true, stored: true, data: inserted });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Compose error');
+            next(new AppError('Failed to send email', 500));
         }
     }
 );

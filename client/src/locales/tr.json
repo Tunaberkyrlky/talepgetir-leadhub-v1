@@ -793,6 +793,26 @@
             "success": "Mail yönlendirildi",
             "failed": "Yönlendirme başarısız"
         },
+        "compose": {
+            "button": "Yeni Mail",
+            "title": "Yeni Mail",
+            "from": "Kimden",
+            "to": "Kime",
+            "toPlaceholder": "Kişi arayın veya e-posta yazın",
+            "subject": "Konu",
+            "subjectPlaceholder": "Konu yazın",
+            "body": "Mesaj",
+            "bodyPlaceholder": "Mailinizi yazın...",
+            "send": "Gönder",
+            "cancel": "İptal",
+            "success": "Mail gönderildi",
+            "failed": "Mail gönderilemedi",
+            "noConnectionTitle": "Bağlı mail hesabı yok",
+            "noConnection": "Mail göndermek için önce Ayarlar > E-posta Bağlantısı'ndan Gmail hesabınızı bağlayın.",
+            "goToSettings": "Ayarlara git",
+            "linkedContact": "Kişiye bağlandı",
+            "noEmail": "(e-posta yok)"
+        },
         "attachments": {
             "label": "Eklentiler",
             "addNew": "Yeni Ekle",

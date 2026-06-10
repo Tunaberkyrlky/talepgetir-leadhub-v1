@@ -9,7 +9,7 @@
 
 export type MailProviderName = 'plusvibe' | 'gmail' | 'outlook' | 'resend';
 export type MailDirection = 'inbound' | 'outbound';
-export type MailChannel = 'reply' | 'forward' | 'campaign' | 'system';
+export type MailChannel = 'reply' | 'forward' | 'compose' | 'campaign' | 'system';
 
 /** A normalized message, provider-agnostic. Maps 1:1 to an email_replies row. */
 export interface CanonicalMessage {

@@ -3,7 +3,7 @@
  * thread's origin provider, so a reply goes back out the SAME channel it arrived.
  *
  *   system                    → Resend (brand transactional)
- *   campaign                  → Nango (drip from user's own mailbox)
+ *   campaign | compose        → Nango (user's own mailbox)
  *   reply | forward           → the thread's origin provider:
  *                                 plusvibe thread → PlusVibe
  *                                 gmail/outlook   → Nango
@@ -18,7 +18,7 @@ const log = createLogger('mail:router');
 
 function pickProvider(req: CanonicalSendRequest): MailProvider {
     if (req.channel === 'system') return resendProvider;
-    if (req.channel === 'campaign') return nangoProvider;
+    if (req.channel === 'campaign' || req.channel === 'compose') return nangoProvider;
 
     // reply | forward → route by the thread's origin provider
     switch (req.originProvider) {

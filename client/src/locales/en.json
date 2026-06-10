@@ -793,6 +793,26 @@
             "success": "Email forwarded",
             "failed": "Forward failed"
         },
+        "compose": {
+            "button": "New Email",
+            "title": "New Email",
+            "from": "From",
+            "to": "To",
+            "toPlaceholder": "Search a contact or type an email",
+            "subject": "Subject",
+            "subjectPlaceholder": "Type a subject",
+            "body": "Message",
+            "bodyPlaceholder": "Write your email...",
+            "send": "Send",
+            "cancel": "Cancel",
+            "success": "Email sent",
+            "failed": "Failed to send email",
+            "noConnectionTitle": "No connected mailbox",
+            "noConnection": "To send email, connect a Gmail account from Settings > Email Connection first.",
+            "goToSettings": "Go to Settings",
+            "linkedContact": "Linked to contact",
+            "noEmail": "(no email)"
+        },
         "attachments": {
             "label": "Attachments",
             "addNew": "Add New",
