@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Modal, Group, Stack, Text, Badge, Button, Anchor,
     Textarea, Box, ActionIcon, Divider, TextInput, Loader,
-    Checkbox, Alert,
+    Checkbox, Alert, Select,
 } from '@mantine/core';
 import {
     IconMail, IconPlus, IconX, IconSend, IconPaperclip,
@@ -57,6 +57,7 @@ export default function ComposeMailModal({ opened, onClose }: ComposeMailModalPr
     const [customCc, setCustomCc] = useState('');
     const [ccInputOpen, setCcInputOpen] = useState(false);
     const [selectedAttachments, setSelectedAttachments] = useState<string[]>([]);
+    const [fromAccount, setFromAccount] = useState<string | null>(null);
 
     // Reset all state when modal opens/closes
     useEffect(() => {
@@ -71,6 +72,7 @@ export default function ComposeMailModal({ opened, onClose }: ComposeMailModalPr
             setCustomCc('');
             setCcInputOpen(false);
             setSelectedAttachments([]);
+            setFromAccount(null);
         }
     }, [opened]);
 
@@ -81,6 +83,16 @@ export default function ComposeMailModal({ opened, onClose }: ComposeMailModalPr
         enabled: opened,
         staleTime: 60_000,
     });
+
+    const connectionList = useMemo(() => connStatus?.connections ?? [], [connStatus]);
+
+    // Default the "From" to the tenant's default mailbox once connections load
+    useEffect(() => {
+        if (opened && !fromAccount && connectionList.length > 0) {
+            const def = connectionList.find((c) => c.is_default) ?? connectionList[0];
+            setFromAccount(def.email_address);
+        }
+    }, [opened, fromAccount, connectionList]);
 
     // ── Contact search ──
     const { data: contactResults = [], isLoading: contactsLoading } = useQuery<ContactSearchResult[]>({
@@ -132,6 +144,7 @@ export default function ComposeMailModal({ opened, onClose }: ComposeMailModalPr
                 body: body.trim(),
                 ...(selectedAttachments.length > 0 && { attachmentIds: selectedAttachments }),
                 ...(ccList.length > 0 && { cc: ccList.join(', ') }),
+                ...(fromAccount && { accountEmail: fromAccount }),
                 ...(toCompanyId && { companyId: toCompanyId }),
                 ...(toContactId && { contactId: toContactId }),
             })).data;
@@ -146,7 +159,6 @@ export default function ComposeMailModal({ opened, onClose }: ComposeMailModalPr
     });
 
     const connected = !!connStatus?.connected;
-    const fromAddress = connStatus?.email;
     const canSend = connected
         && to.trim().length > 0
         && EMAIL_RE.test(to.trim())
@@ -193,9 +205,22 @@ export default function ComposeMailModal({ opened, onClose }: ComposeMailModalPr
                             )}
                         </Text>
                     </Alert>
+                ) : connectionList.length > 1 ? (
+                    <Select
+                        label={t('emailReplies.compose.from', 'Kimden')}
+                        data={connectionList.map((c) => ({
+                            value: c.email_address,
+                            label: c.is_default ? `${c.email_address} ★` : c.email_address,
+                        }))}
+                        value={fromAccount}
+                        onChange={setFromAccount}
+                        allowDeselect={false}
+                        size="xs"
+                        styles={{ label: { fontSize: 11, fontWeight: 600 } }}
+                    />
                 ) : (
                     <Text size="xs" c="dimmed">
-                        {t('emailReplies.compose.from', 'Kimden')}: <Text span fw={500} c="dark">{fromAddress}</Text>
+                        {t('emailReplies.compose.from', 'Kimden')}: <Text span fw={500} c="dark">{fromAccount}</Text>
                     </Text>
                 )}
 

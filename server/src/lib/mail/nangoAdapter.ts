@@ -12,6 +12,7 @@ export const nangoProvider: MailProvider = {
             fromName: req.fromName,
             cc: req.cc,
             replyTo: req.replyTo,
+            accountEmail: req.accountEmail ?? undefined,
         });
         // emailSender returns the concrete provider ('google-mail' | 'microsoft-outlook')
         const provider = res.provider === 'microsoft-outlook' ? 'outlook' : 'gmail';

@@ -21,6 +21,7 @@ import { resolveReplyContext } from '../lib/plusvibeReplyResolver.js';
 import { buildAttachmentCardsHtml } from '../lib/emailHtmlBuilder.js';
 import { sendMail } from '../lib/mail/router.js';
 import { resolveThreadMailbox } from '../lib/mail/resolveThreadMailbox.js';
+import { getConnectionByEmail, getDefaultConnection } from '../lib/emailConnections.js';
 
 const log = createLogger('route:email-replies');
 const router = Router();
@@ -922,7 +923,7 @@ router.post(
     validateBody(composeEmailBodySchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
-            const { to, subject, body, attachmentIds, cc, companyId, contactId } = req.body as {
+            const { to, subject, body, attachmentIds, cc, companyId, contactId, accountEmail: reqAccount } = req.body as {
                 to: string;
                 subject: string;
                 body: string;
@@ -930,24 +931,18 @@ router.post(
                 cc?: string;
                 companyId?: string | null;
                 contactId?: string | null;
+                accountEmail?: string;
             };
             const tenantId = req.tenantId!;
 
-            // Resolve sender mailbox from the tenant's active email connection
-            const { data: connection } = await supabaseAdmin
-                .from('email_connections')
-                .select('provider, email_address')
-                .eq('tenant_id', tenantId)
-                .eq('is_active', true)
-                .single();
-
-            if (!connection?.email_address) {
-                throw new AppError(
-                    'No active email connection. Connect Gmail or Outlook in Settings before composing.',
-                    412,
-                );
+            // Resolve sender mailbox: explicit "From" selection, else tenant default.
+            const connection = reqAccount
+                ? await getConnectionByEmail(tenantId, reqAccount)
+                : await getDefaultConnection(tenantId);
+            if (!connection) {
+                throw new AppError(`Email account ${reqAccount} not found or inactive`, 412);
             }
-            const accountEmail = connection.email_address as string;
+            const accountEmail = connection.email_address;
 
             // Plain text body → simple HTML (same pattern as reply/forward)
             let htmlBody = body

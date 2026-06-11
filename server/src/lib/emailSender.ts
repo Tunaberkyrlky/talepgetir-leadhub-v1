@@ -13,9 +13,10 @@
  * Saniyede en fazla 3 istek (provider başına, tenant başına).
  */
 
-import { supabaseAdmin } from './supabase.js';
 import { createLogger } from './logger.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { getConnectionByEmail, getDefaultConnection } from './emailConnections.js';
+import type { ConnectionProvider, EmailConnection } from './emailConnections.js';
 
 const log = createLogger('emailSender');
 
@@ -38,34 +39,7 @@ export function isConfigured(): boolean {
     return !!process.env.NANGO_SECRET_KEY;
 }
 
-// ── Email connection lookup ────────────────────────────────────────────────
-
-type Provider = 'google-mail' | 'microsoft-outlook';
-
-interface EmailConnection {
-    provider: Provider;
-    email_address: string;
-    connection_id: string;
-}
-
-async function getActiveConnection(tenantId: string): Promise<EmailConnection> {
-    const { data } = await supabaseAdmin
-        .from('email_connections')
-        .select('provider, email_address, connection_id')
-        .eq('tenant_id', tenantId)
-        .eq('is_active', true)
-        .single();
-
-    if (!data) {
-        throw new AppError(
-            'No active email connection. Connect Gmail or Outlook in Settings before sending campaigns.',
-            412,
-        );
-    }
-    return data as EmailConnection;
-}
-
-// ── Per-tenant + per-provider rate limiter ─────────────────────────────────
+// ── Per-tenant + per-provider rate limiter (shared with smtpAdapter) ───────
 
 interface TenantRateState {
     timestamps: number[];
@@ -76,13 +50,14 @@ interface TenantRateState {
 const tenantRates = new Map<string, TenantRateState>();
 const MAX_PER_SECOND = 3;
 
-function getDailyLimit(provider: Provider): number {
-    if (provider === 'google-mail') return 450;       // free Gmail: 500/day
+function getDailyLimit(provider: ConnectionProvider): number {
+    if (provider === 'google-mail') return 450;        // free Gmail: 500/day
     if (provider === 'microsoft-outlook') return 9500; // Outlook: 10000/day
+    if (provider === 'smtp') return 300;               // conservative for shared SMTP hosts
     return 500;
 }
 
-async function waitForRateLimit(tenantId: string, provider: Provider): Promise<void> {
+export async function waitForRateLimit(tenantId: string, provider: ConnectionProvider): Promise<void> {
     const key = `${tenantId}:${provider}`;
     let state = tenantRates.get(key);
     const now = Date.now();
@@ -182,7 +157,7 @@ async function sendViaGmail(connection: EmailConnection, params: SendParams): Pr
         baseUrlOverride: 'https://gmail.googleapis.com',
         endpoint: '/gmail/v1/users/me/messages/send',
         providerConfigKey: 'google-mail',
-        connectionId: connection.connection_id,
+        connectionId: connection.connection_id ?? '',
         data: { raw: base64url(rawMessage) },
     });
 
@@ -210,7 +185,7 @@ async function sendViaOutlook(connection: EmailConnection, params: SendParams): 
         baseUrlOverride: 'https://graph.microsoft.com',
         endpoint: '/v1.0/me/sendMail',
         providerConfigKey: 'microsoft-outlook',
-        connectionId: connection.connection_id,
+        connectionId: connection.connection_id ?? '',
         data: { message, saveToSentItems: true },
     });
 
@@ -223,7 +198,7 @@ async function sendViaOutlook(connection: EmailConnection, params: SendParams): 
 export interface SendResult {
     success: boolean;
     messageId: string;
-    provider: Provider;
+    provider: 'google-mail' | 'microsoft-outlook';
 }
 
 export async function sendEmail(
@@ -235,24 +210,35 @@ export async function sendEmail(
         fromName?: string;
         cc?: string[];
         replyTo?: string;
+        accountEmail?: string;   // which connected mailbox to send from; default if omitted
     },
 ): Promise<SendResult> {
-    const connection = await getActiveConnection(tenantId);
-    await waitForRateLimit(tenantId, connection.provider);
+    const connection: EmailConnection = options?.accountEmail
+        ? (await getConnectionByEmail(tenantId, options.accountEmail))
+            ?? (() => { throw new AppError(`Email account ${options.accountEmail} not found or inactive`, 412); })()
+        : await getDefaultConnection(tenantId);
+
+    // This sender handles Nango (Gmail/Outlook) only; SMTP goes through smtpAdapter.
+    if (connection.provider === 'smtp') {
+        throw new AppError('SMTP connections must be sent via the SMTP adapter, not the Nango sender', 500);
+    }
+    const provider = connection.provider;
+
+    await waitForRateLimit(tenantId, provider);
 
     log.info(
-        { tenantId, to, subject: subject.slice(0, 50), provider: connection.provider, cc: options?.cc },
+        { tenantId, to, subject: subject.slice(0, 50), provider, cc: options?.cc },
         'Sending email via Nango',
     );
 
     try {
         const messageId =
-            connection.provider === 'google-mail'
+            provider === 'google-mail'
                 ? await sendViaGmail(connection, { to, subject, htmlBody, ...options })
                 : await sendViaOutlook(connection, { to, subject, htmlBody, ...options });
 
-        log.info({ tenantId, to, messageId, provider: connection.provider }, 'Email sent');
-        return { success: true, messageId, provider: connection.provider };
+        log.info({ tenantId, to, messageId, provider }, 'Email sent');
+        return { success: true, messageId, provider };
     } catch (err) {
         if (err instanceof AppError) throw err;
         // Surface the provider's real error message (Gmail/Graph put it in response.data.error.message)
@@ -260,7 +246,7 @@ export async function sendEmail(
         const providerMsg =
             (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
         const message = providerMsg || (err instanceof Error ? err.message : String(err));
-        log.error({ err, to, provider: connection.provider, providerMsg }, 'Email send failed');
+        log.error({ err, to, provider, providerMsg }, 'Email send failed');
         throw new AppError(`Email send failed: ${message}`, 502);
     }
 }

@@ -1,30 +1,53 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Paper, Group, Stack, Text, Button, Title, Alert } from '@mantine/core';
+import { Paper, Group, Stack, Text, Button, Title, Alert, Badge, ActionIcon, Tooltip } from '@mantine/core';
 import {
-    IconMail, IconBrandGoogle, IconBrandWindows, IconPlugConnectedX, IconCheck, IconAlertCircle,
+    IconMail, IconBrandGoogle, IconBrandWindows, IconServer, IconTrash,
+    IconCheck, IconAlertCircle, IconStar, IconStarFilled,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import Nango from '@nangohq/frontend';
 import api from '../../lib/api';
 import { showSuccess, showError, showErrorFromApi } from '../../lib/notifications';
 import { useAuth } from '../../contexts/AuthContext';
-import type { EmailConnectionStatus } from '../../types/campaign';
+import type { EmailConnectionStatus, EmailConnectionItem, ConnectionProvider } from '../../types/campaign';
+import SmtpConnectionModal from './SmtpConnectionModal';
+
+function providerLabel(p: ConnectionProvider): string {
+    if (p === 'google-mail') return 'Gmail';
+    if (p === 'microsoft-outlook') return 'Outlook';
+    return 'SMTP';
+}
+
+function ProviderIcon({ p }: { p: ConnectionProvider }) {
+    if (p === 'google-mail') return <IconBrandGoogle size={16} />;
+    if (p === 'microsoft-outlook') return <IconBrandWindows size={16} />;
+    return <IconServer size={16} />;
+}
 
 export default function EmailConnectionPanel() {
     const { t } = useTranslation();
     const { activeTenantId } = useAuth();
     const qc = useQueryClient();
     const [connecting, setConnecting] = useState(false);
+    const [smtpOpen, setSmtpOpen] = useState(false);
 
     const { data: status } = useQuery<EmailConnectionStatus>({
         queryKey: ['email-connection-status'],
         queryFn: async () => { const r = await api.get('/email-connections/status'); return r.data; },
     });
 
-    const disconnectMut = useMutation<unknown, unknown, void>({
-        mutationFn: () => api.delete('/email-connections'),
-        onSuccess: () => { showSuccess(t('campaign.emailDisconnected', 'Email disconnected')); qc.invalidateQueries({ queryKey: ['email-connection-status'] }); },
+    const connections: EmailConnectionItem[] = status?.connections ?? [];
+
+    const disconnectMut = useMutation<unknown, unknown, string>({
+        mutationFn: (id) => api.delete(`/email-connections/${id}`),
+        onSuccess: () => { showSuccess(t('campaign.emailDisconnected', 'Hesap kaldırıldı')); qc.invalidateQueries({ queryKey: ['email-connection-status'] }); },
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    const setDefaultMut = useMutation<unknown, unknown, string>({
+        mutationFn: (id) => api.patch(`/email-connections/${id}/default`),
+        onSuccess: () => { showSuccess(t('campaign.defaultSet', 'Varsayılan hesap güncellendi')); qc.invalidateQueries({ queryKey: ['email-connection-status'] }); },
         onError: (err) => showErrorFromApi(err),
     });
 
@@ -33,21 +56,15 @@ export default function EmailConnectionPanel() {
             showError(t('campaign.noActiveTenant', 'No active tenant selected'));
             return;
         }
-
         setConnecting(true);
         try {
-            // 1. Backend'den short-lived Connect session token al
             const { data: session } = await api.post('/email-connections/start-session', { provider });
             const token = session?.token as string | undefined;
             if (!token) throw new Error('No session token returned');
-
-            // 2. Nango SDK'yı token'la başlat, auth popup'ı aç
             const nango = new Nango({ connectSessionToken: token });
             const result = await nango.auth(provider);
             const connectionId = (result as { connectionId?: string } | undefined)?.connectionId;
             if (!connectionId) throw new Error('Nango auth did not return a connectionId');
-
-            // 3. Backend'e callback — connection bilgilerini email_connections'a yazsın
             await api.post('/email-connections/callback', { provider, connectionId });
             qc.invalidateQueries({ queryKey: ['email-connection-status'] });
             showSuccess(t('campaign.emailConnected', 'Email connected'));
@@ -58,52 +75,105 @@ export default function EmailConnectionPanel() {
         }
     };
 
-    const providerLabel = status?.provider === 'google-mail' ? 'Gmail' : 'Outlook';
-
     return (
         <Paper shadow="sm" radius="lg" p="xl" withBorder>
             <Stack gap="lg">
                 <Group gap="xs">
                     <IconMail size={20} color="var(--mantine-color-violet-6)" />
-                    <Title order={4} fw={600}>{t('campaign.emailConnection', 'Email Connection')}</Title>
+                    <Title order={4} fw={600}>{t('campaign.emailConnection', 'E-posta Bağlantısı')}</Title>
                 </Group>
 
                 <Text size="sm" c="dimmed">
-                    {t('campaign.emailConnectionDesc', 'Connect your Gmail or Outlook account to send campaign emails.')}
+                    {t('campaign.emailConnectionDescMulti', 'Gmail/Outlook hesabınızı bağlayın veya kendi SMTP sunucunuzu ekleyin. Birden fazla hesap ekleyebilirsiniz.')}
                 </Text>
 
-                {status?.connected ? (
-                    <Paper p="md" radius="md" bg="green.0" withBorder style={{ borderColor: 'var(--mantine-color-green-3)' }}>
-                        <Group justify="space-between">
-                            <Group gap="sm">
-                                <IconCheck size={18} color="var(--mantine-color-green-7)" />
-                                <div>
-                                    <Text size="sm" fw={600} c="green.8">{t('campaign.connectedTo', 'Connected to')} {providerLabel}</Text>
-                                    <Text size="xs" c="dimmed">{status.email}</Text>
-                                </div>
-                            </Group>
-                            <Button variant="subtle" color="red" size="xs" leftSection={<IconPlugConnectedX size={14} />}
-                                onClick={() => disconnectMut.mutate()} loading={disconnectMut.isPending}
-                            >{t('campaign.disconnect', 'Disconnect')}</Button>
-                        </Group>
-                    </Paper>
-                ) : (
-                    <Group grow>
-                        <Button variant="outline" size="md" radius="md" leftSection={<IconBrandGoogle size={18} />}
-                            onClick={() => handleConnect('google-mail')} loading={connecting}
-                        >Gmail</Button>
-                        <Button variant="outline" size="md" radius="md" leftSection={<IconBrandWindows size={18} />}
-                            onClick={() => handleConnect('microsoft-outlook')} loading={connecting}
-                        >Outlook</Button>
-                    </Group>
+                {/* Connected accounts list */}
+                {connections.length > 0 && (
+                    <Stack gap="xs">
+                        {connections.map((c) => (
+                            <Paper key={c.id} p="sm" radius="md" withBorder bg="gray.0">
+                                <Group justify="space-between" wrap="nowrap">
+                                    <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+                                        <ProviderIcon p={c.provider} />
+                                        <div style={{ minWidth: 0 }}>
+                                            <Group gap={6}>
+                                                <Text size="sm" fw={600} truncate>{c.email_address}</Text>
+                                                {c.is_default && (
+                                                    <Badge size="xs" color="violet" variant="light">
+                                                        {t('campaign.default', 'Varsayılan')}
+                                                    </Badge>
+                                                )}
+                                            </Group>
+                                            <Text size="xs" c="dimmed">
+                                                {providerLabel(c.provider)}
+                                                {c.provider === 'smtp' && c.imap_host && ` · IMAP açık`}
+                                            </Text>
+                                        </div>
+                                    </Group>
+                                    <Group gap={4} wrap="nowrap">
+                                        {!c.is_default && (
+                                            <Tooltip label={t('campaign.makeDefault', 'Varsayılan yap')}>
+                                                <ActionIcon variant="subtle" color="violet" size="sm"
+                                                    loading={setDefaultMut.isPending}
+                                                    onClick={() => setDefaultMut.mutate(c.id)}>
+                                                    <IconStar size={15} />
+                                                </ActionIcon>
+                                            </Tooltip>
+                                        )}
+                                        {c.is_default && <IconStarFilled size={15} color="var(--mantine-color-violet-6)" />}
+                                        <Tooltip label={t('campaign.disconnect', 'Kaldır')}>
+                                            <ActionIcon variant="subtle" color="red" size="sm"
+                                                loading={disconnectMut.isPending}
+                                                onClick={() => disconnectMut.mutate(c.id)}>
+                                                <IconTrash size={15} />
+                                            </ActionIcon>
+                                        </Tooltip>
+                                    </Group>
+                                </Group>
+                            </Paper>
+                        ))}
+                    </Stack>
                 )}
 
-                <Alert variant="light" color="blue" icon={<IconAlertCircle size={16} />}>
-                    <Text size="xs">
-                        Gmail free: 500/day. Workspace: 2,000/day. Outlook: 10,000/day.
+                {/* Add account buttons */}
+                <div>
+                    <Text size="xs" fw={600} c="dimmed" mb={6} tt="uppercase" style={{ letterSpacing: '0.05em' }}>
+                        {t('campaign.addAccount', 'Hesap Ekle')}
                     </Text>
-                </Alert>
+                    <Group grow>
+                        <Button variant="outline" size="sm" radius="md" leftSection={<IconBrandGoogle size={16} />}
+                            onClick={() => handleConnect('google-mail')} loading={connecting}>
+                            Gmail
+                        </Button>
+                        <Button variant="outline" size="sm" radius="md" leftSection={<IconBrandWindows size={16} />}
+                            onClick={() => handleConnect('microsoft-outlook')} loading={connecting}>
+                            Outlook
+                        </Button>
+                        <Button variant="outline" size="sm" radius="md" leftSection={<IconServer size={16} />}
+                            onClick={() => setSmtpOpen(true)}>
+                            SMTP
+                        </Button>
+                    </Group>
+                </div>
+
+                {connections.length === 0 && (
+                    <Alert variant="light" color="blue" icon={<IconAlertCircle size={16} />}>
+                        <Text size="xs">
+                            {t('campaign.noConnectionHint', 'Henüz bağlı hesap yok. Kampanya ve mail gönderimi için en az bir hesap bağlayın.')}
+                        </Text>
+                    </Alert>
+                )}
+
+                {connections.some((c) => c.provider !== 'smtp') && (
+                    <Alert variant="light" color="green" icon={<IconCheck size={16} />}>
+                        <Text size="xs">
+                            Gmail free: 500/gün · Workspace: 2.000/gün · Outlook: 10.000/gün · SMTP: 300/gün
+                        </Text>
+                    </Alert>
+                )}
             </Stack>
+
+            <SmtpConnectionModal opened={smtpOpen} onClose={() => setSmtpOpen(false)} />
         </Paper>
     );
 }

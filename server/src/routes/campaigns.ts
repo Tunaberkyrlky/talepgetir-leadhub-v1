@@ -240,11 +240,11 @@ router.post('/:id/activate', async (req: Request, res: Response, next: NextFunct
             res.status(422).json({ error: 'Campaign must have at least one email step' }); return;
         }
 
-        const { data: conn } = await supabaseAdmin
-            .from('email_connections').select('id')
-            .eq('tenant_id', tenantId).eq('is_active', true).single();
-        if (!conn) {
-            res.status(422).json({ error: 'No email connection. Connect Gmail or Outlook first.' }); return;
+        const { count: connCount } = await supabaseAdmin
+            .from('email_connections').select('id', { count: 'exact', head: true })
+            .eq('tenant_id', tenantId).eq('is_active', true);
+        if (!connCount) {
+            res.status(422).json({ error: 'No email connection. Connect Gmail, Outlook or SMTP first.' }); return;
         }
 
         const { data, error } = await supabaseAdmin

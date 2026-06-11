@@ -329,6 +329,7 @@ export const composeEmailBodySchema = z.object({
         (val) => !val || val.split(',').every((e) => e.trim().match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)),
         { message: 'Invalid CC email address' },
     ),
+    accountEmail: z.string().email('Invalid sender email').max(255).optional(),
     companyId: uuidField('Invalid company_id').optional().nullable(),
     contactId: uuidField('Invalid contact_id').optional().nullable(),
 });
@@ -337,6 +338,20 @@ export const threadHistoryQuerySchema = z.object({
     sender_email: z.string().email('Invalid sender_email').max(255),
     campaign_id: z.string().max(500).optional(),
     exclude_id: uuidField('Invalid exclude_id').optional(),
+});
+
+export const smtpConnectionSchema = z.object({
+    email_address: z.string().email('Invalid email address').max(255),
+    smtp_host: z.string().min(1, 'SMTP host required').max(255),
+    smtp_port: z.number().int().min(1).max(65535),
+    smtp_secure: z.boolean().optional().default(false),
+    imap_host: z.string().max(255).optional().nullable(),
+    imap_port: z.number().int().min(1).max(65535).optional().nullable(),
+    imap_secure: z.boolean().optional().default(true),
+    username: z.string().min(1, 'Username required').max(255),
+    password: z.string().min(1, 'Password required').max(500),
+    is_default: z.boolean().optional().default(false),
+    allow_invalid_cert: z.boolean().optional().default(false),
 });
 
 // ── Campaign schemas ──────────────────────────────────────────────────────

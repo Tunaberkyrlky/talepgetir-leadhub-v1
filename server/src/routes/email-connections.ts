@@ -10,13 +10,34 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
+import { z } from 'zod/v4';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
+import { validateBody, smtpConnectionSchema, uuidField } from '../lib/validation.js';
+import { listConnections, PUBLIC_COLUMNS } from '../lib/emailConnections.js';
+import { verifySmtp } from '../lib/mail/smtpAdapter.js';
+import { encrypt } from '../lib/encryption.js';
+import { assertPublicHost } from '../lib/ssrfGuard.js';
 
 const log = createLogger('route:email-connections');
 const router = Router();
+
+const idParamSchema = z.object({ id: uuidField('Invalid connection ID') });
+
+/** If the tenant has no default connection yet, mark this id as default. */
+async function ensureDefault(tenantId: string, id: string): Promise<void> {
+    const { data: existingDefault } = await supabaseAdmin
+        .from('email_connections')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('is_default', true)
+        .maybeSingle();
+    if (!existingDefault) {
+        await supabaseAdmin.from('email_connections').update({ is_default: true }).eq('id', id);
+    }
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _nango: any = null;
@@ -33,26 +54,134 @@ async function getNango(): Promise<any> {
 
 router.use(requireRole('superadmin', 'ops_agent', 'client_admin'));
 
-// GET /api/email-connections/status
+// GET /api/email-connections/status — all connections + back-compat single shape
 router.get('/status', async (req: Request, res: Response): Promise<void> => {
     try {
         const { data } = await supabaseAdmin
             .from('email_connections')
-            .select('provider, email_address, is_active, connected_at')
+            .select(PUBLIC_COLUMNS)
             .eq('tenant_id', req.tenantId!)
-            .single();
+            .eq('is_active', true)
+            .order('is_default', { ascending: false })
+            .order('connected_at', { ascending: true });
 
-        if (!data) { res.json({ connected: false }); return; }
+        const connections = (data as unknown as Array<{
+            id: string; provider: string; email_address: string; is_default: boolean;
+            smtp_host: string | null; imap_host: string | null; last_polled_at: string | null;
+            connected_at: string;
+        }> | null) ?? [];
+
+        const primary = connections.find((c) => c.is_default) ?? connections[0];
 
         res.json({
-            connected: data.is_active,
-            provider: data.provider,
-            email: data.email_address,
-            connected_at: data.connected_at,
+            // back-compat single-connection shape (older UI)
+            connected: !!primary,
+            provider: primary?.provider,
+            email: primary?.email_address,
+            // new multi-account shape
+            connections,
         });
     } catch (err) {
         log.error({ err }, 'Connection status error');
         res.status(500).json({ error: 'Failed to check connection status' });
+    }
+});
+
+// POST /api/email-connections/smtp — connect a tenant's own SMTP/IMAP mailbox
+router.post('/smtp', validateBody(smtpConnectionSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const b = req.body as z.infer<typeof smtpConnectionSchema>;
+
+        // SSRF guard: only let tenants point us at public mail hosts, never at
+        // internal/loopback/link-local addresses (would be an internal port scanner).
+        try {
+            await assertPublicHost(b.smtp_host);
+            if (b.imap_host) await assertPublicHost(b.imap_host);
+        } catch (hostErr) {
+            log.warn({ err: hostErr, host: b.smtp_host, imapHost: b.imap_host }, 'SMTP host rejected by SSRF guard');
+            res.status(400).json({ error: 'Geçersiz sunucu adresi. Yalnızca genel erişime açık posta sunucularına bağlanılabilir.' });
+            return;
+        }
+
+        // Verify SMTP credentials BEFORE saving — catch typos/wrong password early.
+        // Return a generic message: the raw connection error leaks whether arbitrary
+        // host:port pairs are reachable (information oracle). Detail stays in the log.
+        try {
+            await verifySmtp({
+                host: b.smtp_host, port: b.smtp_port, secure: b.smtp_secure,
+                username: b.username, password: b.password,
+                allowInvalidCert: b.allow_invalid_cert,
+            });
+        } catch (verifyErr) {
+            log.warn({ err: verifyErr, host: b.smtp_host }, 'SMTP verify failed');
+            res.status(422).json({ error: 'SMTP bağlantısı doğrulanamadı. Sunucu, port, kullanıcı adı ve şifreyi kontrol edin.' });
+            return;
+        }
+
+        const { data, error } = await supabaseAdmin
+            .from('email_connections')
+            .upsert({
+                tenant_id: tenantId,
+                provider: 'smtp',
+                email_address: b.email_address,
+                connection_id: null,
+                is_active: true,
+                connected_at: new Date().toISOString(),
+                smtp_host: b.smtp_host,
+                smtp_port: b.smtp_port,
+                smtp_secure: b.smtp_secure,
+                imap_host: b.imap_host || null,
+                imap_port: b.imap_port || null,
+                imap_secure: b.imap_secure,
+                username: b.username,
+                encrypted_password: encrypt(b.password),
+                allow_invalid_cert: b.allow_invalid_cert,
+            }, { onConflict: 'tenant_id,email_address' })
+            .select('id')
+            .single();
+
+        if (error || !data) {
+            log.error({ err: error }, 'Save SMTP connection error');
+            throw new AppError('Failed to save SMTP connection', 500);
+        }
+
+        if (b.is_default) {
+            await supabaseAdmin.from('email_connections').update({ is_default: false }).eq('tenant_id', tenantId);
+            await supabaseAdmin.from('email_connections').update({ is_default: true }).eq('id', data.id);
+        } else {
+            await ensureDefault(tenantId, data.id);
+        }
+
+        log.info({ tenantId, email: b.email_address, host: b.smtp_host }, 'SMTP connection saved');
+        res.json({ connected: true, email: b.email_address });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'SMTP connect error');
+        res.status(500).json({ error: 'Failed to connect SMTP' });
+    }
+});
+
+// PATCH /api/email-connections/:id/default — set the default sending mailbox
+router.patch('/:id/default', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const parsed = idParamSchema.safeParse(req.params);
+        if (!parsed.success) { res.status(400).json({ error: 'Invalid connection ID' }); return; }
+        const tenantId = req.tenantId!;
+        const { id } = parsed.data;
+
+        const { data: conn } = await supabaseAdmin
+            .from('email_connections')
+            .select('id').eq('id', id).eq('tenant_id', tenantId).maybeSingle();
+        if (!conn) { res.status(404).json({ error: 'Connection not found' }); return; }
+
+        await supabaseAdmin.from('email_connections').update({ is_default: false }).eq('tenant_id', tenantId);
+        await supabaseAdmin.from('email_connections').update({ is_default: true }).eq('id', id);
+        res.json({ ok: true });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Set default error');
+        res.status(500).json({ error: 'Failed to set default' });
     }
 });
 
@@ -157,18 +286,19 @@ router.post('/callback', async (req: Request, res: Response, next: NextFunction)
                 connection_id: connectionId,
                 is_active: true,
                 connected_at: new Date().toISOString(),
-            }, { onConflict: 'tenant_id' })
-            .select()
+            }, { onConflict: 'tenant_id,email_address' })
+            .select('id')
             .single();
 
-        if (error) {
+        if (error || !data) {
             log.error({ err: error }, 'Save connection error');
             throw new AppError('Failed to save email connection', 500);
         }
 
+        await ensureDefault(tenantId, data.id);
+
         log.info({ tenantId, provider, email: emailAddress, connectionId }, 'Email connected');
         res.json({ connected: true, provider, email: emailAddress });
-        void data;
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Connection callback error');
@@ -176,30 +306,51 @@ router.post('/callback', async (req: Request, res: Response, next: NextFunction)
     }
 });
 
-// DELETE /api/email-connections
-router.delete('/', async (req: Request, res: Response): Promise<void> => {
+// DELETE /api/email-connections/:id — disconnect one mailbox
+router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     try {
+        const parsed = idParamSchema.safeParse(req.params);
+        if (!parsed.success) { res.status(400).json({ error: 'Invalid connection ID' }); return; }
         const tenantId = req.tenantId!;
+        const { id } = parsed.data;
 
+        const { data: conn } = await supabaseAdmin
+            .from('email_connections')
+            .select('id, is_default')
+            .eq('id', id).eq('tenant_id', tenantId).maybeSingle();
+        if (!conn) { res.status(404).json({ error: 'Connection not found' }); return; }
+
+        // Block disconnecting if any active campaign depends on a connection existing.
         const { data: active } = await supabaseAdmin
             .from('campaigns')
             .select('id')
             .eq('tenant_id', tenantId)
             .eq('status', 'active')
             .limit(1);
-
-        if (active?.length) {
-            res.status(422).json({ error: 'Cannot disconnect while campaigns are active. Pause all campaigns first.' });
+        const { count: remaining } = await supabaseAdmin
+            .from('email_connections')
+            .select('id', { count: 'exact', head: true })
+            .eq('tenant_id', tenantId)
+            .eq('is_active', true)
+            .neq('id', id);
+        if (active?.length && (remaining ?? 0) === 0) {
+            res.status(422).json({ error: 'Cannot disconnect the last mailbox while campaigns are active. Pause campaigns first.' });
             return;
         }
 
-        await supabaseAdmin
-            .from('email_connections')
-            .update({ is_active: false })
-            .eq('tenant_id', tenantId);
+        await supabaseAdmin.from('email_connections').update({ is_active: false, is_default: false }).eq('id', id);
 
-        log.info({ tenantId }, 'Email disconnected');
-        res.json({ connected: false });
+        // Promote another mailbox to default if we just removed the default.
+        if (conn.is_default) {
+            const { data: next } = await supabaseAdmin
+                .from('email_connections')
+                .select('id').eq('tenant_id', tenantId).eq('is_active', true)
+                .order('connected_at', { ascending: true }).limit(1).maybeSingle();
+            if (next) await supabaseAdmin.from('email_connections').update({ is_default: true }).eq('id', next.id);
+        }
+
+        log.info({ tenantId, id }, 'Email disconnected');
+        res.json({ ok: true });
     } catch (err) {
         log.error({ err }, 'Disconnect error');
         res.status(500).json({ error: 'Failed to disconnect email' });

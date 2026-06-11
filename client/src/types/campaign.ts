@@ -58,11 +58,25 @@ export interface CampaignStats {
     reply_rate: number;
 }
 
+export type ConnectionProvider = 'google-mail' | 'microsoft-outlook' | 'smtp';
+
+export interface EmailConnectionItem {
+    id: string;
+    provider: ConnectionProvider;
+    email_address: string;
+    is_default: boolean;
+    smtp_host?: string | null;
+    imap_host?: string | null;
+    last_polled_at?: string | null;
+    connected_at?: string;
+}
+
 export interface EmailConnectionStatus {
     connected: boolean;
-    provider?: 'google-mail' | 'microsoft-outlook';
+    provider?: ConnectionProvider;
     email?: string;
     connected_at?: string;
+    connections?: EmailConnectionItem[];
 }
 
 export interface EnrollLeadPayload {

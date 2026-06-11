@@ -7,7 +7,7 @@
  * against these shapes only — provider detail stays inside each adapter.
  */
 
-export type MailProviderName = 'plusvibe' | 'gmail' | 'outlook' | 'resend';
+export type MailProviderName = 'plusvibe' | 'gmail' | 'outlook' | 'resend' | 'smtp' | 'imap';
 export type MailDirection = 'inbound' | 'outbound';
 export type MailChannel = 'reply' | 'forward' | 'compose' | 'campaign' | 'system';
 
