@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.28',
+        date: '2026-06-11',
+        type: 'fix',
+        title: { tr: 'Mail Gönderiminde Düzeltmeler', en: 'Mail Sending Fixes' },
+        features: [
+            {
+                tr: 'Outlook hesabından gönderirken birden fazla CC adresi artık doğru iletiliyor.',
+                en: 'Multiple CC addresses are now delivered correctly when sending from Outlook.',
+            },
+            {
+                tr: 'Yeni mailde eklediğiniz tek seferlik CC artık kayıtlı listenize otomatik eklenmiyor.',
+                en: 'A one-off CC added in a new mail is no longer auto-saved to your list.',
+            },
+        ],
+    },
+    {
         version: '1.9.27',
         date: '2026-06-11',
         type: 'feature',

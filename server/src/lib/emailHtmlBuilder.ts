@@ -39,6 +39,17 @@ function buildCard(t: AttachmentTemplate): string {
 </table>`;
 }
 
+/**
+ * Convert a plain-text body into simple one-<p>-per-line HTML, fully escaping
+ * each line (incl. &). Single source of truth for reply/forward/compose bodies.
+ */
+export function plainTextToParagraphs(text: string): string {
+    return text
+        .split('\n')
+        .map((line) => `<p>${escapeHtml(line)}</p>`)
+        .join('');
+}
+
 export function buildAttachmentCardsHtml(templates: AttachmentTemplate[]): string {
     if (!templates.length) return '';
 

@@ -18,7 +18,7 @@ import { z } from 'zod/v4';
 import { isInternalRole } from '../lib/roles.js';
 import { matchSenderEmail, advanceCompanyStageOnMatch } from '../lib/emailMatcher.js';
 import { resolveReplyContext } from '../lib/plusvibeReplyResolver.js';
-import { buildAttachmentCardsHtml } from '../lib/emailHtmlBuilder.js';
+import { buildAttachmentCardsHtml, plainTextToParagraphs } from '../lib/emailHtmlBuilder.js';
 import { sendMail } from '../lib/mail/router.js';
 import { resolveThreadMailbox } from '../lib/mail/resolveThreadMailbox.js';
 import { getConnectionByEmail, getDefaultConnection } from '../lib/emailConnections.js';
@@ -682,10 +682,7 @@ router.post(
             const context = await resolveReplyContext(emailReply, tenantId);
 
             // Convert plain text to simple HTML
-            let htmlBody = replyText
-                .split('\n')
-                .map((line: string) => `<p>${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
-                .join('');
+            let htmlBody = plainTextToParagraphs(replyText);
 
             // Append attachment cards if selected
             if (attachmentIds?.length) {
@@ -721,7 +718,7 @@ router.post(
                 to: emailReply.sender_email,
                 subject,
                 bodyHtml: htmlBody,
-                ...(cc && { cc: [cc] }),
+                ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
             });
 
             // Insert outbound reply record (canonical columns + legacy raw_payload)
@@ -831,10 +828,7 @@ router.post(
             const context = await resolveReplyContext(emailReply, tenantId);
 
             // Note becomes the body PlusVibe appends ABOVE the forwarded message
-            let htmlBody = note
-                .split('\n')
-                .map((line: string) => `<p>${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
-                .join('');
+            let htmlBody = plainTextToParagraphs(note);
 
             if (attachmentIds?.length) {
                 const { data: templates } = await supabaseAdmin
@@ -860,7 +854,7 @@ router.post(
                 to,
                 subject: context.subject,
                 bodyHtml: htmlBody,
-                ...(cc && { cc: [cc] }),
+                ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
             });
 
             // Outbound record — sender_email kept as ORIGINAL sender so the forward
@@ -945,11 +939,28 @@ router.post(
             }
             const accountEmail = connection.email_address;
 
+            // Don't trust client-supplied company/contact IDs — a valid UUID shape
+            // is not proof of ownership. Verify both belong to this tenant before
+            // attaching them (and derive match_status from the verified company).
+            let companyIdSafe: string | null = null;
+            let contactIdSafe: string | null = null;
+            if (companyId) {
+                const { data: co } = await supabaseAdmin
+                    .from('companies').select('id')
+                    .eq('id', companyId).eq('tenant_id', tenantId).maybeSingle();
+                if (!co) throw new AppError('Company not found', 404);
+                companyIdSafe = companyId;
+            }
+            if (contactId) {
+                const { data: ct } = await supabaseAdmin
+                    .from('contacts').select('id')
+                    .eq('id', contactId).eq('tenant_id', tenantId).maybeSingle();
+                if (!ct) throw new AppError('Contact not found', 404);
+                contactIdSafe = contactId;
+            }
+
             // Plain text body → simple HTML (same pattern as reply/forward)
-            let htmlBody = body
-                .split('\n')
-                .map((line: string) => `<p>${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
-                .join('');
+            let htmlBody = plainTextToParagraphs(body);
 
             if (attachmentIds?.length) {
                 const { data: templates } = await supabaseAdmin
@@ -971,7 +982,7 @@ router.post(
                 to,
                 subject,
                 bodyHtml: htmlBody,
-                ...(cc && { cc: [cc] }),
+                ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
             });
 
             // Outbound record — new thread, no parent, no campaign
@@ -983,9 +994,9 @@ router.post(
                 reply_body: body,
                 subject,
                 replied_at: new Date().toISOString(),
-                company_id: companyId || null,
-                contact_id: contactId || null,
-                match_status: companyId ? 'matched' : 'unmatched',
+                company_id: companyIdSafe,
+                contact_id: contactIdSafe,
+                match_status: companyIdSafe ? 'matched' : 'unmatched',
                 read_status: 'read' as const,
                 direction: 'OUT' as const,
                 parent_reply_id: null as string | null,
@@ -1018,12 +1029,12 @@ router.post(
             }
 
             // Activity log (only if matched to a company — unmatched mails have no timeline target)
-            if (companyId) {
+            if (companyIdSafe) {
                 try {
                     await supabaseAdmin.from('activities').insert({
                         tenant_id: tenantId,
-                        company_id: companyId,
-                        contact_id: contactId || null,
+                        company_id: companyIdSafe,
+                        contact_id: contactIdSafe,
                         created_by: req.user?.id || null,
                         type: 'follow_up',
                         summary: `Mail gönderildi: ${subject}`,
@@ -1032,7 +1043,7 @@ router.post(
                         occurred_at: new Date().toISOString(),
                     });
                 } catch (actErr) {
-                    log.warn({ err: actErr, companyId }, 'Compose activity log failed (non-critical)');
+                    log.warn({ err: actErr, companyId: companyIdSafe }, 'Compose activity log failed (non-critical)');
                 }
             }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Modal, Group, Stack, Text, Badge, Button, Anchor,
@@ -113,15 +113,6 @@ export default function ComposeMailModal({ opened, onClose }: ComposeMailModalPr
         staleTime: 5 * 60 * 1000,
     });
     const savedCcList = useMemo(() => (ccAddresses || []).map((a) => a.email), [ccAddresses]);
-
-    const addToSavedCc = useCallback((email: string) => {
-        const current = ccAddresses || [];
-        if (current.some((a) => a.email === email)) return;
-        const updated = [...current, { email, label: email }];
-        api.put('/settings/cc-addresses', { cc_addresses: updated }).then(() => {
-            queryClient.invalidateQueries({ queryKey: ['cc-addresses'] });
-        }).catch(() => {});
-    }, [ccAddresses, queryClient]);
 
     // ── Attachment templates ──
     const { data: attachmentTemplates = [] } = useQuery<AttachmentTemplate[]>({
@@ -340,7 +331,6 @@ export default function ComposeMailModal({ opened, onClose }: ComposeMailModalPr
                                     const email = customCc.trim().toLowerCase();
                                     if (email && EMAIL_RE.test(email) && !selectedCc.includes(email)) {
                                         setSelectedCc((prev) => [...prev, email]);
-                                        addToSavedCc(email);
                                         setCustomCc('');
                                     }
                                 }
