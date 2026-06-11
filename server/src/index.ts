@@ -37,6 +37,7 @@ import campaignRoutes from './routes/campaigns.js';
 import emailConnectionRoutes from './routes/email-connections.js';
 import trackingRoutes from './routes/tracking.js';
 import { startCampaignScheduler } from './lib/campaignScheduler.js';
+import { startImapPollingScheduler } from './lib/imapPollingScheduler.js';
 
 const app = express();
 const PORT = process.env.PORT || process.env.API_PORT || 3001;
@@ -235,6 +236,7 @@ if (!process.env.PLUSVIBE_WEBHOOK_SECRET) {
 app.listen(PORT, () => {
     logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'TG Core API started');
     startCampaignScheduler();
+    startImapPollingScheduler();
 });
 
 export default app;

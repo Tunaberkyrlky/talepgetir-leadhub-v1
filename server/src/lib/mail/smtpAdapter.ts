@@ -10,6 +10,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { getConnectionByEmail, type EmailConnection } from '../emailConnections.js';
 import { decrypt } from '../encryption.js';
 import { waitForRateLimit } from '../emailSender.js';
+import { resolvePublicHost } from '../ssrfGuard.js';
 import type { CanonicalSendRequest, SendResult, MailProvider } from './types.js';
 
 const log = createLogger('mail:smtp');
@@ -17,7 +18,7 @@ const log = createLogger('mail:smtp');
 // Reuse transporters per connection (avoid a fresh TCP handshake every send).
 const transporterCache = new Map<string, Transporter>();
 
-function buildTransporter(conn: EmailConnection): Transporter {
+async function buildTransporter(conn: EmailConnection): Promise<Transporter> {
     if (!conn.smtp_host || !conn.smtp_port || !conn.username || !conn.encrypted_password) {
         throw new AppError('SMTP connection is missing host/port/username/password', 500);
     }
@@ -25,15 +26,22 @@ function buildTransporter(conn: EmailConnection): Transporter {
     const cached = transporterCache.get(cacheKey);
     if (cached) return cached;
 
+    // SSRF guard: resolve to a validated public IP and dial that literal (not the
+    // hostname), so a tenant can't DNS-rebind smtp_host to an internal address
+    // between save and send. servername keeps TLS cert validation on the hostname.
+    const pinned = await resolvePublicHost(conn.smtp_host);
     const transporter = nodemailer.createTransport({
-        host: conn.smtp_host,
+        host: pinned.address,
         port: conn.smtp_port,
         secure: conn.smtp_secure ?? conn.smtp_port === 465,
         auth: { user: conn.username, pass: decrypt(conn.encrypted_password) },
-        // Shared hosting often serves a cert for the provider's domain (e.g. *.ihsdnsx50.com),
-        // not the customer's mail.* host. allow_invalid_cert keeps TLS encryption but skips
-        // hostname/CA validation — same as mail clients' "trust this certificate".
-        ...(conn.allow_invalid_cert && { tls: { rejectUnauthorized: false } }),
+        tls: {
+            servername: pinned.servername,
+            // Shared hosting often serves a cert for the provider's domain (e.g. *.ihsdnsx50.com),
+            // not the customer's mail.* host. allow_invalid_cert keeps TLS encryption but skips
+            // hostname/CA validation — same as mail clients' "trust this certificate".
+            ...(conn.allow_invalid_cert && { rejectUnauthorized: false }),
+        },
     });
     transporterCache.set(cacheKey, transporter);
     return transporter;
@@ -44,14 +52,18 @@ export async function verifySmtp(params: {
     host: string; port: number; secure: boolean; username: string; password: string;
     allowInvalidCert?: boolean;
 }): Promise<void> {
+    const pinned = await resolvePublicHost(params.host);
     const transporter = nodemailer.createTransport({
-        host: params.host,
+        host: pinned.address,
         port: params.port,
         secure: params.secure,
         auth: { user: params.username, pass: params.password },
         connectionTimeout: 10_000,
         greetingTimeout: 10_000,
-        ...(params.allowInvalidCert && { tls: { rejectUnauthorized: false } }),
+        tls: {
+            servername: pinned.servername,
+            ...(params.allowInvalidCert && { rejectUnauthorized: false }),
+        },
     });
     try {
         await transporter.verify();
@@ -73,7 +85,7 @@ export const smtpProvider: MailProvider = {
 
         await waitForRateLimit(req.tenantId, 'smtp');
 
-        const transporter = buildTransporter(conn);
+        const transporter = await buildTransporter(conn);
         const fromHeader = req.fromName ? `${req.fromName} <${conn.email_address}>` : conn.email_address;
 
         log.info(

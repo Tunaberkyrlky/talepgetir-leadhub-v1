@@ -513,7 +513,7 @@ router.get('/report/monthly', requireRole('superadmin', 'ops_agent', 'client_adm
                 .eq('tenant_id', tenantId)
                 .gte('replied_at', dateFrom)
                 .lt('replied_at', dateTo)
-                .not('raw_payload', 'cs', '{"source":"draft"}')
+                .or('raw_payload.is.null,raw_payload->>source.neq.draft')
                 .order('replied_at', { ascending: true })
                 .limit(10000),
         ]);

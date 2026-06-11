@@ -106,4 +106,14 @@ export async function listConnections(tenantId: string): Promise<EmailConnection
     return (data as unknown as EmailConnection[] | null) ?? [];
 }
 
+/** Every active connection (all tenants) that has IMAP configured — for polling. */
+export async function listPollableImapConnections(): Promise<EmailConnection[]> {
+    const { data } = await supabaseAdmin
+        .from('email_connections')
+        .select(FULL_COLUMNS)
+        .eq('is_active', true)
+        .not('imap_host', 'is', null);
+    return (data as unknown as EmailConnection[] | null) ?? [];
+}
+
 export { PUBLIC_COLUMNS };

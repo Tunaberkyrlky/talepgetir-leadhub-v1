@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.27',
+        date: '2026-06-11',
+        type: 'feature',
+        title: { tr: 'Kendi Mail Sunucunuz (SMTP/IMAP)', en: 'Your Own Mail Server (SMTP/IMAP)' },
+        features: [
+            {
+                tr: 'Gmail/Outlook\'un yanında artık kendi SMTP sunucunuzu da bağlayabilir, maillerinizi kendi adresinizden gönderebilirsiniz. Birden fazla hesap ekleyip gönderirken aralarından seçim yapabilirsiniz.',
+                en: 'Alongside Gmail/Outlook, you can now connect your own SMTP server and send mail from your own address. Add multiple accounts and pick which one to send from.',
+            },
+            {
+                tr: 'Bağladığınız hesaba gelen cevaplar otomatik olarak sisteme düşüyor ve ilgili şirketle eşleşiyor, böylece tüm yazışmayı tek ekranda takip edebilirsiniz.',
+                en: 'Replies arriving to your connected account are pulled in automatically and matched to the right company, so you can follow the whole conversation in one place.',
+            },
+        ],
+    },
+    {
         version: '1.9.26',
         date: '2026-06-05',
         type: 'feature',

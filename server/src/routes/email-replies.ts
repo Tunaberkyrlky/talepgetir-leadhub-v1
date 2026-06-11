@@ -184,8 +184,9 @@ router.get(
             if (campaign_id) query = query.eq('campaign_id', campaign_id);
             if (exclude_id) query = query.neq('id', exclude_id);
 
-            // Exclude drafts from thread history
-            query = query.not('raw_payload', 'cs', '{"source":"draft"}');
+            // Exclude drafts. NULL-safe: a plain `not(...cs...)` drops rows where
+            // raw_payload IS NULL (e.g. IMAP-ingested replies) because NOT(NULL) = NULL.
+            query = query.or('raw_payload.is.null,raw_payload->>source.neq.draft');
 
             const { data, error } = await query;
             if (error) {
@@ -1189,7 +1190,7 @@ router.get(
                 .select('id, sender_email, reply_body, replied_at, read_status, match_status, campaign_id, campaign_name, company_id, contact_id, category, category_confidence, created_at, tenant_id')
                 .eq('tenant_id', tenantId)
                 .eq('company_id', companyId)
-                .not('raw_payload', 'cs', '{"source":"draft"}')
+                .or('raw_payload.is.null,raw_payload->>source.neq.draft')
                 .order('replied_at', { ascending: false })
                 .limit(100);
 
