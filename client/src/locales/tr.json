@@ -653,8 +653,6 @@
             "unread": "Okunmamış",
             "matched": "Eşleşmiş",
             "unmatched": "Eşleşmemiş",
-            "matchLabel": "Eşleşme",
-            "matchTooltip": "%{{pct}} eşleşti · {{n}} eşleşmedi",
             "interested": "İlgilenen",
             "interestedTooltip": "Son mesajı 'İlgileniyor' etiketli konuşmalar",
             "awaiting": "Yanıt Bekleyen",
@@ -667,11 +665,7 @@
             "clickedCount": "{{n}} kez tıklandı",
             "firstOpened": "İlk açılma: {{date}}",
             "stats": {
-                "sent": "Giden Mail",
                 "opened": "Açılan",
-                "clicked": "Tıklanan",
-                "openRate": "Açılma oranı: %{{pct}}",
-                "clickRate": "Tıklama oranı: %{{pct}}",
                 "openedContext": "{{sent}} gidenden · %{{pct}} açılma. Yalnızca bağladığınız mail hesabından (Gmail veya SMTP) gönderdiğiniz mailleri kapsar; PlusVibe kampanyaları dahil değildir."
             }
         },
@@ -777,6 +771,7 @@
             "comingSoon": "Yakında — otomatik segmentasyon"
         },
         "importReplies": "Geçmiş Mailleri Çek",
+        "importPartialFailed": "{{count}} kampanya içe aktarılamadı: {{names}}. Tekrar deneyebilirsiniz.",
         "importSuccess": "{{count}} yeni yanıt içe aktarıldı",
         "importUpToDate": "Tüm yanıtlar zaten güncel",
         "import": {

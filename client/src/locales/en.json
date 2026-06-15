@@ -653,8 +653,6 @@
             "unread": "Unread",
             "matched": "Matched",
             "unmatched": "Unmatched",
-            "matchLabel": "Match",
-            "matchTooltip": "{{pct}}% matched · {{n}} unmatched",
             "interested": "Interested",
             "interestedTooltip": "Conversations whose latest message is labeled 'Interested'",
             "awaiting": "Awaiting Reply",
@@ -667,11 +665,7 @@
             "clickedCount": "Clicked {{n}} times",
             "firstOpened": "First opened: {{date}}",
             "stats": {
-                "sent": "Sent Mail",
                 "opened": "Opened",
-                "clicked": "Clicked",
-                "openRate": "Open rate: {{pct}}%",
-                "clickRate": "Click rate: {{pct}}%",
                 "openedContext": "of {{sent}} sent · {{pct}}% open rate. Covers only mails sent from your connected mailbox (Gmail or SMTP); PlusVibe campaigns are not included."
             }
         },
@@ -777,6 +771,7 @@
             "comingSoon": "Coming Soon — automatic segmentation"
         },
         "importReplies": "Import Past Emails",
+        "importPartialFailed": "{{count}} campaign(s) could not be imported: {{names}}. You can try again.",
         "importSuccess": "{{count}} new replies imported",
         "importUpToDate": "All replies are up to date",
         "import": {
