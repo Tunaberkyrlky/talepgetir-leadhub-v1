@@ -30,7 +30,7 @@ No test runner is configured.
 
 ## Architecture
 
-**Monorepo** with npm workspaces: `client/` and `server/`. Deployed to Vercel (static client + serverless API via `/api/index.ts`).
+**Monorepo** with npm workspaces: `client/` and `server/`. Deployed to Railway as a long-lived Node process (`server/src/index.ts`, `app.listen`) that also serves the built client. Staging and production are separate Railway environments. (Because it's a persistent process, fire-and-forget background work after a response is safe — this would NOT hold under a serverless model.)
 
 ### Tech Stack
 - **Client:** React 19, Mantine UI, TanStack React Query, React Router, i18next, Recharts, Axios
@@ -58,7 +58,7 @@ No test runner is configured.
 Every data table is scoped by `tenant_id`. RLS policies enforce isolation at the database level. Users have memberships with roles: `superadmin`, `ops_agent`, `client_admin`, `client_viewer`. Internal roles (superadmin, ops_agent) can switch tenants via X-Tenant-Id header.
 
 ### Database Migrations
-SQL migration files live in `supabase/migrations/` (numbered 001–011). Key tables: `tenants`, `memberships`, `companies`, `contacts`, `activities`, `import_jobs`, `pipeline_stages`. Helper functions: `get_user_tenant_id()`, `get_user_role()`, `is_superadmin()`.
+SQL migration files live in `supabase/migrations/`, numbered with a sequential 3-digit prefix (currently up to 048+). Applied to Supabase via the CLI/MCP, which tracks them by **timestamp version** in `supabase_migrations.schema_migrations` — NOT by the file-number prefix. So a duplicate number prefix is cosmetic (won't shadow an apply), but keep numbers unique to avoid confusion. Key tables: `tenants`, `memberships`, `companies`, `contacts`, `activities`, `import_jobs`, `pipeline_stages`. Helper functions: `get_user_tenant_id()`, `get_user_role()`, `is_superadmin()`.
 
 ### Middleware Stack Order
 Compression → Helmet → Pino-HTTP → CORS → Cookie Parser → JSON (10MB limit) → Rate Limiters → Health Check → Auth Routes (public) → Auth Middleware → Protected Routes → Admin Routes (superadmin only) → Error Handler
