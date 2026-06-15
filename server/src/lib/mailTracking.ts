@@ -1,0 +1,63 @@
+/**
+ * Mail Tracking — HMAC imzalı open pixel / click redirect yardımcıları.
+ *
+ * Token formatı: `{payload}:{hmac(payload)}`. Payload ya çıplak UUID'dir
+ * (activity/enrollment — eski format; gönderilmiş drip mailleri ve
+ * unsubscribe linkleri çalışmaya devam eder) ya da tekil mail takibi için
+ * `r.{uuid}` (email_replies.id). Kind prefix'i HMAC'e dahildir; token bir
+ * kind'dan diğerine taşınamaz.
+ */
+
+import crypto from 'crypto';
+import { createLogger } from './logger.js';
+
+const log = createLogger('mailTracking');
+
+const TRACKING_SECRET = process.env.TRACKING_SECRET || 'dev-tracking-secret-local-only';
+if (!process.env.TRACKING_SECRET) {
+    log.warn('TRACKING_SECRET env var not set — using insecure default. Set it in production!');
+}
+
+export const API_BASE = process.env.API_BASE_URL || '';
+
+/** True when injectTracking will actually embed a pixel (API_BASE_URL is set). */
+export function isTrackingConfigured(): boolean {
+    return !!API_BASE;
+}
+
+export type TrackingKind = 'activity' | 'reply';
+
+const REPLY_PREFIX = 'r.';
+
+export function createTrackingToken(id: string, kind: TrackingKind = 'activity'): string {
+    const payload = kind === 'reply' ? `${REPLY_PREFIX}${id}` : id;
+    const hmac = crypto.createHmac('sha256', TRACKING_SECRET).update(payload).digest('hex');
+    return `${payload}:${hmac}`;
+}
+
+export function verifyTrackingToken(token: string): { id: string; kind: TrackingKind } | null {
+    const [payload, hmac] = token.split(':');
+    if (!payload || !hmac) return null;
+    const expected = crypto.createHmac('sha256', TRACKING_SECRET).update(payload).digest('hex');
+    try {
+        if (!crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(expected))) return null;
+    } catch {
+        return null; // length mismatch
+    }
+    return payload.startsWith(REPLY_PREFIX)
+        ? { id: payload.slice(REPLY_PREFIX.length), kind: 'reply' }
+        : { id: payload, kind: 'activity' };
+}
+
+export function injectTracking(html: string, id: string, kind: TrackingKind = 'activity'): string {
+    if (!API_BASE) return html;
+    const token = createTrackingToken(id, kind);
+    const pixel = `<img src="${API_BASE}/api/t/o/${token}" width="1" height="1" style="display:none" alt="" />`;
+    const wrapped = html.replace(
+        /href="(https?:\/\/[^"]+)"/gi,
+        // href değeri HTML-escaped gelir (& → &amp;); redirect hedefi bozulmasın
+        // diye encodeURIComponent öncesi geri çevrilir.
+        (_, url) => `href="${API_BASE}/api/t/c/${token}?url=${encodeURIComponent(url.replace(/&amp;/g, '&'))}"`,
+    );
+    return (wrapped.includes('</body>') ? wrapped.replace('</body>', `${pixel}</body>`) : wrapped + pixel);
+}

@@ -652,7 +652,28 @@
             "total": "Toplam Yanıt",
             "unread": "Okunmamış",
             "matched": "Eşleşmiş",
-            "unmatched": "Eşleşmemiş"
+            "unmatched": "Eşleşmemiş",
+            "matchLabel": "Eşleşme",
+            "matchTooltip": "%{{pct}} eşleşti · {{n}} eşleşmedi",
+            "interested": "İlgilenen",
+            "interestedTooltip": "Son mesajı 'İlgileniyor' etiketli konuşmalar",
+            "awaiting": "Yanıt Bekleyen",
+            "awaitingTooltip": "Son söz karşı tarafta, henüz yanıtlamadığınız konuşmalar (otomatik yanıtlar hariç)"
+        },
+        "tracking": {
+            "opened": "Açıldı",
+            "clicked": "Tıklandı",
+            "openedCount": "{{n}} kez açıldı",
+            "clickedCount": "{{n}} kez tıklandı",
+            "firstOpened": "İlk açılma: {{date}}",
+            "stats": {
+                "sent": "Giden Mail",
+                "opened": "Açılan",
+                "clicked": "Tıklanan",
+                "openRate": "Açılma oranı: %{{pct}}",
+                "clickRate": "Tıklama oranı: %{{pct}}",
+                "openedContext": "{{sent}} gidenden · %{{pct}} açılma. Yalnızca bağladığınız mail hesabından (Gmail veya SMTP) gönderdiğiniz mailleri kapsar; PlusVibe kampanyaları dahil değildir."
+            }
         },
         "filters": {
             "search": "Yanıt, email veya şirket ara...",
@@ -689,6 +710,7 @@
             "meetingCancelled": "Toplantı İptal",
             "closed": "Kapandı",
             "outOfOffice": "Ofis Dışında",
+            "automaticReply": "Otomatik Yanıt",
             "wrongPerson": "Yanlış Kişi",
             "doNotContact": "İletişime Geçme",
             "empty": "Boş (etiketsiz)"

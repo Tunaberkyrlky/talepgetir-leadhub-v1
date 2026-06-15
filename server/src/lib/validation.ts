@@ -240,10 +240,16 @@ export const emailRepliesQuerySchema = z.object({
     search: z.string().max(255).optional(),
     label: z.string().max(100).optional(),
     sentiment: z.string().max(50).optional(),
+    awaiting: z.literal('true').optional(),
 });
 
 export const readStatusBodySchema = z.object({
     read_status: z.enum(['read', 'unread']),
+});
+
+export const trackingStatsQuerySchema = z.object({
+    date_from: z.string().refine(v => !v || !isNaN(Date.parse(v)), { message: 'Invalid date format' }).optional(),
+    date_to: z.string().refine(v => !v || !isNaN(Date.parse(v)), { message: 'Invalid date format' }).optional(),
 });
 
 // ── Email Reply webhook + assign schemas ──

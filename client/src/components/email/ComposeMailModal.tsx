@@ -139,6 +139,7 @@ export default function ComposeMailModal({ opened, onClose }: ComposeMailModalPr
             showSuccess(t('emailReplies.compose.success', 'Mail gönderildi'));
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+            queryClient.invalidateQueries({ queryKey: ['email-replies-tracking-stats'] });
             onClose();
         },
         onError: (err) => showErrorFromApi(err, t('emailReplies.compose.failed', 'Mail gönderilemedi')),

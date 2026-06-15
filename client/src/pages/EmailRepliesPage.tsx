@@ -10,10 +10,11 @@ import {
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
 import {
-    IconMail, IconMailOpened, IconSearch,
-    IconCircleFilled, IconLink, IconLinkOff, IconAlertCircle,
+    IconMailOpened, IconSearch,
+    IconCircleFilled, IconAlertCircle,
     IconSpeakerphone, IconDownload, IconChevronDown, IconChevronRight,
     IconChevronLeft, IconRefresh, IconAdjustments, IconPencilPlus,
+    IconEye, IconStar, IconClock,
 } from '@tabler/icons-react';
 import ThreadHistoryRows from '../components/email/ThreadHistoryRows';
 import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
@@ -24,7 +25,7 @@ import { showErrorFromApi } from '../lib/notifications';
 import StatCard from '../components/StatCard';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import ComposeMailModal from '../components/email/ComposeMailModal';
-import type { EmailReply, EmailReplyStats, Campaign } from '../types/emailReply';
+import type { EmailReply, EmailReplyStats, EmailTrackingStats, Campaign } from '../types/emailReply';
 import type { CampaignsResponse } from '../types/plusvibe';
 import { useStages } from '../contexts/StagesContext';
 
@@ -147,6 +148,19 @@ const DEFAULT_EMAIL_COLUMNS: EmailColumnDef[] = [
 
 const VALID_EMAIL_COLS = new Set<string>(DEFAULT_EMAIL_COLUMNS.map(c => c.key));
 
+// PlusVibe label kodlarını i18n anahtarlarına eşler (filtre + tablo gösterimi ortak).
+const LABEL_I18N_KEYS: Record<string, string> = {
+    INTERESTED: 'interested',
+    NOT_INTERESTED: 'notInterested',
+    MEETING_BOOKED: 'meetingBooked',
+    MEETING_CANCELLED: 'meetingCancelled',
+    CLOSED: 'closed',
+    OUT_OF_OFFICE: 'outOfOffice',
+    AUTOMATIC_REPLY: 'automaticReply',
+    WRONG_PERSON: 'wrongPerson',
+    DO_NOT_CONTACT: 'doNotContact',
+};
+
 function loadEmailColumns(): EmailColumnDef[] {
     try {
         const stored = localStorage.getItem(EMAIL_COLUMNS_KEY);
@@ -178,6 +192,7 @@ export default function EmailRepliesPage() {
     const [matchStatusFilter, setMatchStatusFilter] = useState('');
     const [readStatusFilter, setReadStatusFilter] = useState('');
     const [labelFilter, setLabelFilter] = useState('');
+    const [awaitingFilter, setAwaitingFilter] = useState(false);
     const [search, setSearch] = useState('');
     const [debouncedSearch] = useDebouncedValue(search, 300);
     const [periodType, setPeriodType] = useState<PeriodType>('month');
@@ -253,6 +268,7 @@ export default function EmailRepliesPage() {
             matchStatusFilter,
             readStatusFilter,
             labelFilter,
+            awaitingFilter,
             debouncedSearch,
             dateFrom,
             dateTo,
@@ -266,6 +282,7 @@ export default function EmailRepliesPage() {
             if (matchStatusFilter) params.match_status = matchStatusFilter;
             if (readStatusFilter) params.read_status = readStatusFilter;
             if (labelFilter) params.label = labelFilter === '__EMPTY__' ? '__EMPTY__' : labelFilter;
+            if (awaitingFilter) params.awaiting = 'true';
             if (debouncedSearch) params.search = debouncedSearch;
             if (dateFrom) params.date_from = dateFrom;
             if (dateTo) params.date_to = dateTo;
@@ -274,9 +291,31 @@ export default function EmailRepliesPage() {
         refetchOnWindowFocus: false,
     });
 
+    // PlusVibe label kodunu yerelleştirilmiş metne çevirir (bilinmeyen → kod okunaklı hale).
+    const labelText = (label: string) => {
+        const key = LABEL_I18N_KEYS[label];
+        return key ? t(`emailReplies.labels.${key}`) : label.replace(/_/g, ' ');
+    };
+
+    // Stat cards follow the same date window as the list (Gün/Hafta/Ay/Özel).
+    const dateParams = () => {
+        const p: Record<string, string> = {};
+        if (dateFrom) p.date_from = dateFrom;
+        if (dateTo) p.date_to = dateTo;
+        return p;
+    };
+
     const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<EmailReplyStats>({
-        queryKey: ['email-replies-stats'],
-        queryFn: async () => (await api.get('/email-replies/stats')).data,
+        queryKey: ['email-replies-stats', dateFrom, dateTo],
+        queryFn: async () => (await api.get('/email-replies/stats', { params: dateParams() })).data,
+    });
+
+    // Open/click tracking aggregate — events arrive as recipients open mails,
+    // so refresh periodically rather than only on invalidation.
+    const { data: trackingStats, isLoading: trackingStatsLoading } = useQuery<EmailTrackingStats>({
+        queryKey: ['email-replies-tracking-stats', dateFrom, dateTo],
+        queryFn: async () => (await api.get('/email-replies/tracking-stats', { params: dateParams() })).data,
+        refetchInterval: 60_000,
     });
 
     const { data: campaigns } = useQuery<Campaign[]>({
@@ -405,7 +444,7 @@ export default function EmailRepliesPage() {
     const resetPage = () => setPage(1);
 
     // Close modal and collapse rows when filters change to prevent showing stale data
-    const filterSig = `${campaignFilter}|${matchStatusFilter}|${readStatusFilter}|${labelFilter}|${debouncedSearch}|${dateFrom}|${dateTo}`;
+    const filterSig = `${campaignFilter}|${matchStatusFilter}|${readStatusFilter}|${labelFilter}|${awaitingFilter}|${debouncedSearch}|${dateFrom}|${dateTo}`;
     useEffect(() => {
         setSelectedReply(null);
         setExpandedIds(new Set());
@@ -532,35 +571,50 @@ export default function EmailRepliesPage() {
                         <Skeleton height={100} radius="lg" />
                         <Skeleton height={100} radius="lg" />
                         <Skeleton height={100} radius="lg" />
-                        <Skeleton height={100} radius="lg" />
                     </>
                 ) : (
                     <>
-                        <StatCard
-                            title={t('emailReplies.stats.total')}
-                            value={stats?.total ?? 0}
-                            icon={<IconMail size={22} />}
-                            color="violet"
-                        />
                         <StatCard
                             title={t('emailReplies.stats.unread')}
                             value={stats?.unread ?? 0}
                             icon={<IconMailOpened size={22} />}
                             color="blue"
+                            selected={readStatusFilter === 'unread'}
+                            onClick={() => { setReadStatusFilter(readStatusFilter === 'unread' ? '' : 'unread'); resetPage(); }}
                         />
                         <StatCard
-                            title={t('emailReplies.stats.matched')}
-                            value={stats?.matched ?? 0}
-                            icon={<IconLink size={22} />}
+                            title={t('emailReplies.stats.interested')}
+                            value={stats?.interested ?? 0}
+                            icon={<IconStar size={22} />}
                             color="green"
+                            description={t('emailReplies.stats.interestedTooltip')}
+                            selected={labelFilter === 'INTERESTED'}
+                            onClick={() => { setLabelFilter(labelFilter === 'INTERESTED' ? '' : 'INTERESTED'); resetPage(); }}
                         />
                         <StatCard
-                            title={t('emailReplies.stats.unmatched')}
-                            value={stats?.unmatched ?? 0}
-                            icon={<IconLinkOff size={22} />}
-                            color="red"
+                            title={t('emailReplies.stats.awaiting')}
+                            value={stats?.awaiting ?? 0}
+                            icon={<IconClock size={22} />}
+                            color="orange"
+                            description={t('emailReplies.stats.awaitingTooltip')}
+                            selected={awaitingFilter}
+                            onClick={() => { setAwaitingFilter(!awaitingFilter); resetPage(); }}
                         />
                     </>
+                )}
+                {trackingStatsLoading ? (
+                    <Skeleton height={100} radius="lg" />
+                ) : (
+                    <StatCard
+                        title={t('emailReplies.tracking.stats.opened')}
+                        value={trackingStats?.opened ?? 0}
+                        icon={<IconEye size={22} />}
+                        color="teal"
+                        description={t('emailReplies.tracking.stats.openedContext', {
+                            sent: trackingStats?.sent ?? 0,
+                            pct: Math.round((trackingStats?.open_rate ?? 0) * 100),
+                        })}
+                    />
                 )}
             </SimpleGrid>
 
@@ -643,6 +697,7 @@ export default function EmailRepliesPage() {
                                 { value: 'MEETING_CANCELLED', label: t('emailReplies.labels.meetingCancelled') },
                                 { value: 'CLOSED', label: t('emailReplies.labels.closed') },
                                 { value: 'OUT_OF_OFFICE', label: t('emailReplies.labels.outOfOffice') },
+                                { value: 'AUTOMATIC_REPLY', label: t('emailReplies.labels.automaticReply') },
                                 { value: 'WRONG_PERSON', label: t('emailReplies.labels.wrongPerson') },
                                 { value: 'DO_NOT_CONTACT', label: t('emailReplies.labels.doNotContact') },
                                 { value: '__EMPTY__', label: t('emailReplies.labels.empty') },
@@ -911,7 +966,7 @@ export default function EmailRepliesPage() {
                                                 {isColVisible('label') && (
                                                 <Table.Td style={{ padding: '0 4px', textAlign: 'center' }}>
                                                     {reply.label && (
-                                                        <Tooltip label={reply.label.replace(/_/g, ' ')} withArrow>
+                                                        <Tooltip label={labelText(reply.label)} withArrow>
                                                             <Badge
                                                                 size="xs"
                                                                 variant="filled"

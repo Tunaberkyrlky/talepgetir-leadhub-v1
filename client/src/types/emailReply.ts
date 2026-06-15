@@ -145,6 +145,14 @@ export interface ThreadHistoryItem {
         forwarded_to?: string;
         [key: string]: unknown;
     } | null;
+    tracking?: MessageTracking | null;
+}
+
+export interface MessageTracking {
+    open_count: number;
+    click_count: number;
+    first_opened_at: string | null;
+    first_clicked_at: string | null;
 }
 
 export interface EmailReplyStats {
@@ -152,6 +160,16 @@ export interface EmailReplyStats {
     unread: number;
     matched: number;
     unmatched: number;
+    interested: number;
+    awaiting: number;
+}
+
+export interface EmailTrackingStats {
+    sent: number;
+    opened: number;
+    clicked: number;
+    open_rate: number;
+    click_rate: number;
 }
 
 export interface Campaign {

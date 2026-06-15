@@ -42,12 +42,23 @@ function buildCard(t: AttachmentTemplate): string {
 /**
  * Convert a plain-text body into simple one-<p>-per-line HTML, fully escaping
  * each line (incl. &). Single source of truth for reply/forward/compose bodies.
+ * Bare http(s) URLs become real <a> links so click tracking can wrap them.
  */
 export function plainTextToParagraphs(text: string): string {
     return text
         .split('\n')
-        .map((line) => `<p>${escapeHtml(line)}</p>`)
+        .map((line) => `<p>${linkify(escapeHtml(line))}</p>`)
         .join('');
+}
+
+// Runs AFTER escapeHtml: the line contains no raw < > " ' characters, and
+// &amp;/&#39; inside a URL are valid entities in an href attribute value.
+function linkify(escapedLine: string): string {
+    return escapedLine.replace(/https?:\/\/[^\s<>"']+/gi, (match) => {
+        const trailing = /[.,;:!?]+$/.exec(match)?.[0] ?? '';
+        const url = trailing ? match.slice(0, -trailing.length) : match;
+        return `<a href="${url}" target="_blank">${url}</a>${trailing}`;
+    });
 }
 
 export function buildAttachmentCardsHtml(templates: AttachmentTemplate[]): string {

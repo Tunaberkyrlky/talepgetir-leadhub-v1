@@ -10,19 +10,13 @@
  *   - Stage advance: emailMatcher.ts (advanceCompanyStageOnMatch)
  */
 
-import crypto from 'crypto';
 import { supabaseAdmin } from './supabase.js';
+import { API_BASE, createTrackingToken, injectTracking } from './mailTracking.js';
 import { sendEmail } from './emailSender.js';
 import { createLogger } from './logger.js';
 import { AppError } from '../middleware/errorHandler.js';
 
 const log = createLogger('campaignEngine');
-
-const TRACKING_SECRET = process.env.TRACKING_SECRET || 'dev-tracking-secret-local-only';
-if (!process.env.TRACKING_SECRET) {
-    log.warn('TRACKING_SECRET env var not set — using insecure default. Set it in production!');
-}
-const API_BASE = process.env.API_BASE_URL || '';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -80,32 +74,7 @@ function applyTemplate(template: string, ctx: TemplateCtx): string {
 }
 
 // ── Tracking ───────────────────────────────────────────────────────────────
-
-function createTrackingToken(id: string): string {
-    const hmac = crypto.createHmac('sha256', TRACKING_SECRET).update(id).digest('hex');
-    return `${id}:${hmac}`;
-}
-
-export function verifyTrackingToken(token: string): string | null {
-    const [id, hmac] = token.split(':');
-    if (!id || !hmac) return null;
-    const expected = crypto.createHmac('sha256', TRACKING_SECRET).update(id).digest('hex');
-    try {
-        if (crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(expected))) return id;
-    } catch { /* length mismatch */ }
-    return null;
-}
-
-function injectTracking(html: string, activityId: string): string {
-    if (!API_BASE) return html;
-    const token = createTrackingToken(activityId);
-    const pixel = `<img src="${API_BASE}/api/t/o/${token}" width="1" height="1" style="display:none" alt="" />`;
-    const wrapped = html.replace(
-        /href="(https?:\/\/[^"]+)"/gi,
-        (_, url) => `href="${API_BASE}/api/t/c/${token}?url=${encodeURIComponent(url)}"`,
-    );
-    return (wrapped.includes('</body>') ? wrapped.replace('</body>', `${pixel}</body>`) : wrapped + pixel);
-}
+// Token üretimi/doğrulama ve injectTracking lib/mailTracking.ts'e taşındı.
 
 function buildUnsubscribeFooter(enrollmentId: string): string {
     if (!API_BASE) return '';

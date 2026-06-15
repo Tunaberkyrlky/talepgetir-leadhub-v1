@@ -19,6 +19,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { isInternal } from '../../lib/permissions';
 import { useStages } from '../../contexts/StagesContext';
 import AssignCompanyForm from './AssignCompanyForm';
+import TrackingBadges from './TrackingBadges';
 import ActivityForm from '../ActivityForm';
 import ClosingReportModal from '../ClosingReportModal';
 import type { EmailReply, ThreadHistoryItem } from '../../types/emailReply';
@@ -375,6 +376,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             markAsRead();
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+            queryClient.invalidateQueries({ queryKey: ['email-replies-tracking-stats'] });
         },
         onError: (err) => showErrorFromApi(err, t('emailReplies.reply.failed')),
     });
@@ -413,6 +415,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             markAsRead();
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-reply-thread-modal'] });
+            queryClient.invalidateQueries({ queryKey: ['email-replies-tracking-stats'] });
         },
         onError: (err) => showErrorFromApi(err, t('emailReplies.forward.failed', 'Yönlendirme başarısız')),
     });
@@ -599,6 +602,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                     <Text size="xs" c="dimmed">
                                         {formatDate(msg.replied_at)}
                                     </Text>
+                                    {isOut && <TrackingBadges tracking={msg.tracking} locale={locale} />}
                                 </Group>
                                 {(() => {
                                     // Per-message From/To from canonical columns (fallback to legacy).

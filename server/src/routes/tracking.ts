@@ -5,7 +5,7 @@
 
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
-import { verifyTrackingToken } from '../lib/campaignEngine.js';
+import { verifyTrackingToken } from '../lib/mailTracking.js';
 import { createLogger } from '../lib/logger.js';
 
 const log = createLogger('tracking');
@@ -26,10 +26,12 @@ router.get('/o/:token', async (req: Request<{ token: string }>, res: Response): 
     });
 
     try {
-        const activityId = verifyTrackingToken(req.params.token);
-        if (activityId) {
+        const target = verifyTrackingToken(req.params.token);
+        if (target) {
             await supabaseAdmin.from('campaign_email_events').insert({
-                activity_id: activityId,
+                ...(target.kind === 'reply'
+                    ? { email_reply_id: target.id }
+                    : { activity_id: target.id }),
                 event_type: 'open',
                 event_data: { ip: req.ip, ua: req.get('User-Agent')?.slice(0, 200) },
             });
@@ -48,11 +50,13 @@ router.get('/c/:token', async (req: Request<{ token: string }>, res: Response): 
     if (!targetUrl || !isSafeUrl(targetUrl)) { res.redirect('/'); return; }
 
     try {
-        const activityId = verifyTrackingToken(req.params.token);
-        if (!activityId) { res.status(400).send('Invalid tracking link'); return; }
+        const target = verifyTrackingToken(req.params.token);
+        if (!target) { res.status(400).send('Invalid tracking link'); return; }
 
         await supabaseAdmin.from('campaign_email_events').insert({
-            activity_id: activityId,
+            ...(target.kind === 'reply'
+                ? { email_reply_id: target.id }
+                : { activity_id: target.id }),
             event_type: 'click',
             event_data: { url: targetUrl.slice(0, 2000), ip: req.ip },
         });
@@ -74,8 +78,9 @@ router.get('/:token', async (req: Request<{ token: string }>, res: Response): Pr
 <p style="font-size:16px;color:#334155;">${msg}</p></div></body></html>`;
 
     try {
-        const enrollmentId = verifyTrackingToken(req.params.token);
-        if (!enrollmentId) { res.status(400).send(html('Invalid or expired link.')); return; }
+        const target = verifyTrackingToken(req.params.token);
+        if (!target || target.kind === 'reply') { res.status(400).send(html('Invalid or expired link.')); return; }
+        const enrollmentId = target.id;
 
         const { data: enrollment } = await supabaseAdmin
             .from('campaign_enrollments')

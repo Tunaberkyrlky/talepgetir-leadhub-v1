@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.30',
+        date: '2026-06-15',
+        type: 'feature',
+        title: { tr: 'Mail Açılma Takibi ve Yeni Özet Kartları', en: 'Mail Open Tracking & New Summary Cards' },
+        features: [
+            {
+                tr: 'Email Yanıtları\'ndan kendi mail hesabınızla gönderdiğiniz yanıt, yönlendirme ve yeni maillerin açılıp açılmadığını artık görebilirsiniz. Yazışma geçmişinde gönderdiğiniz her mailin yanında açıldı işareti belirir, üstteki kartta da toplam açılma oranını izleyebilirsiniz. Bu takip kampanya gönderimlerini değil, sizin elle gönderdiğiniz mailleri kapsar.',
+                en: 'You can now see whether the replies, forwards and new mails you send from your own mailbox get opened. Each mail you send shows an opened indicator in the thread, and the summary card tracks your overall open rate. This covers the mails you send by hand, not campaign sends.',
+            },
+            {
+                tr: 'Email Yanıtları üstündeki özet kartları yenilendi: Okunmamış, İlgilenen, Yanıt Bekleyen ve Açılan. Bir karta tıklayarak listeyi o duruma göre filtreleyebilir, seçtiğiniz tarih aralığına göre de güncel rakamları görebilirsiniz.',
+                en: 'The summary cards on Email Replies are refreshed: Unread, Interested, Awaiting Reply and Opened. Click a card to filter the list by that state, and the numbers follow the date range you pick.',
+            },
+        ],
+    },
+    {
         version: '1.9.29',
         date: '2026-06-15',
         type: 'feature',

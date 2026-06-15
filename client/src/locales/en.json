@@ -652,7 +652,28 @@
             "total": "Total Replies",
             "unread": "Unread",
             "matched": "Matched",
-            "unmatched": "Unmatched"
+            "unmatched": "Unmatched",
+            "matchLabel": "Match",
+            "matchTooltip": "{{pct}}% matched · {{n}} unmatched",
+            "interested": "Interested",
+            "interestedTooltip": "Conversations whose latest message is labeled 'Interested'",
+            "awaiting": "Awaiting Reply",
+            "awaitingTooltip": "Conversations where the ball is in your court — not yet replied (auto-replies excluded)"
+        },
+        "tracking": {
+            "opened": "Opened",
+            "clicked": "Clicked",
+            "openedCount": "Opened {{n}} times",
+            "clickedCount": "Clicked {{n}} times",
+            "firstOpened": "First opened: {{date}}",
+            "stats": {
+                "sent": "Sent Mail",
+                "opened": "Opened",
+                "clicked": "Clicked",
+                "openRate": "Open rate: {{pct}}%",
+                "clickRate": "Click rate: {{pct}}%",
+                "openedContext": "of {{sent}} sent · {{pct}}% open rate. Covers only mails sent from your connected mailbox (Gmail or SMTP); PlusVibe campaigns are not included."
+            }
         },
         "filters": {
             "search": "Search replies, email, or company...",
@@ -689,6 +710,7 @@
             "meetingCancelled": "Meeting Cancelled",
             "closed": "Closed",
             "outOfOffice": "Out of Office",
+            "automaticReply": "Auto-Reply",
             "wrongPerson": "Wrong Person",
             "doNotContact": "Do Not Contact",
             "empty": "Empty (no label)"

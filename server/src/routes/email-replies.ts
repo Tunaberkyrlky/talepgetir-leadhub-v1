@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'crypto';
 import { supabaseAdmin, createUserClient } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -12,6 +13,7 @@ import {
     forwardEmailBodySchema,
     composeEmailBodySchema,
     threadHistoryQuerySchema,
+    trackingStatsQuerySchema,
     uuidField,
 } from '../lib/validation.js';
 import { z } from 'zod/v4';
@@ -19,6 +21,7 @@ import { isInternalRole } from '../lib/roles.js';
 import { matchSenderEmail, advanceCompanyStageOnMatch } from '../lib/emailMatcher.js';
 import { resolveReplyContext } from '../lib/plusvibeReplyResolver.js';
 import { buildAttachmentCardsHtml, plainTextToParagraphs } from '../lib/emailHtmlBuilder.js';
+import { injectTracking, isTrackingConfigured } from '../lib/mailTracking.js';
 import { sendMail } from '../lib/mail/router.js';
 import { resolveThreadMailbox } from '../lib/mail/resolveThreadMailbox.js';
 import { getConnectionByEmail, getDefaultConnection } from '../lib/emailConnections.js';
@@ -51,8 +54,9 @@ router.get(
                 res.status(400).json({ error: 'Invalid query parameters' });
                 return;
             }
-            const { page, limit, campaign_id, match_status, read_status, date_from, date_to, search, label, sentiment } = queryResult.data;
+            const { page, limit, campaign_id, match_status, read_status, date_from, date_to, search, label, sentiment, awaiting } = queryResult.data;
             const offset = (page - 1) * limit;
+            const isAwaiting = awaiting === 'true';
 
             const rpcParams = {
                 p_tenant_id: tenantId,
@@ -66,6 +70,7 @@ router.get(
                 p_date_to: date_to || null,
                 p_label: label || null,
                 p_sentiment: sentiment || null,
+                p_awaiting: isAwaiting,
             };
 
             const [{ data: rows, error }, { data: countData, error: countError }] = await Promise.all([
@@ -80,6 +85,7 @@ router.get(
                     p_date_to: date_to || null,
                     p_label: label || null,
                     p_sentiment: sentiment || null,
+                    p_awaiting: isAwaiting,
                 }),
             ]);
 
@@ -194,7 +200,34 @@ router.get(
                 throw new AppError('Failed to fetch thread history', 500);
             }
 
-            res.json(data || []);
+            // Attach open/click tracking to OUT messages (single extra query;
+            // the thread is capped at 50 rows so .in() stays small).
+            const rows = data || [];
+            const outIds = rows.filter((r: any) => r.direction === 'OUT').map((r: any) => r.id);
+            const trackingMap: Record<string, {
+                open_count: number; click_count: number;
+                first_opened_at: string | null; first_clicked_at: string | null;
+            }> = {};
+            if (outIds.length) {
+                const { data: events } = await supabaseAdmin
+                    .from('campaign_email_events')
+                    .select('email_reply_id, event_type, created_at')
+                    .in('email_reply_id', outIds)
+                    .in('event_type', ['open', 'click']);
+                for (const ev of (events || []) as { email_reply_id: string; event_type: string; created_at: string }[]) {
+                    const t = trackingMap[ev.email_reply_id]
+                        ?? (trackingMap[ev.email_reply_id] = { open_count: 0, click_count: 0, first_opened_at: null, first_clicked_at: null });
+                    if (ev.event_type === 'open') {
+                        t.open_count++;
+                        if (!t.first_opened_at || ev.created_at < t.first_opened_at) t.first_opened_at = ev.created_at;
+                    } else {
+                        t.click_count++;
+                        if (!t.first_clicked_at || ev.created_at < t.first_clicked_at) t.first_clicked_at = ev.created_at;
+                    }
+                }
+            }
+
+            res.json(rows.map((r: any) => ({ ...r, tracking: trackingMap[r.id] ?? null })));
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Thread history error');
@@ -213,8 +246,19 @@ router.get(
         try {
             const tenantId = req.tenantId!;
 
+            const queryResult = trackingStatsQuerySchema.safeParse(req.query);
+            if (!queryResult.success) {
+                res.status(400).json({ error: 'Invalid query parameters' });
+                return;
+            }
+            const { date_from, date_to } = queryResult.data;
+
             const { data, error } = await supabaseAdmin
-                .rpc('get_email_reply_stats', { p_tenant_id: tenantId })
+                .rpc('get_email_reply_stats', {
+                    p_tenant_id: tenantId,
+                    p_date_from: date_from ?? null,
+                    p_date_to: date_to ?? null,
+                })
                 .single();
 
             if (error) {
@@ -222,17 +266,69 @@ router.get(
                 throw new AppError('Failed to fetch stats', 500);
             }
 
-            const stats = data as { total: number; unread: number; matched: number; unmatched: number };
+            const stats = data as {
+                total: number; unread: number; matched: number; unmatched: number;
+                interested: number; awaiting: number;
+            };
             res.json({
                 total: Number(stats.total),
                 unread: Number(stats.unread),
                 matched: Number(stats.matched),
                 unmatched: Number(stats.unmatched),
+                interested: Number(stats.interested),
+                awaiting: Number(stats.awaiting),
             });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Email replies stats error');
             next(new AppError('Failed to fetch stats', 500));
+        }
+    }
+);
+
+// GET /api/email-replies/tracking-stats — open/click aggregate for outbound singles
+router.get(
+    '/tracking-stats',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+
+            const queryResult = trackingStatsQuerySchema.safeParse(req.query);
+            if (!queryResult.success) {
+                res.status(400).json({ error: 'Invalid query parameters' });
+                return;
+            }
+            const { date_from, date_to } = queryResult.data;
+
+            const { data, error } = await supabaseAdmin
+                .rpc('get_email_reply_tracking_stats', {
+                    p_tenant_id: tenantId,
+                    p_date_from: date_from ?? null,
+                    p_date_to: date_to ?? null,
+                })
+                .single();
+
+            if (error) {
+                log.error({ err: error }, 'Email tracking stats error');
+                throw new AppError('Failed to fetch tracking stats', 500);
+            }
+
+            const stats = data as { sent: number; opened: number; clicked: number };
+            const sent = Number(stats.sent);
+            const opened = Number(stats.opened);
+            const clicked = Number(stats.clicked);
+            res.json({
+                sent,
+                opened,
+                clicked,
+                open_rate: sent > 0 ? opened / sent : 0,
+                click_rate: sent > 0 ? clicked / sent : 0,
+            });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Email tracking stats error');
+            next(new AppError('Failed to fetch tracking stats', 500));
         }
     }
 );
@@ -708,6 +804,11 @@ router.post(
             // This fixes replies going out from the wrong (sender_emails[0]) mailbox.
             const accountEmail = resolveThreadMailbox(emailReply) ?? context.fromAddress;
 
+            // Pre-generate the OUT row id: the tracking pixel/click token must
+            // reference it, but the row is only inserted after a successful send.
+            const outId = randomUUID();
+            htmlBody = injectTracking(htmlBody, outId, 'reply');
+
             // Send via the canonical mail router (reply → PlusVibe for a PlusVibe thread)
             const sendResult = await sendMail({
                 channel: 'reply',
@@ -723,6 +824,7 @@ router.post(
 
             // Insert outbound reply record (canonical columns + legacy raw_payload)
             const outRow = {
+                id: outId,
                 tenant_id: tenantId,
                 campaign_id: emailReply.campaign_id,
                 campaign_name: emailReply.campaign_name,
@@ -748,6 +850,7 @@ router.post(
                     plusvibe_reply_id: sendResult.providerMessageId,
                     from_address: accountEmail,
                     subject,
+                    ...(isTrackingConfigured() && { tracked: true }),
                     ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
                 },
             };
@@ -845,6 +948,10 @@ router.post(
 
             const accountEmail = resolveThreadMailbox(emailReply) ?? context.fromAddress;
 
+            // Pre-generated id links the OUT row to its open/click events
+            const outId = randomUUID();
+            htmlBody = injectTracking(htmlBody, outId, 'reply');
+
             const sendResult = await sendMail({
                 channel: 'forward',
                 tenantId,
@@ -860,6 +967,7 @@ router.post(
             // Outbound record — sender_email kept as ORIGINAL sender so the forward
             // stays under the same thread in the UI. forwarded_to is in raw_payload.
             const outRow = {
+                id: outId,
                 tenant_id: tenantId,
                 campaign_id: emailReply.campaign_id,
                 campaign_name: emailReply.campaign_name,
@@ -884,6 +992,7 @@ router.post(
                     plusvibe_forward_id: sendResult.providerMessageId,
                     from_address: accountEmail,
                     forwarded_to: to,
+                    ...(isTrackingConfigured() && { tracked: true }),
                     ...(cc && { cc }),
                     ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
                 },
@@ -975,6 +1084,10 @@ router.post(
                 }
             }
 
+            // Pre-generated id links the OUT row to its open/click events
+            const outId = randomUUID();
+            htmlBody = injectTracking(htmlBody, outId, 'reply');
+
             const sendResult = await sendMail({
                 channel: 'compose',
                 tenantId,
@@ -987,6 +1100,7 @@ router.post(
 
             // Outbound record — new thread, no parent, no campaign
             const outRow = {
+                id: outId,
                 tenant_id: tenantId,
                 campaign_id: null as string | null,
                 campaign_name: null as string | null,
@@ -1011,6 +1125,7 @@ router.post(
                     source: 'user_compose',
                     subject,
                     from_address: accountEmail,
+                    ...(isTrackingConfigured() && { tracked: true }),
                     ...(cc && { cc }),
                     ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
                 },

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Table, Text, Center, Loader, Badge, Group } from '@mantine/core';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
+import TrackingBadges from './TrackingBadges';
 import type { ThreadHistoryItem } from '../../types/emailReply';
 
 interface ThreadHistoryRowsProps {
@@ -108,6 +109,7 @@ export default function ThreadHistoryRows({
                         <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
                             {formatDate(h.replied_at, locale)}
                         </Text>
+                        {isOut && <TrackingBadges tracking={h.tracking} locale={locale} />}
                         {isForward && forwardedTo && (
                             <Text size="xs" c="#92400e" fw={500} style={{ whiteSpace: 'nowrap' }}>
                                 → {forwardedTo}
