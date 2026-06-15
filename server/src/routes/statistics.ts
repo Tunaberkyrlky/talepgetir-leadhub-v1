@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { requireTier, requireRole } from '../middleware/auth.js';
 import { createLogger } from '../lib/logger.js';
+import { htmlToPlainText as stripHtml } from '../lib/htmlText.js';
 import { getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
 
 const log = createLogger('route:statistics');
@@ -325,23 +326,6 @@ function autoFit(sheet: ExcelJS.Worksheet, headers: string[]): void {
         });
         col.width = Math.min(maxLen + 4, 50);
     });
-}
-
-function stripHtml(html: string | null | undefined): string {
-    if (!html) return '';
-    return html
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<\/p>/gi, '\n')
-        .replace(/<\/div>/gi, '\n')
-        .replace(/<[^>]+>/g, '')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/\r\n/g, '\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
 }
 
 function cleanEmailBody(raw: string | null | undefined): string {

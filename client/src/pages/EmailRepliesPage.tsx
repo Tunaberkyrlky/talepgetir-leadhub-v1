@@ -21,7 +21,7 @@ import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
 
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
-import { showErrorFromApi } from '../lib/notifications';
+import { showErrorFromApi, showWarning } from '../lib/notifications';
 import StatCard from '../components/StatCard';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import ComposeMailModal from '../components/email/ComposeMailModal';
@@ -415,8 +415,10 @@ export default function EmailRepliesPage() {
             }
 
             // Step 2: import each campaign one by one. Keep going if one campaign fails
-            // (e.g. a slow timeout) so the rest still import.
+            // (e.g. a slow timeout) so the rest still import, but collect failures so we
+            // can surface them instead of silently reporting success.
             let totalImported = 0;
+            const failed: string[] = [];
             for (let i = 0; i < campaigns.length; i++) {
                 const campaign = campaigns[i];
                 setImportState({ phase: 'importing', done: i, total: campaigns.length, campaignName: campaign.name });
@@ -425,19 +427,30 @@ export default function EmailRepliesPage() {
                         pv_campaign_id: campaign.pv_campaign_id,
                     });
                     totalImported += data.imported;
-                } catch {
-                    // skip this campaign, continue with the others
+                } catch (campErr) {
+                    failed.push(campaign.name);
+                    console.error(`[import] campaign failed: ${campaign.name}`, campErr);
                 }
             }
 
             setImportState({ phase: 'done', imported: totalImported });
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+
+            if (failed.length > 0) {
+                showWarning(
+                    t('emailReplies.importPartialFailed', {
+                        count: failed.length,
+                        names: failed.join(', '),
+                        defaultValue: `${failed.length} kampanya içe aktarılamadı: ${failed.join(', ')}. Tekrar deneyebilirsiniz.`,
+                    }),
+                );
+            }
         } catch (err) {
             showErrorFromApi(err);
             setImportState({ phase: 'idle' });
         }
-    }, [queryClient]);
+    }, [queryClient, t]);
 
     // ── Filter change helpers (reset page) ──
 

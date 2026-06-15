@@ -390,6 +390,8 @@ router.post(
             // per replied lead can take a while on big campaigns; awaiting it would push
             // the request past the client's 60s timeout and abort the per-campaign import
             // loop. Fire-and-forget instead — the first-touch rows populate shortly after.
+            // NOTE: this relies on a long-lived worker (Railway). Under a serverless model
+            // the function could freeze after the response and drop this work.
             hydrateCampaignSendsForCampaign({
                 tenantId,
                 pvCampaignId,

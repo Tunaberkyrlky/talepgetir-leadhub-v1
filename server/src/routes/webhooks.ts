@@ -117,12 +117,9 @@ async function processPlusvibeInbound(req: Request, res: Response, tenantId: str
         return;
     }
 
-    // Verify tenant consistency — match should belong to the same tenant
-    if (match.tenant_id !== tenantId) {
-        log.warn({ tenantId, matchTenantId: match.tenant_id, from_email }, 'Webhook tenant mismatch');
-        res.status(422).json({ error: 'Tenant mismatch', code: 'TENANT_MISMATCH' });
-        return;
-    }
+    // matchSenderEmail is fully scoped to `tenantId` (every layer filters by it and
+    // the no-match fallback returns it), so match.tenant_id always equals tenantId.
+    // No cross-tenant check is possible or needed here.
 
     // Keep only the fresh reply text (drop quoted history) for the body column.
     canonical.bodyText = canonical.bodyText ? splitEmailBody(canonical.bodyText).fresh : null;
@@ -184,13 +181,16 @@ async function processPlusvibeInbound(req: Request, res: Response, tenantId: str
     );
 
     // Hydrate the outbound campaign sends (first-touch + steps) for this thread
-    // from PlusVibe so our opening email shows up. Gated + fire-and-forget.
+    // from PlusVibe so our opening email shows up. Gated + fire-and-forget. Pass the
+    // match we already computed so the OUT rows adopt the same company/contact as
+    // this reply (and we don't rebuild a matcher).
     if (canonical.campaignId && canonical.senderEmail) {
         hydrateThreadCampaignSends({
             tenantId,
             pvCampaignId: canonical.campaignId,
             campaignName: canonical.campaignName,
             leadEmail: canonical.senderEmail,
+            match: { company_id: match.company_id, contact_id: match.contact_id, match_status: match.match_status },
         }).catch((hydrateErr) =>
             log.warn({ err: hydrateErr, camp_id: canonical.campaignId, sender: from_email }, 'Thread hydration failed'),
         );

@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.31',
+        date: '2026-06-15',
+        type: 'improvement',
+        title: { tr: 'Kararlılık ve Hata Bildirimleri', en: 'Stability & Error Notifications' },
+        features: [
+            {
+                tr: 'Geçmiş mailleri içe aktarırken bir kampanya başarısız olursa artık uyarı alıyorsunuz. Önceden bu durum sessiz kalıp her şey tamamlanmış gibi görünebiliyordu.',
+                en: 'When a campaign fails while importing past emails you now get a warning. Previously this could stay silent and look like everything completed.',
+            },
+            {
+                tr: 'Mail yakalama tarafında kod kalitesi ve hata yakalama güçlendirildi. Beklenmedik içerikler akışı durdurmadan güvenle işleniyor ve gönderdiğiniz açılış mailleri ilgili şirketle daha tutarlı eşleşiyor.',
+                en: 'Code quality and error handling on the mail capture side were strengthened. Unexpected content is handled safely without breaking the flow, and the opening emails you sent match to the right company more consistently.',
+            },
+        ],
+    },
+    {
         version: '1.9.30',
         date: '2026-06-15',
         type: 'feature',

@@ -188,65 +188,108 @@ export async function enrichOrInsertReplies(params: {
 // the reply unibox. We pull them per thread and store them as OUT rows so the
 // opening email we sent shows up in the conversation.
 
+// In-process guard: stop two concurrent webhooks for the SAME thread from both
+// fetching + inserting the same sends (the unique index is the final backstop,
+// but this avoids the wasted duplicate API calls — finding #8).
+const hydrationInFlight = new Set<string>();
+
 /** Pull + insert the campaign sends (first-touch + steps) for a single thread. */
 export async function hydrateThreadCampaignSends(params: {
     tenantId: string;
     pvCampaignId: string;
     campaignName: string | null;
     leadEmail: string;
+    /** Fallback matcher (bulk path). */
     matchEmail?: ReplyMatcher;
+    /** Pre-computed match for this lead (webhook path) — avoids rebuilding a matcher. */
+    match?: ReplyMatchResult;
 }): Promise<{ imported: number; skipped: number }> {
     const { tenantId, pvCampaignId, campaignName } = params;
     const lead = params.leadEmail?.toLowerCase().trim();
     if (!lead || !pvCampaignId) return { imported: 0, skipped: 0 };
 
-    // Gate: skip if this thread already has campaign-send OUT rows (avoid repeat API calls).
-    const { data: existingOut } = await supabaseAdmin
-        .from('email_replies')
-        .select('provider_message_id, raw_payload')
-        .eq('tenant_id', tenantId)
-        .eq('campaign_id', pvCampaignId)
-        .eq('sender_email', lead)
-        .eq('direction', 'OUT');
-    const existingIds = new Set<string>();
-    let alreadyHydrated = false;
-    for (const r of existingOut || []) {
-        if (r.provider_message_id) existingIds.add(r.provider_message_id as string);
-        if ((r.raw_payload as Record<string, unknown> | null)?.source === 'plusvibe_campaign_send') alreadyHydrated = true;
+    const flightKey = `${tenantId}:${pvCampaignId}:${lead}`;
+    if (hydrationInFlight.has(flightKey)) return { imported: 0, skipped: 0 };
+    hydrationInFlight.add(flightKey);
+    try {
+        // Read the whole thread once: drives the gate, the existing-id dedup, the
+        // thread's company/contact (so OUT adopts the SAME match as the inbound
+        // reply — finding #3), and the row we tag as "checked".
+        const { data: threadRows } = await supabaseAdmin
+            .from('email_replies')
+            .select('id, direction, provider_message_id, raw_payload, company_id, contact_id')
+            .eq('tenant_id', tenantId)
+            .eq('campaign_id', pvCampaignId)
+            .eq('sender_email', lead);
+
+        const existingIds = new Set<string>();
+        let alreadyChecked = false;
+        let threadMatch: ReplyMatchResult | null = null;
+        let markerRow: { id: string; raw_payload: Record<string, unknown> | null } | null = null;
+        for (const r of threadRows || []) {
+            const rp = r.raw_payload as Record<string, unknown> | null;
+            if (r.direction === 'OUT' && r.provider_message_id) existingIds.add(r.provider_message_id as string);
+            if ((r.direction === 'OUT' && rp?.source === 'plusvibe_campaign_send') || rp?.campaign_sends_checked === true) {
+                alreadyChecked = true;
+            }
+            // Adopt the thread's resolved company/contact from any matched row (prefer IN).
+            if (r.company_id && (!threadMatch || r.direction === 'IN')) {
+                threadMatch = { company_id: r.company_id as string, contact_id: (r.contact_id as string | null) ?? null, match_status: 'matched' };
+            }
+            // Representative row to mark "checked" (prefer an inbound row).
+            if (!markerRow || r.direction === 'IN') markerRow = { id: r.id as string, raw_payload: rp };
+        }
+        if (alreadyChecked) return { imported: 0, skipped: 0 };
+
+        const records = await fetchCampaignEmailsByLead(pvCampaignId, lead);
+
+        // Resolve the match once: thread's existing match → caller-supplied → fallback
+        // matcher. Only build a full tenant matcher as a last resort (finding #6).
+        let resolved: ReplyMatchResult | null = threadMatch ?? params.match ?? (params.matchEmail ? params.matchEmail(lead) : null);
+        if (!resolved) resolved = (await buildTenantMatcher(tenantId))(lead);
+
+        let imported = 0;
+        let skipped = 0;
+        for (const rec of records) {
+            // Per-record guard: one malformed record (bad body, parse error) must not
+            // abort the rest of the thread's sends.
+            try {
+                if (rec.id && existingIds.has(rec.id)) { skipped++; continue; }
+
+                const canonical = parseCampaignEmail(rec, campaignName);
+                canonical.tenantId = tenantId;
+                canonical.rawPayload = { source: 'plusvibe_campaign_send', plusvibe_email_id: rec.id, step: rec.current_step ?? null };
+
+                const row = {
+                    ...canonicalToReplyRow(canonical),
+                    company_id: resolved.company_id,
+                    contact_id: resolved.contact_id,
+                    match_status: resolved.match_status,
+                    read_status: 'read' as const,
+                    step: rec.current_step ?? null,
+                };
+                const { error } = await supabaseAdmin.from('email_replies').insert(row);
+                if (!error) imported++;
+                else if (error.code === '23505') skipped++; // provider_message_id unique index — already stored
+                else log.warn({ err: error, pvCampaignId, lead, recId: rec.id }, 'Campaign-send insert failed');
+            } catch (recErr) {
+                log.warn({ err: recErr, pvCampaignId, lead, recId: rec.id }, 'Campaign-send record skipped (parse/insert threw)');
+            }
+        }
+
+        // If PlusVibe returned no sends for this lead, tag the thread "checked" so we
+        // don't re-hit the API on every future reply (finding #5). When sends WERE
+        // inserted, the campaign_send rows themselves gate future runs.
+        if (records.length === 0 && markerRow) {
+            const merged = { ...(markerRow.raw_payload ?? {}), campaign_sends_checked: true };
+            await supabaseAdmin.from('email_replies').update({ raw_payload: merged }).eq('id', markerRow.id);
+        }
+
+        log.info({ tenantId, pvCampaignId, lead, imported, skipped, records: records.length }, 'Thread campaign-send hydration completed');
+        return { imported, skipped };
+    } finally {
+        hydrationInFlight.delete(flightKey);
     }
-    if (alreadyHydrated) return { imported: 0, skipped: 0 };
-
-    const records = await fetchCampaignEmailsByLead(pvCampaignId, lead);
-    if (records.length === 0) return { imported: 0, skipped: 0 };
-
-    const matchEmail = params.matchEmail ?? (await buildTenantMatcher(tenantId));
-    const match = matchEmail(lead);
-
-    let imported = 0;
-    let skipped = 0;
-    for (const rec of records) {
-        if (rec.id && existingIds.has(rec.id)) { skipped++; continue; }
-
-        const canonical = parseCampaignEmail(rec, campaignName);
-        canonical.tenantId = tenantId;
-        canonical.rawPayload = { source: 'plusvibe_campaign_send', plusvibe_email_id: rec.id, step: rec.current_step ?? null };
-
-        const row = {
-            ...canonicalToReplyRow(canonical),
-            company_id: match.company_id,
-            contact_id: match.contact_id,
-            match_status: match.match_status,
-            read_status: 'read' as const,
-            step: rec.current_step ?? null,
-        };
-        const { error } = await supabaseAdmin.from('email_replies').insert(row);
-        if (!error) imported++;
-        else if (error.code === '23505') skipped++; // provider_message_id unique index — already stored
-        else log.warn({ err: error, pvCampaignId, lead }, 'Campaign-send insert failed');
-    }
-
-    log.info({ tenantId, pvCampaignId, lead, imported, skipped }, 'Thread campaign-send hydration completed');
-    return { imported, skipped };
 }
 
 /**
@@ -393,16 +436,21 @@ export async function syncCampaigns(): Promise<number> {
 }
 
 // Debounce guard so a burst of webhooks for unknown campaigns triggers at most
-// one sync per interval.
+// one sync per interval. lastSyncAt advances only on SUCCESS, and an in-flight flag
+// blocks concurrent runs — so a failed sync doesn't lock out retries (finding #7).
 let lastSyncAt = 0;
+let syncInFlight = false;
 /** Trigger a campaign sync at most once per `minIntervalMs`. Fire-and-forget safe. */
 export async function syncCampaignsDebounced(minIntervalMs = 60_000): Promise<void> {
-    const now = Date.now();
-    if (now - lastSyncAt < minIntervalMs) return;
-    lastSyncAt = now;
+    if (syncInFlight) return;
+    if (Date.now() - lastSyncAt < minIntervalMs) return;
+    syncInFlight = true;
     try {
         await syncCampaigns();
+        lastSyncAt = Date.now(); // only debounce AFTER a successful sync
     } catch (err) {
-        log.warn({ err }, 'Debounced campaign sync failed');
+        log.warn({ err }, 'Debounced campaign sync failed'); // leave lastSyncAt so the next webhook retries
+    } finally {
+        syncInFlight = false;
     }
 }

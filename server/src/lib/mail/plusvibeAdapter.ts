@@ -9,6 +9,7 @@ import {
     type PlusVibeCampaignEmail,
 } from '../plusvibeClient.js';
 import { createLogger } from '../logger.js';
+import { htmlToPlainText } from '../htmlText.js';
 import {
     type CanonicalMessage,
     type CanonicalSendRequest,
@@ -115,42 +116,6 @@ export function parseApiReply(reply: PlusVibeEmail, campaignName: string | null)
     };
 }
 
-/** Decode the HTML entities that show up in campaign bodies (numeric + common named). */
-function decodeEntities(s: string): string {
-    return s
-        .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-        .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/&mdash;/gi, '—')
-        .replace(/&ndash;/gi, '–')
-        .replace(/&hellip;/gi, '…')
-        .replace(/&lsquo;/gi, '‘')
-        .replace(/&rsquo;/gi, '’')
-        .replace(/&ldquo;/gi, '“')
-        .replace(/&rdquo;/gi, '”')
-        .replace(/&quot;/gi, '"')
-        .replace(/&#39;/gi, "'")
-        .replace(/&apos;/gi, "'")
-        .replace(/&lt;/gi, '<')
-        .replace(/&gt;/gi, '>')
-        .replace(/&amp;/gi, '&'); // amp last to avoid double-decoding
-}
-
-/** Best-effort HTML → plain text for storing a sent campaign body in reply_body. */
-function htmlToPlainText(html: string | null): string | null {
-    if (!html) return null;
-    const text = decodeEntities(
-        html
-            .replace(/<\s*br\s*\/?>/gi, '\n')
-            .replace(/<\s*\/\s*(p|div|tr|li|h[1-6])\s*>/gi, '\n')
-            .replace(/<[^>]+>/g, ''),
-    )
-        .replace(/\n{3,}/g, '\n\n')
-        .replace(/[ \t]{2,}/g, ' ')
-        .trim();
-    return text || null;
-}
-
 /**
  * Parse a PlusVibe campaign-email record (/unibox/campaign-emails) — an OUTBOUND
  * sequence send (first-touch + steps) — into a CanonicalMessage. senderEmail is
@@ -160,6 +125,12 @@ export function parseCampaignEmail(rec: PlusVibeCampaignEmail, campaignName: str
     const lead = extractEmailAddress(rec.lead);
     const account = extractEmailAddress(rec.eaccount);
     const isHtml = !rec.is_text;
+    const rawBody = str(rec.body);
+    // Strip NUL bytes — Postgres TEXT columns reject 0x00 and would fail the insert.
+    const NUL = String.fromCharCode(0);
+    const stripNul = (v: string | null): string | null => (v ? v.split(NUL).join('') || null : null);
+    const bodyText = stripNul(isHtml ? htmlToPlainText(rawBody) : rawBody);
+    const bodyHtml = isHtml ? stripNul(rawBody) : null;
     return {
         provider: 'plusvibe',
         providerMessageId: str(rec.id),
@@ -177,8 +148,8 @@ export function parseCampaignEmail(rec: PlusVibeCampaignEmail, campaignName: str
         ccAddress: null,
         senderEmail: (lead ?? str(rec.lead)) ?? '',
         subject: str(rec.subject),
-        bodyText: isHtml ? htmlToPlainText(str(rec.body)) : str(rec.body),
-        bodyHtml: isHtml ? str(rec.body) : null,
+        bodyText,
+        bodyHtml,
         label: null,
         sentiment: null,
         occurredAt: str(rec.sent_on),
