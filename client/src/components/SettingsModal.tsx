@@ -71,7 +71,7 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
     const [confirmCloseOpened, setConfirmCloseOpened] = useState(false);
     const [shortcutsOpen, setShortcutsOpen] = useState(false);
     const pipelineSaveRef = useRef<PipelineSettingsEditorHandle | null>(null);
-    const { accessibleTenants, user } = useAuth();
+    const { user } = useAuth();
     const isInternal = user?.role === 'superadmin' || user?.role === 'ops_agent';
     const isAdmin = isInternal || user?.role === 'client_admin';
 
@@ -265,39 +265,35 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
                                         </>
                                     )}
 
-                                    {/* PlusVibe Webhook URLs — one per tenant */}
+                                    {/* PlusVibe Webhook URL — single global URL, routed by campaign */}
                                     <Stack gap="sm">
                                         <Text size="sm" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.5px' }}>
-                                            {t('settings.webhookTitle', 'Webhook URL')}
+                                            {t('settings.webhookTitle', 'PlusVibe Webhook URL')}
                                         </Text>
                                         <Text size="xs" c="dimmed">
-                                            {t('settings.webhookDesc', 'Her tenant için ayrı bir webhook URL\'i kullanılır. İlgili URL\'i PlusVibe ayarlarına yapıştırın.')}
+                                            {t('settings.webhookDesc', 'Bu tek webhook URL\'ini PlusVibe ayarlarına ekleyin. Gelen yanıtlar kampanyaya göre otomatik olarak doğru hesaba yönlendirilir.')}
                                         </Text>
 
-                                        {accessibleTenants.map((tenant) => {
-                                            const url = `${apiBase}/webhooks/plusvibe/${tenant.id}`;
-                                            return (
-                                                <Stack key={tenant.id} gap={4}>
-                                                    <Text size="xs" fw={600}>{tenant.name}</Text>
-                                                    <CopyButton value={url} timeout={2000}>
-                                                        {({ copied, copy }) => (
-                                                            <TextInput
-                                                                value={url}
-                                                                readOnly
-                                                                styles={{ input: { fontFamily: 'monospace', fontSize: 11 } }}
-                                                                rightSection={
-                                                                    <Tooltip label={copied ? t('settings.webhookCopied', 'Kopyalandı!') : t('common.copy', 'Kopyala')} withArrow>
-                                                                        <ActionIcon variant="subtle" color={copied ? 'teal' : 'gray'} onClick={copy}>
-                                                                            {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
-                                                                        </ActionIcon>
-                                                                    </Tooltip>
-                                                                }
-                                                            />
-                                                        )}
-                                                    </CopyButton>
-                                                </Stack>
-                                            );
-                                        })}
+                                        <CopyButton value={`${apiBase}/webhooks/plusvibe`} timeout={2000}>
+                                            {({ copied, copy }) => (
+                                                <TextInput
+                                                    value={`${apiBase}/webhooks/plusvibe`}
+                                                    readOnly
+                                                    styles={{ input: { fontFamily: 'monospace', fontSize: 11 } }}
+                                                    rightSection={
+                                                        <Tooltip label={copied ? t('settings.webhookCopied', 'Kopyalandı!') : t('common.copy', 'Kopyala')} withArrow>
+                                                            <ActionIcon variant="subtle" color={copied ? 'teal' : 'gray'} onClick={copy}>
+                                                                {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
+                                                            </ActionIcon>
+                                                        </Tooltip>
+                                                    }
+                                                />
+                                            )}
+                                        </CopyButton>
+
+                                        <Text size="xs" c="dimmed">
+                                            {t('settings.webhookGlobalNote', 'Tüm tenant\'lar için tek bir webhook URL\'i kullanılır; mesajlar kampanyaya göre otomatik yönlendirilir.')}
+                                        </Text>
 
                                         <Alert icon={<IconInfoCircle size={16} />} color="blue" variant="light" radius="md" mt="xs">
                                             <Text size="xs">{t('settings.webhookSecretHint', 'Webhook secret sunucu tarafında PLUSVIBE_WEBHOOK_SECRET ortam değişkeni olarak ayarlanmalıdır.')}</Text>

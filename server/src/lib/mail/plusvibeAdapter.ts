@@ -2,7 +2,12 @@
  * PlusVibe adapter — normalizes PlusVibe inbound (webhook + API) into
  * CanonicalMessage, and sends replies/forwards via the PlusVibe API.
  */
-import { replyToEmail, forwardEmail, type PlusVibeEmail } from '../plusvibeClient.js';
+import {
+    replyToEmail,
+    forwardEmail,
+    type PlusVibeEmail,
+    type PlusVibeCampaignEmail,
+} from '../plusvibeClient.js';
 import { createLogger } from '../logger.js';
 import {
     type CanonicalMessage,
@@ -107,6 +112,77 @@ export function parseApiReply(reply: PlusVibeEmail, campaignName: string | null)
         sentiment,
         occurredAt: str(reply.timestamp_created),
         plusvibeLeadId: str(reply.lead_id),
+    };
+}
+
+/** Decode the HTML entities that show up in campaign bodies (numeric + common named). */
+function decodeEntities(s: string): string {
+    return s
+        .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+        .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&mdash;/gi, '—')
+        .replace(/&ndash;/gi, '–')
+        .replace(/&hellip;/gi, '…')
+        .replace(/&lsquo;/gi, '‘')
+        .replace(/&rsquo;/gi, '’')
+        .replace(/&ldquo;/gi, '“')
+        .replace(/&rdquo;/gi, '”')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/&apos;/gi, "'")
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&amp;/gi, '&'); // amp last to avoid double-decoding
+}
+
+/** Best-effort HTML → plain text for storing a sent campaign body in reply_body. */
+function htmlToPlainText(html: string | null): string | null {
+    if (!html) return null;
+    const text = decodeEntities(
+        html
+            .replace(/<\s*br\s*\/?>/gi, '\n')
+            .replace(/<\s*\/\s*(p|div|tr|li|h[1-6])\s*>/gi, '\n')
+            .replace(/<[^>]+>/g, ''),
+    )
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+    return text || null;
+}
+
+/**
+ * Parse a PlusVibe campaign-email record (/unibox/campaign-emails) — an OUTBOUND
+ * sequence send (first-touch + steps) — into a CanonicalMessage. senderEmail is
+ * the lead (recipient) so it threads with the inbound reply.
+ */
+export function parseCampaignEmail(rec: PlusVibeCampaignEmail, campaignName: string | null): CanonicalMessage {
+    const lead = extractEmailAddress(rec.lead);
+    const account = extractEmailAddress(rec.eaccount);
+    const isHtml = !rec.is_text;
+    return {
+        provider: 'plusvibe',
+        providerMessageId: str(rec.id),
+        providerThreadId: null,
+        rfcMessageId: str(rec.message_id),
+        inReplyTo: null,
+        direction: 'outbound',
+        channel: 'campaign',
+        tenantId: null, // set by caller
+        campaignId: str(rec.campaign_id),
+        campaignName,
+        accountEmail: account,
+        fromAddress: account,
+        toAddress: str(rec.lead),
+        ccAddress: null,
+        senderEmail: (lead ?? str(rec.lead)) ?? '',
+        subject: str(rec.subject),
+        bodyText: isHtml ? htmlToPlainText(str(rec.body)) : str(rec.body),
+        bodyHtml: isHtml ? str(rec.body) : null,
+        label: null,
+        sentiment: null,
+        occurredAt: str(rec.sent_on),
+        plusvibeLeadId: str(rec.lead_id),
     };
 }
 

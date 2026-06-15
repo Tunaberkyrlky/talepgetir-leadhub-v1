@@ -375,15 +375,20 @@ export default function EmailRepliesPage() {
                 return;
             }
 
-            // Step 2: import each campaign one by one
+            // Step 2: import each campaign one by one. Keep going if one campaign fails
+            // (e.g. a slow timeout) so the rest still import.
             let totalImported = 0;
             for (let i = 0; i < campaigns.length; i++) {
                 const campaign = campaigns[i];
                 setImportState({ phase: 'importing', done: i, total: campaigns.length, campaignName: campaign.name });
-                const { data } = await api.post<{ imported: number }>('/plusvibe/import-campaign', {
-                    pv_campaign_id: campaign.pv_campaign_id,
-                });
-                totalImported += data.imported;
+                try {
+                    const { data } = await api.post<{ imported: number }>('/plusvibe/import-campaign', {
+                        pv_campaign_id: campaign.pv_campaign_id,
+                    });
+                    totalImported += data.imported;
+                } catch {
+                    // skip this campaign, continue with the others
+                }
             }
 
             setImportState({ phase: 'done', imported: totalImported });

@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.9.29',
+        date: '2026-06-15',
+        type: 'feature',
+        title: { tr: 'Açılış Mailiniz Konuşmada', en: 'Your Opening Email in the Thread' },
+        features: [
+            {
+                tr: 'PlusVibe cevap konuşmalarında artık kampanyayı başlatan ilk mailiniz ve sonraki adım mailleriniz de görünüyor. Böylece bir yazışmanın tamamını, gönderdiğiniz açılış mailinden itibaren tek ekranda takip edebilirsiniz.',
+                en: 'PlusVibe reply conversations now also show the opening email that started the campaign and your follow-up step emails. So you can follow a whole conversation in one place, starting from the opening email you sent.',
+            },
+        ],
+    },
+    {
         version: '1.9.28',
         date: '2026-06-11',
         type: 'fix',

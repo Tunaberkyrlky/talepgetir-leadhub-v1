@@ -7,180 +7,20 @@ import { isInternalRole } from '../lib/roles.js';
 import {
     isConfigured,
     checkConnection,
-    listCampaigns,
     getCampaignSummary,
     getCampaignStats,
-    getCampaignAccounts,
     fetchAllReplies,
-    type PlusVibeCampaign,
-    type PlusVibeEmail,
 } from '../lib/plusvibeClient.js';
 import { validateBody, assignCampaignSchema, campaignStatsQuerySchema } from '../lib/validation.js';
-import { parseApiReply } from '../lib/mail/plusvibeAdapter.js';
-import { canonicalToReplyRow } from '../lib/mail/types.js';
+import {
+    buildTenantMatcher,
+    enrichOrInsertReplies,
+    syncCampaigns,
+    hydrateCampaignSendsForCampaign,
+} from '../lib/mail/replyImport.js';
 
 const log = createLogger('route:plusvibe');
 const router = Router();
-
-// ── Shared reply-import core (used by /import-replies and /import-campaign) ──
-
-type ReplyMatchResult = { company_id: string | null; contact_id: string | null; match_status: 'matched' | 'unmatched' };
-type ReplyMatcher = (email: string) => ReplyMatchResult;
-
-/** Build an O(1) email → company/contact matcher from this tenant's contacts + companies. */
-async function buildTenantMatcher(tenantId: string): Promise<ReplyMatcher> {
-    const { data: tenantContacts } = await supabaseAdmin
-        .from('contacts')
-        .select('id, email, company_id, is_primary')
-        .eq('tenant_id', tenantId)
-        .not('email', 'is', null);
-    const { data: tenantCompanies } = await supabaseAdmin
-        .from('companies')
-        .select('id, company_email')
-        .eq('tenant_id', tenantId)
-        .not('company_email', 'is', null);
-
-    const contactsByEmail = new Map<string, { id: string; company_id: string }>();
-    for (const c of tenantContacts || []) {
-        const e = (c.email as string).toLowerCase().trim();
-        // Keep primary over non-primary; otherwise first wins.
-        if (!contactsByEmail.has(e) || c.is_primary) {
-            contactsByEmail.set(e, { id: c.id, company_id: c.company_id });
-        }
-    }
-    const companyByEmail = new Map<string, string>();
-    for (const c of tenantCompanies || []) {
-        companyByEmail.set((c.company_email as string).toLowerCase().trim(), c.id);
-    }
-
-    return (email: string): ReplyMatchResult => {
-        const e = email.toLowerCase().trim();
-        const contact = contactsByEmail.get(e);
-        if (contact) return { company_id: contact.company_id, contact_id: contact.id, match_status: 'matched' };
-        const companyId = companyByEmail.get(e);
-        if (companyId) return { company_id: companyId, contact_id: null, match_status: 'matched' };
-        return { company_id: null, contact_id: null, match_status: 'unmatched' };
-    };
-}
-
-/**
- * Import a campaign's PlusVibe replies into email_replies: insert new rows, and
- * ENRICH existing rows that are missing canonical address fields (account_email).
- *
- * Dedup is timestamp-format independent: rows match first by PlusVibe email id
- * (raw_payload.plusvibe_email_id), then by sender|ISO-normalized-timestamp. The
- * DB stores replied_at as TIMESTAMPTZ (canonical "+00" form) while the API returns
- * "...Z" — both sides MUST be normalized or every re-import duplicates rows.
- */
-async function enrichOrInsertReplies(params: {
-    tenantId: string;
-    pvCampaignId: string;
-    campaignName: string | null;
-    replies: PlusVibeEmail[];
-    matchEmail: ReplyMatcher;
-}): Promise<{ imported: number; skipped: number; enriched: number }> {
-    const { tenantId, pvCampaignId, campaignName, replies, matchEmail } = params;
-
-    const normalizeTs = (ts: string): string => {
-        const d = new Date(ts);
-        return Number.isNaN(d.getTime()) ? ts : d.toISOString();
-    };
-
-    const { data: existing } = await supabaseAdmin
-        .from('email_replies')
-        .select('id, sender_email, replied_at, account_email, raw_payload')
-        .eq('tenant_id', tenantId)
-        .eq('campaign_id', pvCampaignId);
-
-    const existingById = new Map<string, { id: string; account_email: string | null }>();
-    const existingByKey = new Map<string, { id: string; account_email: string | null }>();
-    for (const r of existing || []) {
-        const rec = { id: r.id as string, account_email: r.account_email as string | null };
-        const pvId = (r.raw_payload as Record<string, unknown> | null)?.plusvibe_email_id as string | undefined;
-        if (pvId) existingById.set(pvId, rec);
-        if (r.replied_at) existingByKey.set(`${r.sender_email}|${normalizeTs(r.replied_at as string)}`, rec);
-    }
-
-    const newRows: Record<string, unknown>[] = [];
-    const enrichTasks: { id: string; patch: Record<string, unknown> }[] = [];
-    let skipped = 0;
-
-    for (const reply of replies) {
-        const senderEmail = reply.from_address_email.toLowerCase().trim();
-        const repliedAt = reply.timestamp_created || new Date().toISOString();
-        const key = `${senderEmail}|${normalizeTs(repliedAt)}`;
-
-        const canonical = parseApiReply(reply, campaignName);
-        canonical.tenantId = tenantId;
-        canonical.rawPayload = { source: 'plusvibe_api_import', plusvibe_email_id: reply.id };
-
-        const hit = existingById.get(reply.id) ?? existingByKey.get(key);
-        if (hit) {
-            if (!hit.account_email && canonical.accountEmail) {
-                // Mark optimistically so a same-run duplicate doesn't re-enqueue it.
-                hit.account_email = canonical.accountEmail;
-                enrichTasks.push({
-                    id: hit.id,
-                    patch: {
-                        account_email: canonical.accountEmail,
-                        from_address: canonical.fromAddress,
-                        to_address: canonical.toAddress,
-                        cc_address: canonical.ccAddress,
-                        provider: 'plusvibe',
-                        provider_thread_id: canonical.providerThreadId,
-                        provider_message_id: canonical.providerMessageId,
-                    },
-                });
-            } else {
-                skipped++;
-            }
-            continue;
-        }
-
-        const match = matchEmail(reply.from_address_email);
-        newRows.push({
-            ...canonicalToReplyRow(canonical),
-            company_id: match.company_id,
-            contact_id: match.contact_id,
-            match_status: match.match_status,
-            read_status: reply.is_unread ? 'unread' : 'read',
-        });
-        existingByKey.set(key, { id: 'pending', account_email: canonical.accountEmail });
-    }
-
-    // Run enrich updates with bounded concurrency (was sequential per-row).
-    let enriched = 0;
-    for (let i = 0; i < enrichTasks.length; i += 20) {
-        const chunk = enrichTasks.slice(i, i + 20);
-        const results = await Promise.all(chunk.map(t =>
-            supabaseAdmin
-                .from('email_replies')
-                .update(t.patch)
-                .eq('id', t.id)
-                .is('account_email', null), // guard: never overwrite resolved/manual
-        ));
-        for (const res of results) if (!res.error) enriched++;
-    }
-
-    // Batch insert (500/batch) with one-by-one fallback on unique-violation.
-    let imported = 0;
-    for (let i = 0; i < newRows.length; i += 500) {
-        const batch = newRows.slice(i, i + 500);
-        const { error } = await supabaseAdmin.from('email_replies').insert(batch);
-        if (!error) { imported += batch.length; continue; }
-        if (error.code === '23505') {
-            log.info({ batch: i / 500, batchSize: batch.length }, 'Batch has duplicates, inserting individually');
-            for (const row of batch) {
-                const { error: rowErr } = await supabaseAdmin.from('email_replies').insert(row);
-                if (!rowErr) imported++; // silently skip duplicates
-            }
-        } else {
-            log.warn({ err: error, batch: i / 500 }, 'Batch insert failed during import');
-        }
-    }
-
-    return { imported, skipped, enriched };
-}
 
 // ── GET /api/plusvibe/status — check if PlusVibe is configured + connected ──
 router.get(
@@ -351,6 +191,37 @@ router.patch(
             }
 
             log.info({ campaignId: id, tenantId: tenant_id, tenantName: tenant.name }, 'Campaign assigned to tenant');
+
+            // Backfill any replies (incl. outbound first-touch) received while the
+            // campaign was unassigned and skipped by the webhook. Fire-and-forget —
+            // never block or fail the assignment response.
+            void (async () => {
+                try {
+                    const matchEmail = await buildTenantMatcher(tenant_id);
+                    const replies = await fetchAllReplies(data.pv_campaign_id);
+                    if (replies.length > 0) {
+                        const r = await enrichOrInsertReplies({
+                            tenantId: tenant_id,
+                            pvCampaignId: data.pv_campaign_id,
+                            campaignName: data.name,
+                            replies,
+                            matchEmail,
+                        });
+                        log.info({ campaignId: id, tenantId: tenant_id, ...r }, 'Assign-time reply backfill completed');
+                    }
+                    // Backfill our outbound first-touch + steps for the replied threads.
+                    const outbound = await hydrateCampaignSendsForCampaign({
+                        tenantId: tenant_id,
+                        pvCampaignId: data.pv_campaign_id,
+                        campaignName: data.name,
+                        matchEmail,
+                    });
+                    log.info({ campaignId: id, tenantId: tenant_id, outbound }, 'Assign-time campaign-send backfill completed');
+                } catch (backfillErr) {
+                    log.warn({ err: backfillErr, campaignId: id, tenantId: tenant_id }, 'Assign-time reply backfill failed');
+                }
+            })();
+
             res.json(data);
         } catch (err) {
             if (err instanceof AppError) return next(err);
@@ -443,6 +314,17 @@ router.post(
                     totalImported += r.imported;
                     totalSkipped += r.skipped;
                     totalEnriched += r.enriched;
+
+                    // Backfill our outbound first-touch + steps for these threads.
+                    // Fire-and-forget — one API call per replied lead, can be slow on big campaigns.
+                    hydrateCampaignSendsForCampaign({
+                        tenantId,
+                        pvCampaignId: campaign.pv_campaign_id,
+                        campaignName: campaign.name,
+                        matchEmail,
+                    }).catch((err) =>
+                        log.warn({ err, campaignId: campaign.pv_campaign_id }, 'Campaign-send backfill failed'),
+                    );
                 } catch (err) {
                     log.warn({ err, campaignId: campaign.pv_campaign_id }, 'Failed to import replies for campaign');
                 }
@@ -504,8 +386,21 @@ router.post(
                 matchEmail,
             });
 
-            log.info({ campaign: pvCampaignId, imported, skipped, enriched, fetched: replies.length }, 'Import completed');
-            res.json({ imported, skipped, enriched, fetched: replies.length });
+            // Backfill our outbound first-touch + steps in the BACKGROUND. One API call
+            // per replied lead can take a while on big campaigns; awaiting it would push
+            // the request past the client's 60s timeout and abort the per-campaign import
+            // loop. Fire-and-forget instead — the first-touch rows populate shortly after.
+            hydrateCampaignSendsForCampaign({
+                tenantId,
+                pvCampaignId,
+                campaignName: campaign.name,
+                matchEmail,
+            }).catch((err) =>
+                log.warn({ err, campaign: pvCampaignId }, 'Campaign-send backfill failed'),
+            );
+
+            log.info({ campaign: pvCampaignId, imported, skipped, enriched, fetched: replies.length }, 'Import completed (outbound backfilling in background)');
+            res.json({ imported, skipped, enriched, fetched: replies.length, outbound: 'backfilling' });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Import campaign error');
@@ -513,78 +408,5 @@ router.post(
         }
     }
 );
-
-// ── Helper: sync campaigns from PlusVibe API to local cache ──
-
-async function syncCampaigns(): Promise<number> {
-    const campaigns: PlusVibeCampaign[] = await listCampaigns();
-    const now = new Date().toISOString();
-
-    for (const campaign of campaigns) {
-        const pvId = campaign._id || campaign.id;
-
-        let stats = {};
-        try {
-            stats = await getCampaignSummary(pvId);
-        } catch (err) {
-            log.warn({ err, campaignId: pvId }, 'Failed to fetch summary for campaign, skipping stats');
-        }
-
-        // Fetch email accounts linked to this campaign for reply from-address
-        let senderEmails: string[] = [];
-        try {
-            senderEmails = await getCampaignAccounts(pvId);
-        } catch (err) {
-            log.warn({ err, campaignId: pvId }, 'Failed to fetch campaign accounts, skipping sender_emails');
-        }
-
-        // Map PlusVibe summary fields to our schema
-        const s = stats as Record<string, unknown>;
-        const totalLeads = Number(s.contacted) || 0;
-        const emailsSent = Number(s.total_sent_emails) || 0;
-        const opens = Number(s.leads_who_read) || 0;
-        const replies = Number(s.leads_who_replied) || 0;
-        const bounces = Number(s.bounced) || 0;
-        // PlusVibe doesn't return clicks — leave as 0
-        const clicks = 0;
-
-        const updateFields = {
-            name: campaign.name || 'Unnamed',
-            status: campaign.status || null,
-            total_leads: totalLeads,
-            emails_sent: emailsSent,
-            opens,
-            clicks,
-            replies,
-            bounces,
-            open_rate: emailsSent > 0 ? opens / emailsSent : 0,
-            click_rate: 0,
-            reply_rate: emailsSent > 0 ? replies / emailsSent : 0,
-            last_synced_at: now,
-            sender_emails: senderEmails,
-        };
-
-        // Check if campaign exists — update stats only, preserve tenant_id
-        const { data: existing } = await supabaseAdmin
-            .from('plusvibe_campaigns')
-            .select('id')
-            .eq('pv_campaign_id', pvId)
-            .single();
-
-        if (existing) {
-            await supabaseAdmin
-                .from('plusvibe_campaigns')
-                .update(updateFields)
-                .eq('id', existing.id);
-        } else {
-            await supabaseAdmin
-                .from('plusvibe_campaigns')
-                .insert({ pv_campaign_id: pvId, ...updateFields });
-        }
-    }
-
-    log.info({ count: campaigns.length }, 'Campaigns synced');
-    return campaigns.length;
-}
 
 export default router;

@@ -268,7 +268,7 @@ export async function fetchAllReplies(campaignId: string): Promise<PlusVibeEmail
         if (emails.length === 0) break;
         pageCount++;
 
-        // Only keep incoming replies
+        // Only keep incoming replies (the unibox does not hold campaign sequence sends)
         for (const email of emails) {
             if (email.direction === 'IN') {
                 allReplies.push(email);
@@ -281,4 +281,48 @@ export async function fetchAllReplies(campaignId: string): Promise<PlusVibeEmail
 
     log.info({ campaignId, pages: pageCount, inboundCount: allReplies.length }, 'fetchAllReplies completed');
     return allReplies;
+}
+
+// ── Campaign sequence sends (outbound first-touch + steps) ──────────────────
+// These live in /unibox/campaign-emails, NOT /unibox/emails. The unibox only
+// holds the reply thread; the automated campaign sends are a separate store.
+
+export interface PlusVibeCampaignEmail {
+    id: string;            // PlusVibe email id (→ provider_message_id)
+    lead: string;          // recipient (the lead — our thread sender_email key)
+    eaccount: string;      // sender mailbox (= our account)
+    subject: string;
+    body: string;
+    is_text?: number;      // 1 = plain text, else HTML
+    sent_on: string;       // ISO timestamp
+    current_step?: number; // campaign step number (1 = first-touch)
+    message_id?: string;   // RFC Message-ID
+    campaign_id: string;
+    lead_id?: string;
+    variation?: string;
+    [key: string]: unknown;
+}
+
+/**
+ * Fetch the OUTBOUND campaign emails (first-touch + follow-up steps) sent to a
+ * specific lead. Paginated via page_trail (steps are few, but guard anyway).
+ */
+export async function fetchCampaignEmailsByLead(
+    campaignId: string,
+    leadEmail: string,
+): Promise<PlusVibeCampaignEmail[]> {
+    const all: PlusVibeCampaignEmail[] = [];
+    let pageTrail: string | undefined;
+
+    for (let page = 0; page < 20; page++) {
+        let path = `/unibox/campaign-emails?lead=${encodeURIComponent(leadEmail)}&campaign_id=${encodeURIComponent(campaignId)}`;
+        if (pageTrail) path += `&page_trail=${encodeURIComponent(pageTrail)}`;
+
+        const result = await plusVibeFetch<{ page_trail?: string | null; data?: PlusVibeCampaignEmail[] }>('GET', path);
+        if (result.data?.length) all.push(...result.data);
+        if (!result.page_trail) break;
+        pageTrail = result.page_trail;
+    }
+
+    return all;
 }

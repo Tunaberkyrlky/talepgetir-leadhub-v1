@@ -12,6 +12,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showSuccess, showErrorFromApi } from '../../lib/notifications';
+import type { EmailConnectionStatus } from '../../types/campaign';
 
 interface ComposeMailModalProps {
     opened: boolean;
@@ -33,12 +34,6 @@ interface AttachmentTemplate {
     file_type: string;
     file_url: string;
     file_size: string;
-}
-
-interface EmailConnectionStatus {
-    connected: boolean;
-    provider?: string;
-    email?: string;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
