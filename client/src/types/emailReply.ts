@@ -45,6 +45,8 @@ export interface EmailReply {
     // Threading fields (present on threaded list responses)
     thread_count?: number;
     has_unread?: boolean;
+    last_direction?: EmailDirection;  // direction of the thread's most recent message
+    awaiting?: boolean;               // last word is theirs (IN) and not an auto-reply → we owe a reply
     raw_payload?: {
         from_address?: string;
         plusvibe_email_id?: string;

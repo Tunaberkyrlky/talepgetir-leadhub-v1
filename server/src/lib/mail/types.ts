@@ -94,6 +94,7 @@ export interface CanonicalAttachment {
     fileUrl: string;               // public URL (card target; always present)
     storagePath?: string | null;   // bucket object path if uploaded → real-attachable
     sizeBytes?: number | null;     // actual byte size (cap check)
+    originalFilename?: string | null; // uploaded file's real name WITH extension; the attachment filename
 }
 
 /** An attachment with bytes loaded, ready to hand to a provider's send API. */

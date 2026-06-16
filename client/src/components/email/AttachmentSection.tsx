@@ -26,22 +26,33 @@ const ACCENT = {
 } as const;
 
 interface Props {
-    selected: string[];
-    setSelected: Dispatch<SetStateAction<string[]>>;
+    /** Selection state — only used in 'select' mode (compose/reply/forward). */
+    selected?: string[];
+    setSelected?: Dispatch<SetStateAction<string[]>>;
     color?: keyof typeof ACCENT;
     disabled?: boolean;
+    /**
+     * 'select' (default): chips are checkboxes the parent's send mutation reads.
+     * 'manage': standalone library manager — no selection, uploads always land
+     * in the library, and an empty-state hint shows when the library is empty.
+     */
+    mode?: 'select' | 'manage';
 }
 
 /**
- * The single, shared attachment UI used by compose / reply / forward. Owns the
- * library list, one-off uploads, the "Add Link" (URL) form + edit/delete, and
- * the drag-drop file uploader, so all three places are guaranteed identical.
- * The parent owns only the selected-id list (its send mutation reads it).
+ * The single, shared attachment UI used by compose / reply / forward and the
+ * standalone library manager. Owns the library list, one-off uploads, the
+ * "Add Link" (URL) form + edit/delete, and the drag-drop file uploader, so all
+ * places are guaranteed identical. In 'select' mode the parent owns the
+ * selected-id list (its send mutation reads it).
  */
-export default function AttachmentSection({ selected, setSelected, color = 'violet', disabled }: Props) {
+export default function AttachmentSection({ selected, setSelected, color = 'violet', disabled, mode = 'select' }: Props) {
     const { t } = useTranslation();
     const queryClient = useQueryClient();
     const accent = ACCENT[color];
+    const isManage = mode === 'manage';
+    const selectedIds = selected ?? [];
+    const updateSelected: Dispatch<SetStateAction<string[]>> = setSelected ?? (() => {});
 
     const [oneOffUploads, setOneOffUploads] = useState<AttachmentTemplate[]>([]);
     const [newAttOpen, setNewAttOpen] = useState(false);
@@ -86,7 +97,7 @@ export default function AttachmentSection({ selected, setSelected, color = 'viol
         })).data,
         onSuccess: (result: { data: AttachmentTemplate }) => {
             queryClient.invalidateQueries({ queryKey: ['attachment-templates'] });
-            setSelected((prev) => [...prev, result.data.id]);
+            if (!isManage) updateSelected((prev) => [...prev, result.data.id]);
             resetAttForm();
         },
         onError: (err) => showErrorFromApi(err, t('emailReplies.attachments.createFailed')),
@@ -122,13 +133,13 @@ export default function AttachmentSection({ selected, setSelected, color = 'viol
         mutationFn: async (id: string) => { await api.delete(`/attachment-templates/${id}`); },
         onSuccess: (_data, deletedId) => {
             queryClient.invalidateQueries({ queryKey: ['attachment-templates'] });
-            setSelected((prev) => prev.filter((x) => x !== deletedId));
+            updateSelected((prev) => prev.filter((x) => x !== deletedId));
         },
         onError: (err) => showErrorFromApi(err, t('emailReplies.attachments.deleteFailed')),
     });
 
     const toggle = (id: string) =>
-        setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+        updateSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
     return (
         <Box mt={12} pt={12} style={{ borderTop: '1px solid #f1f3f5' }}>
@@ -149,26 +160,33 @@ export default function AttachmentSection({ selected, setSelected, color = 'viol
                 </Button>
             </Group>
 
+            {/* Empty-state hint (manage mode only) */}
+            {isManage && allAttachments.length === 0 && (
+                <Text size="xs" c="dimmed" fs="italic">
+                    {t('emailReplies.attachments.emptyLibrary', 'Henüz kayıtlı ek yok. Aşağıdan dosya yükleyin ya da link ekleyin.')}
+                </Text>
+            )}
+
             {/* Chips */}
             {allAttachments.length > 0 && (
                 <Group gap={6}>
                     {allAttachments.map((tmpl) => {
-                        const isSelected = selected.includes(tmpl.id);
+                        const isSelected = !isManage && selectedIds.includes(tmpl.id);
                         return (
                             <Box
                                 key={tmpl.id}
-                                onClick={() => !disabled && toggle(tmpl.id)}
+                                onClick={() => { if (!isManage && !disabled) toggle(tmpl.id); }}
                                 style={{
                                     display: 'flex', alignItems: 'center', gap: 6,
                                     border: `1px solid ${isSelected ? accent.sel : '#e8e8f0'}`,
                                     borderRadius: 8, padding: '6px 10px',
-                                    cursor: disabled ? 'not-allowed' : 'pointer',
+                                    cursor: isManage ? 'default' : (disabled ? 'not-allowed' : 'pointer'),
                                     background: isSelected ? accent.selBg : '#fafafe',
                                     transition: 'all 0.15s', userSelect: 'none', position: 'relative',
                                     opacity: disabled ? 0.5 : 1,
                                 }}
                             >
-                                <Checkbox checked={isSelected} onChange={() => {}} size="xs" color={accent.mantine} styles={{ input: { cursor: 'pointer' } }} />
+                                {!isManage && <Checkbox checked={isSelected} onChange={() => {}} size="xs" color={accent.mantine} styles={{ input: { cursor: 'pointer' } }} />}
                                 <Box style={{ flex: 1 }}>
                                     <Group gap={6} align="center" wrap="nowrap">
                                         <Text size="xs" fw={600} c="#252540">{tmpl.label}</Text>
@@ -272,9 +290,13 @@ export default function AttachmentSection({ selected, setSelected, color = 'viol
                 <AttachmentUploader
                     color={accent.mantine}
                     disabled={disabled}
+                    forceLibrary={isManage}
                     onUploaded={(tmpl) => {
+                        // Manage mode uploads go straight to the library (the uploader
+                        // refetches it); no one-off/selection bookkeeping needed.
+                        if (isManage) return;
                         setOneOffUploads((prev) => [...prev, tmpl]);
-                        setSelected((prev) => [...prev, tmpl.id]);
+                        updateSelected((prev) => [...prev, tmpl.id]);
                     }}
                 />
             </Box>

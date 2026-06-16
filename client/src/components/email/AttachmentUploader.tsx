@@ -38,25 +38,30 @@ interface Props {
     disabled?: boolean;
     /** Theme color — violet for compose/reply, yellow for forward. */
     color?: string;
+    /** Library-management context: always save to library, hide the toggle. */
+    forceLibrary?: boolean;
 }
 
 /**
  * Drag-and-drop file upload for email attachments. The file goes to Supabase
  * Storage and becomes an attachment row (link card, same send path as URL
  * templates). Default is one-off (this mail only); the toggle saves it to the
- * reusable library.
+ * reusable library. In `forceLibrary` mode (the standalone library manager) the
+ * upload always lands in the library and the toggle is hidden.
  */
-export default function AttachmentUploader({ onUploaded, disabled, color = 'violet' }: Props) {
+export default function AttachmentUploader({ onUploaded, disabled, color = 'violet', forceLibrary = false }: Props) {
     const { t } = useTranslation();
     const queryClient = useQueryClient();
     const [saveToLibrary, setSaveToLibrary] = useState(false);
     const [progress, setProgress] = useState(0);
 
+    const toLibrary = forceLibrary || saveToLibrary;
+
     const uploadMutation = useMutation({
         mutationFn: async (file: File) => {
             const formData = new FormData();
             formData.append('file', file);
-            formData.append('saveToLibrary', String(saveToLibrary));
+            formData.append('saveToLibrary', String(toLibrary));
             const res = await api.post('/attachment-templates/upload', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
                 onUploadProgress: (e) => setProgress(e.total ? Math.round((e.loaded / e.total) * 100) : 0),
@@ -65,7 +70,7 @@ export default function AttachmentUploader({ onUploaded, disabled, color = 'viol
         },
         onSuccess: (data) => {
             // Saved-to-library uploads belong in the shared list → refetch it.
-            if (saveToLibrary) queryClient.invalidateQueries({ queryKey: ['attachment-templates'] });
+            if (toLibrary) queryClient.invalidateQueries({ queryKey: ['attachment-templates'] });
             onUploaded(data);
             setProgress(0);
         },
@@ -107,14 +112,16 @@ export default function AttachmentUploader({ onUploaded, disabled, color = 'viol
                 </Group>
             </Dropzone>
             {busy && progress > 0 && <Progress value={progress} size="xs" color={color} />}
-            <Switch
-                size="xs"
-                color={color}
-                checked={saveToLibrary}
-                onChange={(e) => setSaveToLibrary(e.currentTarget.checked)}
-                label={t('emailReplies.attachments.saveToLibrary', 'Kütüphaneye kaydet (tekrar kullanmak için)')}
-                disabled={disabled || busy}
-            />
+            {!forceLibrary && (
+                <Switch
+                    size="xs"
+                    color={color}
+                    checked={saveToLibrary}
+                    onChange={(e) => setSaveToLibrary(e.currentTarget.checked)}
+                    label={t('emailReplies.attachments.saveToLibrary', 'Kütüphaneye kaydet (tekrar kullanmak için)')}
+                    disabled={disabled || busy}
+                />
+            )}
             <Text size="10px" c="dimmed" lh={1.3}>
                 {t(
                     'emailReplies.attachments.deliveryHint',

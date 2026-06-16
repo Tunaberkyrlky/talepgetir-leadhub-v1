@@ -11,6 +11,26 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.10.12',
+        date: '2026-06-16',
+        type: 'feature',
+        title: { tr: 'Mail Ekleri Yönetimi ve Yanıt Durumu', en: 'Attachment Library & Reply Status' },
+        features: [
+            {
+                tr: 'Mail Yanıtları sayfasına bir İşlemler menüsü ve Mail Ekleri ekranı eklendi. Dosya ve linklerinizi mail göndermeden buradan kaydedip yönetebilir, kaydettiğiniz ekleri yeni mail, yanıt ve iletme ekranlarında hazır olarak kullanabilirsiniz.',
+                en: 'An Actions menu and an Email Attachments screen were added to the Email Replies page. You can save and manage your files and links here without sending a mail, and use the saved attachments ready on the new mail, reply and forward screens.',
+            },
+            {
+                tr: 'Yanıtlara eklediğiniz dosyaların alıcıya ulaşmadığı durum giderildi. Dosyalar artık güvenle iletiliyor; doğrudan dosya eki destekleyen kanallarda gerçek ek, desteklemeyen kanallarda ise tek tıkla tarayıcıda önizlenebilen bir bağlantı kartı olarak gidiyor.',
+                en: 'Fixed a case where files attached to replies did not reach the recipient. Files are now delivered reliably, as a real attachment on channels that support it and as a one-click browser-previewable link card on those that do not.',
+            },
+            {
+                tr: 'Mail listesinde her satırda yanıt durumunu tek bakışta görebilirsiniz. Yanıt beklediğiniz mailler saat simgesiyle, son sözü sizin söylediğiniz mailler yeşil tikle gösteriliyor.',
+                en: 'On the mail list you can see the reply status of each row at a glance. Mails awaiting your reply are shown with a clock icon, and mails where you had the last word with a green check.',
+            },
+        ],
+    },
+    {
         version: '1.10.11',
         date: '2026-06-16',
         type: 'feature',

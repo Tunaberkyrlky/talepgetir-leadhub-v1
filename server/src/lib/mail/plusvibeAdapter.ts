@@ -161,9 +161,15 @@ export function parseCampaignEmail(rec: PlusVibeCampaignEmail, campaignName: str
 
 export const plusvibeProvider: MailProvider = {
     name: 'plusvibe',
-    // Only the reply endpoint accepts attachments; forward/compose do not.
-    supportsAttachments: (req: CanonicalSendRequest) => req.channel === 'reply',
-    maxAttachmentBytes: 5 * 1024 * 1024, // conservative — PlusVibe docs don't state a limit
+    // PlusVibe's reply API documents an attachments[] (file_name + base64 content)
+    // and ACCEPTS it (200 + message id) — but does NOT actually deliver the file to
+    // the recipient. Verified end-to-end: storage download succeeds, the base64 +
+    // correct filename are sent, PlusVibe returns success, yet no attachment arrives.
+    // So we never route real files through PlusVibe; the caller degrades every
+    // selected attachment to a download-link card in the body HTML (which PlusVibe
+    // delivers reliably). Real MIME attachments still work on Gmail/Outlook/SMTP.
+    supportsAttachments: () => false,
+    maxAttachmentBytes: 0,
     async send(req: CanonicalSendRequest): Promise<SendResult> {
         if (!req.inReplyToMessageId) {
             throw new Error('PlusVibe send requires inReplyToMessageId (the original PlusVibe email id)');

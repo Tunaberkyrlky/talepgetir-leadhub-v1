@@ -59,6 +59,24 @@ function prepareOutboundTracking(html: string): {
     };
 }
 
+// Office formats can't render natively in a browser tab, so we route them
+// through the Microsoft Office Online viewer (renders xlsx/docx/pptx in-page).
+const OFFICE_PREVIEW_EXTS = new Set(['xls', 'xlsx', 'doc', 'docx', 'ppt', 'pptx']);
+
+// The URL a link card's "Görüntüle" button opens — a browser PREVIEW, not a
+// download. Uploaded Office files go through the Office Online viewer; PDFs,
+// images and text preview inline straight from the public URL (Supabase serves
+// them inline). External URL-only templates (Drive/Docs links) already point at
+// their own viewer, so they're left untouched.
+function attachmentCardUrl(t: { file_type: string; file_url: string; storage_path?: string | null }): string {
+    if (!t.storage_path) return t.file_url;
+    const ext = (t.file_type || '').replace(/^\./, '').toLowerCase();
+    if (OFFICE_PREVIEW_EXTS.has(ext)) {
+        return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(t.file_url)}`;
+    }
+    return t.file_url;
+}
+
 /**
  * Resolve selected attachment templates for an outbound send into:
  *  - cardsHtml: link-card HTML to append to the body (URL-only templates, files
@@ -76,7 +94,7 @@ async function resolveOutboundAttachments(
 
     const { data: templates } = await supabaseAdmin
         .from('email_attachment_templates')
-        .select('label, file_type, file_url, file_size, storage_path, size_bytes')
+        .select('label, file_type, file_url, file_size, storage_path, size_bytes, original_filename')
         .in('id', attachmentIds)
         .eq('tenant_id', tenantId)
         .eq('is_active', true);
@@ -105,9 +123,10 @@ async function resolveOutboundAttachments(
                 fileUrl: t.file_url,
                 storagePath: t.storage_path,
                 sizeBytes: t.size_bytes,
+                originalFilename: t.original_filename,
             });
         } else {
-            cards.push({ label: t.label, file_type: t.file_type, file_url: t.file_url, file_size: t.file_size });
+            cards.push({ label: t.label, file_type: t.file_type, file_url: attachmentCardUrl(t), file_size: t.file_size });
         }
     }
     return { cardsHtml: buildAttachmentCardsHtml(cards), attachments };

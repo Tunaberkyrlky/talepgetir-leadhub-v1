@@ -719,7 +719,9 @@
             "matched": "Matched",
             "unmatched": "Unmatched",
             "read": "Read",
-            "unread": "Unread"
+            "unread": "Unread",
+            "awaiting": "Awaiting reply",
+            "replied": "Replied"
         },
         "detail": {
             "title": "Email Reply Detail",
@@ -732,6 +734,7 @@
             "actions": "Actions"
         },
         "actions": {
+            "menu": "Actions",
             "updateStage": "Update Stage",
             "update": "Update",
             "markRead": "Mark as Read",
@@ -874,7 +877,13 @@
             "invalidType": "Unsupported file type",
             "deliveryHint": "Files are sent as real attachments where the channel supports it, otherwise as a download link.",
             "deliveryFile": "File",
-            "deliveryLink": "Link"
+            "deliveryLink": "Link",
+            "emptyLibrary": "No saved attachments yet. Upload a file or add a link below."
+        },
+        "attachmentLibrary": {
+            "button": "Attachments",
+            "title": "Email Attachments",
+            "description": "Files and links you add here can be attached when composing or replying to mail. No need to send a mail."
         },
         "quickActivity": {
             "title": "Quick Activity",

@@ -55,8 +55,15 @@ async function loadAttachmentFiles(atts: CanonicalAttachment[]): Promise<Resolve
             continue;
         }
         const content = Buffer.from(await data.arrayBuffer());
-        const ext = a.fileType.replace(/^\./, '');
-        const filename = (/\.[^.]+$/.test(a.label) ? a.label : `${a.label}.${ext}`).slice(0, 255);
+        const ext = a.fileType.replace(/^\./, '').toLowerCase();
+        // The recipient-visible filename MUST carry the real extension — providers
+        // (esp. cold-email relays like PlusVibe) silently strip attachments whose
+        // name has no recognized extension. Prefer the uploaded original_filename
+        // (already has it); otherwise append `.ext` to the label unless it already
+        // ends with that exact extension. (The old `/\.[^.]+$/` test wrongly read a
+        // trailing token like "06.2026" as an extension and dropped the real one.)
+        const base = (a.originalFilename || a.label).trim();
+        const filename = (base.toLowerCase().endsWith(`.${ext}`) ? base : `${base}.${ext}`).slice(0, 255);
         out.push({ filename, mimeType: mimeForExt(a.fileType), content });
     }
     return out;

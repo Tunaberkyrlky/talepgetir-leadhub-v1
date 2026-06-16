@@ -82,24 +82,30 @@ export default function ThreadHistoryRows({
             <Table.Tr
                 key={h.id}
                 style={{
-                    backgroundColor: isForward
-                        ? 'var(--mantine-color-yellow-0)'
-                        : (isOut ? 'var(--mantine-color-violet-0)' : 'var(--mantine-color-gray-0)'),
+                    backgroundColor: isOut
+                        ? 'var(--mantine-color-gray-0)'
+                        : 'var(--mantine-color-violet-0)',
                     cursor: onClickRow ? 'pointer' : undefined,
                 }}
                 onClick={onClickRow ? () => onClickRow(h) : undefined}
             >
-                <Table.Td style={{ padding: '0 4px', width: 20 }}>
+                <Table.Td
+                    style={{
+                        padding: '0 4px 0 14px',
+                        width: 20,
+                        borderLeft: '3px solid var(--mantine-color-violet-4)',
+                    }}
+                >
                     {!isOut && (
                         <Text size="xs" c="dimmed" ta="center">↓</Text>
                     )}
                 </Table.Td>
-                <Table.Td colSpan={2}>
+                <Table.Td colSpan={3}>
                     <Group gap={6} wrap="nowrap">
                         <Badge
                             size="xs"
-                            variant={isForward || isOut ? 'filled' : 'light'}
-                            color={isForward ? 'yellow' : (isOut ? 'violet' : 'gray')}
+                            variant="light"
+                            color={isForward ? 'yellow' : (isOut ? 'gray' : 'violet')}
                             style={{ flexShrink: 0 }}
                         >
                             {isForward
@@ -120,10 +126,10 @@ export default function ThreadHistoryRows({
                         )}
                     </Group>
                 </Table.Td>
-                <Table.Td colSpan={colSpan - 3}>
+                <Table.Td colSpan={colSpan - 4}>
                     <Text
                         size="xs"
-                        c={isForward ? '#92400e' : (isOut ? 'violet.6' : 'dimmed')}
+                        c="dimmed"
                         lineClamp={1}
                         fw={isCurrent ? 500 : 400}
                     >

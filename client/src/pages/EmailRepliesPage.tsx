@@ -1,20 +1,20 @@
 import { useState, useMemo, useCallback, useEffect, Fragment } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table,
     Loader, Center, Button, SimpleGrid, Select, TextInput,
     Skeleton, Tooltip, Alert, Anchor, Pagination, ActionIcon,
-    SegmentedControl, Popover, Checkbox, Divider,
+    SegmentedControl, Popover, Checkbox, Divider, Menu, Collapse,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
 import {
-    IconMailOpened, IconSearch,
-    IconCircleFilled, IconAlertCircle,
+    IconMail, IconMailOpened, IconSearch,
+    IconAlertCircle,
     IconSpeakerphone, IconDownload, IconChevronDown, IconChevronRight,
     IconChevronLeft, IconRefresh, IconAdjustments, IconPencilPlus,
-    IconEye, IconStar, IconClock,
+    IconEye, IconStar, IconClock, IconCircleCheck, IconPaperclip,
 } from '@tabler/icons-react';
 import ThreadHistoryRows from '../components/email/ThreadHistoryRows';
 import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
@@ -25,6 +25,7 @@ import { showErrorFromApi, showWarning } from '../lib/notifications';
 import StatCard from '../components/StatCard';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import ComposeMailModal from '../components/email/ComposeMailModal';
+import AttachmentLibraryModal from '../components/email/AttachmentLibraryModal';
 import type { EmailReply, EmailReplyStats, EmailTrackingStats, Campaign } from '../types/emailReply';
 import type { CampaignsResponse } from '../types/plusvibe';
 import { useStages } from '../contexts/StagesContext';
@@ -187,6 +188,21 @@ export default function EmailRepliesPage() {
     // Compose modal
     const [composeOpen, setComposeOpen] = useState(false);
 
+    // Attachment library manager (manage saved attachments without sending a mail)
+    const [attachmentsOpen, setAttachmentsOpen] = useState(false);
+
+    // Active campaigns summary — collapsed by default (not needed at all times); choice persists
+    const [campaignsOpen, setCampaignsOpen] = useState<boolean>(
+        () => localStorage.getItem('email_active_campaigns_open') === '1'
+    );
+    const toggleCampaigns = useCallback(() => {
+        setCampaignsOpen((prev) => {
+            const next = !prev;
+            try { localStorage.setItem('email_active_campaigns_open', next ? '1' : '0'); } catch {}
+            return next;
+        });
+    }, []);
+
     // Filters
     const [campaignFilter, setCampaignFilter] = useState('');
     const [matchStatusFilter, setMatchStatusFilter] = useState('');
@@ -289,6 +305,33 @@ export default function EmailRepliesPage() {
             return (await api.get('/email-replies', { params })).data;
         },
         refetchOnWindowFocus: false,
+    });
+
+    // ── Read toggle (list row) ── the leftmost envelope acts as a read/unread switch.
+    // Optimistic so the icon flips instantly; resyncs on settle (has_unread is thread-level).
+    const readToggleMutation = useMutation({
+        mutationFn: async ({ id, nextStatus }: { id: string; nextStatus: 'read' | 'unread' }) =>
+            (await api.patch(`/email-replies/${id}/read`, { read_status: nextStatus })).data,
+        onMutate: async ({ id, nextStatus }) => {
+            await queryClient.cancelQueries({ queryKey: ['email-replies'] });
+            queryClient.setQueriesData<EmailRepliesResponse>({ queryKey: ['email-replies'] }, (old) =>
+                old
+                    ? {
+                          ...old,
+                          data: old.data.map((r) =>
+                              r.id === id
+                                  ? { ...r, read_status: nextStatus, has_unread: nextStatus === 'unread' }
+                                  : r,
+                          ),
+                      }
+                    : old,
+            );
+        },
+        onSettled: () => {
+            queryClient.invalidateQueries({ queryKey: ['email-replies'] });
+            queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
+        },
+        onError: (err) => showErrorFromApi(err, t('emailReplies.errors.readToggleFailed')),
     });
 
     // PlusVibe label kodunu yerelleştirilmiş metne çevirir (bilinmeyen → kod okunaklı hale).
@@ -499,7 +542,7 @@ export default function EmailRepliesPage() {
             <Group justify="space-between" mb="lg">
                 <Group gap="xs">
                     <Title order={2}>{t('emailReplies.pageTitle')}</Title>
-                    <Badge size="lg" variant="light" color="violet" circle>
+                    <Badge size="lg" variant="light" color="violet" radius="xl">
                         {total}
                     </Badge>
                 </Group>
@@ -512,50 +555,72 @@ export default function EmailRepliesPage() {
                     >
                         {t('emailReplies.compose.button', 'Yeni Mail')}
                     </Button>
-                    {((stats?.unmatched ?? 0) > 0 || rematchState.phase !== 'idle') && (() => {
-                        const isBusy = rematchState.phase === 'fetching' || rematchState.phase === 'matching';
-                        const label = rematchState.phase === 'idle'
+                    {(() => {
+                        const rematchBusy = rematchState.phase === 'fetching' || rematchState.phase === 'matching';
+                        const importBusy = importState.phase === 'fetching' || importState.phase === 'importing';
+                        const anyBusy = rematchBusy || importBusy;
+                        const rematchLabel = rematchState.phase === 'idle'
                             ? t('emailReplies.rematch.bulkButton', { count: stats?.unmatched ?? 0 })
                             : rematchState.phase === 'fetching'
                                 ? t('emailReplies.rematch.stepFetching')
                                 : rematchState.phase === 'matching'
                                     ? t('emailReplies.rematch.stepMatching', { done: rematchState.done, total: rematchState.total })
                                     : t('emailReplies.rematch.stepDone', { matched: rematchState.matched, total: rematchState.total });
-                        return (
-                            <Button
-                                variant="light"
-                                size="sm"
-                                color={rematchState.phase === 'done' ? 'green' : 'violet'}
-                                leftSection={isBusy ? <Loader size={14} color="violet" /> : <IconRefresh size={16} />}
-                                disabled={isBusy}
-                                onClick={() => {
-                                    if (!isBusy) runRematchAll();
-                                }}
-                            >
-                                {label}
-                            </Button>
-                        );
-                    })()}
-                    {(activeCampaigns.length > 0 || importState.phase !== 'idle') && (() => {
-                        const isBusy = importState.phase === 'fetching' || importState.phase === 'importing';
-                        const label = importState.phase === 'idle'
+                        const importLabel = importState.phase === 'idle'
                             ? t('emailReplies.importReplies')
                             : importState.phase === 'fetching'
                                 ? t('emailReplies.import.stepFetching')
                                 : importState.phase === 'importing'
                                     ? t('emailReplies.import.stepImporting', { done: importState.done + 1, total: importState.total, name: importState.campaignName })
                                     : t('emailReplies.import.stepDone', { count: importState.imported });
+                        // Rematch/Import only matter when there's work (or one is mid-run);
+                        // Ekler is always available. New actions: add a Menu.Item here.
+                        const showRematch = (stats?.unmatched ?? 0) > 0 || rematchState.phase !== 'idle';
+                        const showImport = activeCampaigns.length > 0 || importState.phase !== 'idle';
                         return (
-                            <Button
-                                variant="light"
-                                size="sm"
-                                color={importState.phase === 'done' ? 'green' : 'blue'}
-                                leftSection={isBusy ? <Loader size={14} color="blue" /> : <IconDownload size={16} />}
-                                disabled={isBusy}
-                                onClick={() => { if (!isBusy) runImport(); }}
-                            >
-                                {label}
-                            </Button>
+                            <Menu position="bottom-end" shadow="md" width={280}>
+                                <Menu.Target>
+                                    <Button
+                                        size="sm"
+                                        variant="light"
+                                        color="violet"
+                                        leftSection={anyBusy ? <Loader size={14} color="violet" /> : <IconAdjustments size={16} />}
+                                        rightSection={<IconChevronDown size={14} />}
+                                    >
+                                        {anyBusy ? (rematchBusy ? rematchLabel : importLabel) : t('emailReplies.actions.menu', 'İşlemler')}
+                                    </Button>
+                                </Menu.Target>
+                                <Menu.Dropdown>
+                                    <Menu.Item
+                                        leftSection={<IconPaperclip size={16} />}
+                                        onClick={() => setAttachmentsOpen(true)}
+                                    >
+                                        {t('emailReplies.attachmentLibrary.button', 'Ekler')}
+                                    </Menu.Item>
+                                    {showRematch && (
+                                        <Menu.Item
+                                            leftSection={rematchBusy ? <Loader size={14} color="violet" /> : <IconRefresh size={16} />}
+                                            color={rematchState.phase === 'done' ? 'green' : undefined}
+                                            disabled={rematchBusy}
+                                            closeMenuOnClick={!rematchBusy}
+                                            onClick={() => { if (!rematchBusy) runRematchAll(); }}
+                                        >
+                                            {rematchLabel}
+                                        </Menu.Item>
+                                    )}
+                                    {showImport && (
+                                        <Menu.Item
+                                            leftSection={importBusy ? <Loader size={14} color="blue" /> : <IconDownload size={16} />}
+                                            color={importState.phase === 'done' ? 'green' : undefined}
+                                            disabled={importBusy}
+                                            closeMenuOnClick={!importBusy}
+                                            onClick={() => { if (!importBusy) runImport(); }}
+                                        >
+                                            {importLabel}
+                                        </Menu.Item>
+                                    )}
+                                </Menu.Dropdown>
+                            </Menu>
                         );
                     })()}
                 </Group>
@@ -631,29 +696,43 @@ export default function EmailRepliesPage() {
                 )}
             </SimpleGrid>
 
-            {/* Active Campaigns Summary */}
+            {/* Active Campaigns Summary — collapsed by default, header toggles */}
             {activeCampaigns.length > 0 && (
                 <Paper p="sm" radius="md" withBorder mb="md" bg="var(--mantine-color-violet-0)">
-                    <Group gap="xs" mb={6}>
-                        <IconSpeakerphone size={14} style={{ opacity: 0.6 }} />
-                        <Text size="xs" fw={600} c="dimmed" tt="uppercase">
-                            {t('emailReplies.activeCampaigns')}
-                        </Text>
+                    <Group
+                        gap="xs"
+                        justify="space-between"
+                        wrap="nowrap"
+                        style={{ cursor: 'pointer' }}
+                        onClick={toggleCampaigns}
+                    >
+                        <Group gap="xs" wrap="nowrap">
+                            <IconSpeakerphone size={14} style={{ opacity: 0.6 }} />
+                            <Text size="xs" fw={600} c="dimmed" tt="uppercase">
+                                {t('emailReplies.activeCampaigns')}
+                            </Text>
+                            <Badge size="xs" variant="light" color="violet">{activeCampaigns.length}</Badge>
+                        </Group>
+                        <ActionIcon size="xs" variant="subtle" color="gray">
+                            {campaignsOpen ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+                        </ActionIcon>
                     </Group>
-                    <Group gap="lg" wrap="wrap">
-                        {activeCampaigns.map((c, i) => (
-                            <Group key={c.id} gap={6}>
-                                <Badge size="xs" variant="filled" color="violet" circle>{i + 1}</Badge>
-                                <Text size="xs" fw={500}>{c.name}</Text>
-                                <Badge size="xs" variant="light" color="violet">
-                                    {c.emails_sent} {t('campaigns.stats.sent').toLowerCase()}
-                                </Badge>
-                                <Badge size="xs" variant="light" color="orange">
-                                    {c.replies} {t('campaigns.stats.replies').toLowerCase()}
-                                </Badge>
-                            </Group>
-                        ))}
-                    </Group>
+                    <Collapse in={campaignsOpen}>
+                        <Group gap="lg" wrap="wrap" mt={8}>
+                            {activeCampaigns.map((c, i) => (
+                                <Group key={c.id} gap={6}>
+                                    <Badge size="xs" variant="filled" color="violet" circle>{i + 1}</Badge>
+                                    <Text size="xs" fw={500}>{c.name}</Text>
+                                    <Badge size="xs" variant="light" color="violet">
+                                        {c.emails_sent} {t('campaigns.stats.sent').toLowerCase()}
+                                    </Badge>
+                                    <Badge size="xs" variant="light" color="orange">
+                                        {c.replies} {t('campaigns.stats.replies').toLowerCase()}
+                                    </Badge>
+                                </Group>
+                            ))}
+                        </Group>
+                    </Collapse>
                 </Paper>
             )}
 
@@ -804,7 +883,8 @@ export default function EmailRepliesPage() {
                         <Table highlightOnHover striped>
                             <Table.Thead>
                                 <Table.Tr>
-                                    <Table.Th style={{ width: 20, padding: '0 2px' }} />
+                                    <Table.Th style={{ width: 52, padding: '0 2px' }} />
+                                    <Table.Th style={{ width: 26, padding: '0 2px' }} />
                                     {isColVisible('campaign') && <Table.Th style={{ width: 28, padding: '0 2px' }} />}
                                     {isColVisible('sender') && <Table.Th>{t('emailReplies.table.sender')}</Table.Th>}
                                     {isColVisible('company') && <Table.Th>{t('emailReplies.table.company')}</Table.Th>}
@@ -864,21 +944,45 @@ export default function EmailRepliesPage() {
                                                     cursor: 'pointer',
                                                     backgroundColor: hasUnread
                                                         ? 'var(--mantine-color-blue-0)'
-                                                        : undefined,
+                                                        : isExpanded
+                                                            ? 'var(--mantine-color-violet-0)'
+                                                            : undefined,
                                                 }}
-                                                onClick={() => toggleExpand(reply.id)}
+                                                onClick={() => setSelectedReply(reply)}
                                             >
-                                                {/* Unread dot + expand chevron */}
-                                                <Table.Td style={{ padding: '0 2px' }}>
-                                                    <Group gap={4} wrap="nowrap" justify="center">
-                                                        {hasUnread && (
-                                                            <Tooltip label={t('emailReplies.status.unread')}>
-                                                                <IconCircleFilled
-                                                                    size={10}
-                                                                    style={{ color: 'var(--mantine-color-blue-5)', flexShrink: 0 }}
-                                                                />
-                                                            </Tooltip>
-                                                        )}
+                                                {/* Read toggle (envelope) + expand chevron */}
+                                                <Table.Td
+                                                    style={{
+                                                        padding: '0 2px',
+                                                        borderLeft: isExpanded
+                                                            ? '3px solid var(--mantine-color-violet-5)'
+                                                            : '3px solid transparent',
+                                                    }}
+                                                >
+                                                    <Group gap={2} wrap="nowrap" justify="center">
+                                                        <Tooltip
+                                                            label={hasUnread
+                                                                ? t('emailReplies.actions.markRead')
+                                                                : t('emailReplies.actions.markUnread')}
+                                                            withArrow
+                                                        >
+                                                            <ActionIcon
+                                                                size="sm"
+                                                                variant="subtle"
+                                                                color={hasUnread ? 'blue' : 'gray'}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    readToggleMutation.mutate({
+                                                                        id: reply.id,
+                                                                        nextStatus: hasUnread ? 'read' : 'unread',
+                                                                    });
+                                                                }}
+                                                            >
+                                                                {hasUnread
+                                                                    ? <IconMail size={16} />
+                                                                    : <IconMailOpened size={16} />}
+                                                            </ActionIcon>
+                                                        </Tooltip>
                                                         <ActionIcon
                                                             size="xs"
                                                             variant="subtle"
@@ -894,6 +998,25 @@ export default function EmailRepliesPage() {
                                                             }
                                                         </ActionIcon>
                                                     </Group>
+                                                </Table.Td>
+
+                                                {/* Reply status: awaiting our reply (clock) / we replied last (green check) */}
+                                                <Table.Td style={{ padding: '0 2px', textAlign: 'center' }}>
+                                                    {reply.awaiting ? (
+                                                        <Tooltip label={t('emailReplies.status.awaiting')} withArrow>
+                                                            <IconClock
+                                                                size={16}
+                                                                style={{ color: 'var(--mantine-color-orange-6)', verticalAlign: 'middle' }}
+                                                            />
+                                                        </Tooltip>
+                                                    ) : reply.last_direction === 'OUT' ? (
+                                                        <Tooltip label={t('emailReplies.status.replied')} withArrow>
+                                                            <IconCircleCheck
+                                                                size={16}
+                                                                style={{ color: 'var(--mantine-color-green-6)', verticalAlign: 'middle' }}
+                                                            />
+                                                        </Tooltip>
+                                                    ) : null}
                                                 </Table.Td>
 
                                                 {/* Campaign code — compact, left-aligned */}
@@ -1047,22 +1170,8 @@ export default function EmailRepliesPage() {
                                                 </Table.Td>
                                                 )}
 
-                                                {/* Open detail modal */}
-                                                <Table.Td style={{ width: 30, padding: '0 4px' }}>
-                                                    <Tooltip label={t('emailReplies.detail.title')} withArrow>
-                                                        <ActionIcon
-                                                            size="xs"
-                                                            variant="subtle"
-                                                            color="violet"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setSelectedReply(reply);
-                                                            }}
-                                                        >
-                                                            <IconMailOpened size={14} />
-                                                        </ActionIcon>
-                                                    </Tooltip>
-                                                </Table.Td>
+                                                {/* Spacer column (keeps rows aligned with the column-settings header) */}
+                                                <Table.Td style={{ width: 30, padding: '0 4px' }} />
                                             </Table.Tr>
 
                                             {/* Thread history rows */}
@@ -1072,7 +1181,7 @@ export default function EmailRepliesPage() {
                                                     campaignId={reply.campaign_id}
                                                     parentReplyId={reply.id}
                                                     locale={locale}
-                                                    colSpan={visibleEmailCols.length + 2}
+                                                    colSpan={visibleEmailCols.length + 3}
                                                     onClickRow={() => setSelectedReply(reply)}
                                                 />
                                             )}
@@ -1110,6 +1219,12 @@ export default function EmailRepliesPage() {
             <ComposeMailModal
                 opened={composeOpen}
                 onClose={() => setComposeOpen(false)}
+            />
+
+            {/* Attachment Library Modal */}
+            <AttachmentLibraryModal
+                opened={attachmentsOpen}
+                onClose={() => setAttachmentsOpen(false)}
             />
         </Container>
     );

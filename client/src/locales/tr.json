@@ -719,7 +719,9 @@
             "matched": "Eşleşmiş",
             "unmatched": "Eşleşmemiş",
             "read": "Okunmuş",
-            "unread": "Okunmamış"
+            "unread": "Okunmamış",
+            "awaiting": "Yanıt bekliyor",
+            "replied": "Yanıtlandı"
         },
         "detail": {
             "title": "Email Yanıt Detayı",
@@ -732,6 +734,7 @@
             "actions": "Aksiyonlar"
         },
         "actions": {
+            "menu": "İşlemler",
             "updateStage": "Stage Güncelle",
             "update": "Güncelle",
             "markRead": "Okundu İşaretle",
@@ -874,7 +877,13 @@
             "invalidType": "Desteklenmeyen dosya türü",
             "deliveryHint": "Dosyalar destekleyen kanallarda gerçek ek, aksi halde indirme linki olarak gönderilir.",
             "deliveryFile": "Dosya",
-            "deliveryLink": "Link"
+            "deliveryLink": "Link",
+            "emptyLibrary": "Henüz kayıtlı ek yok. Aşağıdan dosya yükleyin ya da link ekleyin."
+        },
+        "attachmentLibrary": {
+            "button": "Ekler",
+            "title": "Mail Ekleri",
+            "description": "Buradan yüklediğiniz dosya ve linkler, mail yazarken ya da yanıtlarken ek olarak seçilebilir. Mail göndermenize gerek yok."
         },
         "quickActivity": {
             "title": "Hızlı Aktivite Ekle",
