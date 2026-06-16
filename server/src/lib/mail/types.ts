@@ -68,6 +68,12 @@ export interface CanonicalSendRequest {
     campaignId?: string | null;
     // provider passthrough (e.g. attachment ids already resolved by the caller)
     meta?: Record<string, unknown>;
+
+    // Real-attachment candidates (caller already appended any link-card ones to
+    // bodyHtml). The router loads their bytes into `files` before dispatch.
+    attachments?: CanonicalAttachment[];
+    // Bytes-loaded attachments — set by the router (sendMail), consumed by adapters.
+    files?: ResolvedAttachment[];
 }
 
 export interface SendResult {
@@ -76,10 +82,35 @@ export interface SendResult {
     success: boolean;
 }
 
+/**
+ * A user-selected attachment, pre-partitioned by the caller as a real-file
+ * candidate. URL-only templates and link-fallbacks are appended to bodyHtml as
+ * cards by the caller and never reach here. The router loads bytes into `files`.
+ */
+export interface CanonicalAttachment {
+    label: string;
+    fileType: string;              // extension without dot, e.g. 'pdf'
+    fileSize: string;              // humanized, for the card fallback
+    fileUrl: string;               // public URL (card target; always present)
+    storagePath?: string | null;   // bucket object path if uploaded → real-attachable
+    sizeBytes?: number | null;     // actual byte size (cap check)
+}
+
+/** An attachment with bytes loaded, ready to hand to a provider's send API. */
+export interface ResolvedAttachment {
+    filename: string;
+    mimeType: string;
+    content: Buffer;
+}
+
 /** A provider adapter. Inbound parsing is provider-specific (not all support it). */
 export interface MailProvider {
     readonly name: MailProviderName;
     send(req: CanonicalSendRequest): Promise<SendResult>;
+    /** Can this provider deliver a real file attachment for this request's channel? */
+    supportsAttachments(req: CanonicalSendRequest): boolean;
+    /** Max raw bytes per real attachment; larger → caller falls back to a link card. */
+    readonly maxAttachmentBytes: number;
 }
 
 // ─── Pure helpers (shared) ────────────────────────────────────────────────

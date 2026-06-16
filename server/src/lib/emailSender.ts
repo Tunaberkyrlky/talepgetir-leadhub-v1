@@ -13,10 +13,12 @@
  * Saniyede en fazla 3 istek (provider başına, tenant başına).
  */
 
+import { randomUUID } from 'node:crypto';
 import { createLogger } from './logger.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { getConnectionByEmail, getDefaultConnection } from './emailConnections.js';
 import type { ConnectionProvider, EmailConnection } from './emailConnections.js';
+import type { ResolvedAttachment } from './mail/types.js';
 
 const log = createLogger('emailSender');
 
@@ -37,6 +39,22 @@ async function getNango(): Promise<any> {
 
 export function isConfigured(): boolean {
     return !!process.env.NANGO_SECRET_KEY;
+}
+
+/**
+ * Which concrete Nango provider a send will use (gmail vs outlook) — so the
+ * router can pick the right attachment size cap (Outlook Graph inline ~3MB).
+ * Defaults to google-mail if the connection can't be resolved.
+ */
+export async function resolveNangoProvider(tenantId: string, accountEmail?: string): Promise<ConnectionProvider> {
+    try {
+        const conn = accountEmail
+            ? await getConnectionByEmail(tenantId, accountEmail)
+            : await getDefaultConnection(tenantId);
+        return conn?.provider ?? 'google-mail';
+    } catch {
+        return 'google-mail';
+    }
 }
 
 // ── Per-tenant + per-provider rate limiter (shared with smtpAdapter) ───────
@@ -104,6 +122,14 @@ function encodeSubject(subject: string): string {
     return `=?UTF-8?B?${Buffer.from(subject, 'utf-8').toString('base64')}?=`;
 }
 
+/** RFC 2231 — quote an ASCII filename, or UTF-8 encode a non-ASCII one. */
+function dispositionFilename(filename: string): string {
+    // eslint-disable-next-line no-control-regex
+    return /^[\x20-\x7E]*$/.test(filename)
+        ? `filename="${filename.replace(/"/g, '')}"`
+        : `filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
 function buildRfc2822(params: {
     from: string;
     to: string;
@@ -111,19 +137,46 @@ function buildRfc2822(params: {
     htmlBody: string;
     cc?: string[];
     replyTo?: string;
+    attachments?: ResolvedAttachment[];
 }): string {
-    const lines: string[] = [];
-    lines.push(`From: ${params.from}`);
-    lines.push(`To: ${params.to}`);
-    if (params.cc?.length) lines.push(`Cc: ${params.cc.join(', ')}`);
-    if (params.replyTo) lines.push(`Reply-To: ${params.replyTo}`);
-    lines.push(`Subject: ${encodeSubject(params.subject)}`);
-    lines.push('MIME-Version: 1.0');
-    lines.push('Content-Type: text/html; charset=UTF-8');
-    lines.push('Content-Transfer-Encoding: 8bit');
-    lines.push('');
-    lines.push(params.htmlBody);
-    return lines.join('\r\n');
+    const headers: string[] = [];
+    headers.push(`From: ${params.from}`);
+    headers.push(`To: ${params.to}`);
+    if (params.cc?.length) headers.push(`Cc: ${params.cc.join(', ')}`);
+    if (params.replyTo) headers.push(`Reply-To: ${params.replyTo}`);
+    headers.push(`Subject: ${encodeSubject(params.subject)}`);
+    headers.push('MIME-Version: 1.0');
+
+    // No attachments → simple single-part text/html (unchanged behavior).
+    if (!params.attachments?.length) {
+        return [...headers, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: 8bit', '', params.htmlBody].join('\r\n');
+    }
+
+    // Attachments → multipart/mixed: html part first, then one base64 part each.
+    const boundary = `=_part_${randomUUID()}`;
+    const parts: string[] = [
+        ...headers,
+        `Content-Type: multipart/mixed; boundary="${boundary}"`,
+        '',
+        `--${boundary}`,
+        'Content-Type: text/html; charset=UTF-8',
+        'Content-Transfer-Encoding: 8bit',
+        '',
+        params.htmlBody,
+    ];
+    for (const a of params.attachments) {
+        const b64 = a.content.toString('base64').replace(/(.{76})/g, '$1\r\n'); // RFC 2045 line length
+        parts.push(
+            `--${boundary}`,
+            `Content-Type: ${a.mimeType}`,
+            'Content-Transfer-Encoding: base64',
+            `Content-Disposition: attachment; ${dispositionFilename(a.filename)}`,
+            '',
+            b64,
+        );
+    }
+    parts.push(`--${boundary}--`);
+    return parts.join('\r\n');
 }
 
 // ── Provider-specific send ─────────────────────────────────────────────────
@@ -135,6 +188,7 @@ interface SendParams {
     cc?: string[];
     replyTo?: string;
     fromName?: string;
+    attachments?: ResolvedAttachment[];
 }
 
 async function sendViaGmail(connection: EmailConnection, params: SendParams): Promise<string> {
@@ -149,6 +203,7 @@ async function sendViaGmail(connection: EmailConnection, params: SendParams): Pr
         htmlBody: params.htmlBody,
         cc: params.cc,
         replyTo: params.replyTo,
+        attachments: params.attachments,
     });
 
     const nango = await getNango();
@@ -176,6 +231,14 @@ async function sendViaOutlook(connection: EmailConnection, params: SendParams): 
     }
     if (params.replyTo) {
         message.replyTo = [{ emailAddress: { address: params.replyTo } }];
+    }
+    if (params.attachments?.length) {
+        message.attachments = params.attachments.map((a) => ({
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            name: a.filename,
+            contentType: a.mimeType,
+            contentBytes: a.content.toString('base64'),
+        }));
     }
 
     const nango = await getNango();
@@ -211,6 +274,7 @@ export async function sendEmail(
         cc?: string[];
         replyTo?: string;
         accountEmail?: string;   // which connected mailbox to send from; default if omitted
+        attachments?: ResolvedAttachment[];  // real file attachments (Gmail multipart / Graph)
     },
 ): Promise<SendResult> {
     const connection: EmailConnection = options?.accountEmail

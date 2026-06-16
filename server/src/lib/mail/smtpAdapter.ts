@@ -74,6 +74,8 @@ export async function verifySmtp(params: {
 
 export const smtpProvider: MailProvider = {
     name: 'smtp',
+    supportsAttachments: () => true,
+    maxAttachmentBytes: 10 * 1024 * 1024, // matches the upload limit
     async send(req: CanonicalSendRequest): Promise<SendResult> {
         if (!req.accountEmail) {
             throw new AppError('SMTP send requires an accountEmail (which mailbox to send from)', 400);
@@ -102,6 +104,13 @@ export const smtpProvider: MailProvider = {
                 ...(req.replyTo && { replyTo: req.replyTo }),
                 subject: req.subject,
                 html: req.bodyHtml,
+                ...(req.files?.length && {
+                    attachments: req.files.map((f) => ({
+                        filename: f.filename,
+                        content: f.content,
+                        contentType: f.mimeType,
+                    })),
+                }),
             });
             log.info({ tenantId: req.tenantId, to: req.to, messageId: info.messageId }, 'Email sent via SMTP');
             return {

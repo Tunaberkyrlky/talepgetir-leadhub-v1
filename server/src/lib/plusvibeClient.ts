@@ -221,7 +221,11 @@ export async function fetchEmailsByLead(
     return allEmails;
 }
 
-/** Send a reply to an existing email via PlusVibe. */
+/**
+ * Send a reply to an existing email via PlusVibe.
+ * `attachments` are real file attachments (base64) — supported by the reply
+ * endpoint (NOT by forward/compose).
+ */
 export async function replyToEmail(params: {
     reply_to_id: string;
     subject: string;
@@ -230,6 +234,7 @@ export async function replyToEmail(params: {
     body: string;
     cc?: string;
     bcc?: string;
+    attachments?: { file_name: string; content: string }[];
 }): Promise<{ status: string; id: string }> {
     return plusVibeFetch<{ status: string; id: string }>(
         'POST',

@@ -852,9 +852,9 @@
         },
         "attachments": {
             "label": "Eklentiler",
-            "addNew": "Yeni Ekle",
-            "createTitle": "Yeni Eklenti Oluştur",
-            "editTitle": "Eklentiyi Düzenle",
+            "addNew": "Link Ekle",
+            "createTitle": "Link Ekle",
+            "editTitle": "Linki Düzenle",
             "edit": "Düzenle",
             "nameLabel": "Eklenti Adı",
             "namePlaceholder": "örn: Firma Tanıtım 2026",
@@ -866,7 +866,15 @@
             "updateFailed": "Eklenti güncellenemedi",
             "deleteFailed": "Eklenti silinemedi",
             "deleteTitle": "Eklentiyi Sil",
-            "deleteConfirm": "Bu eklentiyi silmek istediğinizden emin misiniz? Tüm kullanıcılar için kaldırılacak."
+            "deleteConfirm": "Bu eklentiyi silmek istediğinizden emin misiniz? Tüm kullanıcılar için kaldırılacak.",
+            "dropHint": "Dosyayı sürükleyin ya da tıklayıp seçin",
+            "saveToLibrary": "Kütüphaneye kaydet (tekrar kullanmak için)",
+            "uploadFailed": "Dosya yüklenemedi",
+            "fileTooLarge": "Dosya çok büyük (en fazla 10MB)",
+            "invalidType": "Desteklenmeyen dosya türü",
+            "deliveryHint": "Dosyalar destekleyen kanallarda gerçek ek, aksi halde indirme linki olarak gönderilir.",
+            "deliveryFile": "Dosya",
+            "deliveryLink": "Link"
         },
         "quickActivity": {
             "title": "Hızlı Aktivite Ekle",

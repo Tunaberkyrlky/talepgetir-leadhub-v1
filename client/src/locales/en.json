@@ -852,9 +852,9 @@
         },
         "attachments": {
             "label": "Attachments",
-            "addNew": "Add New",
-            "createTitle": "Create New Attachment",
-            "editTitle": "Edit Attachment",
+            "addNew": "Add Link",
+            "createTitle": "Add Link",
+            "editTitle": "Edit Link",
             "edit": "Edit",
             "nameLabel": "Attachment Name",
             "namePlaceholder": "e.g. Company Brochure 2026",
@@ -866,7 +866,15 @@
             "updateFailed": "Failed to update attachment",
             "deleteFailed": "Failed to delete attachment",
             "deleteTitle": "Delete Attachment",
-            "deleteConfirm": "Are you sure you want to delete this attachment? It will be removed for all users."
+            "deleteConfirm": "Are you sure you want to delete this attachment? It will be removed for all users.",
+            "dropHint": "Drag a file here or click to select",
+            "saveToLibrary": "Save to library (reuse later)",
+            "uploadFailed": "File upload failed",
+            "fileTooLarge": "File too large (max 10MB)",
+            "invalidType": "Unsupported file type",
+            "deliveryHint": "Files are sent as real attachments where the channel supports it, otherwise as a download link.",
+            "deliveryFile": "File",
+            "deliveryLink": "Link"
         },
         "quickActivity": {
             "title": "Quick Activity",

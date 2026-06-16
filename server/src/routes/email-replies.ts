@@ -22,9 +22,10 @@ import { matchSenderEmail, advanceCompanyStageOnMatch } from '../lib/emailMatche
 import { resolveReplyContext } from '../lib/plusvibeReplyResolver.js';
 import { buildAttachmentCardsHtml, plainTextToParagraphs } from '../lib/emailHtmlBuilder.js';
 import { injectTracking, isTrackingConfigured } from '../lib/mailTracking.js';
-import { sendMail } from '../lib/mail/router.js';
+import { sendMail, willSupportAttachments } from '../lib/mail/router.js';
 import { resolveThreadMailbox } from '../lib/mail/resolveThreadMailbox.js';
 import { getConnectionByEmail, getDefaultConnection } from '../lib/emailConnections.js';
+import type { CanonicalAttachment, MailChannel, MailProviderName } from '../lib/mail/types.js';
 
 const log = createLogger('route:email-replies');
 const router = Router();
@@ -56,6 +57,60 @@ function prepareOutboundTracking(html: string): {
         html: injectTracking(html, outId, 'reply'),
         trackedMarker: isTrackingConfigured() ? { tracked: true } : {},
     };
+}
+
+/**
+ * Resolve selected attachment templates for an outbound send into:
+ *  - cardsHtml: link-card HTML to append to the body (URL-only templates, files
+ *    too big for the channel, or channels without real-attachment support),
+ *  - attachments: real-file candidates the router loads + attaches.
+ * Capability is probed against the SAME provider sendMail will resolve. Cards
+ * are appended to the body BEFORE tracking; real attachments carry no link.
+ */
+async function resolveOutboundAttachments(
+    attachmentIds: string[] | undefined,
+    tenantId: string,
+    shape: { channel: MailChannel; accountEmail?: string | null; originProvider?: MailProviderName; inReplyToMessageId?: string | null },
+): Promise<{ cardsHtml: string; attachments: CanonicalAttachment[] }> {
+    if (!attachmentIds?.length) return { cardsHtml: '', attachments: [] };
+
+    const { data: templates } = await supabaseAdmin
+        .from('email_attachment_templates')
+        .select('label, file_type, file_url, file_size, storage_path, size_bytes')
+        .in('id', attachmentIds)
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true);
+    if (!templates?.length) return { cardsHtml: '', attachments: [] };
+
+    const cap = await willSupportAttachments({
+        tenantId,
+        channel: shape.channel,
+        accountEmail: shape.accountEmail,
+        originProvider: shape.originProvider,
+        inReplyToMessageId: shape.inReplyToMessageId,
+        to: '', subject: '', bodyHtml: '',
+    });
+
+    const attachments: CanonicalAttachment[] = [];
+    const cards: { label: string; file_type: string; file_url: string; file_size: string }[] = [];
+    for (const t of templates) {
+        const fits = typeof t.size_bytes === 'number' && t.size_bytes <= cap.maxBytes;
+        // Real attachment only for uploaded files (storage_path) on a capable,
+        // size-fitting channel; everything else degrades to a link card.
+        if (cap.supported && t.storage_path && fits) {
+            attachments.push({
+                label: t.label,
+                fileType: t.file_type,
+                fileSize: t.file_size,
+                fileUrl: t.file_url,
+                storagePath: t.storage_path,
+                sizeBytes: t.size_bytes,
+            });
+        } else {
+            cards.push({ label: t.label, file_type: t.file_type, file_url: t.file_url, file_size: t.file_size });
+        }
+    }
+    return { cardsHtml: buildAttachmentCardsHtml(cards), attachments };
 }
 
 // GET /api/email-replies — threaded list (latest email per sender+campaign)
@@ -798,21 +853,6 @@ router.post(
             // Convert plain text to simple HTML
             let htmlBody = plainTextToParagraphs(replyText);
 
-            // Append attachment cards if selected
-            if (attachmentIds?.length) {
-                const { data: templates } = await supabaseAdmin
-                    .from('email_attachment_templates')
-                    .select('label, file_type, file_url, file_size')
-                    .in('id', attachmentIds)
-                    .eq('tenant_id', tenantId)
-                    .eq('is_active', true);
-
-                if (templates?.length) {
-
-                    htmlBody += buildAttachmentCardsHtml(templates);
-                }
-            }
-
             // Ensure subject starts with "Re: "
             const subject = context.subject.startsWith('Re:')
                 ? context.subject
@@ -821,6 +861,16 @@ router.post(
             // Canonical "our mailbox" for this thread (account_email column → fallback to resolver).
             // This fixes replies going out from the wrong (sender_emails[0]) mailbox.
             const accountEmail = resolveThreadMailbox(emailReply) ?? context.fromAddress;
+
+            // Real file where the channel supports it (PlusVibe reply does), link
+            // card otherwise. Cards must be appended BEFORE tracking wraps links.
+            const { cardsHtml, attachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
+                channel: 'reply',
+                accountEmail,
+                originProvider: 'plusvibe',
+                inReplyToMessageId: context.plusvibeEmailId,
+            });
+            htmlBody += cardsHtml;
 
             // Tracking pixel/click token references this id; the row is only
             // inserted after a successful send.
@@ -838,6 +888,7 @@ router.post(
                 subject,
                 bodyHtml: htmlBody,
                 ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
+                ...(attachments.length && { attachments }),
             });
 
             // Insert outbound reply record (canonical columns + legacy raw_payload)
@@ -951,20 +1002,17 @@ router.post(
             // Note becomes the body PlusVibe appends ABOVE the forwarded message
             let htmlBody = plainTextToParagraphs(note);
 
-            if (attachmentIds?.length) {
-                const { data: templates } = await supabaseAdmin
-                    .from('email_attachment_templates')
-                    .select('label, file_type, file_url, file_size')
-                    .in('id', attachmentIds)
-                    .eq('tenant_id', tenantId)
-                    .eq('is_active', true);
-
-                if (templates?.length) {
-                    htmlBody += buildAttachmentCardsHtml(templates);
-                }
-            }
-
             const accountEmail = resolveThreadMailbox(emailReply) ?? context.fromAddress;
+
+            // PlusVibe forward has no attachment API → everything degrades to a
+            // link card (real attachment only on channels that support forward).
+            const { cardsHtml, attachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
+                channel: 'forward',
+                accountEmail,
+                originProvider: 'plusvibe',
+                inReplyToMessageId: context.plusvibeEmailId,
+            });
+            htmlBody += cardsHtml;
 
             const { outId, html: trackedHtml, trackedMarker } = prepareOutboundTracking(htmlBody);
             htmlBody = trackedHtml;
@@ -979,6 +1027,7 @@ router.post(
                 subject: context.subject,
                 bodyHtml: htmlBody,
                 ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
+                ...(attachments.length && { attachments }),
             });
 
             // Outbound record — sender_email kept as ORIGINAL sender so the forward
@@ -1088,18 +1137,12 @@ router.post(
             // Plain text body → simple HTML (same pattern as reply/forward)
             let htmlBody = plainTextToParagraphs(body);
 
-            if (attachmentIds?.length) {
-                const { data: templates } = await supabaseAdmin
-                    .from('email_attachment_templates')
-                    .select('label, file_type, file_url, file_size')
-                    .in('id', attachmentIds)
-                    .eq('tenant_id', tenantId)
-                    .eq('is_active', true);
-
-                if (templates?.length) {
-                    htmlBody += buildAttachmentCardsHtml(templates);
-                }
-            }
+            // Real file where the mailbox (Gmail/Outlook/SMTP) supports it, else card.
+            const { cardsHtml, attachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
+                channel: 'compose',
+                accountEmail,
+            });
+            htmlBody += cardsHtml;
 
             const { outId, html: trackedHtml, trackedMarker } = prepareOutboundTracking(htmlBody);
             htmlBody = trackedHtml;
@@ -1112,6 +1155,7 @@ router.post(
                 subject,
                 bodyHtml: htmlBody,
                 ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
+                ...(attachments.length && { attachments }),
             });
 
             // Outbound record — new thread, no parent, no campaign

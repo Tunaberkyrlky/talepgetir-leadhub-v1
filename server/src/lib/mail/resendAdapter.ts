@@ -8,6 +8,9 @@ import type { CanonicalSendRequest, SendResult, MailProvider } from './types.js'
 
 export const resendProvider: MailProvider = {
     name: 'resend',
+    // System/brand mail (digests, invites) doesn't carry user attachments.
+    supportsAttachments: () => false,
+    maxAttachmentBytes: 0,
     async send(req: CanonicalSendRequest): Promise<SendResult> {
         const res = await sendSystemEmail({
             to: req.to,

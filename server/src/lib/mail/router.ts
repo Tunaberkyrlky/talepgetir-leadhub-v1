@@ -10,16 +10,59 @@
  *   campaign | compose default   → Nango
  */
 import { createLogger } from '../logger.js';
-import type { CanonicalSendRequest, SendResult, MailProvider } from './types.js';
+import type { CanonicalSendRequest, SendResult, MailProvider, CanonicalAttachment, ResolvedAttachment } from './types.js';
 import { plusvibeProvider } from './plusvibeAdapter.js';
 import { nangoProvider } from './nangoAdapter.js';
 import { resendProvider } from './resendAdapter.js';
 import { smtpProvider } from './smtpAdapter.js';
 import { getConnectionByEmail } from '../emailConnections.js';
+import { resolveNangoProvider } from '../emailSender.js';
+import { supabaseAdmin } from '../supabase.js';
+
+const OUTLOOK_MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024; // Graph inline /sendMail cap
 
 const log = createLogger('mail:router');
 
-async function resolveProvider(req: CanonicalSendRequest): Promise<MailProvider> {
+const ATTACHMENT_BUCKET = 'email-attachments';
+
+// ext → MIME for the upload whitelist (server ALLOWED_EXTS). octet-stream fallback.
+const EXT_MIME: Record<string, string> = {
+    pdf: 'application/pdf',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ppt: 'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    txt: 'text/plain',
+};
+
+function mimeForExt(ext: string): string {
+    return EXT_MIME[ext.toLowerCase().replace(/^\./, '')] || 'application/octet-stream';
+}
+
+/** Download each candidate's bytes from Storage into a provider-ready attachment. */
+async function loadAttachmentFiles(atts: CanonicalAttachment[]): Promise<ResolvedAttachment[]> {
+    const out: ResolvedAttachment[] = [];
+    for (const a of atts) {
+        if (!a.storagePath) continue; // only uploaded files have bytes
+        const { data, error } = await supabaseAdmin.storage.from(ATTACHMENT_BUCKET).download(a.storagePath);
+        if (error || !data) {
+            log.warn({ err: error, path: a.storagePath }, 'Attachment download failed; skipping file');
+            continue;
+        }
+        const content = Buffer.from(await data.arrayBuffer());
+        const ext = a.fileType.replace(/^\./, '');
+        const filename = (/\.[^.]+$/.test(a.label) ? a.label : `${a.label}.${ext}`).slice(0, 255);
+        out.push({ filename, mimeType: mimeForExt(a.fileType), content });
+    }
+    return out;
+}
+
+export async function resolveProvider(req: CanonicalSendRequest): Promise<MailProvider> {
     if (req.channel === 'system') return resendProvider;
 
     // 1. Explicit sending mailbox → route by its connection type.
@@ -43,10 +86,32 @@ async function resolveProvider(req: CanonicalSendRequest): Promise<MailProvider>
     return plusvibeProvider;
 }
 
+/**
+ * Capability probe for callers (route handlers) so they can partition selected
+ * attachments into real-file (this provider supports it + fits) vs link-card
+ * BEFORE building the body/tracking. Resolves the same provider sendMail will.
+ */
+export async function willSupportAttachments(req: CanonicalSendRequest): Promise<{ supported: boolean; maxBytes: number }> {
+    const provider = await resolveProvider(req);
+    let maxBytes = provider.maxAttachmentBytes;
+    // Nango covers gmail+outlook with one object; narrow the cap for Outlook.
+    if (provider.name === 'gmail') {
+        const concrete = await resolveNangoProvider(req.tenantId, req.accountEmail ?? undefined);
+        if (concrete === 'microsoft-outlook') maxBytes = OUTLOOK_MAX_ATTACHMENT_BYTES;
+    }
+    return { supported: provider.supportsAttachments(req), maxBytes };
+}
+
 export async function sendMail(req: CanonicalSendRequest): Promise<SendResult> {
     const provider = await resolveProvider(req);
+    // Load bytes for real-attachment candidates the caller passed (already
+    // partitioned; link-card ones are in bodyHtml). Guard on capability in case
+    // a caller passed attachments without probing.
+    if (req.attachments?.length && provider.supportsAttachments(req)) {
+        req.files = await loadAttachmentFiles(req.attachments);
+    }
     log.info(
-        { channel: req.channel, origin: req.originProvider, provider: provider.name, to: req.to },
+        { channel: req.channel, origin: req.originProvider, provider: provider.name, to: req.to, files: req.files?.length ?? 0 },
         'Routing outbound mail',
     );
     return provider.send(req);

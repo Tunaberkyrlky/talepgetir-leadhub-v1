@@ -161,6 +161,9 @@ export function parseCampaignEmail(rec: PlusVibeCampaignEmail, campaignName: str
 
 export const plusvibeProvider: MailProvider = {
     name: 'plusvibe',
+    // Only the reply endpoint accepts attachments; forward/compose do not.
+    supportsAttachments: (req: CanonicalSendRequest) => req.channel === 'reply',
+    maxAttachmentBytes: 5 * 1024 * 1024, // conservative — PlusVibe docs don't state a limit
     async send(req: CanonicalSendRequest): Promise<SendResult> {
         if (!req.inReplyToMessageId) {
             throw new Error('PlusVibe send requires inReplyToMessageId (the original PlusVibe email id)');
@@ -169,6 +172,9 @@ export const plusvibeProvider: MailProvider = {
             throw new Error('PlusVibe send requires accountEmail (the mailbox to send from)');
         }
         const cc = req.cc?.length ? req.cc.join(', ') : undefined;
+        const attachments = req.files?.length
+            ? req.files.map((f) => ({ file_name: f.filename, content: f.content.toString('base64') }))
+            : undefined;
 
         const result =
             req.channel === 'forward'
@@ -186,9 +192,13 @@ export const plusvibeProvider: MailProvider = {
                       to: req.to,
                       body: req.bodyHtml,
                       ...(cc && { cc }),
+                      ...(attachments && { attachments }),
                   });
 
-        log.info({ channel: req.channel, from: req.accountEmail, to: req.to, id: result.id }, 'PlusVibe send');
+        log.info(
+            { channel: req.channel, from: req.accountEmail, to: req.to, id: result.id, files: attachments?.length ?? 0 },
+            'PlusVibe send',
+        );
         return { provider: 'plusvibe', providerMessageId: result.id, success: true };
     },
 };

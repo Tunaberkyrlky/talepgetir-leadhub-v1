@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.10.11',
+        date: '2026-06-16',
+        type: 'feature',
+        title: { tr: 'Maillere Doğrudan Dosya Ekleme', en: 'Direct File Attachments in Emails' },
+        features: [
+            {
+                tr: 'Maillerinize artık dosyaları doğrudan sürükleyip bırakarak ekleyebilirsiniz. Yüklediğiniz dosya, gönderim kanalı destekliyorsa alıcının gelen kutusuna gerçek ek olarak iner, desteklemiyorsa indirme linki olarak gider.',
+                en: 'You can now add files to your emails by dragging and dropping them directly. The file you upload lands in the recipient inbox as a real attachment when the sending channel supports it, and goes as a download link otherwise.',
+            },
+            {
+                tr: 'Eklenti alanı yeni mail, yanıt ve iletme ekranlarında artık aynı çalışıyor. Dosya yükleme ile link ekleme tek yerden yapılıyor, her eklentinin Dosya mı Link mi olduğunu etiketinden görebilirsiniz.',
+                en: 'The attachment area now works the same on the new mail, reply and forward screens. Uploading a file and adding a link happen in one place, and you can tell whether each attachment is a File or a Link from its badge.',
+            },
+        ],
+    },
+    {
         version: '1.10.10',
         date: '2026-06-16',
         type: 'feature',

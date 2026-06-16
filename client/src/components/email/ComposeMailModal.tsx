@@ -3,15 +3,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Modal, Group, Stack, Text, Badge, Button, Anchor,
     Textarea, Box, ActionIcon, Divider, TextInput, Loader,
-    Checkbox, Alert, Select,
+    Alert, Select,
 } from '@mantine/core';
 import {
-    IconMail, IconPlus, IconX, IconSend, IconPaperclip,
+    IconMail, IconPlus, IconX, IconSend,
     IconAlertCircle,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showSuccess, showErrorFromApi } from '../../lib/notifications';
+import AttachmentSection from './AttachmentSection';
 import type { EmailConnectionStatus } from '../../types/campaign';
 
 interface ComposeMailModalProps {
@@ -26,14 +27,6 @@ interface ContactSearchResult {
     email: string | null;
     company_id: string | null;
     company_name?: string | null;
-}
-
-interface AttachmentTemplate {
-    id: string;
-    label: string;
-    file_type: string;
-    file_url: string;
-    file_size: string;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -108,17 +101,6 @@ export default function ComposeMailModal({ opened, onClose }: ComposeMailModalPr
         staleTime: 5 * 60 * 1000,
     });
     const savedCcList = useMemo(() => (ccAddresses || []).map((a) => a.email), [ccAddresses]);
-
-    // ── Attachment templates ──
-    const { data: attachmentTemplates = [] } = useQuery<AttachmentTemplate[]>({
-        queryKey: ['attachment-templates'],
-        queryFn: async () => {
-            const { data } = await api.get('/attachment-templates');
-            return data.data || [];
-        },
-        enabled: opened,
-        staleTime: 5 * 60_000,
-    });
 
     // ── Send mutation ──
     const sendMutation = useMutation({
@@ -365,41 +347,12 @@ export default function ComposeMailModal({ opened, onClose }: ComposeMailModalPr
                     />
                 </Box>
 
-                {/* Attachments */}
-                {attachmentTemplates.length > 0 && (
-                    <Box pt={4} style={{ borderTop: '1px solid #f1f3f5' }}>
-                        <Group justify="space-between" mb={6} mt={6}>
-                            <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>
-                                {t('emailReplies.attachments.label', 'Eklentiler')}
-                            </Text>
-                        </Group>
-                        <Group gap={6}>
-                            {attachmentTemplates.map((tmpl) => {
-                                const isSelected = selectedAttachments.includes(tmpl.id);
-                                return (
-                                    <Box
-                                        key={tmpl.id}
-                                        onClick={() => connected && setSelectedAttachments((prev) =>
-                                            isSelected ? prev.filter((x) => x !== tmpl.id) : [...prev, tmpl.id]
-                                        )}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', gap: 6,
-                                            border: `1px solid ${isSelected ? '#7c3aed' : '#e8e8f0'}`,
-                                            borderRadius: 8, padding: '6px 10px',
-                                            cursor: connected ? 'pointer' : 'not-allowed',
-                                            background: isSelected ? '#f5f3ff' : '#fafafe',
-                                            opacity: connected ? 1 : 0.5,
-                                        }}
-                                    >
-                                        <Checkbox checked={isSelected} onChange={() => {}} size="xs" color="violet" />
-                                        <IconPaperclip size={12} color={isSelected ? '#7c3aed' : '#888'} />
-                                        <Text size="xs" fw={isSelected ? 600 : 400}>{tmpl.label}</Text>
-                                    </Box>
-                                );
-                            })}
-                        </Group>
-                    </Box>
-                )}
+                {/* Attachments — shared structure (chips + link form + file upload) */}
+                <AttachmentSection
+                    selected={selectedAttachments}
+                    setSelected={setSelectedAttachments}
+                    disabled={!connected}
+                />
 
                 <Divider />
 
