@@ -22,7 +22,7 @@ function buildCard(t: AttachmentTemplate): string {
     const safeUrl = isSafeUrl(t.file_url) ? t.file_url : '#';
     return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 8px;">
   <tr><td>
-    <a href="${escapeAttr(safeUrl)}" target="_blank" style="display: block; text-decoration: none; border: 1px solid #e8e8f0; border-radius: 10px; padding: 14px 16px; background: #fafafe;">
+    <a href="${escapeHtml(safeUrl)}" target="_blank" style="display: block; text-decoration: none; border: 1px solid #e8e8f0; border-radius: 10px; padding: 14px 16px; background: #fafafe;">
       <table cellpadding="0" cellspacing="0" border="0" width="100%">
         <tr>
           <td valign="middle" style="font-family: ${FONT};">
@@ -55,8 +55,22 @@ export function plainTextToParagraphs(text: string): string {
 // &amp;/&#39; inside a URL are valid entities in an href attribute value.
 function linkify(escapedLine: string): string {
     return escapedLine.replace(/https?:\/\/[^\s<>"']+/gi, (match) => {
-        const trailing = /[.,;:!?]+$/.exec(match)?.[0] ?? '';
-        const url = trailing ? match.slice(0, -trailing.length) : match;
+        // Peel trailing sentence punctuation and *unbalanced* closing brackets so
+        // "(see http://x.com)." doesn't swallow ")." into the href, while a
+        // balanced URL like ".../Foo_(bar)" keeps its parens.
+        let url = match;
+        let trailing = '';
+        for (;;) {
+            const ch = url[url.length - 1];
+            if (ch === ')' || ch === ']' || ch === '}') {
+                const open = ch === ')' ? '(' : ch === ']' ? '[' : '{';
+                if (url.split(open).length >= url.split(ch).length) break; // balanced → keep
+            } else if (!'.,;:!?'.includes(ch)) {
+                break;
+            }
+            url = url.slice(0, -1);
+            trailing = ch + trailing;
+        }
         return `<a href="${url}" target="_blank">${url}</a>${trailing}`;
     });
 }
@@ -69,12 +83,4 @@ export function buildAttachmentCardsHtml(templates: AttachmentTemplate[]): strin
 </table>`;
 
     return header + templates.map(buildCard).join('');
-}
-
-function escapeAttr(str: string): string {
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
 }

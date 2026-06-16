@@ -40,6 +40,24 @@ function dbClient(req: Request) {
     return createUserClient(req.accessToken);
 }
 
+// Single place every send path (reply/forward/compose) wires open/click tracking,
+// so a future 4th path can't silently skip it or let the pixel and the
+// raw_payload.tracked marker drift apart. Pre-generates the OUT row id the
+// pixel/click token references, injects tracking into the body, and reports
+// whether a pixel was actually embedded.
+function prepareOutboundTracking(html: string): {
+    outId: string;
+    html: string;
+    trackedMarker: { tracked: true } | Record<string, never>;
+} {
+    const outId = randomUUID();
+    return {
+        outId,
+        html: injectTracking(html, outId, 'reply'),
+        trackedMarker: isTrackingConfigured() ? { tracked: true } : {},
+    };
+}
+
 // GET /api/email-replies — threaded list (latest email per sender+campaign)
 // Returns thread_count and has_unread alongside each row.
 router.get(
@@ -804,10 +822,10 @@ router.post(
             // This fixes replies going out from the wrong (sender_emails[0]) mailbox.
             const accountEmail = resolveThreadMailbox(emailReply) ?? context.fromAddress;
 
-            // Pre-generate the OUT row id: the tracking pixel/click token must
-            // reference it, but the row is only inserted after a successful send.
-            const outId = randomUUID();
-            htmlBody = injectTracking(htmlBody, outId, 'reply');
+            // Tracking pixel/click token references this id; the row is only
+            // inserted after a successful send.
+            const { outId, html: trackedHtml, trackedMarker } = prepareOutboundTracking(htmlBody);
+            htmlBody = trackedHtml;
 
             // Send via the canonical mail router (reply → PlusVibe for a PlusVibe thread)
             const sendResult = await sendMail({
@@ -850,7 +868,7 @@ router.post(
                     plusvibe_reply_id: sendResult.providerMessageId,
                     from_address: accountEmail,
                     subject,
-                    ...(isTrackingConfigured() && { tracked: true }),
+                    ...trackedMarker,
                     ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
                 },
             };
@@ -948,9 +966,8 @@ router.post(
 
             const accountEmail = resolveThreadMailbox(emailReply) ?? context.fromAddress;
 
-            // Pre-generated id links the OUT row to its open/click events
-            const outId = randomUUID();
-            htmlBody = injectTracking(htmlBody, outId, 'reply');
+            const { outId, html: trackedHtml, trackedMarker } = prepareOutboundTracking(htmlBody);
+            htmlBody = trackedHtml;
 
             const sendResult = await sendMail({
                 channel: 'forward',
@@ -992,7 +1009,7 @@ router.post(
                     plusvibe_forward_id: sendResult.providerMessageId,
                     from_address: accountEmail,
                     forwarded_to: to,
-                    ...(isTrackingConfigured() && { tracked: true }),
+                    ...trackedMarker,
                     ...(cc && { cc }),
                     ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
                 },
@@ -1084,9 +1101,8 @@ router.post(
                 }
             }
 
-            // Pre-generated id links the OUT row to its open/click events
-            const outId = randomUUID();
-            htmlBody = injectTracking(htmlBody, outId, 'reply');
+            const { outId, html: trackedHtml, trackedMarker } = prepareOutboundTracking(htmlBody);
+            htmlBody = trackedHtml;
 
             const sendResult = await sendMail({
                 channel: 'compose',
@@ -1125,7 +1141,7 @@ router.post(
                     source: 'user_compose',
                     subject,
                     from_address: accountEmail,
-                    ...(isTrackingConfigured() && { tracked: true }),
+                    ...trackedMarker,
                     ...(cc && { cc }),
                     ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
                 },

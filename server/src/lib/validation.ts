@@ -229,14 +229,17 @@ export const closingReportSchema = z.object({
 
 // ── Email Reply query filter schema ──
 
+// Optional parseable date string (shared by reply-list + tracking-stats filters).
+const optionalDate = z.string().refine(v => !v || !isNaN(Date.parse(v)), { message: 'Invalid date format' }).optional();
+
 export const emailRepliesQuerySchema = z.object({
     page: z.coerce.number().int().min(1).optional().default(1),
     limit: z.coerce.number().int().min(1).max(50).optional().default(20),
     campaign_id: z.string().max(500).optional(),
     match_status: z.enum(['matched', 'unmatched']).optional(),
     read_status: z.enum(['unread', 'read']).optional(),
-    date_from: z.string().refine(v => !v || !isNaN(Date.parse(v)), { message: 'Invalid date format' }).optional(),
-    date_to: z.string().refine(v => !v || !isNaN(Date.parse(v)), { message: 'Invalid date format' }).optional(),
+    date_from: optionalDate,
+    date_to: optionalDate,
     search: z.string().max(255).optional(),
     label: z.string().max(100).optional(),
     sentiment: z.string().max(50).optional(),
@@ -248,8 +251,8 @@ export const readStatusBodySchema = z.object({
 });
 
 export const trackingStatsQuerySchema = z.object({
-    date_from: z.string().refine(v => !v || !isNaN(Date.parse(v)), { message: 'Invalid date format' }).optional(),
-    date_to: z.string().refine(v => !v || !isNaN(Date.parse(v)), { message: 'Invalid date format' }).optional(),
+    date_from: optionalDate,
+    date_to: optionalDate,
 });
 
 // ── Email Reply webhook + assign schemas ──

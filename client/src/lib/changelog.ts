@@ -11,7 +11,23 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
-        version: '1.9.31',
+        version: '1.10.9',
+        date: '2026-06-16',
+        type: 'fix',
+        title: { tr: 'Kararlılık ve Bağlantı Düzeltmeleri', en: 'Stability & Link Fixes' },
+        features: [
+            {
+                tr: 'Gelen cevapları yakalarken bir mail hesabında bağlantı hatası oluşması artık akışı kesmiyor. Hata güvenle kaydediliyor ve diğer hesaplar normal şekilde taranmaya devam ediyor.',
+                en: 'A connection error on one mailbox while capturing incoming replies no longer interrupts the flow. The error is logged safely and the other mailboxes keep being polled normally.',
+            },
+            {
+                tr: 'Gönderdiğiniz yanıt, yönlendirme ve yeni maillerde bir bağlantının hemen ardına kapanış parantezi veya ayraç koyduğunuzda, bağlantı artık bu işareti içine almadan doğru adrese gidiyor.',
+                en: 'In the replies, forwards and new mails you send, when a closing parenthesis or bracket comes right after a link, the link now points to the correct address without swallowing that character.',
+            },
+        ],
+    },
+    {
+        version: '1.10.8',
         date: '2026-06-15',
         type: 'improvement',
         title: { tr: 'Kararlılık ve Hata Bildirimleri', en: 'Stability & Error Notifications' },
@@ -27,7 +43,7 @@ export const changelog: ChangelogEntry[] = [
         ],
     },
     {
-        version: '1.9.30',
+        version: '1.10.7',
         date: '2026-06-15',
         type: 'feature',
         title: { tr: 'Mail Açılma Takibi ve Yeni Özet Kartları', en: 'Mail Open Tracking & New Summary Cards' },
@@ -43,7 +59,7 @@ export const changelog: ChangelogEntry[] = [
         ],
     },
     {
-        version: '1.9.29',
+        version: '1.10.6',
         date: '2026-06-15',
         type: 'feature',
         title: { tr: 'Açılış Mailiniz Konuşmada', en: 'Your Opening Email in the Thread' },
@@ -55,7 +71,7 @@ export const changelog: ChangelogEntry[] = [
         ],
     },
     {
-        version: '1.9.28',
+        version: '1.10.5',
         date: '2026-06-11',
         type: 'fix',
         title: { tr: 'Mail Gönderiminde Düzeltmeler', en: 'Mail Sending Fixes' },
@@ -71,7 +87,7 @@ export const changelog: ChangelogEntry[] = [
         ],
     },
     {
-        version: '1.9.27',
+        version: '1.10.4',
         date: '2026-06-11',
         type: 'feature',
         title: { tr: 'Kendi Mail Sunucunuz (SMTP/IMAP)', en: 'Your Own Mail Server (SMTP/IMAP)' },
@@ -87,7 +103,7 @@ export const changelog: ChangelogEntry[] = [
         ],
     },
     {
-        version: '1.9.26',
+        version: '1.10.3',
         date: '2026-06-05',
         type: 'feature',
         title: { tr: 'İçe Aktarma Eşleşme Denetimi', en: 'Import Match Audit' },
@@ -103,7 +119,7 @@ export const changelog: ChangelogEntry[] = [
         ],
     },
     {
-        version: '1.9.25',
+        version: '1.10.2',
         date: '2026-06-05',
         type: 'improvement',
         title: { tr: 'Mail Altyapısı Güçlendirildi', en: 'Stronger Email Infrastructure' },
@@ -119,7 +135,7 @@ export const changelog: ChangelogEntry[] = [
         ],
     },
     {
-        version: '1.9.24',
+        version: '1.10.1',
         date: '2026-06-02',
         type: 'fix',
         title: { tr: 'Yanıtta "Kimden" Düzeltmesi', en: 'Reply "From" Fix' },
@@ -131,7 +147,7 @@ export const changelog: ChangelogEntry[] = [
         ],
     },
     {
-        version: '1.9.23',
+        version: '1.10.0',
         date: '2026-05-24',
         type: 'feature',
         title: { tr: 'Gmail Bağlantısı', en: 'Gmail Connection' },

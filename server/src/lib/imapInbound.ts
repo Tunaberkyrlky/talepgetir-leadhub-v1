@@ -118,6 +118,17 @@ async function pollConnection(conn: EmailConnection): Promise<PollResult> {
         connectionTimeout: 10_000,
     });
 
+    // ImapFlow is an EventEmitter: an async transport failure (e.g. a socket
+    // timeout fired from the socket's own timer) is delivered as an 'error'
+    // event, separately from the rejection of whatever command is in flight.
+    // With no 'error' listener, Node re-throws that emit as an uncaught
+    // exception — off our await chain, so neither the try/finally below nor the
+    // caller's Promise.allSettled can catch it. Attach a listener so the error
+    // is logged and swallowed; the in-flight await still rejects and is handled
+    // normally by pollConnection's caller.
+    client.on('error', (err) =>
+        log.warn({ err, account: conn.email_address }, 'IMAP client error (async)'));
+
     let processed = 0;
     let matched = 0;
 
