@@ -349,7 +349,7 @@ const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProp
                     <IconNotes size={20} color="var(--mantine-color-violet-6)" />
                     <Title order={4} fw={600}>{t('activity.timeline')}</Title>
                     {totalCount != null && (
-                        <Badge size="sm" variant="light" color="violet" circle>
+                        <Badge size="sm" variant="light" color="violet" radius="xl">
                             {totalCount}
                         </Badge>
                     )}

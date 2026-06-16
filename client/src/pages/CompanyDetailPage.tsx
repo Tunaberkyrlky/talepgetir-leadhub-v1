@@ -711,7 +711,7 @@ export default function CompanyDetailPage() {
                                 <Group gap={6} wrap="nowrap">
                                     {t('company.contacts')}
                                     {company.contacts.length > 0 && (
-                                        <Badge size="xs" variant="light" color="violet" circle>{company.contacts.length}</Badge>
+                                        <Badge size="xs" variant="light" color="violet" radius="xl">{company.contacts.length}</Badge>
                                     )}
                                 </Group>
                             </Tabs.Tab>
@@ -719,7 +719,7 @@ export default function CompanyDetailPage() {
                                 <Group gap={6} wrap="nowrap">
                                     {t('emailReplies.companyEmailsTab')}
                                     {companyEmails.length > 0 && (
-                                        <Badge size="xs" variant="light" color="blue" circle>{companyEmails.length}</Badge>
+                                        <Badge size="xs" variant="light" color="blue" radius="xl">{companyEmails.length}</Badge>
                                     )}
                                 </Group>
                             </Tabs.Tab>

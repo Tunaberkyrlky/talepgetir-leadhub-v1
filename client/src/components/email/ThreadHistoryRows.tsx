@@ -82,9 +82,9 @@ export default function ThreadHistoryRows({
             <Table.Tr
                 key={h.id}
                 style={{
-                    backgroundColor: isOut
-                        ? 'var(--mantine-color-gray-0)'
-                        : 'var(--mantine-color-violet-0)',
+                    backgroundColor: isCurrent
+                        ? 'var(--mantine-color-violet-1)'
+                        : (isOut ? 'var(--mantine-color-gray-0)' : 'var(--mantine-color-violet-0)'),
                     cursor: onClickRow ? 'pointer' : undefined,
                 }}
                 onClick={onClickRow ? () => onClickRow(h) : undefined}
@@ -93,7 +93,9 @@ export default function ThreadHistoryRows({
                     style={{
                         padding: '0 4px 0 14px',
                         width: 20,
-                        borderLeft: '3px solid var(--mantine-color-violet-4)',
+                        borderLeft: isCurrent
+                            ? '3px solid var(--mantine-color-violet-6)'
+                            : '3px solid var(--mantine-color-violet-4)',
                     }}
                 >
                     {!isOut && (
@@ -120,9 +122,6 @@ export default function ThreadHistoryRows({
                             <Text size="xs" c="#92400e" fw={500} style={{ whiteSpace: 'nowrap' }}>
                                 → {forwardedTo}
                             </Text>
-                        )}
-                        {isCurrent && (
-                            <Badge size="xs" variant="outline" color="blue" style={{ flexShrink: 0 }}>●</Badge>
                         )}
                     </Group>
                 </Table.Td>

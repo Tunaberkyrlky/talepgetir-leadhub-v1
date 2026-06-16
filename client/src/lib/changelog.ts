@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.10.13',
+        date: '2026-06-16',
+        type: 'fix',
+        title: { tr: 'Sayaç Görünüm Düzeltmesi', en: 'Counter Display Fix' },
+        features: [
+            {
+                tr: 'Sayfa başlıkları ve sekmelerdeki sayaç rozetleri artık yüzler ve daha büyük sayıları da tam gösteriyor. Önceden belirli bir sayının üzerindeki değerler kırpılıyordu.',
+                en: 'Counter badges in page titles and tabs now display values in the hundreds and beyond in full. Previously values above a certain number were clipped.',
+            },
+        ],
+    },
+    {
         version: '1.10.12',
         date: '2026-06-16',
         type: 'feature',

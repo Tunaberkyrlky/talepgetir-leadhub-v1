@@ -184,7 +184,7 @@ export default function AgendaDayGroup({
                 >
                     {label}
                 </Text>
-                <Badge size="xs" variant="light" color={urgencyColor} circle>
+                <Badge size="xs" variant="light" color={urgencyColor} radius="xl">
                     {activities.length}
                 </Badge>
             </Group>

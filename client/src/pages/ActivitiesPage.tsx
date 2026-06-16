@@ -603,7 +603,7 @@ export default function ActivitiesPage() {
             <Group justify="space-between" align="center" mb="md" wrap="wrap" gap="sm">
                 <Group gap="xs">
                     <Title order={2}>{t('activities.pageTitle')}</Title>
-                    <Badge size="lg" variant="light" color="violet" circle>
+                    <Badge size="lg" variant="light" color="violet" radius="xl">
                         {total}
                     </Badge>
                 </Group>

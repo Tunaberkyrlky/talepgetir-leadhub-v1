@@ -71,7 +71,7 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
             <Group gap="xs">
                 <IconUsers size={18} color="var(--mantine-color-violet-6)" />
                 <Text size="sm" fw={600}>{t('campaign.enrollments', 'Enrollments')}</Text>
-                {enrollments && <Badge size="sm" variant="light" color="violet" circle>{enrollments.length}</Badge>}
+                {enrollments && <Badge size="sm" variant="light" color="violet" radius="xl">{enrollments.length}</Badge>}
             </Group>
 
             {canEnroll && (
