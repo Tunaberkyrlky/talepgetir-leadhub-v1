@@ -6,6 +6,7 @@ import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
 import { validateBody, createCompanySchema, updateCompanySchema, sanitizeEmail } from '../lib/validation.js';
+import { parseList } from '../lib/parseList.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
@@ -14,7 +15,9 @@ import posthog from '../lib/posthog.js';
 
 const log = createLogger('route:companies');
 
-const COMPANY_TRANSLATE_FIELDS = ['product_services', 'product_portfolio', 'company_summary', 'next_step', 'industry'] as const;
+// product_services / product_portfolio are now text[] lists (product categories) —
+// excluded from translation (the values are short keywords that don't need DeepL).
+const COMPANY_TRANSLATE_FIELDS = ['company_summary', 'next_step', 'industry'] as const;
 
 const router = Router();
 
@@ -194,10 +197,11 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             }
         }
 
-        // Apply product_services filter
+        // Apply product_services filter — product_services is text[], so match
+        // companies whose list overlaps any of the selected products.
         if (products.length > 0) {
-            countQuery = countQuery.in('product_services', products);
-            dataQuery = dataQuery.in('product_services', products);
+            countQuery = countQuery.overlaps('product_services', products);
+            dataQuery = dataQuery.overlaps('product_services', products);
         }
 
         // Apply date filters
@@ -452,8 +456,8 @@ router.post(
                 location: location || null,
                 industry: industry ? industry.charAt(0).toUpperCase() + industry.slice(1) : null,
                 employee_size: employee_size || null,
-                product_services: product_services || null,
-                product_portfolio: product_portfolio || null,
+                product_services: parseList(product_services),
+                product_portfolio: parseList(product_portfolio),
                 linkedin: linkedin || null,
                 company_phone: company_phone || null,
                 company_email: company_email || null,
@@ -594,8 +598,8 @@ router.put(
             if (location !== undefined) updateData.location = location;
             if (industry !== undefined) updateData.industry = industry ? industry.charAt(0).toUpperCase() + industry.slice(1) : industry;
             if (employee_size !== undefined) updateData.employee_size = employee_size;
-            if (product_services !== undefined) updateData.product_services = product_services;
-            if (product_portfolio !== undefined) updateData.product_portfolio = product_portfolio;
+            if (product_services !== undefined) updateData.product_services = parseList(product_services);
+            if (product_portfolio !== undefined) updateData.product_portfolio = parseList(product_portfolio);
             if (linkedin !== undefined) updateData.linkedin = linkedin;
             if (company_phone !== undefined) updateData.company_phone = company_phone;
             if (company_email !== undefined) updateData.company_email = company_email;

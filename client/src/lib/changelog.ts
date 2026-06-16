@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.10.10',
+        date: '2026-06-16',
+        type: 'feature',
+        title: { tr: 'Ürün Alanları Artık Etiket Listesi', en: 'Product Fields Are Now Tag Lists' },
+        features: [
+            {
+                tr: 'Şirketlerdeki Ürün/Hizmetler ve Ürün Portföyü alanları artık tek bir metin yerine ayrı etiketler halinde tutuluyor. Şirket eklerken veya düzenlerken virgül, noktalı virgül ya da dikey çizgiyle yazdığınız ürünler otomatik olarak ayrı etiketlere bölünür, içe aktarımda da çoklu ürünler tek tek listelenir.',
+                en: 'The Products/Services and Product Portfolio fields on companies are now kept as separate tags instead of a single text. When you add or edit a company, the products you type with commas, semicolons or vertical bars are split into separate tags automatically, and on import multiple products are listed one by one.',
+            },
+            {
+                tr: 'Ürün filtresinde bir kategori seçtiğinizde, o ürünü içeren tüm şirketleri listeleyebilirsiniz.',
+                en: 'When you pick a category in the product filter, you can list every company that includes that product.',
+            },
+        ],
+    },
+    {
         version: '1.10.9',
         date: '2026-06-16',
         type: 'fix',

@@ -89,8 +89,8 @@ interface Company {
     location: string | null;
     industry: string | null;
     employee_size: string | null;
-    product_services: string | null;
-    product_portfolio: string | null;
+    product_services: string[] | null;
+    product_portfolio: string[] | null;
     linkedin: string | null;
     company_phone: string | null;
     company_email: string | null;
@@ -636,18 +636,26 @@ export default function CompanyDetailPage() {
 
                 {/* Details Grid */}
                 <SimpleGrid cols={2}>
-                    {!hiddenFields.has('product_services') && company.product_services && (
+                    {!hiddenFields.has('product_services') && company.product_services?.length ? (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.productServices')}</Text>
-                            <TranslatableField original={company.product_services} translated={company.translations?.product_services} showTranslation={showTranslation} maxLength={350} />
+                            <Group gap={4} mt={4}>
+                                {company.product_services.map((p) => (
+                                    <Badge key={p} variant="light" radius="sm" tt="none">{p}</Badge>
+                                ))}
+                            </Group>
                         </Box>
-                    )}
-                    {!hiddenFields.has('product_portfolio') && company.product_portfolio && (
+                    ) : null}
+                    {!hiddenFields.has('product_portfolio') && company.product_portfolio?.length ? (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.productPortfolio')}</Text>
-                            <TranslatableField original={company.product_portfolio} translated={company.translations?.product_portfolio} showTranslation={showTranslation} maxLength={350} />
+                            <Group gap={4} mt={4}>
+                                {company.product_portfolio.map((p) => (
+                                    <Badge key={p} variant="light" radius="sm" tt="none">{p}</Badge>
+                                ))}
+                            </Group>
                         </Box>
-                    )}
+                    ) : null}
                     {!hiddenFields.has('company_summary') && company.company_summary && (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.companySummary')}</Text>

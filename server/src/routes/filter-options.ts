@@ -36,7 +36,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
                 .select('product_services')
                 .eq('tenant_id', tenantId)
                 .not('product_services', 'is', null)
-                .neq('product_services', '')
                 .limit(5000),
             supabaseAdmin
                 .from('companies')
@@ -49,7 +48,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
         const industries = [...new Set((industryRes.data || []).map((r) => r.industry))].sort();
         const locations = [...new Set((locationRes.data || []).map((r) => r.location))].sort();
-        const products = [...new Set((productRes.data || []).map((r) => r.product_services))].sort();
+        // product_services is text[] — flatten every company's list into distinct values
+        const products = [...new Set(
+            (productRes.data || []).flatMap((r) => (r.product_services as unknown as string[] | null) || []),
+        )].sort();
         const countries = [...new Set((countryRes.data || []).map((r) => r.country))].sort();
 
         res.json({ stages, industries, locations, products, countries });

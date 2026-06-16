@@ -93,8 +93,8 @@ interface Company {
     location: string | null;
     industry: string | null;
     employee_size: string | null;
-    product_services: string | null;
-    product_portfolio: string | null;
+    product_services: string[] | null;
+    product_portfolio: string[] | null;
     linkedin: string | null;
     company_phone: string | null;
     company_email: string | null;
@@ -843,13 +843,13 @@ export default function LeadsPage() {
             case 'product_services':
                 return (
                     <Table.Td key="product_services">
-                        <TruncatedText size="sm">{company.product_services}</TruncatedText>
+                        <TruncatedText size="sm">{company.product_services?.join(', ')}</TruncatedText>
                     </Table.Td>
                 );
             case 'product_portfolio':
                 return (
                     <Table.Td key="product_portfolio">
-                        <TruncatedText size="sm">{company.product_portfolio}</TruncatedText>
+                        <TruncatedText size="sm">{company.product_portfolio?.join(', ')}</TruncatedText>
                     </Table.Td>
                 );
             case 'linkedin':

@@ -111,8 +111,10 @@ export const createCompanySchema = z.object({
     company_summary: z.string().max(5000).optional().nullable(),
     internal_notes: z.string().max(10000).optional().nullable(),
     next_step: z.string().max(2000).optional().nullable(),
-    product_services: z.string().max(5000).optional().nullable(),
-    product_portfolio: z.string().max(5000).optional().nullable(),
+    // Stored as text[]. Accept a list from the UI, or a raw string (legacy / API)
+    // that the route normalizes via parseList() into a clean array.
+    product_services: z.union([z.array(z.string().max(500)).max(100), z.string().max(5000)]).optional().nullable(),
+    product_portfolio: z.union([z.array(z.string().max(500)).max(100), z.string().max(5000)]).optional().nullable(),
     fit_score: z.string().max(50).optional().nullable(),
     custom_field_1: z.string().max(2000).optional().nullable(),
     custom_field_2: z.string().max(2000).optional().nullable(),

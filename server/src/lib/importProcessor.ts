@@ -8,6 +8,7 @@ import ExcelJS from 'exceljs';
 import fs from 'fs';
 import { supabaseAdmin } from './supabase.js';
 import { sanitizeCell } from './importMapper.js';
+import { parseList } from './parseList.js';
 import { clearCompanyCache } from './emailMatcher.js';
 import { cleanWebsite } from './dataMatcher.js';
 import { createLogger } from './logger.js';
@@ -396,8 +397,8 @@ async function _executeImportInner(
             location: getValue(row, 'companies.location') || null,
             industry: (() => { const v = getValue(row, 'companies.industry'); return v ? v.charAt(0).toUpperCase() + v.slice(1) : null; })(),
             employee_size: getValue(row, 'companies.employee_size') || null,
-            product_services: getValue(row, 'companies.product_services') || null,
-            product_portfolio: getValue(row, 'companies.product_portfolio') || null,
+            product_services: parseList(getValue(row, 'companies.product_services')),
+            product_portfolio: parseList(getValue(row, 'companies.product_portfolio')),
             linkedin: getValue(row, 'companies.linkedin') || null,
             company_phone: getValue(row, 'companies.company_phone') || null,
             company_email: getValue(row, 'companies.company_email') || null,
