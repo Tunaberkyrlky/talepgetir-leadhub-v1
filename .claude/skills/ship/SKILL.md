@@ -37,9 +37,15 @@ Run `git diff --stat` and `git status` to see what changed. Categorize files int
 Check current version from `package.json` (root). Propose:
 - **patch** (x.y.Z) — bug fixes, small tweaks, style changes
 - **minor** (x.Y.0) — new features, new pages, new components
+- **milestone minor** (x.Y.0) — when the change opens or completes a cohesive new capability area (a "milestone"), bump the minor to mark it, even if this single commit is small.
+
+**Milestone'ı kaçırma — proaktif öner.** Birbirini tamamlayan büyük bir özellik kümesi (yeni bir yetenek alanı) ardışık **patch** sürümleri altında birikiyorsa, bunu fark edip kullanıcıya **minor bump (x.Y.0)** öner. Sadece ship anında değil, **milestone olabilecek bir işi/planı tartışırken de** versiyon etkisini gündeme getir ("bu minor bump'ı hak eder").
+
+> Geçmiş ders: mail paketi (kendi mailinden compose/yanıt/yönlendirme, IMAP gelen-cevap yakalama, açılma takibi) 1.9.23–1.9.31 arası hep patch ile gitti; aslında başlangıçta **1.10.0** ile işaretlenmeliydi. Bu yüzden milestone'lar patch altında sessizce birikmesin.
 
 Ask user with `AskUserQuestion`:
-- "Version bump: {current} -> {proposed}? (patch/minor)"
+- "Version bump: {current} -> {proposed}? (patch / minor / milestone minor)"
+- Milestone sezdiysen önerilen seçeneği milestone minor yap ve gerekçeyi yaz.
 
 ### Step 3: Write Commit Message
 
