@@ -1,62 +1,94 @@
 export type ChangelogType = 'feature' | 'fix' | 'improvement' | 'security';
 
+interface Localized { tr: string; en: string }
+
 export interface ChangelogEntry {
     version: string;
     date: string;
     /** Baskın değişiklik tipi — başlıkta renkli badge olarak görünür. Eski entry'ler için opsiyonel (varsayılan: 'feature'). */
     type?: ChangelogType;
-    title: { tr: string; en: string };
-    features: { tr: string; en: string }[];
+    title: Localized;
+    /**
+     * Yeni format (kısa ve öz, 3 soruya cevap). Her biri tek cümle.
+     *   about — Bu güncelleme ne hakkında? (zorunlu)
+     *   usage — Yeni kullanım nasıl? (yeni ekran/buton/davranış varsa)
+     *   notes — Neleri bilmeliyim? (uyarı/sınır varsa)
+     */
+    about?: Localized;
+    usage?: Localized;
+    notes?: Localized;
+    /** Eski format — yalnızca yeni-format alanları yoksa gösterilir (geriye dönük). */
+    features?: Localized[];
 }
 
 export const changelog: ChangelogEntry[] = [
+    {
+        version: '1.10.14',
+        date: '2026-06-17',
+        type: 'feature',
+        title: { tr: 'Notlara Hızlı Erişim ve Şirket/Kişi Geçişi', en: 'Quick Notes Access & Companies/People Switch' },
+        about: {
+            tr: 'Mail sayfasında şirket notlarını artık liste satırından okuyabilir, Şirketler ile Kişiler görünümleri arasında tek tıkla geçebilirsiniz.',
+            en: 'On the mail page you can now read company notes right from the list row, and switch between the Companies and People views in one click.',
+        },
+        usage: {
+            tr: 'Aktivite sayısına tıklayınca o şirketin notları açılır, bir satırı genişlettiğinizde notlar mail geçmişinin altında da listelenir. Şirketler ve Kişiler arasında sayfa başlığındaki düğmeden geçebilirsiniz.',
+            en: 'Click the activity count to open that company’s notes, and expand a row to also see them under the mail history. Switch between Companies and People from the toggle in the page header.',
+        },
+        notes: {
+            tr: 'Kampanya atama artık Kampanyalar sayfasındaki Atama sekmesinde yer alıyor.',
+            en: 'Campaign assignment now lives in the Assignment tab on the Campaigns page.',
+        },
+    },
     {
         version: '1.10.13',
         date: '2026-06-16',
         type: 'fix',
         title: { tr: 'Sayaç Görünüm Düzeltmesi', en: 'Counter Display Fix' },
-        features: [
-            {
-                tr: 'Sayfa başlıkları ve sekmelerdeki sayaç rozetleri artık yüzler ve daha büyük sayıları da tam gösteriyor. Önceden belirli bir sayının üzerindeki değerler kırpılıyordu.',
-                en: 'Counter badges in page titles and tabs now display values in the hundreds and beyond in full. Previously values above a certain number were clipped.',
-            },
-        ],
+        about: {
+            tr: 'Sayfa başlıkları ve sekmelerdeki sayaç rozetlerinin büyük sayıları kırpması düzeltildi.',
+            en: 'Fixed counter badges in page titles and tabs clipping large numbers.',
+        },
+        notes: {
+            tr: 'Artık yüzler ve binler de tam görünüyor.',
+            en: 'Hundreds and thousands now show in full.',
+        },
     },
     {
         version: '1.10.12',
         date: '2026-06-16',
         type: 'feature',
         title: { tr: 'Mail Ekleri Yönetimi ve Yanıt Durumu', en: 'Attachment Library & Reply Status' },
-        features: [
-            {
-                tr: 'Mail Yanıtları sayfasına bir İşlemler menüsü ve Mail Ekleri ekranı eklendi. Dosya ve linklerinizi mail göndermeden buradan kaydedip yönetebilir, kaydettiğiniz ekleri yeni mail, yanıt ve iletme ekranlarında hazır olarak kullanabilirsiniz.',
-                en: 'An Actions menu and an Email Attachments screen were added to the Email Replies page. You can save and manage your files and links here without sending a mail, and use the saved attachments ready on the new mail, reply and forward screens.',
-            },
-            {
-                tr: 'Yanıtlara eklediğiniz dosyaların alıcıya ulaşmadığı durum giderildi. Dosyalar artık güvenle iletiliyor; doğrudan dosya eki destekleyen kanallarda gerçek ek, desteklemeyen kanallarda ise tek tıkla tarayıcıda önizlenebilen bir bağlantı kartı olarak gidiyor.',
-                en: 'Fixed a case where files attached to replies did not reach the recipient. Files are now delivered reliably, as a real attachment on channels that support it and as a one-click browser-previewable link card on those that do not.',
-            },
-            {
-                tr: 'Mail listesinde her satırda yanıt durumunu tek bakışta görebilirsiniz. Yanıt beklediğiniz mailler saat simgesiyle, son sözü sizin söylediğiniz mailler yeşil tikle gösteriliyor.',
-                en: 'On the mail list you can see the reply status of each row at a glance. Mails awaiting your reply are shown with a clock icon, and mails where you had the last word with a green check.',
-            },
-        ],
+        about: {
+            tr: 'Mail eklerini göndermeden yönetebileceğiniz bir kütüphane ile liste satırlarında yanıt durumu göstergeleri geldi.',
+            en: 'A library to manage email attachments without sending, plus reply-status indicators on list rows.',
+        },
+        usage: {
+            tr: 'Mail Yanıtları’ndaki İşlemler menüsünden Ekler’i açıp dosya/link kaydedin; bu ekler yeni mail, yanıt ve iletmede seçilebilir hale gelir.',
+            en: 'Open Attachments from the Actions menu on Email Replies and save files/links; they become selectable on new mail, reply and forward.',
+        },
+        notes: {
+            tr: 'Ekler artık güvenle iletiliyor (gerçek ek ya da tarayıcıda önizlenebilir link). Satırda saat = sizden yanıt bekliyor, yeşil tik = son söz sizde.',
+            en: 'Attachments now arrive reliably (a real attachment or a browser-previewable link). On a row, a clock = awaiting your reply, a green check = you had the last word.',
+        },
     },
     {
         version: '1.10.11',
         date: '2026-06-16',
         type: 'feature',
         title: { tr: 'Maillere Doğrudan Dosya Ekleme', en: 'Direct File Attachments in Emails' },
-        features: [
-            {
-                tr: 'Maillerinize artık dosyaları doğrudan sürükleyip bırakarak ekleyebilirsiniz. Yüklediğiniz dosya, gönderim kanalı destekliyorsa alıcının gelen kutusuna gerçek ek olarak iner, desteklemiyorsa indirme linki olarak gider.',
-                en: 'You can now add files to your emails by dragging and dropping them directly. The file you upload lands in the recipient inbox as a real attachment when the sending channel supports it, and goes as a download link otherwise.',
-            },
-            {
-                tr: 'Eklenti alanı yeni mail, yanıt ve iletme ekranlarında artık aynı çalışıyor. Dosya yükleme ile link ekleme tek yerden yapılıyor, her eklentinin Dosya mı Link mi olduğunu etiketinden görebilirsiniz.',
-                en: 'The attachment area now works the same on the new mail, reply and forward screens. Uploading a file and adding a link happen in one place, and you can tell whether each attachment is a File or a Link from its badge.',
-            },
-        ],
+        about: {
+            tr: 'Maillere doğrudan dosya ekleme ve yeni mail, yanıt, iletmede aynı çalışan tek tip ek alanı geldi.',
+            en: 'Direct file attachments and a unified attachment area that works the same on new mail, reply and forward.',
+        },
+        usage: {
+            tr: 'Dosyayı sürükleyip bırakın ya da link ekleyin; her ek “Dosya” veya “Link” rozetiyle görünür.',
+            en: 'Drag and drop a file or add a link; each attachment shows a “File” or “Link” badge.',
+        },
+        notes: {
+            tr: 'Dosya, kanal destekliyorsa gerçek ek, desteklemiyorsa indirme/önizleme linki olarak gider.',
+            en: 'A file is delivered as a real attachment when the channel supports it, otherwise as a download/preview link.',
+        },
     },
     {
         version: '1.10.10',

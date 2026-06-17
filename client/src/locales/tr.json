@@ -911,6 +911,7 @@
     },
     "campaigns": {
         "pageTitle": "Kampanyalar",
+        "assignTab": "Atama",
         "sync": "Senkronize Et",
         "synced": "Kampanyalar senkronize edildi",
         "searchPlaceholder": "Kampanya ara...",

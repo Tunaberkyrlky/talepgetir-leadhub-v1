@@ -14,7 +14,7 @@ import {
     IconAlertCircle,
     IconSpeakerphone, IconDownload, IconChevronDown, IconChevronRight,
     IconChevronLeft, IconRefresh, IconAdjustments, IconPencilPlus,
-    IconEye, IconStar, IconClock, IconCircleCheck, IconPaperclip,
+    IconEye, IconStar, IconClock, IconCircleCheck, IconPaperclip, IconNotes,
 } from '@tabler/icons-react';
 import ThreadHistoryRows from '../components/email/ThreadHistoryRows';
 import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
@@ -26,6 +26,7 @@ import StatCard from '../components/StatCard';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import ComposeMailModal from '../components/email/ComposeMailModal';
 import AttachmentLibraryModal from '../components/email/AttachmentLibraryModal';
+import ActivityTimeline from '../components/ActivityTimeline';
 import type { EmailReply, EmailReplyStats, EmailTrackingStats, Campaign } from '../types/emailReply';
 import type { CampaignsResponse } from '../types/plusvibe';
 import { useStages } from '../contexts/StagesContext';
@@ -883,7 +884,7 @@ export default function EmailRepliesPage() {
                         <Table highlightOnHover striped>
                             <Table.Thead>
                                 <Table.Tr>
-                                    <Table.Th style={{ width: 52, padding: '0 2px' }} />
+                                    <Table.Th style={{ width: 72, padding: '0 2px' }} />
                                     <Table.Th style={{ width: 26, padding: '0 2px' }} />
                                     {isColVisible('campaign') && <Table.Th style={{ width: 28, padding: '0 2px' }} />}
                                     {isColVisible('sender') && <Table.Th>{t('emailReplies.table.sender')}</Table.Th>}
@@ -892,7 +893,7 @@ export default function EmailRepliesPage() {
                                     {isColVisible('label') && <Table.Th style={{ width: 30, padding: '0 4px', textAlign: 'center' }}>{t('emailReplies.table.label')}</Table.Th>}
                                     {isColVisible('preview') && <Table.Th>{t('emailReplies.table.preview')}</Table.Th>}
                                     {isColVisible('website') && <Table.Th>{t('emailReplies.table.website')}</Table.Th>}
-                                    {isColVisible('notes') && <Table.Th style={{ width: 40, padding: '0 4px' }}>{t('emailReplies.table.notes')}</Table.Th>}
+                                    {isColVisible('notes') && <Table.Th style={{ width: 64, padding: '0 4px' }}>{t('emailReplies.table.notes')}</Table.Th>}
                                     {isColVisible('date') && <Table.Th>{t('emailReplies.table.date')}</Table.Th>}
                                     <Table.Th style={{ width: 30, padding: '0 4px' }}>
                                         <Popover position="bottom-end" shadow="md" width={220}>
@@ -959,7 +960,7 @@ export default function EmailRepliesPage() {
                                                             : '3px solid transparent',
                                                     }}
                                                 >
-                                                    <Group gap={2} wrap="nowrap" justify="center">
+                                                    <Group gap={4} wrap="nowrap" justify="center">
                                                         <Tooltip
                                                             label={hasUnread
                                                                 ? t('emailReplies.actions.markRead')
@@ -967,7 +968,7 @@ export default function EmailRepliesPage() {
                                                             withArrow
                                                         >
                                                             <ActionIcon
-                                                                size="sm"
+                                                                size="md"
                                                                 variant="subtle"
                                                                 color={hasUnread ? 'blue' : 'gray'}
                                                                 onClick={(e) => {
@@ -979,24 +980,31 @@ export default function EmailRepliesPage() {
                                                                 }}
                                                             >
                                                                 {hasUnread
-                                                                    ? <IconMail size={16} />
-                                                                    : <IconMailOpened size={16} />}
+                                                                    ? <IconMail size={18} />
+                                                                    : <IconMailOpened size={18} />}
                                                             </ActionIcon>
                                                         </Tooltip>
-                                                        <ActionIcon
-                                                            size="xs"
-                                                            variant="subtle"
-                                                            color="gray"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                toggleExpand(reply.id);
-                                                            }}
+                                                        <Tooltip
+                                                            label={isExpanded
+                                                                ? t('emailReplies.thread.collapse')
+                                                                : t('emailReplies.thread.expand', { count: threadCount })}
+                                                            withArrow
                                                         >
-                                                            {isExpanded
-                                                                ? <IconChevronDown size={13} />
-                                                                : <IconChevronRight size={13} />
-                                                            }
-                                                        </ActionIcon>
+                                                            <ActionIcon
+                                                                size="md"
+                                                                variant="subtle"
+                                                                color="gray"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    toggleExpand(reply.id);
+                                                                }}
+                                                            >
+                                                                {isExpanded
+                                                                    ? <IconChevronDown size={18} />
+                                                                    : <IconChevronRight size={18} />
+                                                                }
+                                                            </ActionIcon>
+                                                        </Tooltip>
                                                     </Group>
                                                 </Table.Td>
 
@@ -1150,13 +1158,44 @@ export default function EmailRepliesPage() {
                                                 </Table.Td>
                                                 )}
 
-                                                {/* Activity count badge */}
+                                                {/* Activity count badge — click to read the company's notes in a popover */}
                                                 {isColVisible('notes') && (
-                                                <Table.Td style={{ padding: '0 4px', textAlign: 'center' }}>
+                                                <Table.Td
+                                                    style={{ padding: '0 4px', textAlign: 'center' }}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
                                                     {(reply.company_activity_count ?? 0) > 0 ? (
-                                                        <Badge size="xs" variant="light" color="violet" style={{ cursor: 'default' }}>
-                                                            {reply.company_activity_count}
-                                                        </Badge>
+                                                        reply.company_id ? (
+                                                            <Popover position="bottom-end" withArrow shadow="md" width={340}>
+                                                                <Popover.Target>
+                                                                    <Button
+                                                                        size="compact-sm"
+                                                                        variant="light"
+                                                                        color="violet"
+                                                                        leftSection={<IconNotes size={14} />}
+                                                                    >
+                                                                        {reply.company_activity_count}
+                                                                    </Button>
+                                                                </Popover.Target>
+                                                                <Popover.Dropdown p="xs">
+                                                                    <Text size="xs" fw={700} c="dimmed" tt="uppercase" mb={6} lineClamp={1}>
+                                                                        {reply.company_name || t('emailReplies.table.notes')}
+                                                                    </Text>
+                                                                    <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                                                                        <ActivityTimeline
+                                                                            companyId={reply.company_id}
+                                                                            embedded
+                                                                            compact
+                                                                            hideActionButton
+                                                                        />
+                                                                    </div>
+                                                                </Popover.Dropdown>
+                                                            </Popover>
+                                                        ) : (
+                                                            <Badge size="xs" variant="light" color="violet" style={{ cursor: 'default' }}>
+                                                                {reply.company_activity_count}
+                                                            </Badge>
+                                                        )
                                                     ) : null}
                                                 </Table.Td>
                                                 )}
@@ -1174,16 +1213,43 @@ export default function EmailRepliesPage() {
                                                 <Table.Td style={{ width: 30, padding: '0 4px' }} />
                                             </Table.Tr>
 
-                                            {/* Thread history rows */}
+                                            {/* Thread history rows + company notes under them */}
                                             {isExpanded && (
-                                                <ThreadHistoryRows
-                                                    senderEmail={reply.sender_email}
-                                                    campaignId={reply.campaign_id}
-                                                    parentReplyId={reply.id}
-                                                    locale={locale}
-                                                    colSpan={visibleEmailCols.length + 3}
-                                                    onClickRow={() => setSelectedReply(reply)}
-                                                />
+                                                <>
+                                                    <ThreadHistoryRows
+                                                        senderEmail={reply.sender_email}
+                                                        campaignId={reply.campaign_id}
+                                                        parentReplyId={reply.id}
+                                                        locale={locale}
+                                                        colSpan={visibleEmailCols.length + 3}
+                                                        onClickRow={() => setSelectedReply(reply)}
+                                                    />
+                                                    {reply.company_id && (reply.company_activity_count ?? 0) > 0 && (
+                                                        <Table.Tr>
+                                                            <Table.Td
+                                                                colSpan={visibleEmailCols.length + 3}
+                                                                style={{
+                                                                    padding: '8px 12px 10px 26px',
+                                                                    borderLeft: '3px solid var(--mantine-color-violet-4)',
+                                                                    background: 'var(--mantine-color-gray-0)',
+                                                                }}
+                                                            >
+                                                                <Group gap={6} mb={6} wrap="nowrap">
+                                                                    <IconNotes size={13} style={{ color: 'var(--mantine-color-violet-6)' }} />
+                                                                    <Text size="xs" fw={700} c="dimmed" tt="uppercase">
+                                                                        {t('emailReplies.table.notes')} ({reply.company_activity_count})
+                                                                    </Text>
+                                                                </Group>
+                                                                <ActivityTimeline
+                                                                    companyId={reply.company_id}
+                                                                    embedded
+                                                                    compact
+                                                                    hideActionButton
+                                                                />
+                                                            </Table.Td>
+                                                        </Table.Tr>
+                                                    )}
+                                                </>
                                             )}
                                         </Fragment>
                                     );

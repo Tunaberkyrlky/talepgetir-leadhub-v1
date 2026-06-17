@@ -86,21 +86,36 @@ Kullanıcı "versiyonla" veya "commit at versiyonla" dediğinde şu adımları u
 
 ### Changelog yazım kuralları
 
-- **Type alanı zorunlu**: `'feature' | 'fix' | 'improvement' | 'security'`. Başlıkta renkli rozet olarak görünür. Karma içerikse en baskın olanı seç (öncelik: feature > improvement > fix > security).
-- **Özet tut**. Her özellik 1, en fazla 2 cümle. Sadece kullanıcının bilmesi gerekeni yaz; arka plandaki teknik değişiklikleri (refactor, RPC, migration, type fix) yazma.
-- **Saygılı 2. çoğul (siz) + öneri kipi kullan**. "Filtreliyorsun" değil, "filtreleyebilirsiniz". "Tıklayarak yapıyorsun" değil, "tıklayarak yapabilirsiniz". İkinci tekil ve emir kipinden kaçın; imkân sun.
-- **Dash (—, –, -) yok**. Cümleleri nokta veya virgülle bağla. Listelerken bullet kullanma; akıcı cümle yaz.
+Yeni format: her entry **3 kısa soruya** cevap verir (eski `features: [...]` dizisini yeni entry'lerde KULLANMA; yalnızca geçmiş entry'lerde kalır):
+
+- `about` — **Bu güncelleme ne hakkında?** (zorunlu)
+- `usage` — **Yeni kullanım nasıl?** (kullanıcıya görünür yeni ekran/buton/davranış varsa; saf düzeltmede bu alanı koyma)
+- `notes` — **Neleri bilmeliyim?** (gerçek bir uyarı/sınır varsa; yoksa bu alanı koyma)
+
+Kurallar:
+- **Type alanı zorunlu**: `'feature' | 'fix' | 'improvement' | 'security'`. Başlıkta renkli rozet. Karma içerikse en baskın olanı seç (öncelik: feature > improvement > fix > security).
+- **Her alan tek cümle, kısa ve öz.** Sadece kullanıcının bilmesi gerekeni yaz; arka plandaki teknik değişiklikleri (refactor, RPC, migration, type fix) yazma.
+- **Saygılı 2. çoğul (siz) + öneri kipi.** "Filtreliyorsun" değil, "filtreleyebilirsiniz". İkinci tekil ve emir kipinden kaçın; imkân sun.
+- **Dash (—, –, -) yok**, madde listesi yok. Cümleyi nokta/virgülle bağla.
 - **TR ve EN ikisi de zorunlu**, anlam aynı kalmalı.
-- **"Bununla ne yapabilirim?"** sorusuna cevap olsun. Yeni ekran, yeni buton, davranış değişikliği gibi kullanıcıya görünür şeyleri öne çıkar.
 
 ### Örnek
 
-İyi:
+İyi (feature):
 ```
-tr: 'Aktiviteler sayfasındaki stat kartlarına tıklayarak listeyi tipe göre filtreleyebilirsiniz. Şirkete göre arama kutusu da eklendi, şirket adıyla aradığınızda doğru kayda hızlıca ulaşabilirsiniz.'
+title: { tr: 'Aktivite Filtreleri', en: 'Activity Filters' },
+about: { tr: 'Aktiviteleri tipe göre filtreleyebilir ve şirket adına göre arayabilirsiniz.', en: 'You can filter activities by type and search by company name.' },
+usage: { tr: 'Aktiviteler sayfasındaki stat kartına tıklayın ya da arama kutusuna şirket adını yazın.', en: 'Click a stat card on the Activities page or type a company name in the search box.' },
 ```
 
-Kötü (dash + emir kipi + teknik detay + uzun):
+İyi (saf fix, `usage` yok):
 ```
-tr: 'Stat kartları artık tıklanabilir — tip filtre SegmentedControl kaldırıldı, kartlar görevi alıyor. Şirket filtresi yeni search_companies RPC ile çalışıyor. Layout 4 satırdan 3 satıra indi.'
+title: { tr: 'Sayaç Görünüm Düzeltmesi', en: 'Counter Display Fix' },
+about: { tr: 'Sayaç rozetlerinin büyük sayıları kırpması düzeltildi.', en: 'Fixed counter badges clipping large numbers.' },
+notes: { tr: 'Artık yüzler ve binler de tam görünüyor.', en: 'Hundreds and thousands now show in full.' },
+```
+
+Kötü (dash + emir kipi + teknik detay + uzun + features dizisi):
+```
+features: [{ tr: 'Stat kartları artık tıklanabilir — SegmentedControl kaldırıldı, search_companies RPC eklendi.' }]
 ```

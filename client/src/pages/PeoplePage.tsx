@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Container,
-    Title,
     Group,
     Button,
     Table,
@@ -68,6 +67,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { canDelete, canWrite } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
 import ContactForm from '../components/ContactForm';
+import CompaniesPeopleToggle from '../components/CompaniesPeopleToggle';
 import TruncatedText from '../components/TruncatedText';
 
 interface Contact {
@@ -512,9 +512,7 @@ export default function PeoplePage() {
         <Container size="xl" py="lg">
             {/* Header */}
             <Flex justify="space-between" align="center" mb="lg">
-                <Title order={2} fw={700}>
-                    {t('people.title')}
-                </Title>
+                <CompaniesPeopleToggle />
                 {userCanEdit && (
                     <Button
                         leftSection={<IconPlus size={18} />}

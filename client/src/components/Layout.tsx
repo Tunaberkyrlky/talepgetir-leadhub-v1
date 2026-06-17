@@ -24,7 +24,6 @@ import {
     IconSwitchHorizontal,
     IconSettings,
     IconChartBar,
-    IconUsers,
     IconColumns,
     IconFileImport,
     IconShieldCog,
@@ -112,8 +111,7 @@ export default function Layout() {
 
     const navItems = [
         { path: '/dashboard', label: t('nav.dashboard'), icon: <IconChartBar size={20} /> },
-        { path: '/companies', label: t('nav.companies'), icon: <IconBuilding size={20} /> },
-        { path: '/people', label: t('nav.people'), icon: <IconUsers size={20} /> },
+        { path: '/companies', label: t('nav.companies'), icon: <IconBuilding size={20} />, matchPaths: ['/people'] },
         { path: '/pipeline', label: t('nav.pipeline'), icon: <IconColumns size={20} /> },
         { path: '/activities', label: t('nav.activities'), icon: <IconActivity size={20} /> },
         { path: '/email-replies', label: t('nav.emailReplies'), icon: <IconMail size={20} /> },
@@ -298,7 +296,8 @@ export default function Layout() {
                 <Stack gap={4} style={{ flex: 1 }}>
                     {navItems.map((item) => {
                         const active = location.pathname === item.path ||
-                            (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
+                            (item.path !== '/dashboard' && location.pathname.startsWith(item.path)) ||
+                            (item.matchPaths?.some((p) => location.pathname.startsWith(p)) ?? false);
                         if (isIconOnly) {
                             return (
                                 <Tooltip key={item.path} label={item.label} position="right" withArrow>

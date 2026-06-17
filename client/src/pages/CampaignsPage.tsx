@@ -6,12 +6,14 @@ import {
 } from '@mantine/core';
 import {
     IconSpeakerphone, IconMail, IconEye, IconMessageReply, IconCheck,
-    IconPlus, IconMailForward,
+    IconPlus, IconMailForward, IconLink,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import StatCard from '../components/StatCard';
 import { TierGate } from '../components/FeatureGate';
+import { useAuth } from '../contexts/AuthContext';
+import CampaignAssignmentTab from '../components/campaigns/CampaignAssignmentTab';
 import type { CampaignsResponse, PlusVibeCampaign } from '../types/plusvibe';
 import type { Campaign } from '../types/campaign';
 
@@ -169,6 +171,8 @@ function DripTab() {
 
 export default function CampaignsPage() {
     const { t } = useTranslation();
+    const { user } = useAuth();
+    const isSuperadmin = user?.role === 'superadmin';
 
     return (
         <Container size="xl" py="xl">
@@ -180,6 +184,11 @@ export default function CampaignsPage() {
                 <Tabs.List>
                     <Tabs.Tab value="plusvibe" leftSection={<IconSpeakerphone size={14} />}>PlusVibe</Tabs.Tab>
                     <Tabs.Tab value="drip" leftSection={<IconMailForward size={14} />}>Drip</Tabs.Tab>
+                    {isSuperadmin && (
+                        <Tabs.Tab value="assign" leftSection={<IconLink size={14} />}>
+                            {t('campaigns.assignTab', 'Atama')}
+                        </Tabs.Tab>
+                    )}
                 </Tabs.List>
 
                 <Tabs.Panel value="plusvibe" pt="md">
@@ -195,6 +204,12 @@ export default function CampaignsPage() {
                         <DripTab />
                     </TierGate>
                 </Tabs.Panel>
+
+                {isSuperadmin && (
+                    <Tabs.Panel value="assign" pt="md">
+                        <CampaignAssignmentTab />
+                    </Tabs.Panel>
+                )}
             </Tabs>
         </Container>
     );

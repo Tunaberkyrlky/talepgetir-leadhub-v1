@@ -911,6 +911,7 @@
     },
     "campaigns": {
         "pageTitle": "Campaigns",
+        "assignTab": "Assignment",
         "sync": "Sync",
         "synced": "Campaigns synced successfully",
         "searchPlaceholder": "Search campaigns...",

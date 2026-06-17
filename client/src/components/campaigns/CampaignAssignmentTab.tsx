@@ -28,7 +28,7 @@ const STATUS_ORDER: Record<string, number> = { ACTIVE: 0, PAUSED: 1, COMPLETED: 
 type SortField = 'name' | 'status' | 'emails_sent' | 'replies';
 type SortDir = 'asc' | 'desc';
 
-export default function AdminCampaignsTab() {
+export default function CampaignAssignmentTab() {
     const { t } = useTranslation();
     const queryClient = useQueryClient();
     const { accessibleTenants } = useAuth();

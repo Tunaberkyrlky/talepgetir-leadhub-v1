@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Container,
-    Title,
     Group,
     Button,
     Table,
@@ -80,6 +79,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { canWrite } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
 import CompanyForm from '../components/CompanyForm';
+import CompaniesPeopleToggle from '../components/CompaniesPeopleToggle';
 import ClosingReportModal from '../components/ClosingReportModal';
 import TruncatedText from '../components/TruncatedText';
 import EmailStatusIcon from '../components/EmailStatusIcon';
@@ -1056,9 +1056,7 @@ export default function LeadsPage() {
             )}
             {/* Header */}
             <Flex justify="space-between" align="center" mb="lg">
-                <Title order={2} fw={700}>
-                    {t('leads.title')}
-                </Title>
+                <CompaniesPeopleToggle />
                 {canEdit && (
                     <Group>
                         <Button

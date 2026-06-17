@@ -77,31 +77,35 @@ server/package.json   -> "version": "{new}"
 
 ### Step 5: Update Changelog
 
-Add entry to top of array in `client/src/lib/changelog.ts`:
+Add entry to top of array in `client/src/lib/changelog.ts`. **New format** — short and to the point, answering 3 questions (each one sentence):
 
 ```typescript
 {
     version: '{new}',
     date: '{YYYY-MM-DD}',
-    title: {
-        tr: '{Turkish title}',
-        en: '{English title}',
+    type: '{feature|fix|improvement|security}',
+    title: { tr: '{kısa başlık}', en: '{short title}' },
+    about: {                       // Bu güncelleme ne hakkında? (zorunlu)
+        tr: '{tek cümle}',
+        en: '{one sentence}',
     },
-    features: [
-        {
-            tr: '{Turkish description}',
-            en: '{English description}',
-        },
-        // ... one per significant user-facing change
-    ],
+    usage: {                       // Yeni kullanım nasıl? (yeni ekran/buton/davranış varsa; yoksa bu alanı koyma)
+        tr: '{tek cümle}',
+        en: '{one sentence}',
+    },
+    notes: {                       // Neleri bilmeliyim? (uyarı/sınır varsa; yoksa bu alanı koyma)
+        tr: '{tek cümle}',
+        en: '{one sentence}',
+    },
 },
 ```
 
 Rules:
-- Only user-facing changes (no internal refactors)
-- Write in plain language, no technical jargon
-- 1-4 features per release
-- Turkish first, then English
+- **Sadece 3 alan: about / usage / notes.** Eski `features: [...]` dizisini YENİ girdilerde kullanma (yalnızca geçmiş girdilerde kalır).
+- **`about` zorunlu.** `usage` yalnızca kullanıcıya görünür yeni bir kullanım (ekran/buton/davranış) varsa; saf düzeltmelerde atla. `notes` yalnızca gerçek bir uyarı/sınır varsa; yoksa atla.
+- **Her alan tek cümle, kısa ve öz.** Madde listesi, dash (—/–/-), teknik jargon yok.
+- Saygılı 2. çoğul + öneri kipi ("...yapabilirsiniz"). Sadece kullanıcının bilmesi gerekeni yaz.
+- TR ve EN zorunlu, anlam aynı.
 
 ### Step 6: Type Check
 
