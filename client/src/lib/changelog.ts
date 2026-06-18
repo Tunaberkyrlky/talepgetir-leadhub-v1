@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.10.16',
+        date: '2026-06-18',
+        type: 'fix',
+        title: { tr: 'Okundu İşareti Kalıcı', en: 'Read Mark Sticks' },
+        about: {
+            tr: 'Bir konuşmayı okundu işaretlediğinizde durum artık geri dönmüyor.',
+            en: 'Marking a conversation as read no longer reverts.',
+        },
+        notes: {
+            tr: 'Okundu/okunmadı artık tüm konuşmaya uygulanıyor; çok mesajlı konuşmalarda kısa süre sonra okunmadıya dönme sorunu giderildi.',
+            en: 'Read/unread now applies to the whole conversation, fixing multi-message threads that reverted to unread shortly after.',
+        },
+    },
+    {
         version: '1.10.15',
         date: '2026-06-18',
         type: 'fix',

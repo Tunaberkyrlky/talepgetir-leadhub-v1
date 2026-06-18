@@ -1,6 +1,6 @@
 # Google OAuth Doğrulama Rehberi (mail bağlama / `google-mail`)
 
-LeadHub'ın "mail bağlama" özelliği, kullanıcının kendi Gmail/Workspace hesabından
+TG Core'ın "mail bağlama" özelliği, kullanıcının kendi Gmail/Workspace hesabından
 mail göndermek için Nango üzerinden `gmail.send` (sensitive) scope'u kullanır.
 External + production'a geçince Google **doğrulama** ister. Bu rehber, doğrulama
 formunu **tek seferde** geçmek için gereken her şeyi sırayla toplar.
@@ -74,7 +74,7 @@ Google Cloud Console → **APIs & Services → OAuth consent screen / Branding**
 
 | Alan | Değer |
 |---|---|
-| App name | **Tibexa** *(consent ekranı + video + form birebir aynı olmalı; uygulama içinde kullanıcı "LeadHub" görüyorsa bunu LeadHub yap)* |
+| App name | **Tibexa** *(consent ekranı + video + form birebir aynı olmalı; uygulama içinde kullanıcı "TG Core" görüyorsa bunu TG Core yap)* |
 | User support email | `info@tibexa.com` |
 | App logo | 128×128 marka logosu |
 | Application home page | `https://tibexa.com` *(landing)* |

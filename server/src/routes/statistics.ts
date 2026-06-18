@@ -561,7 +561,7 @@ router.get('/report/monthly', requireRole('superadmin', 'ops_agent', 'client_adm
 
         // ── Build workbook ─────────────────────────────────────────────────────
         const workbook = new ExcelJS.Workbook();
-        workbook.creator = 'LeadHub / TG Core';
+        workbook.creator = 'TG Core';
         workbook.created = new Date();
 
         const monthLabel = `${year}-${pad(month)}`;

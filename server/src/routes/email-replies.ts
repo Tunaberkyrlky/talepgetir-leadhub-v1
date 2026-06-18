@@ -485,26 +485,46 @@ router.patch(
             const tenantId = req.tenantId!;
             const db = dbClient(req);
 
-            const { data, error } = await db
+            // read_status is conceptually THREAD-level: the list row's unread flag is
+            // BOOL_OR over the thread's inbound messages. Toggling a single reply leaves a
+            // multi-message thread still unread, so the optimistic UI reverts on refetch.
+            // Resolve the target's thread (sender + campaign) and move ALL its inbound
+            // messages together.
+            const { data: target, error: findErr } = await db
                 .from('email_replies')
-                .update({ read_status })
+                .select('sender_email, campaign_id')
                 .eq('id', id)
                 .eq('tenant_id', tenantId)
-                .select('id, read_status, match_status, company_id, contact_id, updated_at')
                 .single();
 
-            if (error) {
-                if ((error as any).code === 'PGRST116') {
+            if (findErr || !target) {
+                if ((findErr as any)?.code === 'PGRST116') {
                     throw new AppError('Email reply not found', 404);
                 }
-                log.error({ err: error }, 'Set read status error');
-                throw new AppError('Failed to update read status', 500);
-            }
-            if (!data) {
+                if (findErr) {
+                    log.error({ err: findErr }, 'Set read status (lookup) error');
+                    throw new AppError('Failed to update read status', 500);
+                }
                 throw new AppError('Email reply not found', 404);
             }
 
-            res.json(data);
+            let upd = db
+                .from('email_replies')
+                .update({ read_status })
+                .eq('tenant_id', tenantId)
+                .eq('sender_email', target.sender_email)
+                .eq('direction', 'IN');
+            upd = target.campaign_id === null
+                ? upd.is('campaign_id', null)
+                : upd.eq('campaign_id', target.campaign_id);
+
+            const { error } = await upd;
+            if (error) {
+                log.error({ err: error }, 'Set read status error');
+                throw new AppError('Failed to update read status', 500);
+            }
+
+            res.json({ id, read_status });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Set read status error');

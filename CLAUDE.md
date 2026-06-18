@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-LeadHub is a B2B multi-tenant CRM/lead management SaaS. It replaces Excel/CSV-based lead tracking with a web app featuring import, pipeline (Kanban), dashboard with globe visualization, and admin panels. The UI is bilingual (Turkish/English).
+TG Core is a B2B multi-tenant CRM/lead management SaaS. It replaces Excel/CSV-based lead tracking with a web app featuring import, pipeline (Kanban), dashboard with globe visualization, and admin panels. The UI is bilingual (Turkish/English).
 
 ## Commands
 
