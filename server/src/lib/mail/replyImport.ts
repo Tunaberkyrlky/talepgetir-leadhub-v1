@@ -144,7 +144,10 @@ export async function enrichOrInsertReplies(params: {
             company_id: match.company_id,
             contact_id: match.contact_id,
             match_status: match.match_status,
-            read_status: reply.is_unread ? 'unread' : 'read',
+            // Mail entering the system defaults to UNREAD regardless of the provider's
+            // is_unread flag — only OUR own outbound messages count as read. (These API
+            // imports are inbound replies; the guard just protects against a stray OUT.)
+            read_status: canonical.direction === 'outbound' ? 'read' : 'unread',
         });
         existingByKey.set(key, { id: 'pending', account_email: canonical.accountEmail });
     }

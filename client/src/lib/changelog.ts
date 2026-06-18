@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.10.15',
+        date: '2026-06-18',
+        type: 'fix',
+        title: { tr: 'Gelen Mailler Okunmadı Geliyor', en: 'Incoming Mail Arrives as Unread' },
+        about: {
+            tr: 'Sisteme yeni düşen mailler artık geliş yolundan bağımsız olarak okunmadı görünüyor.',
+            en: 'New mail entering the system now appears as unread regardless of how it arrives.',
+        },
+        notes: {
+            tr: 'Önceden içe aktarılan bazı yanıtlar yanlışlıkla okunmuş görünebiliyordu.',
+            en: 'Previously some imported replies could mistakenly appear as read.',
+        },
+    },
+    {
         version: '1.10.14',
         date: '2026-06-17',
         type: 'feature',

@@ -210,6 +210,20 @@ app.use('/api/attachment-templates', authMiddleware, attachmentTemplatesRoutes);
 app.use('/api/campaigns', authMiddleware, campaignRoutes);
 app.use('/api/email-connections', authMiddleware, emailConnectionRoutes);
 
+// Nango OAuth custom callback — Google, redirect URI'nin bizim sahip olduğumuz
+// (ve Search Console'da doğrulayabildiğimiz) bir domain'de olmasını ister. Nango'nun
+// kendi callback'i api.nango.dev'de olduğu için doğrulanamaz; bu yüzden Google'ı buraya
+// (core.tibexa.com/oauth-callback) yönlendirip, tüm query paramlarını (code, state…)
+// koruyarak Nango'nun callback'ine 308 ile geçiyoruz.
+// Bu URL hem Google Cloud "Authorized redirect URIs" hem de Nango "Environment
+// Settings → Callback URL" alanına yazılmalı. SPA fallback'ten ÖNCE durmalı.
+const NANGO_CALLBACK_URL = process.env.NANGO_CALLBACK_URL || 'https://api.nango.dev/oauth/callback';
+app.get('/oauth-callback', (req, res) => {
+    const qIndex = req.originalUrl.indexOf('?');
+    const qs = qIndex >= 0 ? req.originalUrl.slice(qIndex) : '';
+    res.redirect(308, `${NANGO_CALLBACK_URL}${qs}`);
+});
+
 // Serve static client files in production (Railway/non-Vercel)
 if (!process.env.VERCEL) {
     const clientDist = path.resolve(__dirname, '../../client/dist');
