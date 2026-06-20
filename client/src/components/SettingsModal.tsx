@@ -40,8 +40,6 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import PipelineSettingsEditor, { type PipelineSettingsEditorHandle } from './PipelineSettingsEditor';
 import PlusVibeSetup from './plusvibe/PlusVibeSetup';
-import EmailConnectionPanel from './settings/EmailConnectionPanel';
-import CcAddressesPanel from './settings/CcAddressesPanel';
 import ReportsPanel from './settings/ReportsPanel';
 
 interface SettingsModalProps {
@@ -249,14 +247,6 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
 
                             {activeTab === 'integrations' && isAdmin && (
                                 <Stack gap="lg">
-                                    {/* Email Connection — all admin roles */}
-                                    <EmailConnectionPanel />
-                                    <Divider />
-
-                                    {/* CC Addresses — all admin roles */}
-                                    <CcAddressesPanel />
-                                    <Divider />
-
                                     {/* PlusVibe API Status — superadmin/ops only */}
                                     {isInternal && (
                                         <>

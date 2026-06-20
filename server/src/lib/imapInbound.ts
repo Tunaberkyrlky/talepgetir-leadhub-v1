@@ -203,3 +203,44 @@ export async function processImapPolling(): Promise<void> {
 
     log.info({ connections: conns.length, processed: totalProcessed, matched: totalMatched }, 'IMAP poll tick done');
 }
+
+/**
+ * Verify IMAP credentials by connecting, opening INBOX, and logging out.
+ * Throws on auth/connection failure — the connect flow calls this before saving
+ * so typos/missing app-passwords fail fast. SSRF-guarded the same way as
+ * pollConnection: resolve to a validated public IP and dial that literal.
+ */
+export async function verifyImap(opts: {
+    host: string;
+    port: number;
+    secure: boolean;
+    username: string;
+    password: string;
+    allowInvalidCert?: boolean;
+}): Promise<void> {
+    const pinned = await resolvePublicHost(opts.host);
+    const client = new ImapFlow({
+        host: pinned.address,
+        port: opts.port,
+        secure: opts.secure,
+        auth: { user: opts.username, pass: opts.password },
+        tls: {
+            servername: pinned.servername,
+            ...(opts.allowInvalidCert && { rejectUnauthorized: false }),
+        },
+        logger: false,
+        socketTimeout: 20_000,
+        greetingTimeout: 10_000,
+        connectionTimeout: 10_000,
+    });
+    // Swallow async 'error' events (see pollConnection); the connect()/lock
+    // promise rejection is what we surface to the caller.
+    client.on('error', () => { /* handled via await rejection */ });
+    await client.connect();
+    try {
+        const lock = await client.getMailboxLock('INBOX');
+        lock.release();
+    } finally {
+        await client.logout().catch(() => { /* best effort */ });
+    }
+}

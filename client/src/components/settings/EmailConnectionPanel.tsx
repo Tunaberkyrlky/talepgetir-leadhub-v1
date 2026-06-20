@@ -12,6 +12,7 @@ import { showSuccess, showError, showErrorFromApi } from '../../lib/notification
 import { useAuth } from '../../contexts/AuthContext';
 import type { EmailConnectionStatus, EmailConnectionItem, ConnectionProvider } from '../../types/campaign';
 import SmtpConnectionModal from './SmtpConnectionModal';
+import GmailConnectModal from './GmailConnectModal';
 
 function providerLabel(p: ConnectionProvider): string {
     if (p === 'google-mail') return 'Gmail';
@@ -31,6 +32,7 @@ export default function EmailConnectionPanel() {
     const qc = useQueryClient();
     const [connecting, setConnecting] = useState(false);
     const [smtpOpen, setSmtpOpen] = useState(false);
+    const [gmailOpen, setGmailOpen] = useState(false);
 
     const { data: status } = useQuery<EmailConnectionStatus>({
         queryKey: ['email-connection-status'],
@@ -106,7 +108,7 @@ export default function EmailConnectionPanel() {
                                             </Group>
                                             <Text size="xs" c="dimmed">
                                                 {providerLabel(c.provider)}
-                                                {c.provider === 'smtp' && c.imap_host && ` · IMAP açık`}
+                                                {c.imap_host && ` · ${t('campaign.imapReading', 'Yanıt okuma açık')}`}
                                             </Text>
                                         </div>
                                     </Group>
@@ -142,7 +144,7 @@ export default function EmailConnectionPanel() {
                     </Text>
                     <Group grow>
                         <Button variant="outline" size="sm" radius="md" leftSection={<IconBrandGoogle size={16} />}
-                            onClick={() => handleConnect('google-mail')} loading={connecting}>
+                            onClick={() => setGmailOpen(true)}>
                             Gmail
                         </Button>
                         <Button variant="outline" size="sm" radius="md" leftSection={<IconBrandWindows size={16} />}
@@ -164,7 +166,7 @@ export default function EmailConnectionPanel() {
                     </Alert>
                 )}
 
-                {connections.some((c) => c.provider !== 'smtp') && (
+                {connections.length > 0 && (
                     <Alert variant="light" color="green" icon={<IconCheck size={16} />}>
                         <Text size="xs">
                             Gmail free: 500/gün · Workspace: 2.000/gün · Outlook: 10.000/gün · SMTP: 300/gün
@@ -174,6 +176,7 @@ export default function EmailConnectionPanel() {
             </Stack>
 
             <SmtpConnectionModal opened={smtpOpen} onClose={() => setSmtpOpen(false)} />
+            <GmailConnectModal opened={gmailOpen} onClose={() => setGmailOpen(false)} />
         </Paper>
     );
 }

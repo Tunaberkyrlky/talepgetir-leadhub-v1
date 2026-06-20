@@ -881,9 +881,11 @@
             "emptyLibrary": "Henüz kayıtlı ek yok. Aşağıdan dosya yükleyin ya da link ekleyin."
         },
         "attachmentLibrary": {
-            "button": "Ekler",
-            "title": "Mail Ekleri",
-            "description": "Buradan yüklediğiniz dosya ve linkler, mail yazarken ya da yanıtlarken ek olarak seçilebilir. Mail göndermenize gerek yok."
+            "button": "Mail eki ve CC adresi",
+            "title": "Mail Ekleri ve CC Adresleri",
+            "description": "Buradan yüklediğiniz dosya ve linkler, mail yazarken ya da yanıtlarken ek olarak seçilebilir. Mail göndermenize gerek yok.",
+            "tabAttachments": "Mail Ekleri",
+            "tabCc": "CC Adresleri"
         },
         "quickActivity": {
             "title": "Hızlı Aktivite Ekle",

@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.11.0',
+        date: '2026-06-20',
+        type: 'feature',
+        title: { tr: 'Gmail Bağlama ve Mail Araçları', en: 'Gmail Connect & Mail Tools' },
+        about: {
+            tr: 'Gmail hesabınızı uygulama şifresiyle bağlayabilir, mail bağlantı ayarlarına ve ek/CC yönetimine doğrudan mail sayfasından erişebilirsiniz.',
+            en: 'You can connect your Gmail with an app password and reach mailbox settings plus attachment and CC management right from the mail page.',
+        },
+        usage: {
+            tr: '"Yeni Mail" yanındaki ayar butonundan Gmail bağlayabilir, İşlemler menüsündeki "Mail eki ve CC adresi" bölümünden ekleri ve CC adreslerini düzenleyebilirsiniz.',
+            en: 'You can connect Gmail from the settings button next to "New Mail" and manage attachments and CC addresses under "Attachments & CC" in the Actions menu.',
+        },
+        notes: {
+            tr: 'Gmail bağlamak için hesabınızda iki adımlı doğrulama açık olmalı ve bir uygulama şifresi oluşturmanız gerekir.',
+            en: 'To connect Gmail, two step verification must be on and you need to create an app password.',
+        },
+    },
+    {
         version: '1.10.16',
         date: '2026-06-18',
         type: 'fix',

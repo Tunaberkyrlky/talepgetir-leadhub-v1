@@ -18,6 +18,7 @@ import { createLogger } from '../lib/logger.js';
 import { validateBody, smtpConnectionSchema, uuidField } from '../lib/validation.js';
 import { listConnections, PUBLIC_COLUMNS } from '../lib/emailConnections.js';
 import { verifySmtp } from '../lib/mail/smtpAdapter.js';
+import { verifyImap } from '../lib/imapInbound.js';
 import { encrypt } from '../lib/encryption.js';
 import { assertPublicHost } from '../lib/ssrfGuard.js';
 
@@ -117,6 +118,26 @@ router.post('/smtp', validateBody(smtpConnectionSchema), async (req: Request, re
             log.warn({ err: verifyErr, host: b.smtp_host }, 'SMTP verify failed');
             res.status(422).json({ error: 'SMTP bağlantısı doğrulanamadı. Sunucu, port, kullanıcı adı ve şifreyi kontrol edin.' });
             return;
+        }
+
+        // When IMAP is configured (reply reading), verify it too — for Gmail
+        // app-password connections this is the whole point, and SMTP succeeding
+        // doesn't prove IMAP access is enabled.
+        if (b.imap_host) {
+            try {
+                await verifyImap({
+                    host: b.imap_host,
+                    port: b.imap_port || 993,
+                    secure: b.imap_secure ?? true,
+                    username: b.username,
+                    password: b.password,
+                    allowInvalidCert: b.allow_invalid_cert,
+                });
+            } catch (verifyErr) {
+                log.warn({ err: verifyErr, host: b.imap_host }, 'IMAP verify failed');
+                res.status(422).json({ error: 'IMAP (gelen) bağlantısı doğrulanamadı. Gmail için 2 adımlı doğrulama + uygulama şifresi ve IMAP erişimi gereklidir.' });
+                return;
+            }
         }
 
         const { data, error } = await supabaseAdmin

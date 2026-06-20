@@ -5,7 +5,7 @@ import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table,
     Loader, Center, Button, SimpleGrid, Select, TextInput,
     Skeleton, Tooltip, Alert, Anchor, Pagination, ActionIcon,
-    SegmentedControl, Popover, Checkbox, Divider, Menu, Collapse,
+    SegmentedControl, Popover, Checkbox, Divider, Menu, Collapse, Modal,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
@@ -14,7 +14,7 @@ import {
     IconAlertCircle,
     IconSpeakerphone, IconDownload, IconChevronDown, IconChevronRight,
     IconChevronLeft, IconRefresh, IconAdjustments, IconPencilPlus,
-    IconEye, IconStar, IconClock, IconCircleCheck, IconPaperclip, IconNotes,
+    IconEye, IconStar, IconClock, IconCircleCheck, IconPaperclip, IconNotes, IconMailCog,
 } from '@tabler/icons-react';
 import ThreadHistoryRows from '../components/email/ThreadHistoryRows';
 import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
@@ -30,6 +30,8 @@ import ActivityTimeline from '../components/ActivityTimeline';
 import type { EmailReply, EmailReplyStats, EmailTrackingStats, Campaign } from '../types/emailReply';
 import type { CampaignsResponse } from '../types/plusvibe';
 import { useStages } from '../contexts/StagesContext';
+import { useAuth } from '../contexts/AuthContext';
+import EmailConnectionPanel from '../components/settings/EmailConnectionPanel';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -188,6 +190,9 @@ export default function EmailRepliesPage() {
 
     // Compose modal
     const [composeOpen, setComposeOpen] = useState(false);
+    const [connOpen, setConnOpen] = useState(false);
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent' || user?.role === 'client_admin';
 
     // Attachment library manager (manage saved attachments without sending a mail)
     const [attachmentsOpen, setAttachmentsOpen] = useState(false);
@@ -548,14 +553,30 @@ export default function EmailRepliesPage() {
                     </Badge>
                 </Group>
                 <Group gap="xs">
-                    <Button
-                        size="sm"
-                        color="violet"
-                        leftSection={<IconPencilPlus size={16} />}
-                        onClick={() => setComposeOpen(true)}
-                    >
-                        {t('emailReplies.compose.button', 'Yeni Mail')}
-                    </Button>
+                    <Button.Group>
+                        <Button
+                            size="sm"
+                            color="violet"
+                            leftSection={<IconPencilPlus size={16} />}
+                            onClick={() => setComposeOpen(true)}
+                        >
+                            {t('emailReplies.compose.button', 'Yeni Mail')}
+                        </Button>
+                        {isAdmin && (
+                            <Tooltip label={t('emailReplies.connSettings.tooltip', 'Mail bağlantı ayarları')}>
+                                <Button
+                                    size="sm"
+                                    color="violet"
+                                    px="xs"
+                                    onClick={() => setConnOpen(true)}
+                                    aria-label={t('emailReplies.connSettings.tooltip', 'Mail bağlantı ayarları')}
+                                    style={{ borderLeft: '1px solid rgba(255, 255, 255, 0.3)' }}
+                                >
+                                    <IconMailCog size={18} />
+                                </Button>
+                            </Tooltip>
+                        )}
+                    </Button.Group>
                     {(() => {
                         const rematchBusy = rematchState.phase === 'fetching' || rematchState.phase === 'matching';
                         const importBusy = importState.phase === 'fetching' || importState.phase === 'importing';
@@ -596,7 +617,7 @@ export default function EmailRepliesPage() {
                                         leftSection={<IconPaperclip size={16} />}
                                         onClick={() => setAttachmentsOpen(true)}
                                     >
-                                        {t('emailReplies.attachmentLibrary.button', 'Ekler')}
+                                        {t('emailReplies.attachmentLibrary.button', 'Mail eki ve CC adresi')}
                                     </Menu.Item>
                                     {showRematch && (
                                         <Menu.Item
@@ -1286,6 +1307,17 @@ export default function EmailRepliesPage() {
                 opened={composeOpen}
                 onClose={() => setComposeOpen(false)}
             />
+
+            {/* Mail connection settings (moved from global Settings → adjacent to "Yeni Mail") */}
+            <Modal
+                opened={connOpen}
+                onClose={() => setConnOpen(false)}
+                size="lg"
+                radius="lg"
+                withCloseButton
+            >
+                <EmailConnectionPanel />
+            </Modal>
 
             {/* Attachment Library Modal */}
             <AttachmentLibraryModal

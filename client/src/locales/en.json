@@ -881,9 +881,11 @@
             "emptyLibrary": "No saved attachments yet. Upload a file or add a link below."
         },
         "attachmentLibrary": {
-            "button": "Attachments",
-            "title": "Email Attachments",
-            "description": "Files and links you add here can be attached when composing or replying to mail. No need to send a mail."
+            "button": "Attachments & CC",
+            "title": "Email Attachments & CC Addresses",
+            "description": "Files and links you add here can be attached when composing or replying to mail. No need to send a mail.",
+            "tabAttachments": "Attachments",
+            "tabCc": "CC Addresses"
         },
         "quickActivity": {
             "title": "Quick Activity",

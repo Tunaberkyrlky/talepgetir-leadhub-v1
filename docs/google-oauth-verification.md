@@ -1,5 +1,12 @@
 # Google OAuth Doğrulama Rehberi (mail bağlama / `google-mail`)
 
+> **⚠️ GÜNCEL DURUM — bu süreç Gmail için ARTIK GEREKMİYOR.** Gmail bağlantısı **uygulama
+> şifresi (SMTP gönderim + IMAP okuma)** yöntemine geçirildi; hiçbir Google OAuth scope'u
+> kullanılmıyor → consent screen, demo video, Limited Use, CASA, custom callback ve Search
+> Console doğrulaması **gerekmez**. Bu belge yalnızca **arşiv/referans**: ileride Gmail'i
+> tekrar OAuth ile bağlamaya karar verirseniz adımlar burada. (Outlook OAuth kullanır ama o
+> **Microsoft** doğrulamasıdır, bu Google belgesi değil.)
+
 TG Core'ın "mail bağlama" özelliği, kullanıcının kendi Gmail/Workspace hesabından
 mail göndermek için Nango üzerinden `gmail.send` (sensitive) scope'u kullanır.
 External + production'a geçince Google **doğrulama** ister. Bu rehber, doğrulama

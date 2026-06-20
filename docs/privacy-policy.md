@@ -1,10 +1,14 @@
 # Privacy Policy — Tibexa (TG Core)
 
-> **Bu bir taslaktır.** Google OAuth doğrulaması için yeterli; ancak KVKK/GDPR
-> yükümlülükleri için (özellikle gerçek müşteri verisi işlediğiniz için) bir
-> hukukçuya **bir kez** gözden geçirtmeniz önerilir. Aşağıdaki `[KÖŞELİ PARANTEZ]`
-> alanlarını doldurun. Yayına alırken bunu HTML'e çevirip `https://tibexa.com/privacy`
-> altında herkese açık (login'siz) sunun.
+> **Bu bir taslaktır.** KVKK/GDPR yükümlülükleri için (özellikle gerçek müşteri verisi
+> işlediğiniz için) bir hukukçuya **bir kez** gözden geçirtmeniz önerilir. Aşağıdaki
+> `[KÖŞELİ PARANTEZ]` alanlarını doldurun. Yayına alırken bunu HTML'e çevirip
+> `https://tibexa.com/privacy` altında herkese açık (login'siz) sunun.
+>
+> **Tasarım kararı:** Gmail, OAuth yerine **uygulama şifresi (SMTP gönderim + IMAP okuma)**
+> ile bağlanır → **hiçbir Google OAuth scope'u kullanılmaz**, dolayısıyla Google doğrulaması
+> ve Limited Use GEREKMEZ. Outlook ise Microsoft OAuth ile bağlanır. `gmail.send` /
+> `gmail.readonly` gibi Google scope'ları EKLEMEYİN.
 
 **Effective date:** [TARİH, ör. 18 June 2026]
 **Last updated:** [TARİH]
@@ -18,7 +22,7 @@ Tibexa ("Tibexa", "we", "us") operates the TG Core B2B CRM application available
 ([VARSA POSTA ADRESİ / TİCARİ UNVAN]).
 
 This policy explains what data we process, why, and your rights — including how we
-handle data obtained through Google APIs when you connect your Google account.
+handle the content of mailboxes you connect to send and receive email.
 
 ## 2. Data we process
 
@@ -27,35 +31,43 @@ handle data obtained through Google APIs when you connect your Google account.
 - **Customer (CRM) data:** the companies, contacts and activity records that you or your
   organization import into TG Core. You are the controller of this data; we process it on
   your behalf as a processor.
-- **Google account data (only if you connect Gmail):** see Section 3.
+- **Email content:** the content of emails you send through TG Core and of inbound replies
+  imported into the system — subject, body, sender/recipient addresses and timestamps —
+  used to keep a record of your correspondence and match it to the right company/contact.
+- **Connected mailbox access:** when you connect a mailbox for reply tracking (e.g. via
+  IMAP) we read inbound messages from it, and we receive reply notifications from our
+  email-campaign provider, in order to import the continuation of conversations you started
+  in TG Core. We access mailbox content only for this purpose.
+- **Usage and analytics data:** product-analytics events about how you use the app (pages
+  viewed, actions taken, approximate device/browser), collected via our analytics provider
+  to operate and improve the service. This may use cookies or similar identifiers.
 - **Operational logs:** technical logs (IP, timestamps, request metadata) for security,
   debugging and abuse prevention.
 
-## 3. Google user data and Limited Use
+## 3. Connected email accounts
 
-TG Core lets you connect your own Google/Gmail account so the application can send
-outbound emails (sales follow-ups and replies) **from your own mailbox, on your behalf
-and initiated by you**. To do this we request the following Google OAuth scopes:
+TG Core sends and reads email through a mailbox you connect, **on your behalf and initiated
+by you**. You can connect:
 
-- `https://www.googleapis.com/auth/gmail.send` — to send emails you compose/approve, via
-  the Gmail API (`users.messages.send`). **We never read, search, modify, label or delete
-  any message in your mailbox.**
-- `https://www.googleapis.com/auth/userinfo.email` — to identify which address you
-  connected, so we can display it and use it as the sender (From) address.
-- `openid` — standard OpenID Connect identifier to link the connected account to your
-  Tibexa account.
+- **Gmail (app password):** we use Gmail's standard SMTP server to send the emails you
+  compose/approve and Gmail's IMAP server to import replies to conversations you started.
+  Authentication uses an app password you generate. **We do not use any Google OAuth API
+  scope** (no `gmail.send`, no read scope), so the Google API Services User Data Policy and
+  its Limited Use requirements do not apply.
+- **Outlook / Microsoft 365 (OAuth):** sending uses Microsoft's API via OAuth; we request
+  only the permission needed to send mail on your behalf.
+- **Your own server (SMTP/IMAP):** send via SMTP and, optionally, import replies via IMAP.
 
-We do **not** sell this data, do **not** use it for advertising, and do **not** transfer
-it to third parties except as required to provide the feature (see Section 5).
-
-> **Tibexa's use and transfer to any other app of information received from Google APIs
-> will adhere to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy),
-> including the Limited Use requirements.**
+For any connected mailbox, reply importing is limited to messages from contacts you have
+added or addresses you have already emailed (see Section 2). We never read, modify, or
+delete unrelated messages, we do **not** sell mailbox data, and we do **not** use it for
+advertising.
 
 ## 4. How we use data
 
 - To provide and operate the TG Core application and its features.
 - To send the emails you initiate, from your connected mailbox.
+- To import and display the replies/continuation of conversations you started.
 - To secure the service, prevent abuse, and meet legal obligations.
 
 We do not use your data for advertising or sell it to anyone.
@@ -67,18 +79,22 @@ appropriate data-processing terms:
 
 - **Supabase** — database, authentication and storage.
 - **Railway** — application hosting.
-- **Nango** — secure storage of OAuth connection tokens for your connected Google account.
+- **Nango** — secure storage of OAuth connection tokens for your connected Microsoft/Outlook
+  account.
+- **PlusVibe** — outbound email-campaign delivery and inbound reply capture.
+- **Resend** — delivery of transactional/system emails (e.g. notifications).
+- **Microsoft** — when you connect an Outlook / Microsoft 365 account for sending.
+- **PostHog** — product analytics (how the app is used).
 - **DeepL** — optional translation of content you choose to translate.
-- [DİĞER VARSA, ör. e-posta/analitik sağlayıcısı]
 
 We may also disclose data where required by law.
 
 ## 6. Data retention
 
 We retain account and CRM data for as long as your account is active. You may disconnect
-your Google account or request deletion at any time (Sections 8–9). On account closure we
-delete or anonymize your data within [SÜRE, ör. 30 gün], except where law requires longer
-retention.
+your connected mailbox or request deletion at any time (Sections 8–9). On account closure
+we delete or anonymize your data within [SÜRE, ör. 30 gün], except where law requires
+longer retention.
 
 ## 7. Security
 
@@ -92,12 +108,12 @@ Depending on your jurisdiction (including under **KVKK** and **GDPR**), you may 
 right to access, correct, delete, export, or restrict processing of your personal data,
 and to withdraw consent. To exercise these rights contact **info@tibexa.com**.
 
-## 9. Revoking Google access
+## 9. Revoking access
 
-You can revoke TG Core's access to your Google account at any time, either from within
-TG Core (Settings → email connections → disconnect) or directly via your Google Account at
-**https://myaccount.google.com/connections** (or `permissions`). Revoking access stops any
-further sending from that mailbox.
+You can revoke TG Core's access to your connected account at any time, either from within
+TG Core (Settings → email connections → disconnect) or, for Gmail, by deleting the app
+password at **https://myaccount.google.com/apppasswords**. Revoking access stops any
+further sending and, where applicable, reply importing from that mailbox.
 
 ## 10. Children
 
