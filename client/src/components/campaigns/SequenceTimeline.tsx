@@ -1,8 +1,8 @@
 import {
-    Stack, Paper, Group, Text, Badge, ActionIcon, Button, Menu,
+    Stack, Paper, Group, Text, Badge, ActionIcon, Button, Tooltip,
 } from '@mantine/core';
 import {
-    IconMail, IconClock, IconGripVertical, IconTrash, IconPlus,
+    IconMail, IconClock, IconGripVertical, IconTrash, IconPlus, IconAlertTriangle,
 } from '@tabler/icons-react';
 import {
     DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
@@ -13,6 +13,8 @@ import {
     sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type { CampaignStep } from '../../types/campaign';
 
 interface Props {
@@ -23,16 +25,27 @@ interface Props {
     readOnly?: boolean;
 }
 
+// Wait-before modeli: her adımın delay'i "bu maili göndermeden önce bekle".
+function waitLabel(t: TFunction, days: number, hours: number): string {
+    if (!days && !hours) return t('campaign.editor.immediately', 'Immediately');
+    const parts: string[] = [];
+    if (days) parts.push(`${days}${t('campaign.editor.dayAbbr', 'd')}`);
+    if (hours) parts.push(`${hours}${t('campaign.editor.hourAbbr', 'h')}`);
+    return t('campaign.editor.waitAfterShort', { wait: parts.join(' '), defaultValue: '{{wait}} later' });
+}
+
 function SortableCard({
     step, index, isSelected, onSelect, onDelete, readOnly,
 }: {
     step: CampaignStep; index: number; isSelected: boolean;
     onSelect: () => void; onDelete: () => void; readOnly?: boolean;
 }) {
+    const { t } = useTranslation();
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
         useSortable({ id: `step-${index}`, disabled: readOnly });
 
-    const isEmail = step.step_type === 'email';
+    const immediate = !step.delay_days && !step.delay_hours;
+    const empty = !step.subject?.trim() || !step.body_html?.trim();
 
     return (
         <Paper
@@ -47,20 +60,31 @@ function SortableCard({
             } }}
         >
             <Group justify="space-between" wrap="nowrap">
-                <Group gap="xs" wrap="nowrap">
+                <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
                     {!readOnly && (
                         <ActionIcon variant="subtle" color="gray" size="sm" {...attributes} {...listeners} style={{ cursor: 'grab' }}>
                             <IconGripVertical size={14} />
                         </ActionIcon>
                     )}
-                    <Badge size="sm" variant="light" color={isEmail ? 'indigo' : 'orange'}
-                        leftSection={isEmail ? <IconMail size={12} /> : <IconClock size={12} />}
-                    >
+                    <Badge size="sm" variant="light" color="indigo" leftSection={<IconMail size={12} />}>
                         {index + 1}
                     </Badge>
-                    <Text size="sm" fw={500} lineClamp={1}>
-                        {isEmail ? (step.subject || 'Untitled email') : `${step.delay_days || 0}d ${step.delay_hours || 0}h wait`}
-                    </Text>
+                    <div style={{ minWidth: 0 }}>
+                        <Group gap={4} wrap="nowrap">
+                            <IconClock size={11} color="var(--mantine-color-gray-5)" />
+                            <Text size="xs" c={immediate ? 'teal.7' : 'dimmed'}>{waitLabel(t, step.delay_days || 0, step.delay_hours || 0)}</Text>
+                        </Group>
+                        <Group gap={4} wrap="nowrap">
+                            <Text size="sm" fw={500} lineClamp={1}>
+                                {step.subject || t('campaign.editor.untitledEmail', 'Untitled email')}
+                            </Text>
+                            {empty && (
+                                <Tooltip label={t('campaign.editor.emptyStep', 'Subject or body is empty')} withArrow>
+                                    <IconAlertTriangle size={13} color="var(--mantine-color-orange-6)" style={{ flexShrink: 0 }} />
+                                </Tooltip>
+                            )}
+                        </Group>
+                    </div>
                 </Group>
                 {!readOnly && (
                     <ActionIcon variant="subtle" color="red" size="sm" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
@@ -73,6 +97,7 @@ function SortableCard({
 }
 
 export default function SequenceTimeline({ steps, onChange, onSelectStep, selectedIndex, readOnly }: Props) {
+    const { t } = useTranslation();
     const sensors = useSensors(
         useSensor(PointerSensor),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -86,11 +111,13 @@ export default function SequenceTimeline({ steps, onChange, onSelectStep, select
         onChange(arrayMove(steps, oldIdx, newIdx).map((s, i) => ({ ...s, step_order: i + 1 })));
     };
 
-    const addStep = (type: 'email' | 'delay') => {
+    // Yeni adım her zaman e-posta. İlk adım hemen (delay 0); sonrakiler varsayılan 2 gün bekler.
+    const addStep = () => {
+        const isFirst = steps.length === 0;
         const s: CampaignStep = {
-            step_order: steps.length + 1, step_type: type,
-            subject: type === 'email' ? '' : null, body_html: type === 'email' ? '' : null,
-            body_text: null, delay_days: type === 'delay' ? 1 : 0, delay_hours: 0,
+            step_order: steps.length + 1, step_type: 'email',
+            subject: '', body_html: '', body_text: null,
+            delay_days: isFirst ? 0 : 2, delay_hours: 0,
         };
         onChange([...steps, s]);
         onSelectStep(steps.length);
@@ -117,17 +144,9 @@ export default function SequenceTimeline({ steps, onChange, onSelectStep, select
                 </SortableContext>
             </DndContext>
             {!readOnly && (
-                <Menu shadow="md" width={200}>
-                    <Menu.Target>
-                        <Button variant="light" color="violet" size="xs" leftSection={<IconPlus size={14} />} fullWidth>
-                            Add Step
-                        </Button>
-                    </Menu.Target>
-                    <Menu.Dropdown>
-                        <Menu.Item leftSection={<IconMail size={14} />} onClick={() => addStep('email')}>Email Step</Menu.Item>
-                        <Menu.Item leftSection={<IconClock size={14} />} onClick={() => addStep('delay')}>Delay Step</Menu.Item>
-                    </Menu.Dropdown>
-                </Menu>
+                <Button variant="light" color="violet" size="xs" leftSection={<IconPlus size={14} />} fullWidth onClick={addStep}>
+                    {t('campaign.editor.addEmailStep', 'Add email step')}
+                </Button>
             )}
         </Stack>
     );

@@ -129,13 +129,10 @@ export async function enrollLeads(
 
     const firstStep = steps[0] as CampaignStep;
 
-    // Calculate initial next_scheduled_at
-    let firstScheduleAt: string;
-    if (firstStep.step_type === 'delay') {
-        firstScheduleAt = new Date(Date.now() + calcDelayMs(firstStep)).toISOString();
-    } else {
-        firstScheduleAt = new Date().toISOString(); // email step → immediate
-    }
+    // Wait-before-email modeli: her adımın kendi delay'i "bu maili göndermeden
+    // önce bekle" demektir. İlk adımın delay'i (genelde 0 = hemen) kayıt anından
+    // itibaren sayılır. Legacy 'delay' düğümleri de aynı hesapla doğru çalışır.
+    const firstScheduleAt = new Date(Date.now() + calcDelayMs(firstStep)).toISOString();
 
     // Batch insert enrollments — single DB call, duplicates ignored via ON CONFLICT
     const rows = contacts.map((c) => ({
@@ -360,21 +357,15 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
 
             if (!nextStep) {
                 await completeEnrollment(enrollment.id);
-            } else if (nextStep.step_type === 'delay') {
+            } else {
+                // Wait-before modeli: sıradaki adımın kendi delay'i kadar bekleyip
+                // işle. Email adımı (delay 0) → hemen; bekleme taşıyan adım → delay
+                // sonra. Legacy 'delay' düğümleri de aynı hesapla doğru çalışır.
                 await supabaseAdmin
                     .from('campaign_enrollments')
                     .update({
                         current_step_id: nextStep.id,
                         next_scheduled_at: new Date(Date.now() + calcDelayMs(nextStep)).toISOString(),
-                    })
-                    .eq('id', enrollment.id);
-            } else {
-                // email or condition step → schedule for next tick
-                await supabaseAdmin
-                    .from('campaign_enrollments')
-                    .update({
-                        current_step_id: nextStep.id,
-                        next_scheduled_at: new Date().toISOString(),
                     })
                     .eq('id', enrollment.id);
             }

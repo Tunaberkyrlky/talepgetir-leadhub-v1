@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.12.0',
+        date: '2026-06-20',
+        type: 'feature',
+        title: { tr: 'Drip Kampanya Yenilemesi', en: 'Drip Campaign Overhaul' },
+        about: {
+            tr: 'Drip kampanyalarda dizi kurma, kişi seçimi ve liste yönetimi yeniden tasarlandı.',
+            en: 'Sequence building, contact selection and list management for drip campaigns have been redesigned.',
+        },
+        usage: {
+            tr: 'Diziyi her e-postaya gönderim öncesi bekleme süresi vererek kurabilir, Önizle ile görüp Kitle sekmesinde aşama, sektör ve ülkeye göre filtreleyip eşleşen herkesi tek tıkla kaydedebilirsiniz.',
+            en: 'You can build the sequence by giving each email a wait time before sending, check it with Preview, and on the Audience tab filter by stage, industry and country to enroll everyone matching in one click.',
+        },
+        notes: {
+            tr: 'Yeni Ayarlar sekmesindeki gönderim programı ve günlük limit gibi bazı alanlar bir sonraki güncellemede devreye girecek.',
+            en: 'Some fields in the new Settings tab such as sending schedule and daily limit will go live in an upcoming update.',
+        },
+    },
+    {
         version: '1.11.0',
         date: '2026-06-20',
         type: 'feature',

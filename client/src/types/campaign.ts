@@ -1,6 +1,32 @@
 export type CampaignStatus = 'draft' | 'active' | 'paused' | 'completed';
-export type StepType = 'email' | 'delay';
+// 'condition' ileriye dönük (Faz 2 — dallanma); UI henüz üretmiyor.
+export type StepType = 'email' | 'delay' | 'condition';
 export type EnrollmentStatus = 'active' | 'completed' | 'paused' | 'replied' | 'bounced' | 'unsubscribed';
+
+// ── Kampanya ayarları (Ayarlar sekmesi) ────────────────────────────────────
+// Bugün backend yalnızca `daily_limit` + `timezone` kaydediyor. Diğer alanlar
+// Faz 1'de doldurulacak (gönderim penceresi, kutu rotasyonu, takip toggle'ları).
+
+/** Gönderim penceresi — yalnızca seçili gün/saat aralığında gönderim (Faz 1.1). */
+export interface SendingWindow {
+    days?: number[];   // 0=Pazar … 6=Cumartesi
+    start?: string;    // "09:00" (yerel, settings.timezone'a göre)
+    end?: string;      // "18:00"
+}
+
+export interface CampaignTracking {
+    open?: boolean;    // açılma pikseli
+    click?: boolean;   // tıklama yönlendirme
+}
+
+export interface CampaignSettings {
+    daily_limit?: number;            // kampanya günlük tavanı (canlı; henüz motorda uygulanmıyor)
+    timezone?: string;               // IANA tz — gönderim penceresi için kanonik (canlı)
+    cc?: string[];                   // kampanya seviyesi CC (Faz 1)
+    sending_window?: SendingWindow;  // gönderim programı (Faz 1.1)
+    sending_account_ids?: string[];  // inbox rotasyonu — kullanılacak bağlantılar (Faz 1.3)
+    tracking?: CampaignTracking;     // açılma/tıklama takip toggle'ları (Faz 1)
+}
 
 export interface Campaign {
     id: string;
@@ -9,7 +35,7 @@ export interface Campaign {
     description: string | null;
     status: CampaignStatus;
     from_name: string | null;
-    settings: { daily_limit?: number; timezone?: string };
+    settings: CampaignSettings;
     total_enrolled: number;
     created_by: string;
     created_at: string;

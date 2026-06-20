@@ -389,8 +389,9 @@ export const updateCampaignSchema = z.object({
 
 const emailStepSchema = z.object({
     step_type: z.literal('email'),
-    subject: z.string().min(1).max(500),
-    body_html: z.string().min(1).max(50000),
+    // Boş bırakılabilir (yarım dizi kaydetme serbest); adım kartında uyarı gösterilir.
+    subject: z.string().max(500),
+    body_html: z.string().max(50000),
     body_text: z.string().max(50000).nullish(),
 }).passthrough(); // allow extra fields (delay_days etc.) from client's unified Step type
 
@@ -415,4 +416,14 @@ export const enrollLeadsSchema = z.object({
         company_id: uuidField(),
         email: z.string().email(),
     })).min(1).max(200),
+});
+
+// Audience filtresi — Drip kampanyaya filtreyle kişi seçimi/kaydı.
+// stage/industry şirket seviyesi (companies join), country/seniority kişi seviyesi.
+export const audienceFilterSchema = z.object({
+    search: z.string().max(200).optional(),
+    stages: z.array(z.string().max(100)).max(50).optional(),
+    industries: z.array(z.string().max(200)).max(100).optional(),
+    countries: z.array(z.string().max(100)).max(100).optional(),
+    seniorities: z.array(z.string().max(100)).max(50).optional(),
 });

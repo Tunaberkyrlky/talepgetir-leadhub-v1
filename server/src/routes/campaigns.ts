@@ -8,7 +8,7 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole, requireTier } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
-import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, enrollLeadsSchema } from '../lib/validation.js';
+import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, enrollLeadsSchema, audienceFilterSchema } from '../lib/validation.js';
 import { enrollLeads, getCampaignStats } from '../lib/campaignEngine.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import posthog from '../lib/posthog.js';
@@ -305,6 +305,85 @@ router.post('/:id/enroll', validateBody(enrollLeadsSchema), async (req: Request,
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Enroll error');
         res.status(500).json({ error: 'Failed to enroll leads' });
+    }
+});
+
+// ── Audience filtresi (filtreyle kişi seçimi/kaydı) ────────────────────────
+
+interface AudienceFilters {
+    search?: string;
+    stages?: string[];
+    industries?: string[];
+    countries?: string[];
+    seniorities?: string[];
+}
+
+const MAX_FILTER_ENROLL = 2000;
+
+// Tek sorguda kişileri çözer. stage/industry şirket seviyesi (companies!inner join),
+// country/seniority kişi seviyesi. count tüm eşleşmeyi verir; satırlar `limit` ile sınırlı.
+async function resolveAudience(tenantId: string, filters: AudienceFilters, limit: number) {
+    let q = supabaseAdmin
+        .from('contacts')
+        .select('id, first_name, last_name, email, company_id, companies!inner(name, stage, industry)', { count: 'exact' })
+        .eq('tenant_id', tenantId)
+        .not('email', 'is', null)
+        .order('updated_at', { ascending: false })
+        .limit(limit);
+
+    if (filters.stages?.length) q = q.in('companies.stage', filters.stages);
+    if (filters.industries?.length) q = q.in('companies.industry', filters.industries);
+    if (filters.countries?.length) q = q.in('country', filters.countries);
+    if (filters.seniorities?.length) q = q.in('seniority', filters.seniorities);
+    if (filters.search && filters.search.trim()) {
+        const safe = sanitizeSearch(filters.search.trim());
+        if (safe.length > 0) q = q.or(`first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,email.ilike.%${safe}%`);
+    }
+
+    const { data, count, error } = await q;
+    if (error) throw new AppError('Failed to resolve audience', 500);
+
+    const contacts = (data || []).map((c: any) => ({
+        contact_id: c.id as string,
+        company_id: c.company_id as string,
+        email: c.email as string,
+        name: [c.first_name, c.last_name].filter(Boolean).join(' '),
+        company_name: c.companies?.name || '',
+    }));
+    return { total: count || 0, contacts };
+}
+
+// ── POST /api/campaigns/:id/audience/preview ───────────────────────────────
+
+router.post('/:id/audience/preview', validateBody(audienceFilterSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { total, contacts } = await resolveAudience(req.tenantId!, req.body, 50);
+        res.json({ total, contacts });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Audience preview error');
+        res.status(500).json({ error: 'Failed to preview audience' });
+    }
+});
+
+// ── POST /api/campaigns/:id/enroll-filter ──────────────────────────────────
+
+router.post('/:id/enroll-filter', validateBody(audienceFilterSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { total, contacts } = await resolveAudience(req.tenantId!, req.body, MAX_FILTER_ENROLL);
+        if (!contacts.length) { res.json({ matched: 0, enrolled: 0, skipped: 0, capped: false }); return; }
+
+        const result = await enrollLeads((req.params.id as string), req.tenantId!, req.user!.id, contacts);
+        posthog.capture({
+            distinctId: req.user!.id,
+            event: 'campaign_leads_enrolled',
+            properties: { campaign_id: req.params.id, contacts_count: contacts.length, via: 'filter', tenant_id: req.tenantId! },
+        });
+        res.json({ matched: total, enrolled: result.enrolled, skipped: result.skipped, capped: total > MAX_FILTER_ENROLL });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Enroll-filter error');
+        res.status(500).json({ error: 'Failed to enroll filtered audience' });
     }
 });
 
