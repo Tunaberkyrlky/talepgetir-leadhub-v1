@@ -367,24 +367,28 @@ export const smtpConnectionSchema = z.object({
 
 // ── Campaign schemas ──────────────────────────────────────────────────────
 
+const campaignSettingsSchema = z.object({
+    daily_limit: z.number().int().min(1).max(500).optional(),
+    timezone: z.string().max(50).optional(),
+    sending_window: z.object({
+        days: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+        start: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+        end: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    }).optional(),
+});
+
 export const createCampaignSchema = z.object({
     name: z.string().min(1).max(200),
     description: z.string().max(2000).optional(),
     from_name: z.string().max(100).optional(),
-    settings: z.object({
-        daily_limit: z.number().int().min(1).max(500).optional(),
-        timezone: z.string().max(50).optional(),
-    }).optional(),
+    settings: campaignSettingsSchema.optional(),
 });
 
 export const updateCampaignSchema = z.object({
     name: z.string().min(1).max(200).optional(),
     description: z.string().max(2000).optional(),
     from_name: z.string().max(100).optional(),
-    settings: z.object({
-        daily_limit: z.number().int().min(1).max(500).optional(),
-        timezone: z.string().max(50).optional(),
-    }).optional(),
+    settings: campaignSettingsSchema.optional(),
 });
 
 const emailStepSchema = z.object({

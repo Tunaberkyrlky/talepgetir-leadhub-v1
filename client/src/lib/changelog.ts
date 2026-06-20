@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.12.1',
+        date: '2026-06-20',
+        type: 'feature',
+        title: { tr: 'Gönderim Programı ve Günlük Limit', en: 'Sending Schedule & Daily Limit' },
+        about: {
+            tr: 'Drip kampanyalarda mailler artık seçtiğiniz gün ve saat aralığında, günlük limiti aşmadan gönderiliyor.',
+            en: 'Drip campaign emails now send only within your chosen days and hours, staying under the daily limit.',
+        },
+        usage: {
+            tr: 'Kampanya Ayarlar sekmesinde gönderim günlerini, saat aralığını ve saat dilimini seçip günlük gönderim sayısını sınırlayabilirsiniz.',
+            en: 'On the campaign Settings tab you can pick sending days, time range and timezone, and cap how many emails go out per day.',
+        },
+        notes: {
+            tr: 'Pencere dışına denk gelen mailler bir sonraki açılışa, günlük limit dolunca ertesi güne ertelenir.',
+            en: 'Emails falling outside the window are deferred to the next opening, and once the daily limit is reached, to the next day.',
+        },
+    },
+    {
         version: '1.12.0',
         date: '2026-06-20',
         type: 'feature',

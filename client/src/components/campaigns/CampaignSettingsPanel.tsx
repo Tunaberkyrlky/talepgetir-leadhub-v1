@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import {
-    Stack, Paper, Group, Text, Badge, Select, NumberInput, TextInput, Switch,
+    Stack, Paper, Group, Text, Badge, Select, NumberInput, TextInput, Switch, Chip,
 } from '@mantine/core';
 import {
     IconCalendarTime, IconGauge, IconInbox, IconUser, IconEye,
@@ -16,11 +16,44 @@ interface Props {
     readOnly?: boolean;
 }
 
-// IANA timezones — kanonik gönderim penceresi saat dilimi. Genişletilebilir.
-const TZ_OPTIONS = [
-    'Europe/Istanbul', 'UTC', 'Europe/London', 'Europe/Berlin', 'Europe/Paris',
-    'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Asia/Dubai', 'Asia/Singapore',
-].map((tz) => ({ value: tz, label: tz.replace(/_/g, ' ') }));
+// IANA timezones — gönderim penceresi saat dilimi. Etiketlerde güncel UTC ofseti gösterilir.
+const TZ_ZONES = [
+    'Pacific/Honolulu', 'America/Anchorage', 'America/Los_Angeles', 'America/Denver',
+    'America/Chicago', 'America/New_York', 'America/Sao_Paulo', 'Atlantic/Azores',
+    'UTC', 'Europe/London', 'Europe/Lisbon', 'Europe/Paris', 'Europe/Berlin',
+    'Europe/Istanbul', 'Europe/Moscow', 'Asia/Tehran', 'Asia/Dubai', 'Asia/Karachi',
+    'Asia/Kolkata', 'Asia/Dhaka', 'Asia/Bangkok', 'Asia/Singapore', 'Asia/Shanghai',
+    'Asia/Tokyo', 'Australia/Sydney', 'Pacific/Auckland',
+];
+
+// "GMT+3" → "UTC+3"; UTC bölgesi için "UTC+0".
+function tzShortOffset(tz: string, now: Date): string {
+    try {
+        const raw = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' })
+            .formatToParts(now).find((p) => p.type === 'timeZoneName')?.value || 'GMT';
+        const utc = raw.replace('GMT', 'UTC');
+        return utc === 'UTC' ? 'UTC+0' : utc;
+    } catch {
+        return 'UTC+0';
+    }
+}
+
+function offsetMinutes(short: string): number {
+    const m = /UTC([+-])(\d{1,2})(?::(\d{2}))?/.exec(short);
+    if (!m) return 0;
+    return (m[1] === '-' ? -1 : 1) * (parseInt(m[2], 10) * 60 + (m[3] ? parseInt(m[3], 10) : 0));
+}
+
+const TZ_OPTIONS = (() => {
+    const now = new Date();
+    return TZ_ZONES
+        .map((tz) => {
+            const off = tzShortOffset(tz, now);
+            return { value: tz, label: `(${off}) ${tz.replace(/_/g, ' ')}`, _min: offsetMinutes(off) };
+        })
+        .sort((a, b) => a._min - b._min)
+        .map(({ value, label }) => ({ value, label }));
+})();
 
 // ── Bölüm kabuğu — başlık + opsiyonel "Yakında" rozeti + açıklama + içerik ──
 // Top-level: her render'da remount olup input focus'unu kaybetmemesi için
@@ -54,6 +87,9 @@ export default function CampaignSettingsPanel({
     );
 
     const patch = (p: Partial<CampaignSettings>) => onSettingsChange({ ...settings, ...p });
+    const win = settings.sending_window || {};
+    const patchWindow = (p: Partial<NonNullable<CampaignSettings['sending_window']>>) =>
+        patch({ sending_window: { ...win, ...p } });
 
     return (
         <Stack gap="md">
@@ -75,26 +111,23 @@ export default function CampaignSettingsPanel({
                         disabled={readOnly}
                     />
                     <div>
-                        <Group gap={4} mb={4}>
-                            <Text size="xs" fw={500} c="dimmed">{t('campaign.settings.days')}</Text>
-                            <Badge size="xs" variant="light" color="gray">{soon}</Badge>
-                        </Group>
-                        <Group gap={6}>
-                            {weekdayLabels.map((d, i) => (
-                                <Badge key={i} size="sm" variant="light"
-                                    color={i >= 1 && i <= 5 ? 'violet' : 'gray'} style={{ opacity: 0.55 }}>
-                                    {d}
-                                </Badge>
-                            ))}
-                        </Group>
+                        <Text size="xs" fw={500} c="dimmed" mb={6}>{t('campaign.settings.days')}</Text>
+                        <Chip.Group multiple value={(win.days || []).map(String)}
+                            onChange={(v) => patchWindow({ days: v.map(Number).sort((a, b) => a - b) })}>
+                            <Group gap={6}>
+                                {weekdayLabels.map((d, i) => (
+                                    <Chip key={i} value={String(i)} size="xs" radius="sm" color="violet" disabled={readOnly}>{d}</Chip>
+                                ))}
+                            </Group>
+                        </Chip.Group>
                     </div>
                     <Group gap="sm" align="end">
-                        <TextInput label={t('campaign.settings.startTime')} placeholder="09:00"
-                            rightSection={<Badge size="xs" variant="light" color="gray">{soon}</Badge>}
-                            rightSectionWidth={60} radius="md" size="sm" w={150} disabled />
-                        <TextInput label={t('campaign.settings.endTime')} placeholder="18:00"
-                            rightSection={<Badge size="xs" variant="light" color="gray">{soon}</Badge>}
-                            rightSectionWidth={60} radius="md" size="sm" w={150} disabled />
+                        <TextInput type="time" label={t('campaign.settings.startTime')} value={win.start || ''}
+                            onChange={(e) => patchWindow({ start: e.currentTarget.value || undefined })}
+                            radius="md" size="sm" w={150} disabled={readOnly} />
+                        <TextInput type="time" label={t('campaign.settings.endTime')} value={win.end || ''}
+                            onChange={(e) => patchWindow({ end: e.currentTarget.value || undefined })}
+                            radius="md" size="sm" w={150} disabled={readOnly} />
                     </Group>
                 </Stack>
             </SettingSection>

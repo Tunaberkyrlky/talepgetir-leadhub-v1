@@ -15,6 +15,7 @@ import { API_BASE, createTrackingToken, injectTracking } from './mailTracking.js
 import { sendEmail } from './emailSender.js';
 import { createLogger } from './logger.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { nextSendableTime, startOfLocalDay, startOfNextLocalDay, type SendingWindow } from './sendingWindow.js';
 
 const log = createLogger('campaignEngine');
 
@@ -101,6 +102,28 @@ function calcDelayMs(step: CampaignStep): number {
     return (step.delay_days * 86_400_000) + (step.delay_hours * 3_600_000);
 }
 
+const DEFAULT_TZ = 'Europe/Istanbul';
+
+// Gönderim penceresi varsa baseMs'i bir sonraki açılışa clamp'ler; yoksa aynen döner.
+function scheduleMs(baseMs: number, settings: any): number {
+    const win = settings?.sending_window as SendingWindow | undefined;
+    if (!win) return baseMs;
+    return nextSendableTime(baseMs, settings?.timezone || DEFAULT_TZ, win);
+}
+
+// Kampanyanın bugün (yerel gün) gönderdiği mail sayısı — günlük limit kontrolü için.
+async function countSentToday(campaignId: string, timeZone: string): Promise<number> {
+    const dayStart = startOfLocalDay(Date.now(), timeZone);
+    const { count } = await supabaseAdmin
+        .from('activities')
+        .select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId)
+        .eq('type', 'campaign_email')
+        .eq('outcome', 'sent')
+        .gte('occurred_at', new Date(dayStart).toISOString());
+    return count || 0;
+}
+
 // ── Enrollment ─────────────────────────────────────────────────────────────
 
 export async function enrollLeads(
@@ -112,7 +135,7 @@ export async function enrollLeads(
     // Fetch campaign + first step
     const { data: campaign, error: campErr } = await supabaseAdmin
         .from('campaigns')
-        .select('id, status, total_enrolled')
+        .select('id, status, total_enrolled, settings')
         .eq('id', campaignId)
         .eq('tenant_id', tenantId)
         .single();
@@ -131,8 +154,9 @@ export async function enrollLeads(
 
     // Wait-before-email modeli: her adımın kendi delay'i "bu maili göndermeden
     // önce bekle" demektir. İlk adımın delay'i (genelde 0 = hemen) kayıt anından
-    // itibaren sayılır. Legacy 'delay' düğümleri de aynı hesapla doğru çalışır.
-    const firstScheduleAt = new Date(Date.now() + calcDelayMs(firstStep)).toISOString();
+    // itibaren sayılır. Gönderim penceresi varsa açılışa clamp'lenir.
+    // Legacy 'delay' düğümleri de aynı hesapla doğru çalışır.
+    const firstScheduleAt = new Date(scheduleMs(Date.now() + calcDelayMs(firstStep), campaign.settings)).toISOString();
 
     // Batch insert enrollments — single DB call, duplicates ignored via ON CONFLICT
     const rows = contacts.map((c) => ({
@@ -273,6 +297,34 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                     failed++; continue;
                 }
 
+                // ── Gönderim penceresi + günlük limit kapıları ──────────
+                const settings = campaign.settings || {};
+                const tz = settings.timezone || DEFAULT_TZ;
+                const nowMs = Date.now();
+
+                if (settings.sending_window) {
+                    const sendable = nextSendableTime(nowMs, tz, settings.sending_window);
+                    if (sendable > nowMs) {
+                        // Pencere dışı → açılışa ertele, gönderme.
+                        await supabaseAdmin.from('campaign_enrollments')
+                            .update({ next_scheduled_at: new Date(sendable).toISOString() })
+                            .eq('id', enrollment.id);
+                        continue;
+                    }
+                }
+
+                if (settings.daily_limit && settings.daily_limit > 0) {
+                    const sentToday = await countSentToday(enrollment.campaign_id, tz);
+                    if (sentToday >= settings.daily_limit) {
+                        // Günlük limit doldu → ertesi günün açılışına ertele.
+                        const nextOpen = scheduleMs(startOfNextLocalDay(nowMs, tz), settings);
+                        await supabaseAdmin.from('campaign_enrollments')
+                            .update({ next_scheduled_at: new Date(nextOpen).toISOString() })
+                            .eq('id', enrollment.id);
+                        continue;
+                    }
+                }
+
                 // Resolve template
                 const ctx = await resolveTemplate(enrollment.contact_id, enrollment.company_id);
                 const subject = applyTemplate(currentStep.subject || '', ctx);
@@ -360,12 +412,12 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
             } else {
                 // Wait-before modeli: sıradaki adımın kendi delay'i kadar bekleyip
                 // işle. Email adımı (delay 0) → hemen; bekleme taşıyan adım → delay
-                // sonra. Legacy 'delay' düğümleri de aynı hesapla doğru çalışır.
+                // sonra. Gönderim penceresi varsa açılışa clamp'lenir.
                 await supabaseAdmin
                     .from('campaign_enrollments')
                     .update({
                         current_step_id: nextStep.id,
-                        next_scheduled_at: new Date(Date.now() + calcDelayMs(nextStep)).toISOString(),
+                        next_scheduled_at: new Date(scheduleMs(Date.now() + calcDelayMs(nextStep), campaign.settings)).toISOString(),
                     })
                     .eq('id', enrollment.id);
             }
