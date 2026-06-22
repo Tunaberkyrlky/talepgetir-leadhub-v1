@@ -9,7 +9,7 @@ import { requireRole, requireTier } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, enrollLeadsSchema, audienceFilterSchema, testSendSchema } from '../lib/validation.js';
-import { enrollLeads, getCampaignStats, sendTestEmail, resumePausedEnrollments } from '../lib/campaignEngine.js';
+import { enrollLeads, getCampaignStats, sendTestEmail, resumePausedEnrollments, pauseEnrollment, resumeEnrollment } from '../lib/campaignEngine.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import posthog from '../lib/posthog.js';
 
@@ -52,8 +52,35 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const { data, count, error } = await query;
         if (error) throw new AppError('Failed to fetch campaigns', 500);
 
+        // Listedeki kampanyalar için kompakt metrikler (gönderildi/açılma/yanıt) —
+        // tek seferde 2 sorgu, JS'te kampanya başına toplanır.
+        const campaigns = data || [];
+        const ids = campaigns.map((c) => c.id);
+        const statsById: Record<string, { sent: number; opens: number; replies: number }> = {};
+        for (const id of ids) statsById[id] = { sent: 0, opens: 0, replies: 0 };
+
+        if (ids.length > 0) {
+            const [actsRes, repliedRes] = await Promise.all([
+                supabaseAdmin.from('activities')
+                    .select('campaign_id, outcome, campaign_email_events(event_type)')
+                    .in('campaign_id', ids).eq('tenant_id', tenantId).eq('type', 'campaign_email'),
+                supabaseAdmin.from('campaign_enrollments')
+                    .select('campaign_id, status')
+                    .in('campaign_id', ids).eq('tenant_id', tenantId).eq('status', 'replied'),
+            ]);
+            for (const a of (actsRes.data || []) as any[]) {
+                if (a.outcome !== 'sent') continue;
+                const s = statsById[a.campaign_id]; if (!s) continue;
+                s.sent++;
+                if ((a.campaign_email_events || []).some((e: any) => e.event_type === 'open')) s.opens++;
+            }
+            for (const e of (repliedRes.data || []) as any[]) {
+                const s = statsById[e.campaign_id]; if (s) s.replies++;
+            }
+        }
+
         res.json({
-            data: data || [],
+            data: campaigns.map((c) => ({ ...c, stats: statsById[c.id] })),
             pagination: {
                 page, limit, total: count || 0,
                 totalPages: Math.ceil((count || 0) / limit),
@@ -445,6 +472,49 @@ router.get('/:id/enrollments', async (req: Request, res: Response, next: NextFun
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Enrollments error');
         res.status(500).json({ error: 'Failed to fetch enrollments' });
+    }
+});
+
+// ── Tek enrollment aksiyonları: durdur / devam / çıkar ──────────────────────
+
+router.post('/:id/enrollments/:enrollmentId/pause', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const ok = await pauseEnrollment((req.params.enrollmentId as string), req.tenantId!);
+        if (!ok) { res.status(422).json({ error: 'Enrollment is not active' }); return; }
+        res.json({ ok: true });
+    } catch (err) {
+        log.error({ err }, 'Pause enrollment error');
+        res.status(500).json({ error: 'Failed to pause enrollment' });
+    }
+});
+
+router.post('/:id/enrollments/:enrollmentId/resume', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { data: campaign } = await supabaseAdmin
+            .from('campaigns').select('settings')
+            .eq('id', (req.params.id as string)).eq('tenant_id', req.tenantId!).single();
+        const ok = await resumeEnrollment((req.params.enrollmentId as string), req.tenantId!, campaign?.settings || {});
+        if (!ok) { res.status(422).json({ error: 'Enrollment is not paused' }); return; }
+        res.json({ ok: true });
+    } catch (err) {
+        log.error({ err }, 'Resume enrollment error');
+        res.status(500).json({ error: 'Failed to resume enrollment' });
+    }
+});
+
+router.delete('/:id/enrollments/:enrollmentId', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { error } = await supabaseAdmin
+            .from('campaign_enrollments').delete()
+            .eq('id', (req.params.enrollmentId as string))
+            .eq('campaign_id', (req.params.id as string))
+            .eq('tenant_id', req.tenantId!);
+        if (error) throw new AppError('Failed to remove enrollment', 500);
+        res.json({ ok: true });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Remove enrollment error');
+        res.status(500).json({ error: 'Failed to remove enrollment' });
     }
 });
 

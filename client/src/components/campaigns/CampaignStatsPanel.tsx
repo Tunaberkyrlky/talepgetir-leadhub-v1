@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { SimpleGrid, Paper, Text, Loader, Center, Progress, Stack } from '@mantine/core';
-import { IconSend, IconEye, IconClick, IconMessageReply } from '@tabler/icons-react';
+import { SimpleGrid, Paper, Text, Loader, Center, Progress, Stack, Alert } from '@mantine/core';
+import { IconSend, IconEye, IconClick, IconMessageReply, IconEyeOff } from '@tabler/icons-react';
+import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import type { CampaignStats } from '../../types/campaign';
 
@@ -24,6 +25,7 @@ function StatCard({ title, value, icon, color, subtitle }: {
 const fmt = (r: number) => `${(r * 100).toFixed(1)}%`;
 
 export default function CampaignStatsPanel({ campaignId }: { campaignId: string }) {
+    const { t } = useTranslation();
     const { data: stats, isLoading } = useQuery<CampaignStats>({
         queryKey: ['campaign-stats', campaignId],
         queryFn: async () => { const r = await api.get(`/campaigns/${campaignId}/stats`); return r.data; },
@@ -37,6 +39,13 @@ export default function CampaignStatsPanel({ campaignId }: { campaignId: string 
 
     return (
         <Stack gap="md">
+            {!stats.tracking_enabled && (
+                <Alert icon={<IconEyeOff size={16} />} color="yellow" variant="light" radius="md" p="xs">
+                    <Text size="xs">
+                        {t('campaign.stats.trackingOff', 'Open and click tracking is not configured, so these counts may stay at zero. Replies are still tracked.')}
+                    </Text>
+                </Alert>
+            )}
             <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
                 <StatCard title="Sent" value={stats.emails_sent} icon={<IconSend size={20} />} color="blue" subtitle={`${stats.active} active`} />
                 <StatCard title="Opens" value={stats.opens} icon={<IconEye size={20} />} color="green" subtitle={fmt(stats.open_rate)} />

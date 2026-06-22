@@ -5,7 +5,7 @@ import {
     Container, Paper, Group, Stack, Text, TextInput, Button, Badge, Grid, Tabs, Loader, Center, Modal, Alert,
 } from '@mantine/core';
 import {
-    IconArrowLeft, IconDeviceFloppy, IconPlayerPlay, IconPlayerPause, IconChartBar, IconUsers, IconList, IconAlertCircle, IconSettings,
+    IconArrowLeft, IconDeviceFloppy, IconPlayerPause, IconChartBar, IconUsers, IconList, IconAlertCircle, IconSettings,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -14,6 +14,7 @@ import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import SequenceTimeline from '../components/campaigns/SequenceTimeline';
 import StepEditor from '../components/campaigns/StepEditor';
 import EnrollmentPanel from '../components/campaigns/EnrollmentPanel';
+import ActivationGuard from '../components/campaigns/ActivationGuard';
 import CampaignStatsPanel from '../components/campaigns/CampaignStatsPanel';
 import CampaignSettingsPanel from '../components/campaigns/CampaignSettingsPanel';
 import type { Campaign, CampaignStep, CampaignSettings } from '../types/campaign';
@@ -175,8 +176,12 @@ export default function CampaignEditorPage() {
                             <Button variant="default" radius="md" size="sm" leftSection={<IconDeviceFloppy size={16} />}
                                 onClick={() => saveMut.mutate()} loading={saveMut.isPending} disabled={!name.trim() || isReadOnly}>{t('campaign.editor.save', 'Save')}</Button>
                             {!isNew && isDraft && (
-                                <Button variant="gradient" gradient={{ from: '#6c63ff', to: '#3b82f6', deg: 135 }} radius="md" size="sm"
-                                    leftSection={<IconPlayerPlay size={16} />} onClick={() => activateMut.mutate()} loading={activateMut.isPending}>{t('campaign.editor.activate', 'Activate')}</Button>
+                                <ActivationGuard
+                                    emailStepCount={steps.filter((s) => s.step_type === 'email').length}
+                                    enrolledCount={campaign?.total_enrolled || 0}
+                                    onActivate={() => activateMut.mutate()}
+                                    loading={activateMut.isPending}
+                                />
                             )}
                             {isActive && (
                                 <Button variant="light" color="yellow" radius="md" size="sm"

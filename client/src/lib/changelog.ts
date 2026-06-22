@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.12.5',
+        date: '2026-06-22',
+        type: 'improvement',
+        title: { tr: 'Kampanya Kontrolü ve Netlik', en: 'Campaign Control & Clarity' },
+        about: {
+            tr: 'Drip kampanyalarda kişileri tek tek yönetebilir, başlatmadan önce hazır olup olmadığını görebilir ve liste metriklerini daha derli toplu izleyebilirsiniz.',
+            en: 'You can manage contacts one by one in drip campaigns, see whether a campaign is ready before starting it, and follow list metrics in a more compact view.',
+        },
+        usage: {
+            tr: 'Kitle sekmesindeki kişi satırından durdurabilir, sürdürebilir veya çıkarabilir; Başlat butonunun üstüne gelerek eksik kalan adımları görebilirsiniz.',
+            en: 'From a contact row on the Audience tab you can pause, resume or remove them, and hovering the Activate button shows what is still missing.',
+        },
+        notes: {
+            tr: 'Açılma ve tıklama takibi yapılandırılmamışsa Analiz sekmesi bunu belirtir ve bu sayılar boş kalabilir.',
+            en: 'If open and click tracking is not configured, the Analytics tab now says so and those counts may stay empty.',
+        },
+    },
+    {
         version: '1.12.4',
         date: '2026-06-22',
         type: 'feature',

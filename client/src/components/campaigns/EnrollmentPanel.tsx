@@ -2,9 +2,12 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Stack, Group, Text, Badge, Button, Table, TextInput, MultiSelect, Paper, Loader, Center, Checkbox,
+    Menu, ActionIcon, Modal,
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
-import { IconPlus, IconSearch, IconUsers, IconUserPlus } from '@tabler/icons-react';
+import {
+    IconPlus, IconSearch, IconUsers, IconUserPlus, IconDots, IconPlayerPause, IconPlayerPlay, IconTrash,
+} from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showSuccess, showErrorFromApi } from '../../lib/notifications';
@@ -42,6 +45,7 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
     const [industries, setIndustries] = useState<string[]>([]);
     const [countries, setCountries] = useState<string[]>([]);
     const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [toRemove, setToRemove] = useState<Enrollment | null>(null);
     const [debSearch] = useDebouncedValue(search, 350);
 
     const canEnroll = ['active', 'draft'].includes(campaignStatus);
@@ -100,6 +104,33 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
         },
         onError: (err) => showErrorFromApi(err),
     });
+
+    // ── Tek-lead aksiyonları ──
+    const invalidateRows = () => {
+        qc.invalidateQueries({ queryKey: ['campaign-enrollments', campaignId] });
+        qc.invalidateQueries({ queryKey: ['campaign-stats', campaignId] });
+        qc.invalidateQueries({ queryKey: ['campaigns'] });
+    };
+    const pauseOneMut = useMutation({
+        mutationFn: (eid: string) => api.post(`/campaigns/${campaignId}/enrollments/${eid}/pause`),
+        onSuccess: () => { showSuccess(t('campaign.audience.rowPaused', 'Contact paused')); invalidateRows(); },
+        onError: (err) => showErrorFromApi(err),
+    });
+    const resumeOneMut = useMutation({
+        mutationFn: (eid: string) => api.post(`/campaigns/${campaignId}/enrollments/${eid}/resume`),
+        onSuccess: () => { showSuccess(t('campaign.audience.rowResumed', 'Contact resumed')); invalidateRows(); },
+        onError: (err) => showErrorFromApi(err),
+    });
+    const removeOneMut = useMutation({
+        mutationFn: (eid: string) => api.delete(`/campaigns/${campaignId}/enrollments/${eid}`),
+        onSuccess: () => { showSuccess(t('campaign.audience.rowRemoved', 'Contact removed')); invalidateRows(); setToRemove(null); },
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    const fmtNext = (iso: string | null) => {
+        if (!iso) return '—';
+        return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    };
 
     const allPageSelected = matches.length > 0 && matches.every((c) => selected.has(c.contact_id));
     const toggleAllPage = () => setSelected((p) => {
@@ -195,7 +226,9 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
                                     <Table.Th>{t('campaign.audience.colContact', 'Contact')}</Table.Th>
                                     <Table.Th>{t('campaign.audience.colCompany', 'Company')}</Table.Th>
                                     <Table.Th>{t('campaign.audience.colStep', 'Step')}</Table.Th>
+                                    <Table.Th>{t('campaign.audience.colNext', 'Next')}</Table.Th>
                                     <Table.Th>{t('campaigns.table.status', 'Status')}</Table.Th>
+                                    <Table.Th w={40} />
                                 </Table.Tr>
                             </Table.Thead>
                             <Table.Tbody>
@@ -204,7 +237,35 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
                                         <Table.Td><Text size="sm" fw={500}>{e.contact_name}</Text><Text size="xs" c="dimmed">{e.email}</Text></Table.Td>
                                         <Table.Td><Text size="xs">{e.company_name}</Text></Table.Td>
                                         <Table.Td><Text size="xs">{e.current_step_order ? `${t('campaign.audience.colStep', 'Step')} ${e.current_step_order}` : '—'}</Text></Table.Td>
+                                        <Table.Td><Text size="xs" c="dimmed">{e.status === 'active' ? fmtNext(e.next_scheduled_at) : '—'}</Text></Table.Td>
                                         <Table.Td><Badge size="xs" variant="light" color={STATUS_COLORS[e.status] || 'gray'}>{e.status}</Badge></Table.Td>
+                                        <Table.Td>
+                                            <Menu position="bottom-end" withinPortal shadow="md" width={170}>
+                                                <Menu.Target>
+                                                    <ActionIcon variant="subtle" color="gray" size="sm" aria-label={t('common.actions', 'Actions')}>
+                                                        <IconDots size={16} />
+                                                    </ActionIcon>
+                                                </Menu.Target>
+                                                <Menu.Dropdown>
+                                                    {e.status === 'active' && (
+                                                        <Menu.Item leftSection={<IconPlayerPause size={14} />}
+                                                            onClick={() => pauseOneMut.mutate(e.id)}>
+                                                            {t('campaign.audience.rowPause', 'Pause')}
+                                                        </Menu.Item>
+                                                    )}
+                                                    {e.status === 'paused' && (
+                                                        <Menu.Item leftSection={<IconPlayerPlay size={14} />}
+                                                            onClick={() => resumeOneMut.mutate(e.id)}>
+                                                            {t('campaign.audience.rowResume', 'Resume')}
+                                                        </Menu.Item>
+                                                    )}
+                                                    <Menu.Item color="red" leftSection={<IconTrash size={14} />}
+                                                        onClick={() => setToRemove(e)}>
+                                                        {t('campaign.audience.rowRemove', 'Remove')}
+                                                    </Menu.Item>
+                                                </Menu.Dropdown>
+                                            </Menu>
+                                        </Table.Td>
                                     </Table.Tr>
                                 ))}
                             </Table.Tbody>
@@ -212,6 +273,25 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
                     ) : <Text size="sm" c="dimmed" ta="center" py="md">{t('campaign.audience.noneEnrolled', 'No contacts enrolled yet.')}</Text>
                 }
             </div>
+
+            <Modal opened={!!toRemove} onClose={() => setToRemove(null)} centered radius="lg" size="sm"
+                title={t('campaign.audience.removeTitle', 'Remove contact')} overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}>
+                <Stack gap="md">
+                    <Text size="sm">
+                        {t('campaign.audience.removeConfirm', {
+                            name: toRemove?.contact_name || toRemove?.email || '',
+                            defaultValue: '{{name}} will be removed from this campaign and will receive no further emails.',
+                        })}
+                    </Text>
+                    <Group justify="flex-end">
+                        <Button variant="default" radius="md" onClick={() => setToRemove(null)}>{t('common.cancel', 'Cancel')}</Button>
+                        <Button color="red" radius="md" loading={removeOneMut.isPending}
+                            onClick={() => toRemove && removeOneMut.mutate(toRemove.id)}>
+                            {t('campaign.audience.rowRemove', 'Remove')}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
         </Stack>
     );
 }

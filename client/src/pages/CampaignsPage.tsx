@@ -3,12 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table, Tabs,
-    Loader, Center, SimpleGrid, Button, TextInput, Select, Menu, ActionIcon, Modal, Alert,
+    Loader, Center, SimpleGrid, Button, TextInput, Select, Menu, ActionIcon, Modal, Alert, Tooltip,
 } from '@mantine/core';
 import {
     IconSpeakerphone, IconMail, IconEye, IconMessageReply, IconCheck,
     IconPlus, IconMailForward, IconLink, IconSearch, IconFilter, IconDots,
-    IconCopy, IconTrash, IconPencil, IconAlertCircle,
+    IconCopy, IconTrash, IconPencil, IconAlertCircle, IconSend, IconUsers,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -68,10 +68,7 @@ function PlusVibeTab() {
                         <Table.Tr>
                             <Table.Th>{t('campaigns.table.name')}</Table.Th>
                             <Table.Th>{t('campaigns.table.status')}</Table.Th>
-                            <Table.Th ta="right">{t('campaigns.table.leads')}</Table.Th>
-                            <Table.Th ta="right">{t('campaigns.table.sent')}</Table.Th>
-                            <Table.Th ta="right">{t('campaigns.table.openRate')}</Table.Th>
-                            <Table.Th ta="right">{t('campaigns.table.replyRate')}</Table.Th>
+                            <Table.Th>{t('campaign.list.metrics', 'Metrics')}</Table.Th>
                         </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
@@ -84,10 +81,22 @@ function PlusVibeTab() {
                                         : <Badge size="sm" variant="light" color="green">{t('campaigns.filters.active')}</Badge>
                                     }
                                 </Table.Td>
-                                <Table.Td ta="right"><Text size="sm">{c.total_leads}</Text></Table.Td>
-                                <Table.Td ta="right"><Text size="sm">{c.emails_sent}</Text></Table.Td>
-                                <Table.Td ta="right"><Text size="sm" c="blue">{pct(c.open_rate)}</Text></Table.Td>
-                                <Table.Td ta="right"><Text size="sm" c="orange">{pct(c.reply_rate)}</Text></Table.Td>
+                                <Table.Td>
+                                    <Group gap="lg" wrap="nowrap">
+                                        <Tooltip label={t('campaigns.table.leads', 'Leads')} withArrow>
+                                            <Group gap={4} wrap="nowrap"><IconUsers size={14} color="var(--mantine-color-gray-6)" /><Text size="xs" c="dimmed">{c.total_leads}</Text></Group>
+                                        </Tooltip>
+                                        <Tooltip label={t('campaigns.table.sent', 'Sent')} withArrow>
+                                            <Group gap={4} wrap="nowrap"><IconSend size={14} color="var(--mantine-color-gray-6)" /><Text size="xs" c="dimmed">{c.emails_sent}</Text></Group>
+                                        </Tooltip>
+                                        <Tooltip label={`${t('campaigns.table.openRate', 'Open rate')} · ${pct(c.open_rate)}`} withArrow>
+                                            <Group gap={4} wrap="nowrap"><IconEye size={14} color="var(--mantine-color-blue-5)" /><Text size="xs" c="dimmed">{c.opens}</Text></Group>
+                                        </Tooltip>
+                                        <Tooltip label={`${t('campaigns.table.replyRate', 'Reply rate')} · ${pct(c.reply_rate)}`} withArrow>
+                                            <Group gap={4} wrap="nowrap"><IconMessageReply size={14} color="var(--mantine-color-violet-5)" /><Text size="xs" c="dimmed">{c.replies}</Text></Group>
+                                        </Tooltip>
+                                    </Group>
+                                </Table.Td>
                             </Table.Tr>
                         ))}
                     </Table.Tbody>
@@ -107,7 +116,7 @@ function DripTab() {
     const [status, setStatus] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<Campaign | null>(null);
 
-    const { data, isLoading } = useQuery<{ data: Campaign[]; pagination: { page: number; limit: number; total: number; totalPages: number; hasNext: boolean } }>({
+    const { data, isLoading } = useQuery<{ data: (Campaign & { stats?: { sent: number; opens: number; replies: number } })[]; pagination: { page: number; limit: number; total: number; totalPages: number; hasNext: boolean } }>({
         queryKey: ['campaigns', search, status],
         queryFn: async () => (await api.get('/campaigns', {
             params: { search: search || undefined, status: status || undefined },
@@ -193,18 +202,13 @@ function DripTab() {
                     </Stack>
                 )
             ) : (
-                <>
-                    <Text size="xs" c="dimmed" mb="xs">{t('campaign.list.metricsSoon', 'Open and reply metrics will be added in the next step.')}</Text>
-                    <Paper radius="md" withBorder style={{ overflow: 'auto' }}>
+                <Paper radius="md" withBorder style={{ overflow: 'auto' }}>
                         <Table highlightOnHover striped>
                             <Table.Thead>
                                 <Table.Tr>
                                     <Table.Th>{t('campaigns.table.name', 'Name')}</Table.Th>
                                     <Table.Th>{t('campaigns.table.status', 'Status')}</Table.Th>
-                                    <Table.Th ta="right">{t('campaign.enrolled', 'Enrolled')}</Table.Th>
-                                    <Table.Th ta="right">{t('campaign.list.colSent', 'Sent')}</Table.Th>
-                                    <Table.Th ta="right">{t('campaign.list.colOpen', 'Opens')}</Table.Th>
-                                    <Table.Th ta="right">{t('campaign.list.colReply', 'Replies')}</Table.Th>
+                                    <Table.Th>{t('campaign.list.metrics', 'Metrics')}</Table.Th>
                                     <Table.Th ta="right" w={60} />
                                 </Table.Tr>
                             </Table.Thead>
@@ -219,10 +223,22 @@ function DripTab() {
                                                 {statusLabel(c.status)}
                                             </Badge>
                                         </Table.Td>
-                                        <Table.Td ta="right"><Text size="sm">{c.total_enrolled}</Text></Table.Td>
-                                        <Table.Td ta="right"><Text size="sm" c="dimmed">—</Text></Table.Td>
-                                        <Table.Td ta="right"><Text size="sm" c="dimmed">—</Text></Table.Td>
-                                        <Table.Td ta="right"><Text size="sm" c="dimmed">—</Text></Table.Td>
+                                        <Table.Td>
+                                            <Group gap="lg" wrap="nowrap">
+                                                <Tooltip label={t('campaign.enrolled', 'Enrolled')} withArrow>
+                                                    <Group gap={4} wrap="nowrap"><IconUsers size={14} color="var(--mantine-color-gray-6)" /><Text size="xs" c="dimmed">{c.total_enrolled}</Text></Group>
+                                                </Tooltip>
+                                                <Tooltip label={t('campaign.list.colSent', 'Sent')} withArrow>
+                                                    <Group gap={4} wrap="nowrap"><IconSend size={14} color="var(--mantine-color-gray-6)" /><Text size="xs" c="dimmed">{c.stats?.sent ?? 0}</Text></Group>
+                                                </Tooltip>
+                                                <Tooltip label={t('campaign.list.colOpen', 'Opens')} withArrow>
+                                                    <Group gap={4} wrap="nowrap"><IconEye size={14} color="var(--mantine-color-blue-5)" /><Text size="xs" c="dimmed">{c.stats?.opens ?? 0}</Text></Group>
+                                                </Tooltip>
+                                                <Tooltip label={t('campaign.list.colReply', 'Replies')} withArrow>
+                                                    <Group gap={4} wrap="nowrap"><IconMessageReply size={14} color="var(--mantine-color-violet-5)" /><Text size="xs" c="dimmed">{c.stats?.replies ?? 0}</Text></Group>
+                                                </Tooltip>
+                                            </Group>
+                                        </Table.Td>
                                         <Table.Td ta="right" onClick={(e) => e.stopPropagation()}>
                                             <Menu shadow="md" width={180} position="bottom-end">
                                                 <Menu.Target>
@@ -252,7 +268,6 @@ function DripTab() {
                             </Table.Tbody>
                         </Table>
                     </Paper>
-                </>
             )}
 
             <Modal opened={!!deleteTarget} onClose={() => setDeleteTarget(null)}

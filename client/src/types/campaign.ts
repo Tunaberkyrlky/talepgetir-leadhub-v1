@@ -82,6 +82,7 @@ export interface CampaignStats {
     open_rate: number;
     click_rate: number;
     reply_rate: number;
+    tracking_enabled: boolean;
 }
 
 export type ConnectionProvider = 'google-mail' | 'microsoft-outlook' | 'smtp';

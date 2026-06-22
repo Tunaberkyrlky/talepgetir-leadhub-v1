@@ -1060,7 +1060,7 @@
             "deleteConfirm": "\"{{name}}\" kalıcı olarak silinecek. Bu işlem geri alınamaz.",
             "deleteOnlyDraftHint": "Yalnızca taslak kampanyalar silinebilir.",
             "copySuffix": "(kopya)",
-            "metricsSoon": "Açılma ve yanıt metrikleri bir sonraki adımda eklenecek.",
+            "metrics": "Metrikler",
             "noResults": "Eşleşen kampanya yok.",
             "colSent": "Gönderildi",
             "colOpen": "Açılma",
@@ -1091,7 +1091,27 @@
             "colCompany": "Şirket",
             "colContact": "Kişi",
             "colStep": "Adım",
-            "noneEnrolled": "Henüz kayıtlı kişi yok."
+            "colNext": "Sıradaki",
+            "noneEnrolled": "Henüz kayıtlı kişi yok.",
+            "rowPause": "Durdur",
+            "rowResume": "Devam",
+            "rowRemove": "Çıkar",
+            "rowPaused": "Kişi durduruldu",
+            "rowResumed": "Kişi sürdürüldü",
+            "rowRemoved": "Kişi çıkarıldı",
+            "removeTitle": "Kişiyi çıkar",
+            "removeConfirm": "{{name}} bu kampanyadan çıkarılacak ve artık e-posta almayacak."
+        },
+        "activation": {
+            "title": "Başlatmaya hazır mı?",
+            "emailStep": "En az bir e-posta adımı",
+            "connection": "Bağlı bir gönderim kutusu",
+            "audienceCount": "{{count}} kişi eklendi",
+            "audienceEmpty": "Henüz kişi yok (sonra ekleyebilirsiniz)",
+            "ready": "Her şey hazır, başlatabilirsiniz."
+        },
+        "stats": {
+            "trackingOff": "Açılma ve tıklama takibi yapılandırılmadığı için bu sayılar sıfır kalabilir. Yanıtlar yine de izlenir."
         }
     },
     "feedback": {

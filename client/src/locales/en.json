@@ -1060,7 +1060,7 @@
             "deleteConfirm": "\"{{name}}\" will be permanently deleted. This cannot be undone.",
             "deleteOnlyDraftHint": "Only draft campaigns can be deleted.",
             "copySuffix": "(copy)",
-            "metricsSoon": "Open and reply metrics will be added in the next step.",
+            "metrics": "Metrics",
             "noResults": "No matching campaigns.",
             "colSent": "Sent",
             "colOpen": "Opens",
@@ -1091,7 +1091,27 @@
             "colCompany": "Company",
             "colContact": "Contact",
             "colStep": "Step",
-            "noneEnrolled": "No contacts enrolled yet."
+            "colNext": "Next",
+            "noneEnrolled": "No contacts enrolled yet.",
+            "rowPause": "Pause",
+            "rowResume": "Resume",
+            "rowRemove": "Remove",
+            "rowPaused": "Contact paused",
+            "rowResumed": "Contact resumed",
+            "rowRemoved": "Contact removed",
+            "removeTitle": "Remove contact",
+            "removeConfirm": "{{name}} will be removed from this campaign and will receive no further emails."
+        },
+        "activation": {
+            "title": "Ready to activate?",
+            "emailStep": "At least one email step",
+            "connection": "A connected mailbox",
+            "audienceCount": "{{count}} contacts added",
+            "audienceEmpty": "No contacts yet (you can add later)",
+            "ready": "All set — you can start."
+        },
+        "stats": {
+            "trackingOff": "Open and click tracking is not configured, so these counts may stay at zero. Replies are still tracked."
         }
     },
     "feedback": {

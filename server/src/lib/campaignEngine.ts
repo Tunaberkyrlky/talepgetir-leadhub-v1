@@ -92,26 +92,42 @@ function hashStr(s: string): number {
     return Math.abs(h);
 }
 
-function pickSendingAccount(settings: any, enrollmentId: string): string | undefined {
-    const accounts = settings?.sending_accounts as string[] | undefined;
-    if (!accounts || accounts.length === 0) return undefined; // varsayılan kutu
-    return accounts[hashStr(enrollmentId) % accounts.length];
-}
-
-// Gönderilecek mailbox: rotasyon seçimi varsa onu, yoksa tenant'ın varsayılan
+// Gönderilecek mailbox: rotasyon ayarı varsa onu, yoksa tenant'ın varsayılan
 // (yoksa ilk aktif) bağlantısını döner. Router provider'ı bu adrese göre seçer
 // (smtp/Nango), böylece app-password Gmail (SMTP) kutuları da çalışır.
+//
+// Önemli: rotasyon havuzu yalnız HÂLÂ aktif olan bağlantılardan kurulur. Ayarlarda
+// seçili bir kutu sonradan silinmiş/pasif olduysa o kişiye gönderim patlamadan
+// varsayılana düşer (sessiz hata önlenir). Havuz sırası korunduğu için hiçbir kutu
+// kaldırılmadığında aynı enrollment hep aynı kutuya gider (thread tutarlılığı).
 async function resolveAccountEmail(tenantId: string, settings: any, enrollmentId: string): Promise<string | undefined> {
-    const rotated = pickSendingAccount(settings, enrollmentId);
-    if (rotated) return rotated;
     const { data } = await supabaseAdmin
         .from('email_connections')
         .select('email_address')
         .eq('tenant_id', tenantId)
         .eq('is_active', true)
-        .order('is_default', { ascending: false })
-        .limit(1);
-    return data?.[0]?.email_address || undefined;
+        .order('is_default', { ascending: false });
+
+    const active = (data || []) as Array<{ email_address: string }>;
+    if (active.length === 0) return undefined;
+
+    const byLower = new Map(active.map((c) => [c.email_address.toLowerCase(), c.email_address]));
+    const configured = (settings?.sending_accounts as string[] | undefined) || [];
+
+    // Rotasyon havuzu = ayarlardaki sıra korunarak, hâlâ aktif olan kutular
+    const pool = configured
+        .map((e) => byLower.get((e || '').toLowerCase()))
+        .filter((e): e is string => !!e);
+
+    if (pool.length > 0) {
+        return pool[hashStr(enrollmentId) % pool.length];
+    }
+
+    if (configured.length > 0) {
+        // Tüm rotasyon kutuları kaldırılmış → varsayılana düşüyoruz, görünür kalsın
+        log.warn({ tenantId, configured: configured.length }, 'Rotation accounts no longer active, falling back to default mailbox');
+    }
+    return active[0].email_address; // varsayılan (is_default) veya ilk aktif kutu
 }
 
 // Test gönderimi: bir adımın konu/gövdesini örnek verilerle bir adrese yollar.
@@ -549,6 +565,32 @@ export async function resumePausedEnrollments(campaignId: string, tenantId: stri
     return count;
 }
 
+// Tek bir kaydı duraklat (yalnız 'active' iken). Sıradaki gönderim iptal olur.
+export async function pauseEnrollment(enrollmentId: string, tenantId: string): Promise<boolean> {
+    const { data } = await supabaseAdmin
+        .from('campaign_enrollments')
+        .update({ status: 'paused', next_scheduled_at: null })
+        .eq('id', enrollmentId)
+        .eq('tenant_id', tenantId)
+        .eq('status', 'active')
+        .select('id');
+    return (data?.length || 0) > 0;
+}
+
+// Tek bir kaydı sürdür (yalnız 'paused' iken). Kaldığı adımdan, gönderim
+// penceresine göre yeniden zamanlanır.
+export async function resumeEnrollment(enrollmentId: string, tenantId: string, settings: any): Promise<boolean> {
+    const resumeAt = new Date(scheduleMs(Date.now(), settings)).toISOString();
+    const { data } = await supabaseAdmin
+        .from('campaign_enrollments')
+        .update({ status: 'active', next_scheduled_at: resumeAt })
+        .eq('id', enrollmentId)
+        .eq('tenant_id', tenantId)
+        .eq('status', 'paused')
+        .select('id');
+    return (data?.length || 0) > 0;
+}
+
 // ── Reply Detection ────────────────────────────────────────────────────────
 
 export async function cancelEnrollmentOnReply(senderEmail: string, tenantId: string): Promise<void> {
@@ -590,6 +632,7 @@ export interface CampaignStats {
     open_rate: number;
     click_rate: number;
     reply_rate: number;
+    tracking_enabled: boolean;
 }
 
 export async function getCampaignStats(campaignId: string, tenantId: string): Promise<CampaignStats> {
@@ -619,31 +662,36 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
     let sentCount = 0;
     const openSet = new Set<string>();
     const clickSet = new Set<string>();
-    const replySet = new Set<string>();
 
     for (const act of (activityRes.data || []) as any[]) {
-        if (act.outcome === 'sent') sentCount++;
+        if (act.outcome !== 'sent') continue; // sadece gerçekten gönderilenler → oranlar %100'ü aşmaz
+        sentCount++;
         for (const evt of act.campaign_email_events || []) {
             if (evt.event_type === 'open') openSet.add(act.id);
             if (evt.event_type === 'click') clickSet.add(act.id);
-            if (evt.event_type === 'reply') replySet.add(act.id);
         }
     }
 
     const opens = openSet.size;
     const clicks = clickSet.size;
-    const replyEvents = replySet.size;
+    // Yanıtlar enrollment durumundan gelir: IMAP/webhook yanıt yakalayınca 'replied'
+    // yapıyor. campaign_email_events'e 'reply' yazan bir yol yok, o yüzden esas kaynak
+    // durum sayısıdır (kart ile durum çubuğu böylece tutarlı olur).
+    const replied = statusCounts['replied'] || 0;
 
     return {
         total_enrolled: totalEnrolled,
         active: statusCounts['active'] || 0,
         completed: statusCounts['completed'] || 0,
-        replied: statusCounts['replied'] || 0,
+        replied,
         paused: statusCounts['paused'] || 0,
         emails_sent: sentCount,
-        opens, clicks, replies: replyEvents,
+        opens, clicks, replies: replied,
         open_rate: sentCount > 0 ? opens / sentCount : 0,
         click_rate: sentCount > 0 ? clicks / sentCount : 0,
-        reply_rate: sentCount > 0 ? replyEvents / sentCount : 0,
+        reply_rate: sentCount > 0 ? replied / sentCount : 0,
+        // Açılma/tıklama pikseli yalnız API_BASE_URL tanımlıysa enjekte edilir
+        // (localhost'ta alıcı erişemez). UI bu sayıların neden boş olduğunu açıklar.
+        tracking_enabled: !!API_BASE,
     };
 }
