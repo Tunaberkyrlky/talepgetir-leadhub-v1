@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-    Container, Paper, Group, Stack, Text, TextInput, Button, Badge, Grid, Tabs, Loader, Center, Modal, Alert,
+    Container, Paper, Group, Stack, Text, TextInput, Button, Badge, Grid, Tabs, Loader, Center, Modal, Alert, Tooltip,
 } from '@mantine/core';
 import {
     IconArrowLeft, IconDeviceFloppy, IconPlayerPause, IconChartBar, IconUsers, IconList, IconAlertCircle, IconSettings,
@@ -38,7 +38,15 @@ export default function CampaignEditorPage() {
     const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
     const [activeTab, setActiveTab] = useState<string | null>('steps');
     const [confirmLeave, setConfirmLeave] = useState(false);
+    const [hasUnsaved, setHasUnsaved] = useState(false);
+    const [loadedId, setLoadedId] = useState<string | null>(null);
     const isDirty = useRef(false);
+
+    // İlk değişiklikte "kaydedilmedi" göstergesini aç (her tuş basışında değil).
+    const markDirty = useCallback(() => {
+        if (!isDirty.current) setHasUnsaved(true);
+        isDirty.current = true;
+    }, []);
 
     // ── Undo stack (Cmd+Z) ─────────────────────────────────────────────
     interface Snapshot { name: string; steps: CampaignStep[] }
@@ -78,22 +86,30 @@ export default function CampaignEditorPage() {
         enabled: !isNew && !!id,
     });
 
+    // Sunucudan farklı bir kampanya yüklendiğinde düzenlenebilir state'i sıfırla.
+    // Effect yerine render-anı reset (React'in "prop değişince state sıfırla" deseni):
+    // arka plan refetch'i (aynı id) in-flight düzenlemeyi ezmez. Ref sıfırlamaları
+    // render'da yapılamadığı için aşağıdaki effect'e taşındı.
+    if (campaign && campaign.id !== loadedId) {
+        setLoadedId(campaign.id);
+        setName(campaign.name);
+        setSteps(campaign.steps || []);
+        setFromName(campaign.from_name || '');
+        setSettings(campaign.settings || {});
+        setHasUnsaved(false);
+    }
+
+    // Yeni kampanya yüklendiğinde dirty bayrağı + undo geçmişini sıfırla (ref → effect).
     useEffect(() => {
-        if (campaign) {
-            setName(campaign.name);
-            setSteps(campaign.steps || []);
-            setFromName(campaign.from_name || '');
-            setSettings(campaign.settings || {});
-            isDirty.current = false;
-            undoStack.current = [];
-        }
-    }, [campaign]);
+        isDirty.current = false;
+        undoStack.current = [];
+    }, [loadedId]);
 
     // Dirty tracking — text edits don't push undo (native undo handles those)
-    const setNameDirty = (v: string) => { setName(v); isDirty.current = true; };
-    const setSettingsDirty = (s: CampaignSettings) => { setSettings(s); isDirty.current = true; };
+    const setNameDirty = (v: string) => { setName(v); markDirty(); };
+    const setSettingsDirty = (s: CampaignSettings) => { setSettings(s); markDirty(); };
     // Structural changes (add/delete/reorder steps) push undo
-    const setStepsDirty = (v: CampaignStep[]) => { pushUndo(); setSteps(v); isDirty.current = true; };
+    const setStepsDirty = (v: CampaignStep[]) => { pushUndo(); setSteps(v); markDirty(); };
     // Text edits within a step (subject/body typing) — no undo push, no step array replace
     const handleStepTextChange = useCallback((updated: CampaignStep) => {
         if (selectedIdx === null) return;
@@ -102,8 +118,8 @@ export default function CampaignEditorPage() {
             next[selectedIdx] = updated;
             return next;
         });
-        isDirty.current = true;
-    }, [selectedIdx]);
+        markDirty();
+    }, [selectedIdx, markDirty]);
 
     // Browser beforeunload guard
     useEffect(() => {
@@ -126,6 +142,7 @@ export default function CampaignEditorPage() {
         },
         onSuccess: (cid) => {
             isDirty.current = false;
+            setHasUnsaved(false);
             showSuccess(t('campaign.saved', 'Campaign saved'));
             qc.invalidateQueries({ queryKey: ['campaigns'] });
             if (isNew) navigate(`/campaigns/drip/${cid}/edit`, { replace: true });
@@ -173,8 +190,11 @@ export default function CampaignEditorPage() {
                             {campaign && <Badge size="lg" variant="light" color={STATUS_COLORS[campaign.status]}>{campaign.status.toUpperCase()}</Badge>}
                         </Group>
                         <Group gap="xs">
-                            <Button variant="default" radius="md" size="sm" leftSection={<IconDeviceFloppy size={16} />}
-                                onClick={() => saveMut.mutate()} loading={saveMut.isPending} disabled={!name.trim() || isReadOnly}>{t('campaign.editor.save', 'Save')}</Button>
+                            <Tooltip label={t('campaign.editor.unsavedHint', 'You have unsaved changes')} disabled={!hasUnsaved} withArrow>
+                                <Button variant={hasUnsaved && !isReadOnly ? 'filled' : 'default'} color={hasUnsaved && !isReadOnly ? 'violet' : 'gray'}
+                                    radius="md" size="sm" leftSection={<IconDeviceFloppy size={16} />}
+                                    onClick={() => saveMut.mutate()} loading={saveMut.isPending} disabled={!name.trim() || isReadOnly}>{t('campaign.editor.save', 'Save')}</Button>
+                            </Tooltip>
                             {!isNew && isDraft && (
                                 <ActivationGuard
                                     emailStepCount={steps.filter((s) => s.step_type === 'email').length}
@@ -200,6 +220,11 @@ export default function CampaignEditorPage() {
                         <Tabs.Tab value="settings" leftSection={<IconSettings size={14} />}>{t('campaign.editor.tabSettings', 'Settings')}</Tabs.Tab>
                         <Tabs.Tab value="stats" leftSection={<IconChartBar size={14} />} disabled={isNew}>{t('campaign.editor.tabStats', 'Analytics')}</Tabs.Tab>
                     </Tabs.List>
+                    {isNew && (
+                        <Text size="xs" c="dimmed" mt="xs" ml={4}>
+                            {t('campaign.editor.saveFirstHint', 'Save the campaign to unlock the Audience and Analytics tabs.')}
+                        </Text>
+                    )}
 
                     <Tabs.Panel value="steps" pt="md">
                         <Grid>
@@ -209,20 +234,6 @@ export default function CampaignEditorPage() {
                                     <SequenceTimeline steps={steps} onChange={setStepsDirty} onSelectStep={setSelectedIdx}
                                         selectedIndex={selectedIdx} readOnly={isReadOnly} />
                                 </Paper>
-                                {steps.length > 0 && (
-                                    <Paper shadow="xs" radius="md" p="md" mt="sm" withBorder bg="gray.0">
-                                        <Text size="xs" fw={600} c="dimmed" mb="xs">{t('campaign.editor.timelinePreview', 'Timeline')}</Text>
-                                        {(() => {
-                                            let cumDays = 0;
-                                            return steps.map((s, i) => {
-                                                // Wait-before: her adımın beklemesi kümülatif güne eklenir.
-                                                cumDays += (s.delay_days || 0) + (s.delay_hours || 0) / 24;
-                                                const label = cumDays === 0 ? t('campaign.editor.immediately', 'Immediately') : `${t('campaign.editor.day', 'Day')} ${Math.round(cumDays)}`;
-                                                return <Text key={i} size="xs" c="dimmed"><Text span fw={600} c="violet">{label}:</Text> {s.subject || '(no subject)'}</Text>;
-                                            });
-                                        })()}
-                                    </Paper>
-                                )}
                             </Grid.Col>
                             <Grid.Col span={8}>
                                 <Paper shadow="xs" radius="md" p="lg" withBorder mih={400}>

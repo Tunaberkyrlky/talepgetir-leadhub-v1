@@ -77,6 +77,8 @@ export interface CampaignStats {
     completed: number;
     replied: number;
     paused: number;
+    bounced: number;
+    unsubscribed: number;
     emails_sent: number;
     opens: number;
     clicks: number;
@@ -84,6 +86,8 @@ export interface CampaignStats {
     open_rate: number;
     click_rate: number;
     reply_rate: number;
+    by_account: { account: string; sent: number }[];
+    daily: { date: string; sent: number; opens: number }[];
     tracking_enabled: boolean;
 }
 

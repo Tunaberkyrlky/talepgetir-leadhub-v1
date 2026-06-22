@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.12.8',
+        date: '2026-06-22',
+        type: 'improvement',
+        title: { tr: 'Kampanya Ekranları Yenilendi', en: 'Campaign Screens Refreshed' },
+        about: {
+            tr: 'Kampanya ekranları derli toplu yenilendi: durumu listeden aç kapatabilir, diziyi zaman çizelgesi olarak görebilir ve analizleri zaman serisi ile kutu başına dağılım sayesinde daha ayrıntılı izleyebilirsiniz.',
+            en: 'The campaign screens got a tidy refresh: toggle status from the list, see the sequence as a timeline, and follow analytics in more detail with a time series and per-inbox breakdown.',
+        },
+        usage: {
+            tr: 'Listede durum anahtarına tıklayarak kampanyayı başlatıp duraklatabilir, Analiz sekmesinde zaman grafiğini, kutu başına gönderimi ve sekme veya abonelikten çıkma sayılarını görebilirsiniz.',
+            en: 'Click the status switch in the list to start or pause a campaign, and on the Analytics tab see the time chart, per-inbox sending and bounce or unsubscribe counts.',
+        },
+    },
+    {
         version: '1.12.7',
         date: '2026-06-22',
         type: 'feature',

@@ -2,7 +2,7 @@ import {
     Stack, Paper, Group, Text, Badge, ActionIcon, Button, Tooltip,
 } from '@mantine/core';
 import {
-    IconMail, IconClock, IconGripVertical, IconTrash, IconPlus, IconAlertTriangle,
+    IconGripVertical, IconTrash, IconPlus, IconAlertTriangle,
 } from '@tabler/icons-react';
 import {
     DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
@@ -27,7 +27,6 @@ interface Props {
 
 // Wait-before modeli: her adımın delay'i "bu maili göndermeden önce bekle".
 function waitLabel(t: TFunction, days: number, hours: number): string {
-    if (!days && !hours) return t('campaign.editor.immediately', 'Immediately');
     const parts: string[] = [];
     if (days) parts.push(`${days}${t('campaign.editor.dayAbbr', 'd')}`);
     if (hours) parts.push(`${hours}${t('campaign.editor.hourAbbr', 'h')}`);
@@ -35,46 +34,56 @@ function waitLabel(t: TFunction, days: number, hours: number): string {
 }
 
 function SortableCard({
-    step, index, isSelected, onSelect, onDelete, readOnly,
+    step, index, total, cumLabel, cumImmediate, isSelected, onSelect, onDelete, readOnly,
 }: {
-    step: CampaignStep; index: number; isSelected: boolean;
-    onSelect: () => void; onDelete: () => void; readOnly?: boolean;
+    step: CampaignStep; index: number; total: number; cumLabel: string; cumImmediate: boolean;
+    isSelected: boolean; onSelect: () => void; onDelete: () => void; readOnly?: boolean;
 }) {
     const { t } = useTranslation();
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
         useSortable({ id: `step-${index}`, disabled: readOnly });
 
-    const immediate = !step.delay_days && !step.delay_hours;
+    const hasWait = !!(step.delay_days || step.delay_hours);
     const empty = !step.subject?.trim() || !step.body_html?.trim();
+    const isLast = index === total - 1;
 
     return (
-        <Paper
+        <Group
             ref={setNodeRef}
+            gap="sm" wrap="nowrap" align="stretch"
             style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-            p="sm" radius="md" withBorder shadow={isSelected ? 'sm' : undefined}
-            onClick={onSelect}
-            styles={{ root: {
-                cursor: 'pointer',
-                borderColor: isSelected ? 'var(--mantine-color-violet-5)' : undefined,
-                borderWidth: isSelected ? 2 : 1,
-            } }}
         >
-            <Group justify="space-between" wrap="nowrap">
-                <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
-                    {!readOnly && (
-                        <ActionIcon variant="subtle" color="gray" size="sm" {...attributes} {...listeners} style={{ cursor: 'grab' }}>
-                            <IconGripVertical size={14} />
-                        </ActionIcon>
-                    )}
-                    <Badge size="sm" variant="light" color="indigo" leftSection={<IconMail size={12} />}>
-                        {index + 1}
-                    </Badge>
+            {/* Rail — numaralı node + bağlayıcı çizgi */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 26 }}>
+                <div style={{
+                    width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+                    background: cumImmediate ? 'var(--mantine-color-teal-6)' : 'var(--mantine-color-indigo-6)',
+                    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 12, fontWeight: 700,
+                }}>{index + 1}</div>
+                {!isLast && <div style={{ width: 2, flex: 1, minHeight: 14, marginTop: 2, background: 'var(--mantine-color-gray-3)' }} />}
+            </div>
+
+            {/* Adım kartı */}
+            <Paper
+                flex={1} p="sm" radius="md" withBorder mb="xs"
+                shadow={isSelected ? 'sm' : undefined}
+                onClick={onSelect}
+                styles={{ root: {
+                    cursor: 'pointer',
+                    borderColor: isSelected ? 'var(--mantine-color-violet-5)' : undefined,
+                    borderWidth: isSelected ? 2 : 1,
+                } }}
+            >
+                <Group justify="space-between" wrap="nowrap" align="flex-start">
                     <div style={{ minWidth: 0 }}>
-                        <Group gap={4} wrap="nowrap">
-                            <IconClock size={11} color="var(--mantine-color-gray-5)" />
-                            <Text size="xs" c={immediate ? 'teal.7' : 'dimmed'}>{waitLabel(t, step.delay_days || 0, step.delay_hours || 0)}</Text>
+                        <Group gap={6} wrap="nowrap">
+                            <Badge size="xs" variant="light" color={cumImmediate ? 'teal' : 'indigo'}>{cumLabel}</Badge>
+                            {hasWait && (
+                                <Text size="xs" c="dimmed">{waitLabel(t, step.delay_days || 0, step.delay_hours || 0)}</Text>
+                            )}
                         </Group>
-                        <Group gap={4} wrap="nowrap">
+                        <Group gap={4} wrap="nowrap" mt={3}>
                             <Text size="sm" fw={500} lineClamp={1}>
                                 {step.subject || t('campaign.editor.untitledEmail', 'Untitled email')}
                             </Text>
@@ -85,14 +94,19 @@ function SortableCard({
                             )}
                         </Group>
                     </div>
+                    {!readOnly && (
+                        <Group gap={2} wrap="nowrap">
+                            <ActionIcon variant="subtle" color="gray" size="sm" {...attributes} {...listeners} style={{ cursor: 'grab' }}>
+                                <IconGripVertical size={14} />
+                            </ActionIcon>
+                            <ActionIcon variant="subtle" color="red" size="sm" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
+                                <IconTrash size={14} />
+                            </ActionIcon>
+                        </Group>
+                    )}
                 </Group>
-                {!readOnly && (
-                    <ActionIcon variant="subtle" color="red" size="sm" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
-                        <IconTrash size={14} />
-                    </ActionIcon>
-                )}
-            </Group>
-        </Paper>
+            </Paper>
+        </Group>
     );
 }
 
@@ -129,22 +143,36 @@ export default function SequenceTimeline({ steps, onChange, onSelectStep, select
         if (selectedIndex === i) onSelectStep(Math.max(0, i - 1));
     };
 
+    // Kümülatif gün — her adıma kadarki beklemelerin toplamı (gönderim "Gün N"de).
+    // Render'da değişken mutasyonundan kaçınmak için saf hesap (adım sayısı küçük).
+    const cumAt = (idx: number) => steps
+        .slice(0, idx + 1)
+        .reduce((a, s) => a + (s.delay_days || 0) + (s.delay_hours || 0) / 24, 0);
+
     return (
-        <Stack gap="xs">
+        <Stack gap={0}>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={steps.map((_, i) => `step-${i}`)} strategy={verticalListSortingStrategy}>
-                    {steps.map((step, i) => (
-                        <SortableCard key={`step-${i}`} step={step} index={i}
-                            isSelected={selectedIndex === i}
-                            onSelect={() => onSelectStep(i)}
-                            onDelete={() => deleteStep(i)}
-                            readOnly={readOnly}
-                        />
-                    ))}
+                    {steps.map((step, i) => {
+                        const cumDays = cumAt(i);
+                        const immediate = cumDays === 0;
+                        const cumLabel = immediate
+                            ? t('campaign.editor.immediately', 'Immediately')
+                            : `${t('campaign.editor.day', 'Day')} ${Math.round(cumDays)}`;
+                        return (
+                            <SortableCard key={`step-${i}`} step={step} index={i} total={steps.length}
+                                cumLabel={cumLabel} cumImmediate={immediate}
+                                isSelected={selectedIndex === i}
+                                onSelect={() => onSelectStep(i)}
+                                onDelete={() => deleteStep(i)}
+                                readOnly={readOnly}
+                            />
+                        );
+                    })}
                 </SortableContext>
             </DndContext>
             {!readOnly && (
-                <Button variant="light" color="violet" size="xs" leftSection={<IconPlus size={14} />} fullWidth onClick={addStep}>
+                <Button variant="light" color="violet" size="xs" leftSection={<IconPlus size={14} />} fullWidth onClick={addStep} mt={steps.length ? 4 : 0}>
                     {t('campaign.editor.addEmailStep', 'Add email step')}
                 </Button>
             )}

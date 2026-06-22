@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table, Tabs,
-    Loader, Center, SimpleGrid, Button, TextInput, Select, Menu, ActionIcon, Modal, Alert, Tooltip,
+    Loader, Center, SimpleGrid, Button, TextInput, Select, Menu, ActionIcon, Modal, Alert, Tooltip, Switch,
 } from '@mantine/core';
 import {
     IconSpeakerphone, IconMail, IconEye, IconMessageReply, IconCheck,
@@ -23,10 +23,6 @@ import type { Campaign } from '../types/campaign';
 function pct(val: number): string {
     return `${(val * 100).toFixed(1)}%`;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-    draft: 'gray', active: 'green', paused: 'yellow', completed: 'blue',
-};
 
 // ── PlusVibe tab (mevcut içerik) ───────────────────────────────────────────
 
@@ -115,6 +111,7 @@ function DripTab() {
     const [search, setSearch] = useState('');
     const [status, setStatus] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<Campaign | null>(null);
+    const [pendingId, setPendingId] = useState<string | null>(null); // toggle yükleme halkası için
 
     const { data, isLoading } = useQuery<{ data: (Campaign & { stats?: { sent: number; opens: number; replies: number } })[]; pagination: { page: number; limit: number; total: number; totalPages: number; hasNext: boolean } }>({
         queryKey: ['campaigns', search, status],
@@ -167,6 +164,22 @@ function DripTab() {
         onError: (err) => { showErrorFromApi(err); setDeleteTarget(null); },
     });
 
+    // Listeden hızlı aksiyon — backend aktive şartlarını (email adımı + bağlı kutu)
+    // yine doğrular; eksikse hata bildirimi gösterilir.
+    const activateMut = useMutation({
+        mutationFn: (id: string) => api.post(`/campaigns/${id}/activate`),
+        // refetch bitene kadar pending kalsın → halka, toggle yeni duruma geçince kaybolur
+        onSuccess: async () => { showSuccess(t('campaign.activated', 'Campaign activated')); await qc.invalidateQueries({ queryKey: ['campaigns'] }); },
+        onError: (err) => showErrorFromApi(err),
+        onSettled: () => setPendingId(null),
+    });
+    const pauseMut = useMutation({
+        mutationFn: (id: string) => api.post(`/campaigns/${id}/pause`),
+        onSuccess: async () => { showSuccess(t('campaign.paused', 'Campaign paused')); await qc.invalidateQueries({ queryKey: ['campaigns'] }); },
+        onError: (err) => showErrorFromApi(err),
+        onSettled: () => setPendingId(null),
+    });
+
     return (
         <>
             <Group justify="space-between" mb="md" wrap="wrap" gap="sm">
@@ -191,7 +204,13 @@ function DripTab() {
                 <Center py="xl"><Loader size="sm" color="violet" /></Center>
             ) : campaigns.length === 0 ? (
                 hasFilters ? (
-                    <Text size="sm" c="dimmed" ta="center" py="xl">{t('campaign.list.noResults', 'No matching campaigns.')}</Text>
+                    <Stack align="center" gap="xs" py="xl">
+                        <Text size="sm" c="dimmed">{t('campaign.list.noResults', 'No matching campaigns.')}</Text>
+                        <Button size="xs" variant="subtle" color="gray"
+                            onClick={() => { setSearch(''); setStatus(null); }}>
+                            {t('campaign.list.clearFilters', 'Clear filters')}
+                        </Button>
+                    </Stack>
                 ) : (
                     <Stack align="center" gap="md" py="xl">
                         <IconMailForward size={48} style={{ opacity: 0.3 }} />
@@ -218,10 +237,28 @@ function DripTab() {
                                         onClick={() => navigate(`/campaigns/drip/${c.id}/edit`)}
                                     >
                                         <Table.Td><Text size="sm" fw={500}>{c.name}</Text></Table.Td>
-                                        <Table.Td>
-                                            <Badge size="sm" variant="light" color={STATUS_COLORS[c.status]}>
-                                                {statusLabel(c.status)}
-                                            </Badge>
+                                        <Table.Td onClick={(e) => e.stopPropagation()}>
+                                            <Tooltip
+                                                label={c.status === 'active' ? t('campaign.list.togglePause', 'Click to pause') : t('campaign.list.toggleActivate', 'Click to activate')}
+                                                withArrow position="top" disabled={c.status === 'completed'}
+                                            >
+                                                <Switch
+                                                    size="sm" color="green" radius="xl"
+                                                    checked={c.status === 'active'}
+                                                    disabled={c.status === 'completed' || pendingId === c.id}
+                                                    thumbIcon={pendingId === c.id ? <Loader size={10} color="gray" /> : undefined}
+                                                    onChange={(e) => {
+                                                        setPendingId(c.id);
+                                                        (e.currentTarget.checked ? activateMut : pauseMut).mutate(c.id);
+                                                    }}
+                                                    label={statusLabel(c.status)}
+                                                    styles={{ label: {
+                                                        fontWeight: 500,
+                                                        paddingInlineStart: 8,
+                                                        color: c.status === 'active' ? 'var(--mantine-color-green-7)' : 'var(--mantine-color-gray-6)',
+                                                    } }}
+                                                />
+                                            </Tooltip>
                                         </Table.Td>
                                         <Table.Td>
                                             <Group gap="lg" wrap="nowrap">
@@ -255,6 +292,7 @@ function DripTab() {
                                                         onClick={() => duplicateMut.mutate(c)}>
                                                         {t('campaign.list.duplicate', 'Duplicate')}
                                                     </Menu.Item>
+                                                    <Menu.Divider />
                                                     <Menu.Item color="red" leftSection={<IconTrash size={14} />}
                                                         disabled={c.status !== 'draft'}
                                                         onClick={() => setDeleteTarget(c)}>

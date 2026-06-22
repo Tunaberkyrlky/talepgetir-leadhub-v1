@@ -141,7 +141,7 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
             <TextInput
                 ref={subjectRef}
                 label={t('campaign.subject', 'Subject')}
-                placeholder="Email subject — use {{first_name}} for personalization"
+                placeholder={t('campaign.editor.subjectPlaceholder', 'Email subject — use {{first_name}} for personalization')}
                 required radius="md" size="sm"
                 value={step.subject || ''}
                 onChange={(e) => onChange({ ...step, subject: e.currentTarget.value })}
@@ -190,7 +190,7 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
             {mode === 'write' ? (
                 <Textarea
                     ref={bodyRef}
-                    placeholder="Write your email content... HTML supported."
+                    placeholder={t('campaign.editor.bodyPlaceholder', 'Write your email content... HTML supported.')}
                     required radius="md" autosize minRows={8} maxRows={20}
                     styles={{ input: { fontFamily: 'monospace', fontSize: 13 } }}
                     value={step.body_html || ''}
