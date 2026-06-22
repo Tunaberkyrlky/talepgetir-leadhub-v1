@@ -960,7 +960,7 @@
         "paused": "Campaign paused",
         "sent": "sent",
         "subject": "Subject",
-        "body": "Email Body (HTML)",
+        "body": "Email Body",
         "searchContacts": "Search contacts (min 2 chars)...",
         "enrollments": "Enrollments",
         "emailConnection": "Email Connection",

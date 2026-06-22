@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.13.0',
+        date: '2026-06-22',
+        type: 'feature',
+        title: { tr: 'Zengin E-posta Editörü', en: 'Rich Email Editor' },
+        about: {
+            tr: 'Kampanya adımlarını artık zengin metin editörüyle yazabilir; kalın, başlık, liste ve link ekleyebilir, gövdede çift süslü parantez yazınca değişken ve spintax önerileri alabilirsiniz.',
+            en: 'You can now write campaign steps in a rich text editor with bold, headings, lists and links, and get variable and spintax suggestions by typing double curly braces in the body.',
+        },
+        usage: {
+            tr: 'Adım düzenlerken biçimlendirme araç çubuğunu kullanabilir, Yaz, HTML ve Önizle arasında geçebilir, gövdede çift süslü parantez yazarak açılan listeden değişken ya da spintax seçebilirsiniz.',
+            en: 'While editing a step you can use the formatting toolbar, switch between Write, HTML and Preview, and pick a variable or spintax from the list that opens when you type double curly braces in the body.',
+        },
+    },
+    {
         version: '1.12.8',
         date: '2026-06-22',
         type: 'improvement',

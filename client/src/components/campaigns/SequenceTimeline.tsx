@@ -122,7 +122,14 @@ export default function SequenceTimeline({ steps, onChange, onSelectStep, select
         if (!over || active.id === over.id) return;
         const oldIdx = steps.findIndex((_, i) => `step-${i}` === active.id);
         const newIdx = steps.findIndex((_, i) => `step-${i}` === over.id);
-        onChange(arrayMove(steps, oldIdx, newIdx).map((s, i) => ({ ...s, step_order: i + 1 })));
+        const moved = arrayMove(steps, oldIdx, newIdx); // orijinal ref'leri korur
+        const selStep = selectedIndex !== null ? steps[selectedIndex] : null;
+        onChange(moved.map((s, i) => ({ ...s, step_order: i + 1 })));
+        // Seçili adımı yeni konumuna taşı ki StepEditor doğru içerikle kalsın.
+        if (selStep) {
+            const ni = moved.indexOf(selStep);
+            if (ni !== -1 && ni !== selectedIndex) onSelectStep(ni);
+        }
     };
 
     // Yeni adım her zaman e-posta. İlk adım hemen (delay 0); sonrakiler varsayılan 2 gün bekler.

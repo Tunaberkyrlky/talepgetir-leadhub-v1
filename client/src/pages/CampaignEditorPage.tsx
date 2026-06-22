@@ -110,12 +110,13 @@ export default function CampaignEditorPage() {
     const setSettingsDirty = (s: CampaignSettings) => { setSettings(s); markDirty(); };
     // Structural changes (add/delete/reorder steps) push undo
     const setStepsDirty = (v: CampaignStep[]) => { pushUndo(); setSteps(v); markDirty(); };
-    // Text edits within a step (subject/body typing) — no undo push, no step array replace
-    const handleStepTextChange = useCallback((updated: CampaignStep) => {
+    // Text edits within a step (subject/body typing) — kısmi patch ile birleştirilir.
+    // Tam step yerine patch: zengin editörün stale-closure'ı konu/gecikme alanlarını ezmez.
+    const handleStepTextChange = useCallback((patch: Partial<CampaignStep>) => {
         if (selectedIdx === null) return;
         setSteps(prev => {
             const next = [...prev];
-            next[selectedIdx] = updated;
+            next[selectedIdx] = { ...next[selectedIdx], ...patch };
             return next;
         });
         markDirty();
@@ -238,7 +239,7 @@ export default function CampaignEditorPage() {
                             <Grid.Col span={8}>
                                 <Paper shadow="xs" radius="md" p="lg" withBorder mih={400}>
                                     {selectedStep ? (
-                                        <StepEditor step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0}
+                                        <StepEditor key={selectedIdx} step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0}
                                             onSendTest={!isNew && id ? (p) => testMut.mutateAsync(p).then(() => undefined) : undefined}
                                             defaultTestEmail={user?.email} />
                                     ) : (

@@ -19,7 +19,13 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   optimizeDeps: {
-    include: ['react-simple-maps'],
+    // Tiptap paketleri başlangıçta pre-bundle edilsin; aksi halde ilk lazy import'ta
+    // Vite yeniden optimize edip dinamik import'u düşürebiliyor ("Failed to fetch...").
+    include: [
+      'react-simple-maps',
+      // @tiptap/pm bare olarak EKLENMEZ — kök export'u yok (yalnız @tiptap/pm/* alt yolları).
+      '@mantine/tiptap', '@tiptap/react', '@tiptap/starter-kit', '@tiptap/extension-link', '@tiptap/suggestion',
+    ],
   },
   build: {
     rollupOptions: {

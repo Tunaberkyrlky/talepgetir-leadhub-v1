@@ -3,13 +3,17 @@ import {
     Stack, TextInput, Textarea, Group, NumberInput, Text, Paper, Badge, Tooltip,
     SegmentedControl, Box, Button, Modal,
 } from '@mantine/core';
-import { IconMail, IconClock, IconPencil, IconEye, IconSend } from '@tabler/icons-react';
+import { RichTextEditor, Link } from '@mantine/tiptap';
+import { useEditor } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import { VariableSuggestion } from './variableSuggestion';
+import { IconMail, IconPencil, IconEye, IconSend, IconCode } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import type { CampaignStep } from '../../types/campaign';
 
 interface Props {
     step: CampaignStep;
-    onChange: (updated: CampaignStep) => void;
+    onChange: (patch: Partial<CampaignStep>) => void;
     readOnly?: boolean;
     isFirst?: boolean;
     onSendTest?: (p: { to: string; subject: string; body_html: string }) => Promise<void>;
@@ -33,7 +37,6 @@ const SAMPLE: Record<string, string> = {
 };
 
 // Önizlemede spintax'ın ilk seçeneğini gösterir (rastgele değil — stabil önizleme).
-// Seçenekler tek seviye değişken ({{first_name}}) içerebilir; sunucudaki regex ile aynı.
 function resolveSpintaxFirst(template: string): string {
     return template.replace(/\{\{\s*random\s*\|((?:[^{}]|\{\{[^{}]*\}\})*)\}\}/gi, (_m, group: string) => (group.split('|')[0] || '').trim());
 }
@@ -47,16 +50,36 @@ function applySample(template: string): string {
 }
 
 type ActiveField = 'subject' | 'body';
+type Mode = 'write' | 'html' | 'preview';
+
+// İmlece ham metin ekler (subject TextInput / html Textarea için ortak).
+function insertAtRef(el: HTMLInputElement | HTMLTextAreaElement | null, val: string, setVal: (v: string) => void, text: string) {
+    if (!el) { setVal(val + text); return; }
+    const start = el.selectionStart ?? val.length;
+    const end = el.selectionEnd ?? start;
+    setVal(val.slice(0, start) + text + val.slice(end));
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + text.length, start + text.length); });
+}
 
 export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTest, defaultTestEmail }: Props) {
     const { t } = useTranslation();
     const subjectRef = useRef<HTMLInputElement>(null);
     const bodyRef = useRef<HTMLTextAreaElement>(null);
     const lastFocused = useRef<ActiveField>('body');
-    const [mode, setMode] = useState<'write' | 'preview'>('write');
+    const [mode, setMode] = useState<Mode>('write');
     const [testOpen, setTestOpen] = useState(false);
     const [testEmail, setTestEmail] = useState(defaultTestEmail || '');
     const [sending, setSending] = useState(false);
+
+    // Zengin editör — gövdenin kaynağı. Boşsa body_html '' yapılır ki "boş adım"
+    // uyarısı ve doğrulama çalışsın (Tiptap boşken '<p></p>' döndürür).
+    const editor = useEditor({
+        extensions: [StarterKit, Link.configure({ openOnClick: false }), VariableSuggestion],
+        content: step.body_html || '',
+        editable: !readOnly,
+        onUpdate: ({ editor }) => onChange({ body_html: editor.isEmpty ? '' : editor.getHTML() }),
+        onFocus: () => { lastFocused.current = 'body'; },
+    });
 
     const handleSendTest = async () => {
         if (!onSendTest || !testEmail.trim()) return;
@@ -71,48 +94,26 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
         }
     };
 
-    // İmlecin olduğu alana (konu/gövde) ham metin ekler — değişken ve spintax için ortak.
-    const insertAtCursor = useCallback((text: string) => {
+    // Değişken/spintax ekleme — odaktaki alana göre (konu / zengin gövde / html).
+    const insertText = useCallback((text: string) => {
         if (readOnly) return;
-        const field = lastFocused.current;
-        if (field === 'subject') {
-            const el = subjectRef.current;
-            const val = step.subject || '';
-            if (!el) { onChange({ ...step, subject: val + text }); return; }
-            const start = el.selectionStart ?? val.length;
-            const end = el.selectionEnd ?? start;
-            onChange({ ...step, subject: val.slice(0, start) + text + val.slice(end) });
-            requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + text.length, start + text.length); });
+        if (lastFocused.current === 'subject') {
+            insertAtRef(subjectRef.current, step.subject || '', (v) => onChange({ subject: v }), text);
+        } else if (mode === 'html') {
+            insertAtRef(bodyRef.current, step.body_html || '', (v) => onChange({ body_html: v }), text);
         } else {
-            const el = bodyRef.current;
-            const val = step.body_html || '';
-            if (!el) { onChange({ ...step, body_html: val + text }); return; }
-            const start = el.selectionStart ?? val.length;
-            const end = el.selectionEnd ?? start;
-            onChange({ ...step, body_html: val.slice(0, start) + text + val.slice(end) });
-            requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + text.length, start + text.length); });
+            editor?.chain().focus().insertContent(text).run();
         }
-    }, [step, onChange, readOnly]);
+    }, [readOnly, mode, step.subject, step.body_html, onChange, editor]);
 
-    const insertVariable = useCallback((varKey: string) => insertAtCursor(`{{${varKey}}}`), [insertAtCursor]);
-
-    // Legacy 'delay' düğümü (yeni model üretmez) — güvenli geri dönüş.
-    if (step.step_type === 'delay') {
-        return (
-            <Stack gap="sm">
-                <Group gap="xs" mb={4}>
-                    <IconClock size={16} color="var(--mantine-color-orange-6)" />
-                    <Text size="sm" fw={600}>{t('campaign.editor.delayStep', 'Delay Step')}</Text>
-                </Group>
-                <Group grow>
-                    <NumberInput label={t('campaign.editor.days', 'Days')} min={0} max={90} radius="md" size="sm"
-                        value={step.delay_days || 0} onChange={(v) => onChange({ ...step, delay_days: Number(v) || 0 })} disabled={readOnly} />
-                    <NumberInput label={t('campaign.editor.hours', 'Hours')} min={0} max={23} radius="md" size="sm"
-                        value={step.delay_hours || 0} onChange={(v) => onChange({ ...step, delay_hours: Number(v) || 0 })} disabled={readOnly} />
-                </Group>
-            </Stack>
-        );
-    }
+    // Mod değişimi — zengin moda her girişte içeriği kaynaktan (step.body_html)
+    // tazele; böylece HTML kaynağında yapılan elle düzenlemeler editöre yansır.
+    const changeMode = (m: Mode) => {
+        if (m === 'write' && editor) {
+            editor.commands.setContent(step.body_html || '', false);
+        }
+        setMode(m);
+    };
 
     return (
         <Stack gap="sm">
@@ -131,9 +132,9 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                     <Text size="xs" fw={600} c="dimmed" mb="xs">{t('campaign.editor.waitBefore', 'Wait before sending (after previous step)')}</Text>
                     <Group grow>
                         <NumberInput label={t('campaign.editor.days', 'Days')} min={0} max={90} radius="md" size="sm"
-                            value={step.delay_days || 0} onChange={(v) => onChange({ ...step, delay_days: Number(v) || 0 })} disabled={readOnly} />
+                            value={step.delay_days || 0} onChange={(v) => onChange({ delay_days: Number(v) || 0 })} disabled={readOnly} />
                         <NumberInput label={t('campaign.editor.hours', 'Hours')} min={0} max={23} radius="md" size="sm"
-                            value={step.delay_hours || 0} onChange={(v) => onChange({ ...step, delay_hours: Number(v) || 0 })} disabled={readOnly} />
+                            value={step.delay_hours || 0} onChange={(v) => onChange({ delay_hours: Number(v) || 0 })} disabled={readOnly} />
                     </Group>
                 </Paper>
             )}
@@ -144,7 +145,7 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                 placeholder={t('campaign.editor.subjectPlaceholder', 'Email subject — use {{first_name}} for personalization')}
                 required radius="md" size="sm"
                 value={step.subject || ''}
-                onChange={(e) => onChange({ ...step, subject: e.currentTarget.value })}
+                onChange={(e) => onChange({ subject: e.currentTarget.value })}
                 onFocus={() => { lastFocused.current = 'subject'; }}
                 disabled={readOnly}
             />
@@ -155,7 +156,7 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                     <Tooltip key={key} label={`{{${key}}}`} withArrow>
                         <Badge size="xs" variant="light" color={color}
                             style={{ cursor: readOnly ? 'default' : 'pointer' }}
-                            onClick={() => insertVariable(key)}>
+                            onClick={() => insertText(`{{${key}}}`)}>
                             {label}
                         </Badge>
                     </Tooltip>
@@ -163,7 +164,7 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                 <Tooltip label="{{random|A|B|C}}" withArrow>
                     <Badge size="xs" variant="light" color="orange"
                         style={{ cursor: readOnly ? 'default' : 'pointer' }}
-                        onClick={() => insertAtCursor('{{random|A|B|C}}')}>
+                        onClick={() => insertText('{{random|A|B|C}}')}>
                         {t('campaign.editor.spintax', 'Spintax')}
                     </Badge>
                 </Tooltip>
@@ -171,7 +172,7 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
             <Text size="xs" c="dimmed">{t('campaign.editor.typeHint', 'Tip: you can also type variables and spintax by hand.')}</Text>
 
             <Group justify="space-between" align="center">
-                <Text size="sm" fw={500}>{t('campaign.body', 'Email Body (HTML)')}</Text>
+                <Text size="sm" fw={500}>{t('campaign.body', 'Email Body')}</Text>
                 <Group gap="xs">
                     {onSendTest && (
                         <Button size="xs" variant="light" color="violet" leftSection={<IconSend size={13} />}
@@ -179,26 +180,59 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                             {t('campaign.editor.testSend', 'Send test')}
                         </Button>
                     )}
-                    <SegmentedControl size="xs" value={mode} onChange={(v) => setMode(v as 'write' | 'preview')}
-                    data={[
-                        { value: 'write', label: <Group gap={4} wrap="nowrap"><IconPencil size={12} />{t('campaign.editor.write', 'Write')}</Group> },
-                        { value: 'preview', label: <Group gap={4} wrap="nowrap"><IconEye size={12} />{t('campaign.editor.preview', 'Preview')}</Group> },
-                    ]} />
+                    <SegmentedControl size="xs" value={mode} onChange={(v) => changeMode(v as Mode)}
+                        data={[
+                            { value: 'write', label: <Group gap={4} wrap="nowrap"><IconPencil size={12} />{t('campaign.editor.write', 'Write')}</Group> },
+                            { value: 'html', label: <Group gap={4} wrap="nowrap"><IconCode size={12} />HTML</Group> },
+                            { value: 'preview', label: <Group gap={4} wrap="nowrap"><IconEye size={12} />{t('campaign.editor.preview', 'Preview')}</Group> },
+                        ]} />
                 </Group>
             </Group>
 
-            {mode === 'write' ? (
+            {mode === 'write' && (
+                <RichTextEditor editor={editor} style={{ minHeight: 220 }}>
+                    {!readOnly && (
+                        <RichTextEditor.Toolbar sticky>
+                            <RichTextEditor.ControlsGroup>
+                                <RichTextEditor.Bold />
+                                <RichTextEditor.Italic />
+                                <RichTextEditor.Strikethrough />
+                                <RichTextEditor.ClearFormatting />
+                            </RichTextEditor.ControlsGroup>
+                            <RichTextEditor.ControlsGroup>
+                                <RichTextEditor.H2 />
+                                <RichTextEditor.H3 />
+                                <RichTextEditor.BulletList />
+                                <RichTextEditor.OrderedList />
+                            </RichTextEditor.ControlsGroup>
+                            <RichTextEditor.ControlsGroup>
+                                <RichTextEditor.Link />
+                                <RichTextEditor.Unlink />
+                            </RichTextEditor.ControlsGroup>
+                            <RichTextEditor.ControlsGroup>
+                                <RichTextEditor.Undo />
+                                <RichTextEditor.Redo />
+                            </RichTextEditor.ControlsGroup>
+                        </RichTextEditor.Toolbar>
+                    )}
+                    <RichTextEditor.Content />
+                </RichTextEditor>
+            )}
+
+            {mode === 'html' && (
                 <Textarea
                     ref={bodyRef}
                     placeholder={t('campaign.editor.bodyPlaceholder', 'Write your email content... HTML supported.')}
-                    required radius="md" autosize minRows={8} maxRows={20}
+                    radius="md" autosize minRows={8} maxRows={20}
                     styles={{ input: { fontFamily: 'monospace', fontSize: 13 } }}
                     value={step.body_html || ''}
-                    onChange={(e) => onChange({ ...step, body_html: e.currentTarget.value })}
+                    onChange={(e) => onChange({ body_html: e.currentTarget.value })}
                     onFocus={() => { lastFocused.current = 'body'; }}
                     disabled={readOnly}
                 />
-            ) : (
+            )}
+
+            {mode === 'preview' && (
                 <Paper withBorder radius="md" p="md" mih={200}>
                     <Text size="xs" c="dimmed" mb={4}>{t('campaign.editor.previewSubject', 'Subject')}: <Text span fw={600} c="dark">{applySample(step.subject || '') || '—'}</Text></Text>
                     <Box style={{ borderTop: '1px solid var(--mantine-color-gray-2)', paddingTop: 12 }}
