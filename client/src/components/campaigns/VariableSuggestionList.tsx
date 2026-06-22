@@ -1,16 +1,10 @@
 import { forwardRef, useImperativeHandle, useState } from 'react';
 import { Paper, Text, Badge, Group, Box } from '@mantine/core';
-
-export interface SuggestionItem {
-    key: string;
-    label: string;
-    insert: string;
-    spintax?: boolean;
-}
+import type { VariableItem } from './campaignVariables';
 
 interface Props {
-    items: SuggestionItem[];
-    command: (item: SuggestionItem) => void;
+    items: VariableItem[];
+    command: (item: VariableItem) => void;
 }
 
 export interface SuggestionListRef {
@@ -54,7 +48,7 @@ const VariableSuggestionList = forwardRef<SuggestionListRef, Props>(({ items, co
                 >
                     <Group justify="space-between" gap="xs" wrap="nowrap">
                         <Text size="sm" fw={500}>{it.label}</Text>
-                        <Badge size="xs" variant="light" color={it.spintax ? 'orange' : 'violet'}>{it.insert}</Badge>
+                        <Badge size="xs" variant="light" color="violet">{it.insert}</Badge>
                     </Group>
                 </Box>
             ))}

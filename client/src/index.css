@@ -157,3 +157,11 @@ table tbody tr {
 .agenda-card--overdue {
   opacity: 0.7;
 }
+
+/* Tek satırlık konu editörü (Tiptap) — input gibi görünsün */
+.subject-editor-pm {
+  outline: none;
+}
+.subject-editor-pm p {
+  margin: 0;
+}

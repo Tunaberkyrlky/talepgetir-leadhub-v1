@@ -1,36 +1,27 @@
 import { Extension } from '@tiptap/core';
 import Suggestion from '@tiptap/suggestion';
 import { ReactRenderer } from '@tiptap/react';
-import VariableSuggestionList, { type SuggestionItem, type SuggestionListRef } from './VariableSuggestionList';
+import VariableSuggestionList, { type SuggestionListRef } from './VariableSuggestionList';
+import { filterVariables, type VariableItem } from './campaignVariables';
 
 // {{ ile tetiklenen değişken + spintax otomatik tamamlama.
-const ITEMS: SuggestionItem[] = [
-    { key: 'first_name', label: 'First Name', insert: '{{first_name}}' },
-    { key: 'last_name', label: 'Last Name', insert: '{{last_name}}' },
-    { key: 'email', label: 'Email', insert: '{{email}}' },
-    { key: 'company_name', label: 'Company', insert: '{{company_name}}' },
-    { key: 'title', label: 'Title', insert: '{{title}}' },
-    { key: 'website', label: 'Website', insert: '{{website}}' },
-    { key: 'industry', label: 'Industry', insert: '{{industry}}' },
-    { key: 'random', label: 'Spintax', insert: '{{random|A|B|C}}', spintax: true },
-];
-
 export const VariableSuggestion = Extension.create({
     name: 'variableSuggestion',
 
     addProseMirrorPlugins() {
         return [
-            Suggestion<SuggestionItem>({
+            Suggestion<VariableItem>({
                 editor: this.editor,
                 char: '{{',
                 startOfLine: false,
                 allowSpaces: false,
-                items: ({ query }) => {
-                    const q = query.toLowerCase();
-                    return ITEMS.filter((i) => (`${i.key} ${i.label}`).toLowerCase().includes(q)).slice(0, 8);
-                },
+                items: ({ query }) => filterVariables(query),
                 command: ({ editor, range, props }) => {
-                    editor.chain().focus().insertContentAt(range, props.insert).run();
+                    // Spintax → pill (node); değişken → düz {{key}} metni.
+                    const content = props.spintax
+                        ? { type: 'spintax', attrs: { options: ['A', 'B', 'C'] } }
+                        : props.insert;
+                    editor.chain().focus().insertContentAt(range, content).run();
                 },
                 render: () => {
                     let component: ReactRenderer<SuggestionListRef> | null = null;

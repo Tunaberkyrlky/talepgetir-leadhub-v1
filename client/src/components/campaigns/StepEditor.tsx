@@ -7,6 +7,9 @@ import { RichTextEditor, Link } from '@mantine/tiptap';
 import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { VariableSuggestion } from './variableSuggestion';
+import { Spintax } from './spintaxNode';
+import { spintaxTextToHtml, spintaxHtmlToText } from './spintaxSerialize';
+import SubjectEditor, { type SubjectEditorRef } from './SubjectEditor';
 import { IconMail, IconPencil, IconEye, IconSend, IconCode } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import type { CampaignStep } from '../../types/campaign';
@@ -63,7 +66,7 @@ function insertAtRef(el: HTMLInputElement | HTMLTextAreaElement | null, val: str
 
 export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTest, defaultTestEmail }: Props) {
     const { t } = useTranslation();
-    const subjectRef = useRef<HTMLInputElement>(null);
+    const subjectEditorRef = useRef<SubjectEditorRef>(null);
     const bodyRef = useRef<HTMLTextAreaElement>(null);
     const lastFocused = useRef<ActiveField>('body');
     const [mode, setMode] = useState<Mode>('write');
@@ -74,10 +77,11 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
     // Zengin editör — gövdenin kaynağı. Boşsa body_html '' yapılır ki "boş adım"
     // uyarısı ve doğrulama çalışsın (Tiptap boşken '<p></p>' döndürür).
     const editor = useEditor({
-        extensions: [StarterKit, Link.configure({ openOnClick: false }), VariableSuggestion],
-        content: step.body_html || '',
+        extensions: [StarterKit, Link.configure({ openOnClick: false }), VariableSuggestion, Spintax],
+        content: spintaxTextToHtml(step.body_html || ''),
         editable: !readOnly,
-        onUpdate: ({ editor }) => onChange({ body_html: editor.isEmpty ? '' : editor.getHTML() }),
+        // Kaydederken spintax pill'leri kanonik {{random|...}} metnine geri çevrilir.
+        onUpdate: ({ editor }) => onChange({ body_html: editor.isEmpty ? '' : spintaxHtmlToText(editor.getHTML()) }),
         onFocus: () => { lastFocused.current = 'body'; },
     });
 
@@ -98,19 +102,31 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
     const insertText = useCallback((text: string) => {
         if (readOnly) return;
         if (lastFocused.current === 'subject') {
-            insertAtRef(subjectRef.current, step.subject || '', (v) => onChange({ subject: v }), text);
+            subjectEditorRef.current?.insertVariable(text);
         } else if (mode === 'html') {
             insertAtRef(bodyRef.current, step.body_html || '', (v) => onChange({ body_html: v }), text);
         } else {
             editor?.chain().focus().insertContent(text).run();
         }
-    }, [readOnly, mode, step.subject, step.body_html, onChange, editor]);
+    }, [readOnly, mode, step.body_html, onChange, editor]);
+
+    // Spintax: konu + zengin modda pill (node); HTML kaynağında düz {{random|...}} metni.
+    const insertSpintax = useCallback(() => {
+        if (readOnly) return;
+        if (lastFocused.current === 'subject') {
+            subjectEditorRef.current?.insertSpintax();
+        } else if (mode === 'html') {
+            insertAtRef(bodyRef.current, step.body_html || '', (v) => onChange({ body_html: v }), '{{random|A|B|C}}');
+        } else {
+            editor?.chain().focus().insertContent({ type: 'spintax', attrs: { options: ['A', 'B', 'C'] } }).run();
+        }
+    }, [readOnly, mode, step.body_html, onChange, editor]);
 
     // Mod değişimi — zengin moda her girişte içeriği kaynaktan (step.body_html)
     // tazele; böylece HTML kaynağında yapılan elle düzenlemeler editöre yansır.
     const changeMode = (m: Mode) => {
         if (m === 'write' && editor) {
-            editor.commands.setContent(step.body_html || '', false);
+            editor.commands.setContent(spintaxTextToHtml(step.body_html || ''), false);
         }
         setMode(m);
     };
@@ -139,13 +155,13 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                 </Paper>
             )}
 
-            <TextInput
-                ref={subjectRef}
+            <SubjectEditor
+                ref={subjectEditorRef}
                 label={t('campaign.subject', 'Subject')}
                 placeholder={t('campaign.editor.subjectPlaceholder', 'Email subject — use {{first_name}} for personalization')}
-                required radius="md" size="sm"
+                required
                 value={step.subject || ''}
-                onChange={(e) => onChange({ subject: e.currentTarget.value })}
+                onChange={(v) => onChange({ subject: v })}
                 onFocus={() => { lastFocused.current = 'subject'; }}
                 disabled={readOnly}
             />
@@ -162,9 +178,9 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                     </Tooltip>
                 ))}
                 <Tooltip label="{{random|A|B|C}}" withArrow>
-                    <Badge size="xs" variant="light" color="orange"
+                    <Badge size="xs" variant="light" color="violet"
                         style={{ cursor: readOnly ? 'default' : 'pointer' }}
-                        onClick={() => insertText('{{random|A|B|C}}')}>
+                        onClick={insertSpintax}>
                         {t('campaign.editor.spintax', 'Spintax')}
                     </Badge>
                 </Tooltip>

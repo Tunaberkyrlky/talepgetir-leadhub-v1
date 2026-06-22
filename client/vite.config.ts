@@ -24,7 +24,7 @@ export default defineConfig({
     include: [
       'react-simple-maps',
       // @tiptap/pm bare olarak EKLENMEZ — kök export'u yok (yalnız @tiptap/pm/* alt yolları).
-      '@mantine/tiptap', '@tiptap/react', '@tiptap/starter-kit', '@tiptap/extension-link', '@tiptap/suggestion',
+      '@mantine/tiptap', '@tiptap/core', '@tiptap/react', '@tiptap/starter-kit', '@tiptap/extension-link', '@tiptap/suggestion',
     ],
   },
   build: {

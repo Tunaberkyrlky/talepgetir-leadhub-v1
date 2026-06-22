@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.13.1',
+        date: '2026-06-22',
+        type: 'feature',
+        title: { tr: 'Spintax Görsel Editörü', en: 'Visual Spintax Editor' },
+        about: {
+            tr: 'Spintax blokları artık metin yığını yerine tıklanabilir etiketler olarak görünüyor; e-posta konusu ve gövdesinde çift süslü parantez yazınca değişken ve spintax önerileri alabilirsiniz.',
+            en: 'Spintax blocks now appear as clickable tags instead of a wall of text, and you get variable and spintax suggestions by typing double curly braces in both the subject and the body.',
+        },
+        usage: {
+            tr: 'Konu veya gövdedeki bir spintax etiketine tıklayıp seçeneklerini düzenleyebilir, çift süslü parantez yazarak açılan listeden değişken ya da spintax ekleyebilirsiniz.',
+            en: 'Click a spintax tag in the subject or body to edit its options, and add a variable or spintax from the list that opens when you type double curly braces.',
+        },
+    },
+    {
         version: '1.13.0',
         date: '2026-06-22',
         type: 'feature',
