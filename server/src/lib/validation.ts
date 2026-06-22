@@ -435,6 +435,12 @@ export const enrollLeadsSchema = z.object({
     })).min(1).max(200),
 });
 
+// Toplu enrollment aksiyonu — seçili kayıtları duraklat/sürdür/çıkar.
+export const bulkEnrollmentActionSchema = z.object({
+    action: z.enum(['pause', 'resume', 'remove']),
+    ids: z.array(uuidField()).min(1).max(1000),
+});
+
 // Test gönderimi — bir adımın konu/gövdesini örnek verilerle bir adrese yolla.
 export const testSendSchema = z.object({
     to: z.string().email(),

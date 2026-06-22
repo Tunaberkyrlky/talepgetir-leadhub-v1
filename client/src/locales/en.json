@@ -1116,7 +1116,21 @@
             "rowResumed": "Contact resumed",
             "rowRemoved": "Contact removed",
             "removeTitle": "Remove contact",
-            "removeConfirm": "{{name}} will be removed from this campaign and will receive no further emails."
+            "removeConfirm": "{{name}} will be removed from this campaign and will receive no further emails.",
+            "searchEnrolled": "Search enrolled...",
+            "filterStatus": "Status",
+            "selected": "{{count}} selected",
+            "bulkApplied": "{{count}} contacts updated",
+            "bulkRemoveConfirm": "{{count}} selected contacts will be removed from this campaign.",
+            "noEnrolledMatch": "No enrolled contacts match.",
+            "status": {
+                "active": "Active",
+                "paused": "Paused",
+                "completed": "Completed",
+                "replied": "Replied",
+                "bounced": "Bounced",
+                "unsubscribed": "Unsubscribed"
+            }
         },
         "activation": {
             "title": "Ready to activate?",

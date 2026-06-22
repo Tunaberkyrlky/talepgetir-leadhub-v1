@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.13.2',
+        date: '2026-06-22',
+        type: 'improvement',
+        title: { tr: 'Kitle Yönetimi', en: 'Audience Management' },
+        about: {
+            tr: 'Kayıtlı kişilerde arama yapabilir, duruma göre filtreleyip sayfalayabilir ve birden çok kişiyi tek seferde durdurabilir, sürdürebilir veya çıkarabilirsiniz; ayrıca duraklatılmış kampanyaya da kişi ekleyebilirsiniz.',
+            en: 'You can search enrolled contacts, filter by status and page through them, and pause, resume or remove several at once, and you can now also add contacts to a paused campaign.',
+        },
+        usage: {
+            tr: 'Kitle sekmesindeki kayıtlı listenin üstünden arayıp filtreleyebilir, satırları işaretleyip üstte çıkan çubuktan toplu işlem yapabilirsiniz.',
+            en: 'Search and filter from the top of the enrolled list on the Audience tab, tick rows and use the bar that appears to act on them in bulk.',
+        },
+    },
+    {
         version: '1.13.1',
         date: '2026-06-22',
         type: 'feature',

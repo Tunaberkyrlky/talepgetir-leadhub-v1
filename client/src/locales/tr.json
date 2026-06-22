@@ -1116,7 +1116,21 @@
             "rowResumed": "Kişi sürdürüldü",
             "rowRemoved": "Kişi çıkarıldı",
             "removeTitle": "Kişiyi çıkar",
-            "removeConfirm": "{{name}} bu kampanyadan çıkarılacak ve artık e-posta almayacak."
+            "removeConfirm": "{{name}} bu kampanyadan çıkarılacak ve artık e-posta almayacak.",
+            "searchEnrolled": "Kayıtlılarda ara...",
+            "filterStatus": "Durum",
+            "selected": "{{count}} seçili",
+            "bulkApplied": "{{count}} kişi güncellendi",
+            "bulkRemoveConfirm": "Seçili {{count}} kişi bu kampanyadan çıkarılacak.",
+            "noEnrolledMatch": "Filtreyle eşleşen kayıt yok.",
+            "status": {
+                "active": "Aktif",
+                "paused": "Duraklı",
+                "completed": "Tamamlandı",
+                "replied": "Yanıtladı",
+                "bounced": "Sekti",
+                "unsubscribed": "Çıktı"
+            }
         },
         "activation": {
             "title": "Başlatmaya hazır mı?",

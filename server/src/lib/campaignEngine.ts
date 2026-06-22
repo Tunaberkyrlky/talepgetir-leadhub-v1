@@ -640,6 +640,31 @@ export async function resumeEnrollment(enrollmentId: string, tenantId: string, s
     return (data?.length || 0) > 0;
 }
 
+// Toplu duraklat — yalnız 'active' kayıtlar etkilenir; etkilenen sayısını döner.
+export async function bulkPauseEnrollments(ids: string[], tenantId: string): Promise<number> {
+    const { data } = await supabaseAdmin
+        .from('campaign_enrollments')
+        .update({ status: 'paused', next_scheduled_at: null })
+        .in('id', ids)
+        .eq('tenant_id', tenantId)
+        .eq('status', 'active')
+        .select('id');
+    return data?.length || 0;
+}
+
+// Toplu sürdür — yalnız 'paused' kayıtlar; gönderim penceresine göre yeniden zamanlanır.
+export async function bulkResumeEnrollments(ids: string[], tenantId: string, settings: any): Promise<number> {
+    const resumeAt = new Date(scheduleMs(Date.now(), settings)).toISOString();
+    const { data } = await supabaseAdmin
+        .from('campaign_enrollments')
+        .update({ status: 'active', next_scheduled_at: resumeAt })
+        .in('id', ids)
+        .eq('tenant_id', tenantId)
+        .eq('status', 'paused')
+        .select('id');
+    return data?.length || 0;
+}
+
 // ── Reply Detection ────────────────────────────────────────────────────────
 
 export async function cancelEnrollmentOnReply(senderEmail: string, tenantId: string): Promise<void> {

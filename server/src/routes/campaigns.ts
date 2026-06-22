@@ -8,8 +8,8 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole, requireTier } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
-import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, enrollLeadsSchema, audienceFilterSchema, testSendSchema } from '../lib/validation.js';
-import { enrollLeads, getCampaignStats, sendTestEmail, resumePausedEnrollments, pauseEnrollment, resumeEnrollment } from '../lib/campaignEngine.js';
+import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, enrollLeadsSchema, audienceFilterSchema, testSendSchema, bulkEnrollmentActionSchema } from '../lib/validation.js';
+import { enrollLeads, getCampaignStats, sendTestEmail, resumePausedEnrollments, pauseEnrollment, resumeEnrollment, bulkPauseEnrollments, bulkResumeEnrollments } from '../lib/campaignEngine.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import posthog from '../lib/posthog.js';
 
@@ -515,6 +515,39 @@ router.delete('/:id/enrollments/:enrollmentId', async (req: Request, res: Respon
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Remove enrollment error');
         res.status(500).json({ error: 'Failed to remove enrollment' });
+    }
+});
+
+// ── POST /api/campaigns/:id/enrollments/bulk — toplu duraklat/sürdür/çıkar ──
+
+router.post('/:id/enrollments/bulk', validateBody(bulkEnrollmentActionSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const campaignId = req.params.id as string;
+        const tenantId = req.tenantId!;
+        const { action, ids } = req.body as { action: 'pause' | 'resume' | 'remove'; ids: string[] };
+
+        let affected = 0;
+        if (action === 'remove') {
+            const { data, error } = await supabaseAdmin
+                .from('campaign_enrollments').delete()
+                .in('id', ids).eq('campaign_id', campaignId).eq('tenant_id', tenantId)
+                .select('id');
+            if (error) throw new AppError('Failed to remove enrollments', 500);
+            affected = data?.length || 0;
+        } else if (action === 'pause') {
+            affected = await bulkPauseEnrollments(ids, tenantId);
+        } else {
+            const { data: campaign } = await supabaseAdmin
+                .from('campaigns').select('settings')
+                .eq('id', campaignId).eq('tenant_id', tenantId).single();
+            affected = await bulkResumeEnrollments(ids, tenantId, campaign?.settings || {});
+        }
+
+        res.json({ ok: true, affected });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Bulk enrollment action error');
+        res.status(500).json({ error: 'Failed to apply bulk action' });
     }
 });
 
