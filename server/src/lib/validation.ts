@@ -369,6 +369,10 @@ export const smtpConnectionSchema = z.object({
 
 const campaignSettingsSchema = z.object({
     daily_limit: z.number().int().min(1).max(500).optional(),
+    // Kutu-başı günlük limit: her gönderen kutusunun günde en fazla kaç mail atacağı.
+    per_inbox_limit: z.number().int().min(1).max(500).optional(),
+    // İnsansı gönderim: her gönderime 0..N dk arası rastgele gecikme eklenir.
+    jitter_minutes: z.number().int().min(0).max(120).optional(),
     timezone: z.string().max(50).optional(),
     sending_window: z.object({
         days: z.array(z.number().int().min(0).max(6)).max(7).optional(),
@@ -377,6 +381,13 @@ const campaignSettingsSchema = z.object({
     }).optional(),
     // Inbox rotasyonu: kampanyanın kullanacağı gönderen mailbox adresleri (boşsa varsayılan kutu).
     sending_accounts: z.array(z.string().email()).max(50).optional(),
+    // Kampanya seviyesi CC adresleri (her gönderime eklenir).
+    cc: z.array(z.string().email()).max(20).optional(),
+    // Açılma/tıklama takip toggle'ları (tanımsızsa ikisi de açık).
+    tracking: z.object({
+        open: z.boolean().optional(),
+        click: z.boolean().optional(),
+    }).optional(),
 });
 
 export const createCampaignSchema = z.object({

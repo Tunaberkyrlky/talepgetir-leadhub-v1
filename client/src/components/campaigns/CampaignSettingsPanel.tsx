@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-    Stack, Paper, Group, Text, Badge, Select, NumberInput, TextInput, Switch, Chip, MultiSelect,
+    Stack, Paper, Group, Text, Badge, Select, NumberInput, TextInput, Switch, Chip, MultiSelect, TagsInput,
 } from '@mantine/core';
 import {
     IconCalendarTime, IconGauge, IconInbox, IconAt, IconEye,
@@ -59,6 +59,9 @@ const TZ_OPTIONS = (() => {
 // ── Bölüm kabuğu — başlık + opsiyonel "Yakında" rozeti + açıklama + içerik ──
 // Top-level: her render'da remount olup input focus'unu kaybetmemesi için
 // CampaignSettingsPanel içinde tanımlanmadı.
+// Basit e-posta kontrolü — CC etiketlerini eklerken geçersizleri eler.
+const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.trim());
+
 function SettingSection({ icon, title, desc, soonLabel, children }: {
     icon: ReactNode; title: string; desc?: string; soonLabel?: string; children: ReactNode;
 }) {
@@ -79,7 +82,6 @@ export default function CampaignSettingsPanel({
     settings, onSettingsChange, readOnly,
 }: Props) {
     const { t, i18n } = useTranslation();
-    const soon = t('campaign.settings.comingSoon', 'Soon');
 
     // Yerel kısa gün adları — 7 Ocak 2024 = Pazar, indeks 0..6 = Paz..Cmt.
     const weekdayLabels = Array.from({ length: 7 }, (_, i) =>
@@ -160,9 +162,19 @@ export default function CampaignSettingsPanel({
                     />
                     <NumberInput
                         label={t('campaign.settings.perInboxLimit')}
-                        rightSection={<Badge size="xs" variant="light" color="gray">{soon}</Badge>}
-                        rightSectionWidth={60}
-                        min={1} max={500} radius="md" size="sm" w={220} disabled
+                        description={t('campaign.settings.perInboxLimitNote')}
+                        min={1} max={500} radius="md" size="sm" w={220}
+                        value={settings.per_inbox_limit ?? ''}
+                        onChange={(v) => patch({ per_inbox_limit: typeof v === 'number' ? v : undefined })}
+                        disabled={readOnly}
+                    />
+                    <NumberInput
+                        label={t('campaign.settings.jitter')}
+                        description={t('campaign.settings.jitterNote')}
+                        min={0} max={120} radius="md" size="sm" w={220}
+                        value={settings.jitter_minutes ?? ''}
+                        onChange={(v) => patch({ jitter_minutes: typeof v === 'number' ? v : undefined })}
+                        disabled={readOnly}
                     />
                 </Group>
             </SettingSection>
@@ -192,12 +204,16 @@ export default function CampaignSettingsPanel({
                 icon={<IconAt size={16} color="var(--mantine-color-violet-6)" />}
                 title={t('campaign.settings.cc')}
                 desc={t('campaign.settings.ccDesc')}
-                soonLabel={soon}
             >
-                <TextInput
+                <TagsInput
                     placeholder={t('campaign.settings.ccPlaceholder')}
-                    radius="md" size="sm" disabled
+                    value={settings.cc || []}
+                    onChange={(v) => patch({ cc: v.filter(isEmail) })}
+                    splitChars={[',', ' ', ';']}
+                    clearable radius="md" size="sm" maxTags={20}
+                    disabled={readOnly}
                 />
+                <Text size="xs" c="dimmed" mt={4}>{t('campaign.settings.ccHint', 'Each contact also receives a copy at these addresses.')}</Text>
             </SettingSection>
 
             {/* ── Takip ── */}
@@ -205,11 +221,14 @@ export default function CampaignSettingsPanel({
                 icon={<IconEye size={16} color="var(--mantine-color-violet-6)" />}
                 title={t('campaign.settings.tracking')}
                 desc={t('campaign.settings.trackingDesc')}
-                soonLabel={soon}
             >
                 <Stack gap="xs">
-                    <Switch label={t('campaign.settings.openTracking')} defaultChecked disabled size="sm" />
-                    <Switch label={t('campaign.settings.clickTracking')} defaultChecked disabled size="sm" />
+                    <Switch label={t('campaign.settings.openTracking')} size="sm" disabled={readOnly}
+                        checked={settings.tracking?.open !== false}
+                        onChange={(e) => patch({ tracking: { ...settings.tracking, open: e.currentTarget.checked } })} />
+                    <Switch label={t('campaign.settings.clickTracking')} size="sm" disabled={readOnly}
+                        checked={settings.tracking?.click !== false}
+                        onChange={(e) => patch({ tracking: { ...settings.tracking, click: e.currentTarget.checked } })} />
                 </Stack>
             </SettingSection>
         </Stack>

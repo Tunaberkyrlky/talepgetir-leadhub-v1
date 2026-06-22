@@ -49,15 +49,33 @@ export function verifyTrackingToken(token: string): { id: string; kind: Tracking
         : { id: payload, kind: 'activity' };
 }
 
-export function injectTracking(html: string, id: string, kind: TrackingKind = 'activity'): string {
+/** Açılma (pixel) ve tıklama (link redirect) takibi ayrı ayrı açılıp kapatılabilir.
+ * Varsayılan ikisi de açık (geriye dönük uyum: opts verilmezse eski davranış). */
+export function injectTracking(
+    html: string, id: string, kind: TrackingKind = 'activity',
+    opts?: { open?: boolean; click?: boolean },
+): string {
     if (!API_BASE) return html;
+    const open = opts?.open !== false;
+    const click = opts?.click !== false;
+    if (!open && !click) return html;
+
     const token = createTrackingToken(id, kind);
-    const pixel = `<img src="${API_BASE}/api/t/o/${token}" width="1" height="1" style="display:none" alt="" />`;
-    const wrapped = html.replace(
-        /href="(https?:\/\/[^"]+)"/gi,
-        // href değeri HTML-escaped gelir (& → &amp;); redirect hedefi bozulmasın
-        // diye encodeURIComponent öncesi geri çevrilir.
-        (_, url) => `href="${API_BASE}/api/t/c/${token}?url=${encodeURIComponent(url.replace(/&amp;/g, '&'))}"`,
-    );
-    return (wrapped.includes('</body>') ? wrapped.replace('</body>', `${pixel}</body>`) : wrapped + pixel);
+    let out = html;
+
+    if (click) {
+        out = out.replace(
+            /href="(https?:\/\/[^"]+)"/gi,
+            // href değeri HTML-escaped gelir (& → &amp;); redirect hedefi bozulmasın
+            // diye encodeURIComponent öncesi geri çevrilir.
+            (_, url) => `href="${API_BASE}/api/t/c/${token}?url=${encodeURIComponent(url.replace(/&amp;/g, '&'))}"`,
+        );
+    }
+
+    if (open) {
+        const pixel = `<img src="${API_BASE}/api/t/o/${token}" width="1" height="1" style="display:none" alt="" />`;
+        out = out.includes('</body>') ? out.replace('</body>', `${pixel}</body>`) : out + pixel;
+    }
+
+    return out;
 }

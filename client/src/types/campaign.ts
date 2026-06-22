@@ -20,12 +20,14 @@ export interface CampaignTracking {
 }
 
 export interface CampaignSettings {
-    daily_limit?: number;            // kampanya günlük tavanı (canlı; henüz motorda uygulanmıyor)
+    daily_limit?: number;            // kampanya günlük tavanı (canlı)
+    per_inbox_limit?: number;        // kutu-başı günlük limit (canlı)
+    jitter_minutes?: number;         // insansı gönderim — rastgele gecikme dk (canlı)
     timezone?: string;               // IANA tz — gönderim penceresi için kanonik (canlı)
-    cc?: string[];                   // kampanya seviyesi CC (Faz 1)
+    cc?: string[];                   // kampanya seviyesi CC (canlı)
     sending_window?: SendingWindow;  // gönderim programı (Faz 1.1)
     sending_accounts?: string[];     // inbox rotasyonu — kullanılacak gönderen mailler (canlı)
-    tracking?: CampaignTracking;     // açılma/tıklama takip toggle'ları (Faz 1)
+    tracking?: CampaignTracking;     // açılma/tıklama takip toggle'ları (canlı)
 }
 
 export interface Campaign {

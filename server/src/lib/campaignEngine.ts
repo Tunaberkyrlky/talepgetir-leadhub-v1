@@ -189,6 +189,18 @@ function scheduleMs(baseMs: number, settings: any): number {
     return nextSendableTime(baseMs, settings?.timezone || DEFAULT_TZ, win);
 }
 
+// İnsansı gönderim: baseMs'e 0..jitter_minutes arası rastgele gecikme ekler — saniye
+// çözünürlüğünde (dakikaya yuvarlamadan), böylece gönderimler tam dakika sınırına
+// oturmaz. Robotik, eşit aralıklı gönderimi kırar. Pencere clamp'inden ÖNCE uygulanır
+// ki jitter pencere içinde kalsın. jitter_minutes yoksa/0 ise aynen döner.
+function applyJitter(baseMs: number, settings: any): number {
+    const j = Number(settings?.jitter_minutes) || 0;
+    if (j <= 0) return baseMs;
+    // 0..(j*60) saniye arası rastgele → dakika değil saniye düzeyinde dağılım
+    const maxSeconds = j * 60;
+    return baseMs + Math.floor(Math.random() * maxSeconds) * 1000;
+}
+
 // Kampanyanın bugün (yerel gün) gönderdiği mail sayısı — günlük limit kontrolü için.
 async function countSentToday(campaignId: string, timeZone: string): Promise<number> {
     const dayStart = startOfLocalDay(Date.now(), timeZone);
@@ -198,6 +210,21 @@ async function countSentToday(campaignId: string, timeZone: string): Promise<num
         .eq('campaign_id', campaignId)
         .eq('type', 'campaign_email')
         .eq('outcome', 'sent')
+        .gte('occurred_at', new Date(dayStart).toISOString());
+    return count || 0;
+}
+
+// Bir gönderen kutusunun bugün (yerel gün) gönderdiği mail sayısı — kutu-başı limit
+// için. Kampanyalar arası sayar (kutu itibarını korumak tenant geneli olmalı).
+async function countSentTodayForAccount(tenantId: string, account: string, timeZone: string): Promise<number> {
+    const dayStart = startOfLocalDay(Date.now(), timeZone);
+    const { count } = await supabaseAdmin
+        .from('activities')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('type', 'campaign_email')
+        .eq('outcome', 'sent')
+        .eq('sending_account', account)
         .gte('occurred_at', new Date(dayStart).toISOString());
     return count || 0;
 }
@@ -234,7 +261,7 @@ export async function enrollLeads(
     // önce bekle" demektir. İlk adımın delay'i (genelde 0 = hemen) kayıt anından
     // itibaren sayılır. Gönderim penceresi varsa açılışa clamp'lenir.
     // Legacy 'delay' düğümleri de aynı hesapla doğru çalışır.
-    const firstScheduleAt = new Date(scheduleMs(Date.now() + calcDelayMs(firstStep), campaign.settings)).toISOString();
+    const firstScheduleAt = new Date(scheduleMs(applyJitter(Date.now() + calcDelayMs(firstStep), campaign.settings), campaign.settings)).toISOString();
 
     // Batch insert enrollments — single DB call, duplicates ignored via ON CONFLICT
     const rows = contacts.map((c) => ({
@@ -403,6 +430,23 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                     }
                 }
 
+                // Gönderen kutusu (rotasyon/varsayılan) — aktivite kaydı ve gönderim
+                // aynı kutuyu kullansın diye burada bir kez çözülür.
+                const accountEmail = await resolveAccountEmail(enrollment.tenant_id, campaign.settings, enrollment.id);
+
+                // Kutu-başı günlük limit: seçilen kutu bugünkü tavanını doldurduysa bu
+                // kişiyi ertesi günün açılışına ertele (kutu itibarını korur, tenant geneli sayar).
+                if (accountEmail && settings.per_inbox_limit && settings.per_inbox_limit > 0) {
+                    const accountSentToday = await countSentTodayForAccount(enrollment.tenant_id, accountEmail, tz);
+                    if (accountSentToday >= settings.per_inbox_limit) {
+                        const nextOpen = scheduleMs(startOfNextLocalDay(nowMs, tz), settings);
+                        await supabaseAdmin.from('campaign_enrollments')
+                            .update({ next_scheduled_at: new Date(nextOpen).toISOString() })
+                            .eq('id', enrollment.id);
+                        continue;
+                    }
+                }
+
                 // Resolve spintax (gönderim başına rastgele) → sonra değişkenler.
                 const ctx = await resolveTemplate(enrollment.contact_id, enrollment.company_id);
                 const subject = applyTemplate(applySpintax(currentStep.subject || ''), ctx);
@@ -421,6 +465,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         outcome: 'sending',
                         campaign_id: enrollment.campaign_id,
                         enrollment_id: enrollment.id,
+                        sending_account: accountEmail || null,
                         visibility: 'internal',
                         occurred_at: new Date().toISOString(),
                         created_by: null, // system-generated
@@ -439,8 +484,13 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                     continue;
                 }
 
-                // Inject tracking + unsubscribe
-                bodyHtml = injectTracking(bodyHtml, activity.id);
+                // Inject tracking (kampanya açılma/tıklama toggle'larına göre) + unsubscribe.
+                // tracking tanımsızsa ikisi de açık (geriye dönük uyum).
+                const trk = campaign.settings?.tracking;
+                bodyHtml = injectTracking(bodyHtml, activity.id, 'activity', {
+                    open: trk?.open !== false,
+                    click: trk?.click !== false,
+                });
                 bodyHtml += buildUnsubscribeFooter(enrollment.id);
 
                 try {
@@ -449,7 +499,6 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         || tenantSettings.cc_addresses?.map((a: any) => a.email)
                         || []);
 
-                    const accountEmail = await resolveAccountEmail(enrollment.tenant_id, campaign.settings, enrollment.id);
                     // Gönderen adı kutuya ait (tüm kampanyalarda ortak); yoksa kampanya from_name'i.
                     const senderNames = tenantSettings.sender_names || {};
                     const fromName = senderNames[(accountEmail || '').toLowerCase()] || campaign.from_name || undefined;
@@ -507,7 +556,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                     .from('campaign_enrollments')
                     .update({
                         current_step_id: nextStep.id,
-                        next_scheduled_at: new Date(scheduleMs(Date.now() + calcDelayMs(nextStep), campaign.settings)).toISOString(),
+                        next_scheduled_at: new Date(scheduleMs(applyJitter(Date.now() + calcDelayMs(nextStep), campaign.settings), campaign.settings)).toISOString(),
                     })
                     .eq('id', enrollment.id);
             }

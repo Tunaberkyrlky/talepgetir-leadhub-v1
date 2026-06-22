@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.12.7',
+        date: '2026-06-22',
+        type: 'feature',
+        title: { tr: 'Gelişmiş Gönderim Kontrolleri', en: 'Advanced Sending Controls' },
+        about: {
+            tr: 'Drip kampanyalarda kutu başına günlük limit koyabilir, gönderimleri rastgele aralıklarla daha doğal hale getirebilir, CC adresi ekleyebilir ve açılma/tıklama takibini açıp kapatabilirsiniz.',
+            en: 'In drip campaigns you can set a per-inbox daily limit, make sends more natural with random gaps, add CC addresses and toggle open and click tracking.',
+        },
+        usage: {
+            tr: 'Ayarlar sekmesindeki Limitler altından kutu başına limiti ve rastgele gecikmeyi, CC ve Takip bölümlerinden kopya adreslerini ve takip anahtarlarını ayarlayabilirsiniz.',
+            en: 'On the Settings tab you can set the per-inbox limit and random delay under Limits, and manage copy addresses and tracking switches in the CC and Tracking sections.',
+        },
+        notes: {
+            tr: 'Bir gönderen kutusu günlük limitini doldurduğunda o kutudan gidecek kişiler ertesi güne ertelenir.',
+            en: 'When a sending mailbox reaches its daily limit, contacts assigned to it are deferred to the next day.',
+        },
+    },
+    {
         version: '1.12.6',
         date: '2026-06-22',
         type: 'fix',
