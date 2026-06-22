@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.12.2',
+        date: '2026-06-22',
+        type: 'feature',
+        title: { tr: 'Metin Çeşitleme (Spintax)', en: 'Text Variation (Spintax)' },
+        about: {
+            tr: 'Kampanya mailinde her gönderimde otomatik olarak farklı kelime ve cümle varyantı kullanabilirsiniz.',
+            en: 'Campaign emails can automatically use a different word or phrase variant on each send.',
+        },
+        usage: {
+            tr: 'Adım metnine {{random|Merhaba|Selam|İyi günler}} gibi yazabilir ya da Spintax butonuna tıklayabilirsiniz; sistem her alıcıya seçeneklerden birini rastgele gönderir.',
+            en: 'Type something like {{random|Hi|Hello|Good day}} in the step text or click the Spintax button, and each recipient gets one option at random.',
+        },
+        notes: {
+            tr: 'Değişkenleri (ör. {{first_name}}) buton kullanmadan elle de yazabilirsiniz; önizlemede spintax ilk seçenekle gösterilir.',
+            en: 'You can also type variables such as {{first_name}} by hand, and the preview shows spintax with the first option.',
+        },
+    },
+    {
         version: '1.12.1',
         date: '2026-06-20',
         type: 'feature',

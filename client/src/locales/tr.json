@@ -1009,7 +1009,9 @@
             "previewSubject": "Konu",
             "previewEmpty": "Henüz önizlenecek bir şey yok.",
             "previewNote": "Önizleme örnek verilerle gösterilir (ör. Ahmet, Acme A.Ş.).",
-            "emptyStep": "Konu veya içerik boş"
+            "emptyStep": "Konu veya içerik boş",
+            "spintax": "Spintax",
+            "typeHint": "İpucu: değişkenleri ve spintax'ı (rastgele seçim) elle de yazabilirsiniz."
         },
         "settings": {
             "title": "Kampanya Ayarları",

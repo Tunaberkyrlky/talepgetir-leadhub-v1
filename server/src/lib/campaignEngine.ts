@@ -74,6 +74,15 @@ function applyTemplate(template: string, ctx: TemplateCtx): string {
     return result;
 }
 
+// Spintax: {{random|A|B|C}} → her gönderimde rastgele bir seçenek. Boş seçenek
+// (ör. {{random|please|}}) atlamayı sağlar. Değişkenlerden önce çözülür.
+function applySpintax(template: string): string {
+    return template.replace(/\{\{\s*random\s*\|([^{}]*)\}\}/gi, (_m, group: string) => {
+        const opts = group.split('|');
+        return (opts[Math.floor(Math.random() * opts.length)] || '').trim();
+    });
+}
+
 // ── Tracking ───────────────────────────────────────────────────────────────
 // Token üretimi/doğrulama ve injectTracking lib/mailTracking.ts'e taşındı.
 
@@ -325,10 +334,10 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                     }
                 }
 
-                // Resolve template
+                // Resolve spintax (gönderim başına rastgele) → sonra değişkenler.
                 const ctx = await resolveTemplate(enrollment.contact_id, enrollment.company_id);
-                const subject = applyTemplate(currentStep.subject || '', ctx);
-                let bodyHtml = applyTemplate(currentStep.body_html || '', ctx);
+                const subject = applyTemplate(applySpintax(currentStep.subject || ''), ctx);
+                let bodyHtml = applyTemplate(applySpintax(currentStep.body_html || ''), ctx);
 
                 // Create activity first (we need the ID for tracking)
                 const { data: activity, error: actErr } = await supabaseAdmin

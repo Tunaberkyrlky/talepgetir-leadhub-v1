@@ -30,8 +30,13 @@ const SAMPLE: Record<string, string> = {
     title: 'Satın Alma Müdürü', company_name: 'Acme A.Ş.', website: 'acme.com', industry: 'Teknoloji',
 };
 
+// Önizlemede spintax'ın ilk seçeneğini gösterir (rastgele değil — stabil önizleme).
+function resolveSpintaxFirst(template: string): string {
+    return template.replace(/\{\{\s*random\s*\|([^{}]*)\}\}/gi, (_m, group: string) => (group.split('|')[0] || '').trim());
+}
+
 function applySample(template: string): string {
-    let result = template;
+    let result = resolveSpintaxFirst(template);
     for (const key of Object.keys(SAMPLE)) {
         result = result.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'gi'), SAMPLE[key]);
     }
@@ -47,31 +52,30 @@ export default function StepEditor({ step, onChange, readOnly, isFirst }: Props)
     const lastFocused = useRef<ActiveField>('body');
     const [mode, setMode] = useState<'write' | 'preview'>('write');
 
-    const insertVariable = useCallback((varKey: string) => {
+    // İmlecin olduğu alana (konu/gövde) ham metin ekler — değişken ve spintax için ortak.
+    const insertAtCursor = useCallback((text: string) => {
         if (readOnly) return;
-        const text = `{{${varKey}}}`;
         const field = lastFocused.current;
-
         if (field === 'subject') {
             const el = subjectRef.current;
-            if (!el) { onChange({ ...step, subject: (step.subject || '') + text }); return; }
-            const start = el.selectionStart ?? (step.subject || '').length;
-            const end = el.selectionEnd ?? start;
             const val = step.subject || '';
-            const newVal = val.slice(0, start) + text + val.slice(end);
-            onChange({ ...step, subject: newVal });
+            if (!el) { onChange({ ...step, subject: val + text }); return; }
+            const start = el.selectionStart ?? val.length;
+            const end = el.selectionEnd ?? start;
+            onChange({ ...step, subject: val.slice(0, start) + text + val.slice(end) });
             requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + text.length, start + text.length); });
         } else {
             const el = bodyRef.current;
-            if (!el) { onChange({ ...step, body_html: (step.body_html || '') + text }); return; }
-            const start = el.selectionStart ?? (step.body_html || '').length;
-            const end = el.selectionEnd ?? start;
             const val = step.body_html || '';
-            const newVal = val.slice(0, start) + text + val.slice(end);
-            onChange({ ...step, body_html: newVal });
+            if (!el) { onChange({ ...step, body_html: val + text }); return; }
+            const start = el.selectionStart ?? val.length;
+            const end = el.selectionEnd ?? start;
+            onChange({ ...step, body_html: val.slice(0, start) + text + val.slice(end) });
             requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + text.length, start + text.length); });
         }
     }, [step, onChange, readOnly]);
+
+    const insertVariable = useCallback((varKey: string) => insertAtCursor(`{{${varKey}}}`), [insertAtCursor]);
 
     // Legacy 'delay' düğümü (yeni model üretmez) — güvenli geri dönüş.
     if (step.step_type === 'delay') {
@@ -137,7 +141,15 @@ export default function StepEditor({ step, onChange, readOnly, isFirst }: Props)
                         </Badge>
                     </Tooltip>
                 ))}
+                <Tooltip label="{{random|A|B|C}}" withArrow>
+                    <Badge size="xs" variant="light" color="orange"
+                        style={{ cursor: readOnly ? 'default' : 'pointer' }}
+                        onClick={() => insertAtCursor('{{random|A|B|C}}')}>
+                        {t('campaign.editor.spintax', 'Spintax')}
+                    </Badge>
+                </Tooltip>
             </Group>
+            <Text size="xs" c="dimmed">{t('campaign.editor.typeHint', 'Tip: you can also type variables and spintax by hand.')}</Text>
 
             <Group justify="space-between" align="center">
                 <Text size="sm" fw={500}>{t('campaign.body', 'Email Body (HTML)')}</Text>

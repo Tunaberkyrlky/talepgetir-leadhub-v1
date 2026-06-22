@@ -1009,7 +1009,9 @@
             "previewSubject": "Subject",
             "previewEmpty": "Nothing to preview yet.",
             "previewNote": "Preview uses sample data (e.g. Ahmet, Acme A.Ş.).",
-            "emptyStep": "Subject or body is empty"
+            "emptyStep": "Subject or body is empty",
+            "spintax": "Spintax",
+            "typeHint": "Tip: you can also type variables and spintax (random pick) by hand."
         },
         "settings": {
             "title": "Campaign Settings",
