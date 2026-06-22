@@ -1011,7 +1011,12 @@
             "previewNote": "Preview uses sample data (e.g. Ahmet, Acme A.Ş.).",
             "emptyStep": "Subject or body is empty",
             "spintax": "Spintax",
-            "typeHint": "Tip: you can also type variables and spintax (random pick) by hand."
+            "typeHint": "Tip: you can also type variables and spintax (random pick) by hand.",
+            "testSend": "Send test",
+            "testSendTitle": "Send test email",
+            "testTo": "Send to",
+            "testNote": "Spintax and variables are filled with sample data (e.g. Ahmet, Acme).",
+            "testSent": "Test sent to {{to}}"
         },
         "settings": {
             "title": "Campaign Settings",
@@ -1030,7 +1035,9 @@
             "perInboxLimit": "Per-inbox daily limit",
             "accounts": "Sending Accounts",
             "accountsDesc": "Spread the campaign across multiple connected inboxes to protect each one's reputation.",
-            "accountsPlaceholder": "Inbox rotation coming soon: you'll be able to assign multiple sending accounts per campaign.",
+            "accountsSelect": "Select inboxes (default if empty)",
+            "accountsNone": "No connected mailbox yet",
+            "accountsHint": "Leave empty to use the default mailbox. With multiple, contacts are spread across them and each contact always gets the same inbox.",
             "sender": "Sender & CC",
             "senderDesc": "The sender name recipients see and carbon-copy (CC) addresses.",
             "fromName": "Sender name",

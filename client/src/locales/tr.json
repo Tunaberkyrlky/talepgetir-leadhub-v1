@@ -1011,7 +1011,12 @@
             "previewNote": "Önizleme örnek verilerle gösterilir (ör. Ahmet, Acme A.Ş.).",
             "emptyStep": "Konu veya içerik boş",
             "spintax": "Spintax",
-            "typeHint": "İpucu: değişkenleri ve spintax'ı (rastgele seçim) elle de yazabilirsiniz."
+            "typeHint": "İpucu: değişkenleri ve spintax'ı (rastgele seçim) elle de yazabilirsiniz.",
+            "testSend": "Test gönder",
+            "testSendTitle": "Test maili gönder",
+            "testTo": "Şu adrese gönder",
+            "testNote": "Spintax ve değişkenler örnek verilerle doldurulur (ör. Ahmet, Acme).",
+            "testSent": "Test {{to}} adresine gönderildi"
         },
         "settings": {
             "title": "Kampanya Ayarları",
@@ -1030,7 +1035,9 @@
             "perInboxLimit": "Kutu başına günlük limit",
             "accounts": "Gönderen Kutular",
             "accountsDesc": "Kampanyayı birden çok bağlı kutuya yayarak her kutunun itibarını koruyun.",
-            "accountsPlaceholder": "Inbox rotasyonu yakında: kampanyaya birden çok gönderen hesap atayabileceksiniz.",
+            "accountsSelect": "Kutu seçin (boşsa varsayılan)",
+            "accountsNone": "Henüz bağlı kutu yok",
+            "accountsHint": "Boş bırakırsanız varsayılan kutu kullanılır. Birden çok seçerseniz kişiler kutulara dağıtılır ve her kişiye hep aynı kutudan gidilir.",
             "sender": "Gönderen & CC",
             "senderDesc": "Alıcının gördüğü gönderen adı ve kopya (CC) adresleri.",
             "fromName": "Gönderen adı",

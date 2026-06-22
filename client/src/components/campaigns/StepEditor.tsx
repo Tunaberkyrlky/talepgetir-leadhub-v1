@@ -1,9 +1,9 @@
 import { useRef, useCallback, useState } from 'react';
 import {
     Stack, TextInput, Textarea, Group, NumberInput, Text, Paper, Badge, Tooltip,
-    SegmentedControl, Box,
+    SegmentedControl, Box, Button, Modal,
 } from '@mantine/core';
-import { IconMail, IconClock, IconPencil, IconEye } from '@tabler/icons-react';
+import { IconMail, IconClock, IconPencil, IconEye, IconSend } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import type { CampaignStep } from '../../types/campaign';
 
@@ -12,6 +12,8 @@ interface Props {
     onChange: (updated: CampaignStep) => void;
     readOnly?: boolean;
     isFirst?: boolean;
+    onSendTest?: (p: { to: string; subject: string; body_html: string }) => Promise<void>;
+    defaultTestEmail?: string;
 }
 
 const VARS = [
@@ -45,12 +47,28 @@ function applySample(template: string): string {
 
 type ActiveField = 'subject' | 'body';
 
-export default function StepEditor({ step, onChange, readOnly, isFirst }: Props) {
+export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTest, defaultTestEmail }: Props) {
     const { t } = useTranslation();
     const subjectRef = useRef<HTMLInputElement>(null);
     const bodyRef = useRef<HTMLTextAreaElement>(null);
     const lastFocused = useRef<ActiveField>('body');
     const [mode, setMode] = useState<'write' | 'preview'>('write');
+    const [testOpen, setTestOpen] = useState(false);
+    const [testEmail, setTestEmail] = useState(defaultTestEmail || '');
+    const [sending, setSending] = useState(false);
+
+    const handleSendTest = async () => {
+        if (!onSendTest || !testEmail.trim()) return;
+        setSending(true);
+        try {
+            await onSendTest({ to: testEmail.trim(), subject: step.subject || '', body_html: step.body_html || '' });
+            setTestOpen(false);
+        } catch {
+            /* bildirim çağıran tarafta gösteriliyor */
+        } finally {
+            setSending(false);
+        }
+    };
 
     // İmlecin olduğu alana (konu/gövde) ham metin ekler — değişken ve spintax için ortak.
     const insertAtCursor = useCallback((text: string) => {
@@ -153,11 +171,19 @@ export default function StepEditor({ step, onChange, readOnly, isFirst }: Props)
 
             <Group justify="space-between" align="center">
                 <Text size="sm" fw={500}>{t('campaign.body', 'Email Body (HTML)')}</Text>
-                <SegmentedControl size="xs" value={mode} onChange={(v) => setMode(v as 'write' | 'preview')}
+                <Group gap="xs">
+                    {onSendTest && (
+                        <Button size="xs" variant="light" color="violet" leftSection={<IconSend size={13} />}
+                            onClick={() => { setTestEmail((e) => e || defaultTestEmail || ''); setTestOpen(true); }}>
+                            {t('campaign.editor.testSend', 'Send test')}
+                        </Button>
+                    )}
+                    <SegmentedControl size="xs" value={mode} onChange={(v) => setMode(v as 'write' | 'preview')}
                     data={[
                         { value: 'write', label: <Group gap={4} wrap="nowrap"><IconPencil size={12} />{t('campaign.editor.write', 'Write')}</Group> },
                         { value: 'preview', label: <Group gap={4} wrap="nowrap"><IconEye size={12} />{t('campaign.editor.preview', 'Preview')}</Group> },
                     ]} />
+                </Group>
             </Group>
 
             {mode === 'write' ? (
@@ -179,6 +205,25 @@ export default function StepEditor({ step, onChange, readOnly, isFirst }: Props)
                     <Text size="xs" c="dimmed" mt="sm">{t('campaign.editor.previewNote', 'Preview uses sample data (e.g. Ahmet, Acme A.Ş.).')}</Text>
                 </Paper>
             )}
+
+            <Modal opened={testOpen} onClose={() => setTestOpen(false)} radius="lg" centered size="sm"
+                title={t('campaign.editor.testSendTitle', 'Send test email')}
+                overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}>
+                <Stack gap="sm">
+                    <TextInput type="email" label={t('campaign.editor.testTo', 'Send to')}
+                        value={testEmail} onChange={(e) => setTestEmail(e.currentTarget.value)} radius="md" size="sm" />
+                    <Text size="xs" c="dimmed">{t('campaign.editor.testNote', 'Spintax and variables are filled with sample data (e.g. Ahmet, Acme).')}</Text>
+                    <Group justify="flex-end" gap="xs">
+                        <Button variant="default" radius="md" size="sm" onClick={() => setTestOpen(false)}>
+                            {t('common.cancel', 'Cancel')}
+                        </Button>
+                        <Button color="violet" radius="md" size="sm" leftSection={<IconSend size={14} />}
+                            loading={sending} disabled={!testEmail.trim()} onClick={handleSendTest}>
+                            {t('campaign.editor.testSend', 'Send test')}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
         </Stack>
     );
 }

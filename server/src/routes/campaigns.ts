@@ -8,8 +8,8 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole, requireTier } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
-import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, enrollLeadsSchema, audienceFilterSchema } from '../lib/validation.js';
-import { enrollLeads, getCampaignStats } from '../lib/campaignEngine.js';
+import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, enrollLeadsSchema, audienceFilterSchema, testSendSchema } from '../lib/validation.js';
+import { enrollLeads, getCampaignStats, sendTestEmail } from '../lib/campaignEngine.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import posthog from '../lib/posthog.js';
 
@@ -305,6 +305,24 @@ router.post('/:id/enroll', validateBody(enrollLeadsSchema), async (req: Request,
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Enroll error');
         res.status(500).json({ error: 'Failed to enroll leads' });
+    }
+});
+
+// ── POST /api/campaigns/:id/test (test gönderimi) ──────────────────────────
+
+router.post('/:id/test', validateBody(testSendSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { data: campaign } = await supabaseAdmin
+            .from('campaigns').select('from_name')
+            .eq('id', (req.params.id as string)).eq('tenant_id', req.tenantId!).single();
+        if (!campaign) { res.status(404).json({ error: 'Campaign not found' }); return; }
+
+        await sendTestEmail(req.tenantId!, req.body.to, req.body.subject || '', req.body.body_html || '', campaign.from_name);
+        res.json({ sent: true, to: req.body.to });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Test send error');
+        res.status(500).json({ error: 'Failed to send test email' });
     }
 });
 

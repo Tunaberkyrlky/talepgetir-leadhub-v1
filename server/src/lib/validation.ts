@@ -375,6 +375,8 @@ const campaignSettingsSchema = z.object({
         start: z.string().regex(/^\d{2}:\d{2}$/).optional(),
         end: z.string().regex(/^\d{2}:\d{2}$/).optional(),
     }).optional(),
+    // Inbox rotasyonu: kampanyanın kullanacağı gönderen mailbox adresleri (boşsa varsayılan kutu).
+    sending_accounts: z.array(z.string().email()).max(50).optional(),
 });
 
 export const createCampaignSchema = z.object({
@@ -420,6 +422,13 @@ export const enrollLeadsSchema = z.object({
         company_id: uuidField(),
         email: z.string().email(),
     })).min(1).max(200),
+});
+
+// Test gönderimi — bir adımın konu/gövdesini örnek verilerle bir adrese yolla.
+export const testSendSchema = z.object({
+    to: z.string().email(),
+    subject: z.string().max(500).optional(),
+    body_html: z.string().max(50000).optional(),
 });
 
 // Audience filtresi — Drip kampanyaya filtreyle kişi seçimi/kaydı.

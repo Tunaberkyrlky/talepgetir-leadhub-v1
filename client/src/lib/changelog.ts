@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.12.3',
+        date: '2026-06-22',
+        type: 'feature',
+        title: { tr: 'Test Gönderimi ve Çoklu Kutu', en: 'Test Send & Multiple Inboxes' },
+        about: {
+            tr: 'Bir adımı kendinize test olarak yollayabilir ve kampanyayı birden çok gönderen kutuya dağıtabilirsiniz.',
+            en: 'You can send a step to yourself as a test and spread the campaign across multiple sending inboxes.',
+        },
+        usage: {
+            tr: 'Adım düzenlerken "Test gönder" ile kendinize örnek mail atabilir, Ayarlar sekmesindeki Gönderen Kutular bölümünden birden çok kutu seçebilirsiniz.',
+            en: 'While editing a step you can send yourself a sample with "Send test", and pick multiple inboxes under Sending Accounts on the Settings tab.',
+        },
+        notes: {
+            tr: 'Birden çok kutu seçerseniz kişiler kutulara dağıtılır ve her kişiye hep aynı kutudan gidilir; boş bırakırsanız varsayılan kutu kullanılır.',
+            en: 'With multiple inboxes, contacts are spread across them and each contact always gets the same inbox; leave it empty to use the default mailbox.',
+        },
+    },
+    {
         version: '1.12.2',
         date: '2026-06-22',
         type: 'feature',

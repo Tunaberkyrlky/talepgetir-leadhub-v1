@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
-    Stack, Paper, Group, Text, Badge, Select, NumberInput, TextInput, Switch, Chip,
+    Stack, Paper, Group, Text, Badge, Select, NumberInput, TextInput, Switch, Chip, MultiSelect,
 } from '@mantine/core';
 import {
     IconCalendarTime, IconGauge, IconInbox, IconUser, IconEye,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import api from '../../lib/api';
 import type { CampaignSettings } from '../../types/campaign';
 
 interface Props {
@@ -91,6 +93,16 @@ export default function CampaignSettingsPanel({
     const patchWindow = (p: Partial<NonNullable<CampaignSettings['sending_window']>>) =>
         patch({ sending_window: { ...win, ...p } });
 
+    // Bağlı kutular (rotasyon için) — SMTP hariç (kampanya gönderimi Nango üzerinden).
+    const { data: connData } = useQuery<{ connections?: { email_address: string; provider: string }[] }>({
+        queryKey: ['email-connections-status'],
+        queryFn: async () => (await api.get('/email-connections/status')).data,
+        staleTime: 5 * 60_000,
+    });
+    const inboxOptions = (connData?.connections || [])
+        .filter((c) => c.provider !== 'smtp')
+        .map((c) => ({ value: c.email_address, label: c.email_address }));
+
     return (
         <Stack gap="md">
             <Text size="xs" c="dimmed">{t('campaign.settings.savedHint')}</Text>
@@ -156,14 +168,23 @@ export default function CampaignSettingsPanel({
                 </Group>
             </SettingSection>
 
-            {/* ── Gönderen Kutular (rotasyon) — Faz 1.3 ── */}
+            {/* ── Gönderen Kutular (rotasyon) ── */}
             <SettingSection
                 icon={<IconInbox size={16} color="var(--mantine-color-violet-6)" />}
                 title={t('campaign.settings.accounts')}
                 desc={t('campaign.settings.accountsDesc')}
-                soonLabel={soon}
             >
-                <Text size="xs" c="dimmed">{t('campaign.settings.accountsPlaceholder')}</Text>
+                <MultiSelect
+                    data={inboxOptions}
+                    value={settings.sending_accounts || []}
+                    onChange={(v) => patch({ sending_accounts: v })}
+                    placeholder={inboxOptions.length
+                        ? t('campaign.settings.accountsSelect', 'Select inboxes (default if empty)')
+                        : t('campaign.settings.accountsNone', 'No connected mailbox yet')}
+                    searchable clearable radius="md" size="sm"
+                    disabled={readOnly || inboxOptions.length === 0}
+                />
+                <Text size="xs" c="dimmed" mt={4}>{t('campaign.settings.accountsHint', 'Leave empty to use the default mailbox. With multiple, contacts are spread across them and each contact always gets the same inbox.')}</Text>
             </SettingSection>
 
             {/* ── Gönderen & CC ── */}

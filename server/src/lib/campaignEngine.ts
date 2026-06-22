@@ -83,6 +83,33 @@ function applySpintax(template: string): string {
     });
 }
 
+// Inbox rotasyonu: enrollment id'sine göre deterministik mailbox seçimi. Aynı kişiye
+// hep aynı kutudan gidilir (thread tutarlılığı), kişiler kutulara dağılır.
+function hashStr(s: string): number {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; }
+    return Math.abs(h);
+}
+
+function pickSendingAccount(settings: any, enrollmentId: string): string | undefined {
+    const accounts = settings?.sending_accounts as string[] | undefined;
+    if (!accounts || accounts.length === 0) return undefined; // varsayılan kutu
+    return accounts[hashStr(enrollmentId) % accounts.length];
+}
+
+// Test gönderimi: bir adımın konu/gövdesini örnek verilerle bir adrese yollar.
+export async function sendTestEmail(
+    tenantId: string, to: string, subject: string, bodyHtml: string, fromName?: string | null,
+): Promise<void> {
+    const ctx: TemplateCtx = {
+        first_name: 'Ahmet', last_name: 'Yılmaz', email: to,
+        title: 'Satın Alma Müdürü', company_name: 'Acme A.Ş.', website: 'acme.com', industry: 'Teknoloji',
+    };
+    const finalSubject = applyTemplate(applySpintax(subject || ''), ctx);
+    const finalBody = applyTemplate(applySpintax(bodyHtml || ''), ctx);
+    await sendEmail(tenantId, to, `[Test] ${finalSubject}`, finalBody, { fromName: fromName || undefined });
+}
+
 // ── Tracking ───────────────────────────────────────────────────────────────
 // Token üretimi/doğrulama ve injectTracking lib/mailTracking.ts'e taşındı.
 
@@ -382,6 +409,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         {
                             fromName: campaign.from_name || undefined,
                             cc: ccAddresses.length > 0 ? ccAddresses : undefined,
+                            accountEmail: pickSendingAccount(campaign.settings, enrollment.id),
                         },
                     );
 

@@ -9,6 +9,7 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
+import { useAuth } from '../contexts/AuthContext';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import SequenceTimeline from '../components/campaigns/SequenceTimeline';
 import StepEditor from '../components/campaigns/StepEditor';
@@ -25,6 +26,7 @@ export default function CampaignEditorPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { t } = useTranslation();
+    const { user } = useAuth();
     const qc = useQueryClient();
     const isNew = !id || id === 'new';
 
@@ -144,6 +146,12 @@ export default function CampaignEditorPage() {
         onError: (err) => showErrorFromApi(err),
     });
 
+    const testMut = useMutation<unknown, unknown, { to: string; subject: string; body_html: string }>({
+        mutationFn: (p) => api.post(`/campaigns/${id}/test`, p),
+        onSuccess: (_d, vars) => showSuccess(t('campaign.editor.testSent', { to: vars.to, defaultValue: 'Test sent to {{to}}' })),
+        onError: (err) => showErrorFromApi(err),
+    });
+
     const selectedStep = selectedIdx !== null ? steps[selectedIdx] : null;
     const isReadOnly = campaign?.status === 'active';
     const isDraft = !campaign || campaign.status === 'draft' || campaign.status === 'paused';
@@ -215,7 +223,9 @@ export default function CampaignEditorPage() {
                             <Grid.Col span={8}>
                                 <Paper shadow="xs" radius="md" p="lg" withBorder mih={400}>
                                     {selectedStep ? (
-                                        <StepEditor step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0} />
+                                        <StepEditor step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0}
+                                            onSendTest={!isNew && id ? (p) => testMut.mutateAsync(p).then(() => undefined) : undefined}
+                                            defaultTestEmail={user?.email} />
                                     ) : (
                                         <Center h={300}>
                                             <Text size="sm" c="dimmed">
