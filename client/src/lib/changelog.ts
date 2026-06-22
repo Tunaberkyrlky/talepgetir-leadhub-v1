@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.12.4',
+        date: '2026-06-22',
+        type: 'feature',
+        title: { tr: 'Kampanya Gönderimi ve Ayarları', en: 'Campaign Sending & Settings' },
+        about: {
+            tr: 'Drip kampanyalar artık kendi posta kutunuzdan sorunsuz gönderiyor.',
+            en: 'Drip campaigns now send reliably from your own mailbox.',
+        },
+        usage: {
+            tr: 'Ayarlar sekmesinden her kutuya gönderen adı verebilir, gece saatlerini de kapsayan gönderim penceresi seçebilir ve kampanyayı yeniden aktive ederek duraklatılan kişileri kaldıkları yerden sürdürebilirsiniz.',
+            en: 'In the Settings tab you can set a sender name per mailbox, choose a sending window that spans overnight, and resume paused contacts where they left off by reactivating the campaign.',
+        },
+    },
+    {
         version: '1.12.3',
         date: '2026-06-22',
         type: 'feature',

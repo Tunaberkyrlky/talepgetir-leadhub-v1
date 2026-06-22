@@ -33,8 +33,9 @@ const SAMPLE: Record<string, string> = {
 };
 
 // Önizlemede spintax'ın ilk seçeneğini gösterir (rastgele değil — stabil önizleme).
+// Seçenekler tek seviye değişken ({{first_name}}) içerebilir; sunucudaki regex ile aynı.
 function resolveSpintaxFirst(template: string): string {
-    return template.replace(/\{\{\s*random\s*\|([^{}]*)\}\}/gi, (_m, group: string) => (group.split('|')[0] || '').trim());
+    return template.replace(/\{\{\s*random\s*\|((?:[^{}]|\{\{[^{}]*\}\})*)\}\}/gi, (_m, group: string) => (group.split('|')[0] || '').trim());
 }
 
 function applySample(template: string): string {

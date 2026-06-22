@@ -24,7 +24,7 @@ export interface CampaignSettings {
     timezone?: string;               // IANA tz — gönderim penceresi için kanonik (canlı)
     cc?: string[];                   // kampanya seviyesi CC (Faz 1)
     sending_window?: SendingWindow;  // gönderim programı (Faz 1.1)
-    sending_account_ids?: string[];  // inbox rotasyonu — kullanılacak bağlantılar (Faz 1.3)
+    sending_accounts?: string[];     // inbox rotasyonu — kullanılacak gönderen mailler (canlı)
     tracking?: CampaignTracking;     // açılma/tıklama takip toggle'ları (Faz 1)
 }
 

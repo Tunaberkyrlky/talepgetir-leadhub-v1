@@ -4,15 +4,14 @@ import {
     Stack, Paper, Group, Text, Badge, Select, NumberInput, TextInput, Switch, Chip, MultiSelect,
 } from '@mantine/core';
 import {
-    IconCalendarTime, IconGauge, IconInbox, IconUser, IconEye,
+    IconCalendarTime, IconGauge, IconInbox, IconAt, IconEye,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
+import SenderNamesEditor from './SenderNamesEditor';
 import type { CampaignSettings } from '../../types/campaign';
 
 interface Props {
-    fromName: string;
-    onFromNameChange: (v: string) => void;
     settings: CampaignSettings;
     onSettingsChange: (s: CampaignSettings) => void;
     readOnly?: boolean;
@@ -77,7 +76,7 @@ function SettingSection({ icon, title, desc, soonLabel, children }: {
 }
 
 export default function CampaignSettingsPanel({
-    fromName, onFromNameChange, settings, onSettingsChange, readOnly,
+    settings, onSettingsChange, readOnly,
 }: Props) {
     const { t, i18n } = useTranslation();
     const soon = t('campaign.settings.comingSoon', 'Soon');
@@ -93,14 +92,14 @@ export default function CampaignSettingsPanel({
     const patchWindow = (p: Partial<NonNullable<CampaignSettings['sending_window']>>) =>
         patch({ sending_window: { ...win, ...p } });
 
-    // Bağlı kutular (rotasyon için) — SMTP hariç (kampanya gönderimi Nango üzerinden).
-    const { data: connData } = useQuery<{ connections?: { email_address: string; provider: string }[] }>({
+    // Bağlı tüm kutular (rotasyon için). Router gönderirken her adres için doğru
+    // sağlayıcıyı (smtp / Gmail / Outlook) seçer.
+    const { data: connData } = useQuery<{ connections?: { email_address: string }[] }>({
         queryKey: ['email-connections-status'],
         queryFn: async () => (await api.get('/email-connections/status')).data,
         staleTime: 5 * 60_000,
     });
     const inboxOptions = (connData?.connections || [])
-        .filter((c) => c.provider !== 'smtp')
         .map((c) => ({ value: c.email_address, label: c.email_address }));
 
     return (
@@ -185,30 +184,20 @@ export default function CampaignSettingsPanel({
                     disabled={readOnly || inboxOptions.length === 0}
                 />
                 <Text size="xs" c="dimmed" mt={4}>{t('campaign.settings.accountsHint', 'Leave empty to use the default mailbox. With multiple, contacts are spread across them and each contact always gets the same inbox.')}</Text>
+                <SenderNamesEditor readOnly={readOnly} />
             </SettingSection>
 
-            {/* ── Gönderen & CC ── */}
+            {/* ── CC ── */}
             <SettingSection
-                icon={<IconUser size={16} color="var(--mantine-color-violet-6)" />}
-                title={t('campaign.settings.sender')}
-                desc={t('campaign.settings.senderDesc')}
+                icon={<IconAt size={16} color="var(--mantine-color-violet-6)" />}
+                title={t('campaign.settings.cc')}
+                desc={t('campaign.settings.ccDesc')}
+                soonLabel={soon}
             >
-                <Stack gap="sm">
-                    <TextInput
-                        label={t('campaign.settings.fromName')}
-                        placeholder={t('campaign.settings.fromNamePlaceholder')}
-                        value={fromName}
-                        onChange={(e) => onFromNameChange(e.currentTarget.value)}
-                        radius="md" size="sm" maw={280}
-                        disabled={readOnly}
-                    />
-                    <TextInput
-                        label={t('campaign.settings.cc')}
-                        placeholder={t('campaign.settings.ccPlaceholder')}
-                        rightSection={<Badge size="xs" variant="light" color="gray">{soon}</Badge>}
-                        rightSectionWidth={60} radius="md" size="sm" disabled
-                    />
-                </Stack>
+                <TextInput
+                    placeholder={t('campaign.settings.ccPlaceholder')}
+                    radius="md" size="sm" disabled
+                />
             </SettingSection>
 
             {/* ── Takip ── */}

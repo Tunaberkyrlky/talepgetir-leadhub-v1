@@ -90,7 +90,6 @@ export default function CampaignEditorPage() {
 
     // Dirty tracking — text edits don't push undo (native undo handles those)
     const setNameDirty = (v: string) => { setName(v); isDirty.current = true; };
-    const setFromNameDirty = (v: string) => { setFromName(v); isDirty.current = true; };
     const setSettingsDirty = (s: CampaignSettings) => { setSettings(s); isDirty.current = true; };
     // Structural changes (add/delete/reorder steps) push undo
     const setStepsDirty = (v: CampaignStep[]) => { pushUndo(); setSteps(v); isDirty.current = true; };
@@ -244,7 +243,6 @@ export default function CampaignEditorPage() {
 
                     <Tabs.Panel value="settings" pt="md">
                         <CampaignSettingsPanel
-                            fromName={fromName} onFromNameChange={setFromNameDirty}
                             settings={settings} onSettingsChange={setSettingsDirty}
                             readOnly={isReadOnly}
                         />

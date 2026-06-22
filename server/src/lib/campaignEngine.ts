@@ -12,7 +12,7 @@
 
 import { supabaseAdmin } from './supabase.js';
 import { API_BASE, createTrackingToken, injectTracking } from './mailTracking.js';
-import { sendEmail } from './emailSender.js';
+import { sendMail } from './mail/router.js';
 import { createLogger } from './logger.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { nextSendableTime, startOfLocalDay, startOfNextLocalDay, type SendingWindow } from './sendingWindow.js';
@@ -75,9 +75,10 @@ function applyTemplate(template: string, ctx: TemplateCtx): string {
 }
 
 // Spintax: {{random|A|B|C}} → her gönderimde rastgele bir seçenek. Boş seçenek
-// (ör. {{random|please|}}) atlamayı sağlar. Değişkenlerden önce çözülür.
+// (ör. {{random|please|}}) atlamayı sağlar. Seçenekler {{first_name}} gibi tek
+// seviye değişken içerebilir (değişkenler spintax çözüldükten sonra uygulanır).
 function applySpintax(template: string): string {
-    return template.replace(/\{\{\s*random\s*\|([^{}]*)\}\}/gi, (_m, group: string) => {
+    return template.replace(/\{\{\s*random\s*\|((?:[^{}]|\{\{[^{}]*\}\})*)\}\}/gi, (_m, group: string) => {
         const opts = group.split('|');
         return (opts[Math.floor(Math.random() * opts.length)] || '').trim();
     });
@@ -97,6 +98,22 @@ function pickSendingAccount(settings: any, enrollmentId: string): string | undef
     return accounts[hashStr(enrollmentId) % accounts.length];
 }
 
+// Gönderilecek mailbox: rotasyon seçimi varsa onu, yoksa tenant'ın varsayılan
+// (yoksa ilk aktif) bağlantısını döner. Router provider'ı bu adrese göre seçer
+// (smtp/Nango), böylece app-password Gmail (SMTP) kutuları da çalışır.
+async function resolveAccountEmail(tenantId: string, settings: any, enrollmentId: string): Promise<string | undefined> {
+    const rotated = pickSendingAccount(settings, enrollmentId);
+    if (rotated) return rotated;
+    const { data } = await supabaseAdmin
+        .from('email_connections')
+        .select('email_address')
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true)
+        .order('is_default', { ascending: false })
+        .limit(1);
+    return data?.[0]?.email_address || undefined;
+}
+
 // Test gönderimi: bir adımın konu/gövdesini örnek verilerle bir adrese yollar.
 export async function sendTestEmail(
     tenantId: string, to: string, subject: string, bodyHtml: string, fromName?: string | null,
@@ -107,7 +124,16 @@ export async function sendTestEmail(
     };
     const finalSubject = applyTemplate(applySpintax(subject || ''), ctx);
     const finalBody = applyTemplate(applySpintax(bodyHtml || ''), ctx);
-    await sendEmail(tenantId, to, `[Test] ${finalSubject}`, finalBody, { fromName: fromName || undefined });
+    const accountEmail = await resolveAccountEmail(tenantId, {}, '');
+    // Gönderen adı kutuya ait; yoksa çağıranın verdiği fallback.
+    const { data: tenant } = await supabaseAdmin.from('tenants').select('settings').eq('id', tenantId).single();
+    const senderNames = (tenant?.settings as any)?.sender_names || {};
+    const resolvedName = senderNames[(accountEmail || '').toLowerCase()] || fromName || undefined;
+    await sendMail({
+        channel: 'campaign', tenantId, to,
+        subject: `[Test] ${finalSubject}`, bodyHtml: finalBody,
+        fromName: resolvedName, accountEmail,
+    });
 }
 
 // ── Tracking ───────────────────────────────────────────────────────────────
@@ -388,7 +414,13 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
 
                 if (actErr || !activity) {
                     log.error({ err: actErr }, 'Failed to create campaign activity');
-                    failed++; continue;
+                    failed++;
+                    // Optimistic lock next_scheduled_at'i null'ladı; geri yazmazsak
+                    // enrollment kalıcı olarak takılır → +5 dk sonra tekrar dene.
+                    await supabaseAdmin.from('campaign_enrollments')
+                        .update({ next_scheduled_at: new Date(Date.now() + 5 * 60_000).toISOString() })
+                        .eq('id', enrollment.id);
+                    continue;
                 }
 
                 // Inject tracking + unsubscribe
@@ -401,17 +433,22 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         || tenantSettings.cc_addresses?.map((a: any) => a.email)
                         || []);
 
-                    const result = await sendEmail(
-                        enrollment.tenant_id,
-                        enrollment.email,
+                    const accountEmail = await resolveAccountEmail(enrollment.tenant_id, campaign.settings, enrollment.id);
+                    // Gönderen adı kutuya ait (tüm kampanyalarda ortak); yoksa kampanya from_name'i.
+                    const senderNames = tenantSettings.sender_names || {};
+                    const fromName = senderNames[(accountEmail || '').toLowerCase()] || campaign.from_name || undefined;
+                    const result = await sendMail({
+                        channel: 'campaign',
+                        tenantId: enrollment.tenant_id,
+                        to: enrollment.email,
                         subject,
                         bodyHtml,
-                        {
-                            fromName: campaign.from_name || undefined,
-                            cc: ccAddresses.length > 0 ? ccAddresses : undefined,
-                            accountEmail: pickSendingAccount(campaign.settings, enrollment.id),
-                        },
-                    );
+                        fromName,
+                        cc: ccAddresses.length > 0 ? ccAddresses : undefined,
+                        accountEmail,
+                        campaignId: enrollment.campaign_id,
+                    });
+                    if (!result.success) throw new Error('Send failed');
 
                     // Mark activity as sent
                     await supabaseAdmin
@@ -492,6 +529,24 @@ async function markEnrollmentFailed(enrollmentId: string, reason: string): Promi
         .update({ status: 'paused', next_scheduled_at: null })
         .eq('id', enrollmentId);
     log.warn({ enrollmentId, reason }, 'Enrollment paused due to error');
+}
+
+// Kampanya yeniden aktifleştirilince duraklamış (paused) kayıtları kaldıkları adımdan
+// sürdürür: status → active, next_scheduled_at = şimdi (gönderim penceresine clamp'li).
+// current_step_id korunur — kayıt baştan başlamaz, bulunduğu adımdan devam eder.
+// Döndürdüğü: sürdürülen kayıt sayısı.
+export async function resumePausedEnrollments(campaignId: string, tenantId: string, settings: any): Promise<number> {
+    const resumeAt = new Date(scheduleMs(Date.now(), settings)).toISOString();
+    const { data } = await supabaseAdmin
+        .from('campaign_enrollments')
+        .update({ status: 'active', next_scheduled_at: resumeAt })
+        .eq('campaign_id', campaignId)
+        .eq('tenant_id', tenantId)
+        .eq('status', 'paused')
+        .select('id');
+    const count = data?.length || 0;
+    if (count > 0) log.info({ campaignId, count }, 'Resumed paused enrollments');
+    return count;
 }
 
 // ── Reply Detection ────────────────────────────────────────────────────────

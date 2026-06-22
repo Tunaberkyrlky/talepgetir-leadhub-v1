@@ -765,4 +765,61 @@ router.put('/cc-addresses', async (req: Request, res: Response, next: NextFuncti
     }
 });
 
+// ── Sender names ───────────────────────────────────────────────────────────
+// tenants.settings.sender_names: { [email_address]: name }. Her gönderen kutuya
+// bir görünen ad; tüm kampanyalarda ortak. Mail gönderilirken kutunun adı kullanılır.
+
+router.get('/sender-names', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { data: tenant, error } = await supabaseAdmin
+            .from('tenants').select('settings').eq('id', req.tenantId!).single();
+        if (error) throw new AppError('Failed to fetch sender names', 500);
+        res.json({ data: tenant?.settings?.sender_names || {} });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Get sender names error');
+        res.status(500).json({ error: 'Failed to fetch sender names' });
+    }
+});
+
+const senderNamesSchema = z.object({
+    names: z.record(z.string(), z.string().max(100)),
+});
+
+router.put('/sender-names', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Admin role required' });
+            return;
+        }
+        const result = senderNamesSchema.safeParse(req.body);
+        if (!result.success) {
+            res.status(400).json({ error: result.error.issues[0]?.message || 'Invalid input' });
+            return;
+        }
+
+        // Trim, drop empties, lowercase keys (adresler eşleşsin). En çok 50 kayıt.
+        const names: Record<string, string> = {};
+        for (const [email, name] of Object.entries(result.data.names).slice(0, 50)) {
+            const n = (name || '').trim();
+            if (n) names[email.trim().toLowerCase()] = n;
+        }
+
+        const { data: tenant, error: fetchErr } = await supabaseAdmin
+            .from('tenants').select('settings').eq('id', req.tenantId!).single();
+        if (fetchErr) throw new AppError('Failed to fetch tenant', 500);
+
+        const settings = { ...(tenant?.settings || {}), sender_names: names };
+        const { error: updateErr } = await supabaseAdmin
+            .from('tenants').update({ settings, updated_at: new Date().toISOString() }).eq('id', req.tenantId!);
+        if (updateErr) throw new AppError('Failed to save sender names', 500);
+
+        res.json({ data: names });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Update sender names error');
+        res.status(500).json({ error: 'Failed to update sender names' });
+    }
+});
+
 export default router;

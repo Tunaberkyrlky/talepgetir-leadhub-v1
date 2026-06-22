@@ -9,7 +9,7 @@ import { requireRole, requireTier } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, enrollLeadsSchema, audienceFilterSchema, testSendSchema } from '../lib/validation.js';
-import { enrollLeads, getCampaignStats, sendTestEmail } from '../lib/campaignEngine.js';
+import { enrollLeads, getCampaignStats, sendTestEmail, resumePausedEnrollments } from '../lib/campaignEngine.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import posthog from '../lib/posthog.js';
 
@@ -249,10 +249,13 @@ router.post('/:id/activate', async (req: Request, res: Response, next: NextFunct
 
         const { data, error } = await supabaseAdmin
             .from('campaigns').update({ status: 'active' }).eq('id', id).select().single();
-        if (error) throw new AppError('Failed to activate', 500);
+        if (error || !data) throw new AppError('Failed to activate', 500);
 
-        log.info({ campaignId: id, tenantId }, 'Campaign activated');
-        res.json({ data });
+        // Daha önce duraklamış kayıtları kaldıkları adımdan sürdür.
+        const resumed = await resumePausedEnrollments(id as string, tenantId, data.settings || {});
+
+        log.info({ campaignId: id, tenantId, resumed }, 'Campaign activated');
+        res.json({ data, resumed });
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Activate error');

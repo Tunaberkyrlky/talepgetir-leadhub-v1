@@ -3,6 +3,7 @@
  *
  * Pencere yerel saatte tanımlanır (gün listesi + başlangıç/bitiş saati), kampanyanın
  * IANA saat diliminde. Bağımlılıksız: tz dönüşümü için `Intl.DateTimeFormat` kullanır.
+ * Gece-aşan aralıklar (bitiş ≤ başlangıç, ör. 22:00–06:00) desteklenir.
  *
  * DST kenar durumları (yılda 1 saatlik belirsiz dilim) için en fazla 1 saat sapabilir;
  * gönderim penceresi için kabul edilebilir.
@@ -69,25 +70,48 @@ export function startOfNextLocalDay(fromMs: number, timeZone: string): number {
 }
 
 /**
- * fromMs >= ise pencere içindeyse fromMs döner; değilse bir sonraki açılış anının UTC ms'i.
- * Pencere gerçek bir kısıt getirmiyorsa (7 gün + 00:00–24:00) fromMs aynen döner.
+ * Verilen günde, `s` (gün-içi dakika) anından itibaren penceredeki en erken dakika;
+ * bugün artık açılış kalmadıysa null. Üç durum:
+ *   start === end  → tüm gün açık (saat kısıtı yok)
+ *   start <  end   → normal aralık [start, end)
+ *   start >  end   → gece-aşan aralık [start, 24:00) ∪ [0, end)
+ */
+function earliestWindowMinute(s: number, startMin: number, endMin: number): number | null {
+    if (startMin === endMin) return s;              // tüm gün
+    if (startMin < endMin) {                         // normal
+        if (s < startMin) return startMin;           // açılışı bekle
+        if (s < endMin) return s;                    // pencere içi
+        return null;                                 // bugünkü pencere kapandı
+    }
+    // gece-aşan (wrap): akşam bölümü + ertesi sabah bölümü
+    if (s < endMin) return s;                        // gece yarısı sonrası bölümün içinde
+    if (s < startMin) return startMin;               // boşlukta → akşam başlangıcını bekle
+    return s;                                         // akşam bölümünün içinde
+}
+
+/**
+ * fromMs pencere içindeyse fromMs döner; değilse bir sonraki açılış anının UTC ms'i.
+ * Gece-aşan aralıkları (ör. 22:00–06:00) destekler — gün filtresi gönderim anının
+ * yerel gününe bakar (Cuma gecesi penceresi Cumartesi izinli değilse gece yarısında
+ * kesilir). Pencere gerçek bir kısıt getirmiyorsa (7 gün + 00:00–24:00) fromMs döner.
  */
 export function nextSendableTime(fromMs: number, timeZone: string, window: SendingWindow): number {
     const days = window.days && window.days.length ? window.days : [0, 1, 2, 3, 4, 5, 6];
     const startMin = parseHM(window.start, 0);
-    const endMinRaw = parseHM(window.end, 24 * 60);
-    const endMin = endMinRaw > startMin ? endMinRaw : 24 * 60; // ters/eşit aralığı güne yay
+    const endMin = parseHM(window.end, 24 * 60);
 
     if (days.length === 7 && startMin <= 0 && endMin >= 24 * 60) return fromMs;
 
     let probe = fromMs;
     for (let i = 0; i < 9; i++) {
         const p = localParts(probe, timeZone);
-        const curMin = p.hour * 60 + p.minute;
-        const dayOk = days.includes(p.weekday);
-        if (i === 0 && dayOk && curMin >= startMin && curMin < endMin) return fromMs;
-        if (dayOk && (i > 0 || curMin < startMin)) {
-            return zonedTimeToUtc(p.year, p.month, p.day, Math.floor(startMin / 60), startMin % 60, timeZone);
+        const s = i === 0 ? p.hour * 60 + p.minute : 0; // ilk gün şimdiden, sonrakiler gün başından ara
+        if (days.includes(p.weekday)) {
+            const m = earliestWindowMinute(s, startMin, endMin);
+            if (m !== null) {
+                if (i === 0 && m === s) return fromMs; // şu an pencere içi → fromMs'i tam koru
+                return zonedTimeToUtc(p.year, p.month, p.day, Math.floor(m / 60), m % 60, timeZone);
+            }
         }
         const midnight = zonedTimeToUtc(p.year, p.month, p.day, 0, 0, timeZone);
         probe = midnight + DAY_MS + 3_600_000; // bir sonraki yerel güne geç
