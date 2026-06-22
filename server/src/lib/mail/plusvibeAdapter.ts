@@ -43,7 +43,10 @@ export function parseWebhookInbound(body: Record<string, unknown>, tenantId: str
 
     return {
         provider: 'plusvibe',
-        providerMessageId: str(body.plusvibe_email_id) ?? str(body.email_id),
+        // PlusVibe's ALL_EMAIL_REPLIES webhook carries the replied email's PlusVibe id
+        // in `last_email_id` (not `plusvibe_email_id`/`email_id`, which it never sends).
+        // Capturing it lets replies use this id directly instead of a live unibox lookup.
+        providerMessageId: str(body.plusvibe_email_id) ?? str(body.email_id) ?? str(body.last_email_id),
         providerThreadId: str(body.thread_id) ?? str(body.source_thread_id),
         rfcMessageId: str(body.message_id),
         inReplyTo: str(body.in_reply_to) ?? str(body.references),

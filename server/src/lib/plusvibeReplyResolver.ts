@@ -31,7 +31,14 @@ export async function resolveReplyContext(
 ): Promise<ResolvedReplyContext> {
     const payload = emailReply.raw_payload || {};
 
-    let plusvibeEmailId = payload.plusvibe_email_id as string | undefined;
+    // Prefer an already-known PlusVibe email id over a live API lookup:
+    //   1. `plusvibe_email_id` — cached by a previous resolve on this row.
+    //   2. `last_email_id` — the replied email's PlusVibe id from the
+    //      ALL_EMAIL_REPLIES webhook payload (present on inbound replies).
+    // Falling through to fetchEmailsByLead is the last resort; it 404s when the
+    // unibox query returns nothing for this campaign+lead.
+    let plusvibeEmailId = (payload.plusvibe_email_id as string | undefined)
+        ?? (payload.last_email_id as string | undefined);
     let fromAddress = payload.from_address as string | undefined;
     let subject = payload.subject as string | undefined;
 

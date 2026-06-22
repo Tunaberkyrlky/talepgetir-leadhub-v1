@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.12.6',
+        date: '2026-06-22',
+        type: 'fix',
+        title: { tr: 'Yanıt Hatası Düzeltmesi', en: 'Reply Error Fix' },
+        about: {
+            tr: 'Bazı kampanya e-postalarında "Yanıtla" işleminin hata vermesi düzeltildi; bu e-postalara artık yanıt gönderebilirsiniz.',
+            en: 'Fixed an error when replying to some campaign emails; you can now reply to these messages again.',
+        },
+    },
+    {
         version: '1.12.5',
         date: '2026-06-22',
         type: 'improvement',
