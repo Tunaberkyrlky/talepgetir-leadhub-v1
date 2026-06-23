@@ -915,6 +915,8 @@
     "campaigns": {
         "pageTitle": "Campaigns",
         "assignTab": "Assignment",
+        "plusvibeDesc": "Campaigns run through PlusVibe (view only).",
+        "dripDesc": "Automated email sequences you build inside the app.",
         "sync": "Sync",
         "synced": "Campaigns synced successfully",
         "searchPlaceholder": "Search campaigns...",
@@ -1083,6 +1085,14 @@
             "colSent": "Sent",
             "colOpen": "Opens",
             "colReply": "Replies",
+            "colLastSent": "Last sent",
+            "neverSent": "Not sent yet",
+            "createdOn": "Created: {{date}}",
+            "sortBy": "Sort",
+            "sortNewest": "Newest",
+            "sortOldest": "Oldest",
+            "sortName": "Name (A-Z)",
+            "sortStatus": "By status",
             "status": {
                 "draft": "Draft",
                 "active": "Active",

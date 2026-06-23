@@ -915,6 +915,8 @@
     "campaigns": {
         "pageTitle": "Kampanyalar",
         "assignTab": "Atama",
+        "plusvibeDesc": "PlusVibe üzerinden yürütülen kampanyalar (salt görüntüleme).",
+        "dripDesc": "Uygulama içinden kurduğunuz otomatik e-posta dizileri.",
         "sync": "Senkronize Et",
         "synced": "Kampanyalar senkronize edildi",
         "searchPlaceholder": "Kampanya ara...",
@@ -1083,6 +1085,14 @@
             "colSent": "Gönderildi",
             "colOpen": "Açılma",
             "colReply": "Yanıt",
+            "colLastSent": "Son gönderim",
+            "neverSent": "Henüz gönderim yok",
+            "createdOn": "Oluşturma: {{date}}",
+            "sortBy": "Sırala",
+            "sortNewest": "En yeni",
+            "sortOldest": "En eski",
+            "sortName": "Ada göre (A-Z)",
+            "sortStatus": "Duruma göre",
             "status": {
                 "draft": "Taslak",
                 "active": "Aktif",

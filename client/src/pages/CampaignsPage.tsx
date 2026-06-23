@@ -3,12 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table, Tabs,
-    Loader, SimpleGrid, Button, TextInput, Select, Menu, ActionIcon, Modal, Alert, Tooltip, Switch, Skeleton,
+    Loader, SimpleGrid, Button, TextInput, Select, Menu, ActionIcon, Modal, Alert, Tooltip, Switch, Skeleton, Pagination,
 } from '@mantine/core';
 import {
     IconSpeakerphone, IconMail, IconEye, IconMessageReply, IconCheck,
     IconPlus, IconMailForward, IconLink, IconSearch, IconFilter, IconDots,
-    IconCopy, IconTrash, IconPencil, IconAlertCircle, IconSend, IconUsers,
+    IconCopy, IconTrash, IconPencil, IconAlertCircle, IconSend, IconUsers, IconArrowsSort,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -123,25 +123,37 @@ function PlusVibeTab() {
 // ── Drip Campaigns tab (yeni) ──────────────────────────────────────────────
 
 function DripTab() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const navigate = useNavigate();
     const qc = useQueryClient();
     const [search, setSearch] = useState('');
     const [status, setStatus] = useState<string | null>(null);
+    const [sortValue, setSortValue] = useState('created_at:desc');
+    const [page, setPage] = useState(1);
     const [deleteTarget, setDeleteTarget] = useState<Campaign | null>(null);
     const [pendingId, setPendingId] = useState<string | null>(null); // toggle yükleme halkası için
 
-    const { data, isLoading } = useQuery<{ data: (Campaign & { stats?: { sent: number; opens: number; replies: number } })[]; pagination: { page: number; limit: number; total: number; totalPages: number; hasNext: boolean } }>({
-        queryKey: ['campaigns', search, status],
+    const [sortCol, sortDir] = sortValue.split(':');
+
+    const { data, isLoading } = useQuery<{ data: (Campaign & { stats?: { sent: number; opens: number; replies: number }; last_sent_at?: string | null })[]; pagination: { page: number; limit: number; total: number; totalPages: number; hasNext: boolean } }>({
+        queryKey: ['campaigns', search, status, sortValue, page],
         queryFn: async () => (await api.get('/campaigns', {
-            params: { search: search || undefined, status: status || undefined },
+            params: { search: search || undefined, status: status || undefined, sort: sortCol, dir: sortDir, page },
         })).data,
     });
 
     const campaigns = data?.data || [];
+    const totalPages = data?.pagination.totalPages || 1;
     const hasFilters = !!search || !!status;
 
     const statusLabel = (s: string) => t(`campaign.list.status.${s}`, s.toUpperCase());
+
+    // Kısa tarih (gün + ay) — aktif dile göre.
+    const fmtDate = (iso: string | null | undefined) =>
+        iso ? new Date(iso).toLocaleDateString(i18n.language, { day: '2-digit', month: 'short' }) : null;
+
+    // Filtre/sıralama değişince ilk sayfaya dön.
+    const resetTo = (fn: () => void) => { fn(); setPage(1); };
 
     const STATUS_OPTIONS = ['draft', 'active', 'paused', 'completed']
         .map((s) => ({ value: s, label: statusLabel(s) }));
@@ -204,11 +216,21 @@ function DripTab() {
                 <Group gap="sm">
                     <TextInput placeholder={t('campaign.list.search', 'Search campaigns...')}
                         leftSection={<IconSearch size={14} />} radius="md" size="sm" w={240}
-                        value={search} onChange={(e) => setSearch(e.currentTarget.value)} />
+                        value={search} onChange={(e) => resetTo(() => setSearch(e.currentTarget.value))} />
                     <Select placeholder={t('campaign.list.filterStatus', 'Status')}
-                        data={STATUS_OPTIONS} value={status} onChange={setStatus}
+                        data={STATUS_OPTIONS} value={status} onChange={(v) => resetTo(() => setStatus(v))}
                         clearable radius="md" size="sm" w={170}
                         leftSection={<IconFilter size={14} />} />
+                    <Select aria-label={t('campaign.list.sortBy', 'Sort')}
+                        data={[
+                            { value: 'created_at:desc', label: t('campaign.list.sortNewest', 'Newest') },
+                            { value: 'created_at:asc', label: t('campaign.list.sortOldest', 'Oldest') },
+                            { value: 'name:asc', label: t('campaign.list.sortName', 'Name (A-Z)') },
+                            { value: 'status:asc', label: t('campaign.list.sortStatus', 'By status') },
+                        ]}
+                        value={sortValue} onChange={(v) => resetTo(() => setSortValue(v || 'created_at:desc'))}
+                        radius="md" size="sm" w={160}
+                        leftSection={<IconArrowsSort size={14} />} />
                 </Group>
                 <Button size="sm" leftSection={<IconPlus size={16} />}
                     variant="gradient" gradient={{ from: '#6c63ff', to: '#3b82f6', deg: 135 }}
@@ -225,7 +247,7 @@ function DripTab() {
                     <Stack align="center" gap="xs" py="xl">
                         <Text size="sm" c="dimmed">{t('campaign.list.noResults', 'No matching campaigns.')}</Text>
                         <Button size="xs" variant="subtle" color="gray"
-                            onClick={() => { setSearch(''); setStatus(null); }}>
+                            onClick={() => resetTo(() => { setSearch(''); setStatus(null); })}>
                             {t('campaign.list.clearFilters', 'Clear filters')}
                         </Button>
                     </Stack>
@@ -245,6 +267,7 @@ function DripTab() {
                     </Stack>
                 )
             ) : (
+                <>
                 <Paper radius="md" withBorder style={{ overflow: 'auto' }}>
                         <Table highlightOnHover striped>
                             <Table.Thead>
@@ -252,6 +275,7 @@ function DripTab() {
                                     <Table.Th>{t('campaigns.table.name', 'Name')}</Table.Th>
                                     <Table.Th>{t('campaigns.table.status', 'Status')}</Table.Th>
                                     <Table.Th>{t('campaign.list.metrics', 'Metrics')}</Table.Th>
+                                    <Table.Th>{t('campaign.list.colLastSent', 'Last sent')}</Table.Th>
                                     <Table.Th ta="right" w={60} />
                                 </Table.Tr>
                             </Table.Thead>
@@ -300,6 +324,15 @@ function DripTab() {
                                                 </Tooltip>
                                             </Group>
                                         </Table.Td>
+                                        <Table.Td>
+                                            <Tooltip
+                                                label={c.last_sent_at
+                                                    ? t('campaign.list.createdOn', { date: fmtDate(c.created_at), defaultValue: 'Created: {{date}}' })
+                                                    : `${t('campaign.list.neverSent', 'Not sent yet')} · ${t('campaign.list.createdOn', { date: fmtDate(c.created_at), defaultValue: 'Created: {{date}}' })}`}
+                                                withArrow>
+                                                <Text size="xs" c="dimmed">{c.last_sent_at ? fmtDate(c.last_sent_at) : '—'}</Text>
+                                            </Tooltip>
+                                        </Table.Td>
                                         <Table.Td ta="right" onClick={(e) => e.stopPropagation()}>
                                             <Menu shadow="md" width={180} position="bottom-end">
                                                 <Menu.Target>
@@ -330,6 +363,12 @@ function DripTab() {
                             </Table.Tbody>
                         </Table>
                     </Paper>
+                {totalPages > 1 && (
+                    <Group justify="center" mt="md">
+                        <Pagination value={page} onChange={setPage} total={totalPages} radius="md" size="sm" color="violet" />
+                    </Group>
+                )}
+                </>
             )}
 
             <Modal opened={!!deleteTarget} onClose={() => setDeleteTarget(null)}
@@ -379,6 +418,7 @@ export default function CampaignsPage() {
                 </Tabs.List>
 
                 <Tabs.Panel value="plusvibe" pt="md">
+                    <Text size="xs" c="dimmed" mb="sm">{t('campaigns.plusvibeDesc', 'Campaigns run through PlusVibe (view only).')}</Text>
                     <PlusVibeTab />
                 </Tabs.Panel>
 
@@ -388,7 +428,10 @@ export default function CampaignsPage() {
                             <Text size="sm" c="dimmed">{t('campaign.proRequired', 'Drip campaigns require Pro tier.')}</Text>
                         </Stack>
                     }>
-                        <DripTab />
+                        <>
+                            <Text size="xs" c="dimmed" mb="sm">{t('campaigns.dripDesc', 'Automated email sequences you build inside the app.')}</Text>
+                            <DripTab />
+                        </>
                     </TierGate>
                 </Tabs.Panel>
 

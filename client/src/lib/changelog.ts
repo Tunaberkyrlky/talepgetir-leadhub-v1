@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.13.5',
+        date: '2026-06-23',
+        type: 'improvement',
+        title: { tr: 'Kampanya Listesi Sıralama ve Sayfalama', en: 'Campaign List Sorting and Pagination' },
+        about: {
+            tr: 'Kampanya listesini en yeni, en eski, ada veya duruma göre sıralayabilir, sayfalar arasında gezebilir ve her kampanyanın son gönderim tarihini görebilirsiniz.',
+            en: 'You can sort the campaign list by newest, oldest, name or status, page through it, and see each campaign’s last send date.',
+        },
+        usage: {
+            tr: 'Liste üstündeki Sırala kutusundan sıralamayı seçebilir, çok kampanya olduğunda altta çıkan sayfa numaralarıyla gezebilirsiniz.',
+            en: 'Pick an order from the Sort box above the list and use the page numbers that appear below when there are many campaigns.',
+        },
+    },
+    {
         version: '1.13.4',
         date: '2026-06-23',
         type: 'improvement',

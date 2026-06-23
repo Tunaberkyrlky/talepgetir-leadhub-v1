@@ -31,11 +31,16 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20));
         const offset = (page - 1) * limit;
 
+        // Sıralama — yalnızca gerçek kolonlara izin ver (allow-list), aksi halde created_at.
+        const SORTABLE = ['created_at', 'name', 'status', 'updated_at'];
+        const sort = SORTABLE.includes(String(req.query.sort)) ? String(req.query.sort) : 'created_at';
+        const ascending = String(req.query.dir) === 'asc';
+
         let query = supabaseAdmin
             .from('campaigns')
             .select('*', { count: 'exact' })
             .eq('tenant_id', tenantId)
-            .order('created_at', { ascending: false })
+            .order(sort, { ascending })
             .range(offset, offset + limit - 1);
 
         if (status) {
@@ -57,12 +62,13 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const campaigns = data || [];
         const ids = campaigns.map((c) => c.id);
         const statsById: Record<string, { sent: number; opens: number; replies: number }> = {};
-        for (const id of ids) statsById[id] = { sent: 0, opens: 0, replies: 0 };
+        const lastSentById: Record<string, string | null> = {};
+        for (const id of ids) { statsById[id] = { sent: 0, opens: 0, replies: 0 }; lastSentById[id] = null; }
 
         if (ids.length > 0) {
             const [actsRes, repliedRes] = await Promise.all([
                 supabaseAdmin.from('activities')
-                    .select('campaign_id, outcome, campaign_email_events(event_type)')
+                    .select('campaign_id, outcome, occurred_at, campaign_email_events(event_type)')
                     .in('campaign_id', ids).eq('tenant_id', tenantId).eq('type', 'campaign_email'),
                 supabaseAdmin.from('campaign_enrollments')
                     .select('campaign_id, status')
@@ -73,6 +79,10 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                 const s = statsById[a.campaign_id]; if (!s) continue;
                 s.sent++;
                 if ((a.campaign_email_events || []).some((e: any) => e.event_type === 'open')) s.opens++;
+                // Son gönderim — kampanya başına en yeni 'sent' aktivitesinin zamanı.
+                if (a.occurred_at && (!lastSentById[a.campaign_id] || a.occurred_at > lastSentById[a.campaign_id]!)) {
+                    lastSentById[a.campaign_id] = a.occurred_at;
+                }
             }
             for (const e of (repliedRes.data || []) as any[]) {
                 const s = statsById[e.campaign_id]; if (s) s.replies++;
@@ -80,7 +90,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         }
 
         res.json({
-            data: campaigns.map((c) => ({ ...c, stats: statsById[c.id] })),
+            data: campaigns.map((c) => ({ ...c, stats: statsById[c.id], last_sent_at: lastSentById[c.id] })),
             pagination: {
                 page, limit, total: count || 0,
                 totalPages: Math.ceil((count || 0) / limit),
