@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-    Container, Paper, Group, Stack, Text, TextInput, Button, Badge, Grid, Tabs, Loader, Center, Modal, Alert, Tooltip,
+    Container, Paper, Group, Stack, Text, TextInput, Button, Badge, Grid, Tabs, Loader, Center, Modal, Alert, Tooltip, SegmentedControl,
 } from '@mantine/core';
 import {
-    IconArrowLeft, IconDeviceFloppy, IconPlayerPause, IconChartBar, IconUsers, IconList, IconAlertCircle, IconSettings,
+    IconArrowLeft, IconDeviceFloppy, IconPlayerPause, IconChartBar, IconUsers, IconList, IconAlertCircle, IconSettings, IconSitemap,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -18,6 +18,10 @@ import ActivationGuard from '../components/campaigns/ActivationGuard';
 import CampaignStatsPanel from '../components/campaigns/CampaignStatsPanel';
 import CampaignSettingsPanel from '../components/campaigns/CampaignSettingsPanel';
 import type { Campaign, CampaignStep, CampaignSettings } from '../types/campaign';
+
+// Görsel tuval (React Flow) yalnız "Görsel" görünüme geçilince yüklensin — Basit
+// görünümde editör chunk'ı hafif kalır (React Flow ayrı 'flow' chunk'ında).
+const GraphEditor = lazy(() => import('../components/campaigns/graph/GraphEditor'));
 
 const STATUS_COLORS: Record<string, string> = {
     draft: 'gray', active: 'green', paused: 'yellow', completed: 'blue',
@@ -36,6 +40,7 @@ export default function CampaignEditorPage() {
     const [fromName, setFromName] = useState('');
     const [settings, setSettings] = useState<CampaignSettings>({});
     const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+    const [stepsView, setStepsView] = useState<'simple' | 'visual'>('simple');
     const [activeTab, setActiveTab] = useState<string | null>('steps');
     const [confirmLeave, setConfirmLeave] = useState(false);
     const [hasUnsaved, setHasUnsaved] = useState(false);
@@ -228,30 +233,61 @@ export default function CampaignEditorPage() {
                     )}
 
                     <Tabs.Panel value="steps" pt="md">
-                        <Grid>
-                            <Grid.Col span={4}>
-                                <Paper shadow="xs" radius="md" p="md" withBorder>
-                                    <Text size="xs" fw={600} c="dimmed" mb="sm">{t('campaign.editor.steps', 'Steps')} ({steps.length})</Text>
-                                    <SequenceTimeline steps={steps} onChange={setStepsDirty} onSelectStep={setSelectedIdx}
-                                        selectedIndex={selectedIdx} readOnly={isReadOnly} />
-                                </Paper>
-                            </Grid.Col>
-                            <Grid.Col span={8}>
-                                <Paper shadow="xs" radius="md" p="lg" withBorder mih={400}>
-                                    {selectedStep ? (
-                                        <StepEditor key={selectedIdx} step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0}
-                                            onSendTest={!isNew && id ? (p) => testMut.mutateAsync(p).then(() => undefined) : undefined}
-                                            defaultTestEmail={user?.email} />
-                                    ) : (
-                                        <Center h={300}>
-                                            <Text size="sm" c="dimmed">
-                                                {steps.length === 0 ? t('campaign.editor.addFirstStep', 'Add your first step using the button on the left.') : t('campaign.editor.selectStep', 'Select a step to edit.')}
-                                            </Text>
-                                        </Center>
-                                    )}
-                                </Paper>
-                            </Grid.Col>
-                        </Grid>
+                        <Group justify="space-between" mb="sm">
+                            <Text size="xs" fw={600} c="dimmed">{t('campaign.editor.steps', 'Steps')} ({steps.length})</Text>
+                            <SegmentedControl size="xs" value={stepsView} onChange={(v) => setStepsView(v as 'simple' | 'visual')}
+                                data={[
+                                    { value: 'simple', label: <Group gap={4} wrap="nowrap"><IconList size={12} />{t('campaign.editor.graph.simpleView', 'Simple')}</Group> },
+                                    { value: 'visual', label: <Group gap={4} wrap="nowrap"><IconSitemap size={12} />{t('campaign.editor.graph.visualView', 'Visual')}</Group> },
+                                ]} />
+                        </Group>
+
+                        {stepsView === 'simple' ? (
+                            <Grid>
+                                <Grid.Col span={4}>
+                                    <Paper shadow="xs" radius="md" p="md" withBorder>
+                                        <SequenceTimeline steps={steps} onChange={setStepsDirty} onSelectStep={setSelectedIdx}
+                                            selectedIndex={selectedIdx} readOnly={isReadOnly} />
+                                    </Paper>
+                                </Grid.Col>
+                                <Grid.Col span={8}>
+                                    <Paper shadow="xs" radius="md" p="lg" withBorder mih={400}>
+                                        {selectedStep ? (
+                                            <StepEditor key={selectedIdx} step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0}
+                                                onSendTest={!isNew && id ? (p) => testMut.mutateAsync(p).then(() => undefined) : undefined}
+                                                defaultTestEmail={user?.email} />
+                                        ) : (
+                                            <Center h={300}>
+                                                <Text size="sm" c="dimmed">
+                                                    {steps.length === 0 ? t('campaign.editor.addFirstStep', 'Add your first step using the button on the left.') : t('campaign.editor.selectStep', 'Select a step to edit.')}
+                                                </Text>
+                                            </Center>
+                                        )}
+                                    </Paper>
+                                </Grid.Col>
+                            </Grid>
+                        ) : (
+                            <Grid>
+                                <Grid.Col span={8}>
+                                    <Suspense fallback={<Center h={540}><Loader color="violet" /></Center>}>
+                                        <GraphEditor steps={steps} selectedIndex={selectedIdx} onSelectStep={setSelectedIdx} />
+                                    </Suspense>
+                                </Grid.Col>
+                                <Grid.Col span={4}>
+                                    <Paper shadow="xs" radius="md" p="lg" withBorder mih={400}>
+                                        {selectedStep ? (
+                                            <StepEditor key={selectedIdx} step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0}
+                                                onSendTest={!isNew && id ? (p) => testMut.mutateAsync(p).then(() => undefined) : undefined}
+                                                defaultTestEmail={user?.email} />
+                                        ) : (
+                                            <Center h={300}>
+                                                <Text size="sm" c="dimmed" ta="center">{t('campaign.editor.graph.selectNode', 'Select an email node on the canvas to edit it.')}</Text>
+                                            </Center>
+                                        )}
+                                    </Paper>
+                                </Grid.Col>
+                            </Grid>
+                        )}
                     </Tabs.Panel>
 
                     <Tabs.Panel value="enrollments" pt="md">

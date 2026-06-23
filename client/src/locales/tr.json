@@ -1036,6 +1036,18 @@
             "emptyStep": "Konu veya içerik boş",
             "spintax": "Spintax",
             "typeHint": "İpucu: değişkenleri ve spintax'ı (rastgele seçim) elle de yazabilirsiniz.",
+            "graph": {
+                "simpleView": "Basit",
+                "visualView": "Görsel",
+                "entry": "Giriş",
+                "entryDesc": "Kişiler buradan girer",
+                "email": "Mail",
+                "untitled": "(konusuz)",
+                "wait": "Bekle",
+                "dayShort": "g",
+                "hourShort": "s",
+                "selectNode": "Düzenlemek için tuvalden bir mail kutusuna tıklayın."
+            },
             "testSend": "Test gönder",
             "testSendTitle": "Test maili gönder",
             "testTo": "Şu adrese gönder",

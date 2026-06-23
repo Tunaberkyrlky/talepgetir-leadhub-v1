@@ -25,6 +25,7 @@ export default defineConfig({
       'react-simple-maps',
       // @tiptap/pm bare olarak EKLENMEZ — kök export'u yok (yalnız @tiptap/pm/* alt yolları).
       '@mantine/tiptap', '@tiptap/core', '@tiptap/react', '@tiptap/starter-kit', '@tiptap/extension-link', '@tiptap/suggestion',
+      '@xyflow/react', // görsel karar ağacı editörü (React Flow) — kök export'u var, bare eklenebilir
     ],
   },
   build: {
@@ -34,6 +35,7 @@ export default defineConfig({
           vendor: ['react', 'react-dom', 'react-router-dom'],
           mantine: ['@mantine/core', '@mantine/hooks', '@mantine/notifications', '@mantine/modals', '@mantine/dropzone'],
           query: ['@tanstack/react-query'],
+          flow: ['@xyflow/react'],
         },
       },
     },

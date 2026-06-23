@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.15.0',
+        date: '2026-06-23',
+        type: 'feature',
+        title: { tr: 'Görsel Kampanya Akışı (önizleme)', en: 'Visual Campaign Flow (preview)' },
+        about: {
+            tr: 'Kampanya dizisini artık Görsel görünümde bir akış şeması olarak görebilir, bir mail kutusuna tıklayıp içeriğini yanda açabilirsiniz.',
+            en: 'You can now view the campaign sequence as a flow diagram in the new Visual view, and click an email box to open its content beside it.',
+        },
+        usage: {
+            tr: 'Dizi sekmesindeki Basit/Görsel anahtarından Görsel’e geçin; tuvali sürükleyip yakınlaştırabilirsiniz.',
+            en: 'Switch to Visual from the Simple/Visual toggle on the Sequence tab; you can pan and zoom the canvas.',
+        },
+        notes: {
+            tr: 'Görsel görünüm şimdilik salt görüntüleme; ekleme ve düzenleme Basit görünümde yapılır.',
+            en: 'The Visual view is view-only for now; adding and editing is still done in the Simple view.',
+        },
+    },
+    {
         version: '1.14.0',
         date: '2026-06-23',
         type: 'feature',
