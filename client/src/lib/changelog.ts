@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.15.3',
+        date: '2026-06-23',
+        type: 'improvement',
+        title: { tr: 'Görsel Akışta Düzenleme', en: 'Editing in the Visual Flow' },
+        about: {
+            tr: 'Görsel görünümde artık mail adımı ekleyebilir, seçili adımı silebilir ve bir kutuya tıklayıp içeriğini düzenleyebilirsiniz.',
+            en: 'In the Visual view you can now add an email step, delete the selected step, and click a box to edit its content.',
+        },
+        usage: {
+            tr: 'Dizi sekmesinde Görsel’e geçin; tuval üstündeki Mail adımı ekle ile ekleyin, bir kutuyu seçip Sil’e basın, içeriği sağdaki düzenleyiciden değiştirin.',
+            en: 'Switch to Visual on the Sequence tab; add with Add email step on the canvas, select a box and press Delete, and edit the content from the panel on the right.',
+        },
+    },
+    {
         version: '1.15.0',
         date: '2026-06-23',
         type: 'feature',

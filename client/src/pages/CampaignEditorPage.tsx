@@ -175,6 +175,24 @@ export default function CampaignEditorPage() {
         onError: (err) => showErrorFromApi(err),
     });
 
+    // Görsel tuval düzenleme — SequenceTimeline ile aynı model (steps tek kaynak).
+    // Yeni adım her zaman e-posta; ilk adım hemen (delay 0), sonrakiler 2 gün bekler.
+    const addEmailStep = () => {
+        const isFirst = steps.length === 0;
+        const s: CampaignStep = {
+            step_order: steps.length + 1, step_type: 'email',
+            subject: '', body_html: '', body_text: null,
+            delay_days: isFirst ? 0 : 2, delay_hours: 0,
+        };
+        setStepsDirty([...steps, s]);
+        setSelectedIdx(steps.length);
+    };
+    const deleteStep = (i: number) => {
+        const updated = steps.filter((_, idx) => idx !== i).map((s, idx) => ({ ...s, step_order: idx + 1 }));
+        setStepsDirty(updated);
+        if (selectedIdx === i) setSelectedIdx(updated.length ? Math.max(0, i - 1) : null);
+    };
+
     const selectedStep = selectedIdx !== null ? steps[selectedIdx] : null;
     const isReadOnly = campaign?.status === 'active';
     const isDraft = !campaign || campaign.status === 'draft' || campaign.status === 'paused';
@@ -270,7 +288,8 @@ export default function CampaignEditorPage() {
                             <Grid>
                                 <Grid.Col span={8}>
                                     <Suspense fallback={<Center h={540}><Loader color="violet" /></Center>}>
-                                        <GraphEditor steps={steps} selectedIndex={selectedIdx} onSelectStep={setSelectedIdx} />
+                                        <GraphEditor steps={steps} selectedIndex={selectedIdx} onSelectStep={setSelectedIdx}
+                                            readOnly={isReadOnly} onAddEmail={addEmailStep} onDeleteStep={deleteStep} />
                                     </Suspense>
                                 </Grid.Col>
                                 <Grid.Col span={4}>

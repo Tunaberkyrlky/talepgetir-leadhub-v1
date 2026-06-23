@@ -4,11 +4,11 @@
 import '@xyflow/react/dist/style.css';
 import { useCallback, useMemo, type MouseEvent } from 'react';
 import {
-    ReactFlow, Background, Controls, MiniMap, Handle, Position,
+    ReactFlow, Background, Controls, MiniMap, Handle, Position, Panel,
     type Node, type NodeProps,
 } from '@xyflow/react';
-import { Paper, Text, Group, ThemeIcon } from '@mantine/core';
-import { IconMail, IconClock, IconBolt } from '@tabler/icons-react';
+import { Paper, Text, Group, ThemeIcon, Button } from '@mantine/core';
+import { IconMail, IconClock, IconBolt, IconPlus, IconTrash } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { migrateLinearToGraph, toFlow, type GraphNodeData } from '../../../lib/graph';
 import type { CampaignStep } from '../../../types/campaign';
@@ -89,9 +89,13 @@ interface Props {
     steps: CampaignStep[];
     selectedIndex: number | null;
     onSelectStep: (i: number) => void;
+    readOnly?: boolean;
+    onAddEmail?: () => void;
+    onDeleteStep?: (i: number) => void;
 }
 
-export default function GraphEditor({ steps, selectedIndex, onSelectStep }: Props) {
+export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOnly, onAddEmail, onDeleteStep }: Props) {
+    const { t } = useTranslation();
     const graph = useMemo(() => migrateLinearToGraph(steps), [steps]);
     const { nodes, edges } = useMemo(
         () => toFlow(graph.nodes, graph.edges, selectedIndex),
@@ -118,6 +122,20 @@ export default function GraphEditor({ steps, selectedIndex, onSelectStep }: Prop
                 minZoom={0.3}
                 maxZoom={1.5}
             >
+                {!readOnly && onAddEmail && (
+                    <Panel position="top-left">
+                        <Group gap="xs" p={6} bg="white" style={{ borderRadius: 8, boxShadow: '0 1px 6px rgba(0,0,0,0.08)' }}>
+                            <Button size="xs" variant="light" color="violet" leftSection={<IconPlus size={14} />} onClick={onAddEmail}>
+                                {t('campaign.editor.addEmailStep', 'Add email step')}
+                            </Button>
+                            <Button size="xs" variant="light" color="red" leftSection={<IconTrash size={14} />}
+                                disabled={selectedIndex === null}
+                                onClick={() => { if (selectedIndex !== null) onDeleteStep?.(selectedIndex); }}>
+                                {t('campaign.editor.graph.deleteNode', 'Delete')}
+                            </Button>
+                        </Group>
+                    </Panel>
+                )}
                 <Background gap={16} color="var(--mantine-color-gray-3)" />
                 <Controls showInteractive={false} />
                 <MiniMap pannable zoomable nodeStrokeWidth={2} />

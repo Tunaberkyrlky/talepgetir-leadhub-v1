@@ -1046,6 +1046,7 @@
                 "wait": "Wait",
                 "dayShort": "d",
                 "hourShort": "h",
+                "deleteNode": "Delete",
                 "selectNode": "Select an email node on the canvas to edit it."
             },
             "testSend": "Send test",

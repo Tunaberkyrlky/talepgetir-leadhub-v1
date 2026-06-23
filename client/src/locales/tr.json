@@ -1046,6 +1046,7 @@
                 "wait": "Bekle",
                 "dayShort": "g",
                 "hourShort": "s",
+                "deleteNode": "Sil",
                 "selectNode": "Düzenlemek için tuvalden bir mail kutusuna tıklayın."
             },
             "testSend": "Test gönder",
