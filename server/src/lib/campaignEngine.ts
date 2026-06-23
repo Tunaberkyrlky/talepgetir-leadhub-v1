@@ -30,6 +30,24 @@ interface CampaignStep {
     body_html: string | null;
     delay_days: number;
     delay_hours: number;
+    // ── Graf alanları (Faz 2, migration 057) — hepsi opsiyonel; pointer yoksa
+    //    engine step_order zincirine düşer (geriye-uyumlu). ──
+    step_kind?: 'email' | 'delay' | 'condition' | 'split' | 'action' | null;
+    next_step_id?: string | null;
+    condition_type?: string | null;
+    condition_wait_hours?: number | null;
+    condition_true_step_id?: string | null;
+    condition_false_step_id?: string | null;
+    config?: Record<string, any> | null;
+    is_entry?: boolean | null;
+}
+
+// Graf gezinme/koşul değerlendirmesi için enrollment'tan ihtiyaç duyulan alanlar.
+interface EnrollmentRef {
+    id: string;
+    campaign_id: string;
+    status?: string | null;
+    branch_path?: string | null;
 }
 
 interface EnrollContact {
@@ -176,6 +194,58 @@ async function findNextStep(campaignId: string, currentStepOrder: number): Promi
     return (data?.[0] as CampaignStep) || null;
 }
 
+// Graf gezinme: bitirilen node + enrollment'a göre sıradaki node id'sini çözer.
+// - condition → olay geçmişine göre true/false dalı (+ branch_path segmenti)
+// - email/wait/split/action/lineer → açık next_step_id; pointer yoksa step_order
+//   zincirine düşer (eski/lineer kayıtlar için geriye-uyumlu).
+async function resolveNextStep(
+    step: CampaignStep,
+    enrollment: EnrollmentRef,
+): Promise<{ nextStepId: string | null; branchSegment?: string }> {
+    const kind = step.step_kind || step.step_type;
+
+    if (kind === 'condition') {
+        const passed = await evaluateCondition(step, enrollment);
+        return {
+            nextStepId: (passed ? step.condition_true_step_id : step.condition_false_step_id) || null,
+            branchSegment: passed ? 'y' : 'n',
+        };
+    }
+
+    // email / wait / split / action / lineer: açık pointer öncelikli.
+    if (step.next_step_id) return { nextStepId: step.next_step_id };
+
+    // Fallback: pointer set edilmemiş (eski kayıt / legacy save) → step_order zinciri.
+    const next = await findNextStep(enrollment.campaign_id, step.step_order);
+    return { nextStepId: next?.id || null };
+}
+
+// Bir condition node'unun koşulunu BU enrollment için değerlendirir.
+// ÖNEMLİ: açılma/tıklama olayları campaign_email_events.enrollment_id'de DOLU DEĞİL
+// (tracking yalnız activity_id yazıyor); bu yüzden activities.enrollment_id üzerinden
+// join edilir — event satırının enrollment_id'si DOĞRUDAN kullanılmamalı (hep null).
+// config.eval_step_order verilmişse yalnız o adımın maili kontrol edilir (yoksa herhangi
+// bir mail "açıldı mı" sayılırdı). 'replied' enrollment.status'tan okunur.
+async function evaluateCondition(step: CampaignStep, enrollment: EnrollmentRef): Promise<boolean> {
+    const ct = step.condition_type || 'opened';
+    if (ct === 'replied') return enrollment.status === 'replied';
+    if (ct === 'not_replied') return enrollment.status !== 'replied';
+
+    const wantType = ct.includes('open') ? 'open' : 'click';
+    const evalOrder = step.config ? Number((step.config as any).eval_step_order) : NaN;
+
+    let q = supabaseAdmin
+        .from('campaign_email_events')
+        .select('id, activities!inner(enrollment_id, campaign_step_order)')
+        .eq('event_type', wantType)
+        .eq('activities.enrollment_id', enrollment.id);
+    if (Number.isFinite(evalOrder)) q = q.eq('activities.campaign_step_order', evalOrder);
+    const { data } = await q.limit(1);
+
+    const happened = (data?.length || 0) > 0;
+    return ct.startsWith('not_') ? !happened : happened;
+}
+
 function calcDelayMs(step: CampaignStep): number {
     return (step.delay_days * 86_400_000) + (step.delay_hours * 3_600_000);
 }
@@ -255,7 +325,8 @@ export async function enrollLeads(
 
     if (!steps?.length) throw new AppError('Campaign has no steps', 422);
 
-    const firstStep = steps[0] as CampaignStep;
+    // Graf giriş node'u (is_entry); yoksa en küçük step_order'lı adım (geriye-uyumlu).
+    const firstStep = ((steps as CampaignStep[]).find((s) => s.is_entry) || steps[0]) as CampaignStep;
 
     // Wait-before-email modeli: her adımın kendi delay'i "bu maili göndermeden
     // önce bekle" demektir. İlk adımın delay'i (genelde 0 = hemen) kayıt anından
@@ -329,7 +400,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
         .from('campaign_enrollments')
         .select(`
             id, tenant_id, campaign_id, contact_id, company_id, email,
-            current_step_id, next_scheduled_at, branch_path
+            current_step_id, next_scheduled_at, branch_path, status
         `)
         .eq('status', 'active')
         .lte('next_scheduled_at', new Date().toISOString())
@@ -538,28 +609,46 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         .eq('id', enrollment.id);
                     continue;
                 }
-            } else if (currentStep.step_type === 'delay') {
-                // Delay step — time has elapsed, just advance
+            } else {
+                // email DIŞI node'lar (delay/wait/condition/split/action) mail göndermez —
+                // sadece ilerletir. (Aksiyon node yürütmesi Batch 5'te eklenecek.)
+                // Condition node burada "beklemesi" zaten doldu; aşağıdaki resolveNextStep
+                // koşulu değerlendirip dalı seçer.
                 advanced++;
             }
-            // condition step handling will be added in FUP phase
 
-            // ── Advance to next step ───────────────────────────────────
-            const nextStep = await findNextStep(enrollment.campaign_id, currentStep.step_order);
+            // ── Advance to next step (graf: pointer/koşul; yoksa step_order fallback) ──
+            const { nextStepId, branchSegment } = await resolveNextStep(currentStep, enrollment);
 
-            if (!nextStep) {
+            if (!nextStepId) {
                 await completeEnrollment(enrollment.id);
             } else {
-                // Wait-before modeli: sıradaki adımın kendi delay'i kadar bekleyip
-                // işle. Email adımı (delay 0) → hemen; bekleme taşıyan adım → delay
-                // sonra. Gönderim penceresi varsa açılışa clamp'lenir.
-                await supabaseAdmin
-                    .from('campaign_enrollments')
-                    .update({
-                        current_step_id: nextStep.id,
-                        next_scheduled_at: new Date(scheduleMs(applyJitter(Date.now() + calcDelayMs(nextStep), campaign.settings), campaign.settings)).toISOString(),
-                    })
-                    .eq('id', enrollment.id);
+                const { data: nextRow } = await supabaseAdmin
+                    .from('campaign_steps').select('*').eq('id', nextStepId).single();
+                if (!nextRow) {
+                    // Kopuk kenar (silinmiş node) → güvenli durdur (asılı kalmaz).
+                    await completeEnrollment(enrollment.id);
+                } else {
+                    const nextStep = nextRow as CampaignStep;
+                    const nextKind = nextStep.step_kind || nextStep.step_type;
+                    // Wait-before modeli: sıradaki node'un delay'i kadar bekle. Condition
+                    // node bir "bekle-sonra-değerlendir" düğümü: condition_wait_hours kadar
+                    // oturur. Gönderim penceresi varsa açılışa clamp'lenir.
+                    const delayMs = nextKind === 'condition'
+                        ? (nextStep.condition_wait_hours ?? 72) * 3_600_000
+                        : calcDelayMs(nextStep);
+                    const newPath = branchSegment
+                        ? `${enrollment.branch_path || '/'}${branchSegment}/`
+                        : (enrollment.branch_path || '/');
+                    await supabaseAdmin
+                        .from('campaign_enrollments')
+                        .update({
+                            current_step_id: nextStep.id,
+                            branch_path: newPath,
+                            next_scheduled_at: new Date(scheduleMs(applyJitter(Date.now() + delayMs, campaign.settings), campaign.settings)).toISOString(),
+                        })
+                        .eq('id', enrollment.id);
+                }
             }
 
         } catch (err) {

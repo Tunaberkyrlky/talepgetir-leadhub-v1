@@ -56,6 +56,16 @@ export interface CampaignStep {
     body_text: string | null;
     delay_days: number;
     delay_hours: number;
+    // ── Graf alanları (Faz 2, migration 057) — görsel karar ağacı editörü.
+    //    Hepsi opsiyonel; lineer kampanyalarda set edilmez (engine step_order'a düşer). ──
+    step_kind?: 'email' | 'delay' | 'condition' | 'split' | 'action' | null;
+    next_step_id?: string | null;
+    condition_type?: string | null;
+    condition_wait_hours?: number | null;
+    condition_true_step_id?: string | null;
+    condition_false_step_id?: string | null;
+    config?: Record<string, unknown> | null;
+    is_entry?: boolean | null;
 }
 
 export interface Enrollment {
