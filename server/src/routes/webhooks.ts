@@ -94,7 +94,17 @@ function sanitizePayload(body: Record<string, unknown>): unknown {
  * camp_id, or from the URL on the legacy route). Sends its own HTTP response.
  */
 async function processPlusvibeInbound(req: Request, res: Response, tenantId: string): Promise<void> {
-    const { from_email, step } = req.body;
+    const { from_email, step, webhook_event } = req.body;
+
+    // We only ingest reply events — they carry the replying lead's from_email.
+    // PlusVibe delivers other events (EMAIL_SENT/OPENED/CLICKED…) to the same URL;
+    // outbound sends are already captured via campaign sync, so ack & skip the rest
+    // (200, not 400 — otherwise PlusVibe marks delivery failed and retries).
+    if (!from_email) {
+        log.info({ event: webhook_event ?? null, camp_id: req.body.camp_id ?? null }, 'Non-reply webhook event — acknowledged & skipped');
+        res.status(200).json({ ok: true, skipped: `event:${webhook_event ?? 'no_from_email'}` });
+        return;
+    }
 
     // Normalize the webhook into a CanonicalMessage (extracts from/to/account
     // into first-class fields BEFORE any body trimming).
@@ -227,8 +237,9 @@ router.post(
                     await processPlusvibeInbound(req, res, resolved.tenantId);
                     return;
                 case 'unassigned':
-                    // Known campaign with no tenant yet — skip; assign-time backfill recovers it.
-                    log.info({ camp_id: campId }, 'Webhook for unassigned campaign — skipped (backfilled on assign)');
+                    // Known campaign with no matching prefix rule yet — skip; the reply is
+                    // backfilled when a prefix rule later assigns it (recomputeCampaignAssignments).
+                    log.info({ camp_id: campId }, 'Webhook for unassigned campaign — skipped (backfilled on prefix-rule assign)');
                     res.status(200).json({ ok: true, skipped: 'unassigned' });
                     return;
                 case 'unknown':

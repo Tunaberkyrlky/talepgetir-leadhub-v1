@@ -920,6 +920,17 @@
         "sync": "Sync",
         "synced": "Campaigns synced successfully",
         "searchPlaceholder": "Search campaigns...",
+        "prefixRules": {
+            "title": "Prefix Matching Rules",
+            "desc": "Campaigns whose name starts with this prefix are auto-assigned to the matching customer (e.g. \"NTR\" → Naturagen).",
+            "prefix": "Prefix",
+            "tenant": "Customer",
+            "add": "Add",
+            "empty": "No rules yet. Add a prefix to get started.",
+            "matched": "Matched",
+            "added": "Rule added",
+            "deleted": "Rule deleted"
+        },
         "filters": {
             "allStatuses": "All Statuses",
             "active": "Active",

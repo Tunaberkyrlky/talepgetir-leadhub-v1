@@ -920,6 +920,17 @@
         "sync": "Senkronize Et",
         "synced": "Kampanyalar senkronize edildi",
         "searchPlaceholder": "Kampanya ara...",
+        "prefixRules": {
+            "title": "Önek Eşleme Kuralları",
+            "desc": "Adı bu önekle başlayan kampanyalar ilgili müşteriye otomatik atanır (örn. \"NTR\" → Naturagen).",
+            "prefix": "Önek",
+            "tenant": "Müşteri",
+            "add": "Ekle",
+            "empty": "Henüz kural yok. Bir önek ekleyerek başlayın.",
+            "matched": "Eşleşen",
+            "added": "Kural eklendi",
+            "deleted": "Kural silindi"
+        },
         "filters": {
             "allStatuses": "Tüm Durumlar",
             "active": "Aktif",
