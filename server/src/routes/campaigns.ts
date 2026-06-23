@@ -8,7 +8,7 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole, requireTier } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
-import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, enrollLeadsSchema, audienceFilterSchema, testSendSchema, bulkEnrollmentActionSchema } from '../lib/validation.js';
+import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, saveGraphSchema, enrollLeadsSchema, audienceFilterSchema, testSendSchema, bulkEnrollmentActionSchema } from '../lib/validation.js';
 import { enrollLeads, getCampaignStats, sendTestEmail, resumePausedEnrollments, pauseEnrollment, resumeEnrollment, bulkPauseEnrollments, bulkResumeEnrollments } from '../lib/campaignEngine.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import posthog from '../lib/posthog.js';
@@ -211,7 +211,7 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction): P
 
 // ── PUT /api/campaigns/:id/steps ───────────────────────────────────────────
 
-router.put('/:id/steps', validateBody(saveStepsSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+router.put('/:id/steps', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { id } = req.params;
         const { data: campaign } = await supabaseAdmin
@@ -222,6 +222,37 @@ router.put('/:id/steps', validateBody(saveStepsSchema), async (req: Request, res
         if (campaign.status === 'active') {
             res.status(422).json({ error: 'Cannot edit steps of an active campaign. Pause first.' }); return;
         }
+
+        // ── Graf kaydı (Faz 2): client {nodes:[...]} stabil id'lerle gönderirse
+        //    upsert + prune RPC'sine ver. Aksi halde eski lineer {steps} yolu. ──
+        if (Array.isArray(req.body?.nodes)) {
+            const parsed = saveGraphSchema.safeParse(req.body);
+            if (!parsed.success) {
+                res.status(400).json({ error: 'Validation failed', details: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+                return;
+            }
+            // Canlı-kayıt koruması: bir enrollment'ın şu an ÜZERİNDE durduğu node silinemez.
+            const incoming = new Set(parsed.data.nodes.map((n) => n.id));
+            const { data: liveEnr } = await supabaseAdmin
+                .from('campaign_enrollments').select('current_step_id')
+                .eq('campaign_id', id).in('status', ['active', 'paused']);
+            if ((liveEnr || []).some((e) => e.current_step_id && !incoming.has(e.current_step_id))) {
+                res.status(422).json({ error: 'Cannot delete a step that enrollments are currently at. Pause/remove them first.' });
+                return;
+            }
+            const { data, error } = await supabaseAdmin.rpc('save_campaign_graph', { p_campaign_id: id, p_nodes: parsed.data.nodes });
+            if (error) { log.error({ err: error }, 'save_campaign_graph RPC failed'); throw new AppError('Failed to save graph', 500); }
+            res.json({ data });
+            return;
+        }
+
+        // ── Legacy lineer yol ──
+        const linear = saveStepsSchema.safeParse(req.body);
+        if (!linear.success) {
+            res.status(400).json({ error: 'Validation failed', details: linear.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+            return;
+        }
+        req.body = linear.data;
 
         // Atomic replace: delete + re-insert. If insert fails, restore old steps.
         const { data: oldSteps } = await supabaseAdmin

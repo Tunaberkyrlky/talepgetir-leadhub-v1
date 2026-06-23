@@ -438,6 +438,48 @@ export const saveStepsSchema = z.object({
     steps: z.array(campaignStepSchema).min(1).max(20),
 });
 
+// ── Graf kaydı (Faz 2 — görsel karar ağacı editörü) ─────────────────────────
+// Client stabil id'lerle {nodes:[...]} gönderir; route save_campaign_graph RPC'sine
+// (upsert + prune) verir. superRefine graf bütünlüğünü doğrular.
+const graphNodeSchema = z.object({
+    id: uuidField('Invalid node id'),
+    step_type: z.enum(['email', 'delay', 'condition']),
+    step_kind: z.enum(['email', 'delay', 'condition', 'split', 'action']).optional(),
+    subject: z.string().max(500).nullish(),
+    body_html: z.string().max(50000).nullish(),
+    body_text: z.string().max(50000).nullish(),
+    delay_days: z.number().int().min(0).max(90).optional().default(0),
+    delay_hours: z.number().int().min(0).max(23).optional().default(0),
+    condition_type: z.enum(['opened', 'clicked', 'replied', 'not_opened', 'not_clicked', 'not_replied']).nullish(),
+    condition_wait_hours: z.number().int().min(0).max(8760).nullish(),
+    next_step_id: uuidField().nullish(),
+    condition_true_step_id: uuidField().nullish(),
+    condition_false_step_id: uuidField().nullish(),
+    is_entry: z.boolean().optional().default(false),
+    step_order: z.number().int().min(0).max(1000).optional().default(0),
+    config: z.record(z.string(), z.any()).optional().default({}),
+}).passthrough();
+
+export const saveGraphSchema = z.object({
+    nodes: z.array(graphNodeSchema).min(1).max(100),
+}).superRefine((g, ctx) => {
+    const ids = new Set<string>();
+    for (const n of g.nodes) {
+        if (ids.has(n.id)) ctx.addIssue({ code: 'custom', message: `Duplicate node id ${n.id}`, path: ['nodes'] });
+        ids.add(n.id);
+    }
+    const entries = g.nodes.filter((n) => n.is_entry).length;
+    if (entries !== 1) ctx.addIssue({ code: 'custom', message: `Graph must have exactly one entry node (found ${entries})`, path: ['nodes'] });
+    for (const n of g.nodes) {
+        for (const ptr of [n.next_step_id, n.condition_true_step_id, n.condition_false_step_id]) {
+            if (ptr && !ids.has(ptr)) ctx.addIssue({ code: 'custom', message: `Edge points to unknown node ${ptr}`, path: ['nodes'] });
+        }
+        if (n.step_type === 'condition' && !n.condition_type) {
+            ctx.addIssue({ code: 'custom', message: 'Condition node requires condition_type', path: ['nodes'] });
+        }
+    }
+});
+
 export const enrollLeadsSchema = z.object({
     contacts: z.array(z.object({
         contact_id: uuidField(),
