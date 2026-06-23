@@ -1167,6 +1167,8 @@
             "segUnsub": "{{count}} çıktı",
             "overTime": "Zamana göre etkinlik",
             "byInbox": "Kutu başına gönderim",
+            "byStep": "Adıma göre",
+            "stepN": "Adım {{n}}",
             "trackingOff": "Açılma ve tıklama takibi yapılandırılmadığı için bu sayılar sıfır kalabilir. Yanıtlar yine de izlenir."
         }
     },

@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.13.6',
+        date: '2026-06-23',
+        type: 'feature',
+        title: { tr: 'Adım Bazlı Kampanya Analizi', en: 'Per-Step Campaign Analytics' },
+        about: {
+            tr: 'Kampanya analizinde her adımın kaç gönderim ve açılma aldığını ayrı ayrı görebilirsiniz.',
+            en: 'In campaign analytics you can now see how many sends and opens each step received separately.',
+        },
+        usage: {
+            tr: 'Çok adımlı bir kampanyanın analiz bölümünde Adıma göre kırılımı görünür.',
+            en: 'The By step breakdown appears in the analytics section of a multi-step campaign.',
+        },
+        notes: {
+            tr: 'Kırılım yalnızca bu güncellemeden sonra gönderilen mailleri kapsar, önceki gönderimler adımsız sayılır.',
+            en: 'The breakdown covers only emails sent after this update; earlier sends are counted without a step.',
+        },
+    },
+    {
         version: '1.13.5',
         date: '2026-06-23',
         type: 'improvement',

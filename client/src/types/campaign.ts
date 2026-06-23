@@ -88,6 +88,7 @@ export interface CampaignStats {
     reply_rate: number;
     by_account: { account: string; sent: number }[];
     daily: { date: string; sent: number; opens: number }[];
+    by_step: { step: number; sent: number; opens: number; clicks: number }[];
     tracking_enabled: boolean;
 }
 

@@ -466,6 +466,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         campaign_id: enrollment.campaign_id,
                         enrollment_id: enrollment.id,
                         sending_account: accountEmail || null,
+                        campaign_step_order: currentStep.step_order, // adım-bazlı analiz için
                         visibility: 'internal',
                         occurred_at: new Date().toISOString(),
                         created_by: null, // system-generated
@@ -714,6 +715,7 @@ export interface CampaignStats {
     reply_rate: number;
     by_account: { account: string; sent: number }[];
     daily: { date: string; sent: number; opens: number }[];
+    by_step: { step: number; sent: number; opens: number; clicks: number }[];
     tracking_enabled: boolean;
 }
 
@@ -727,7 +729,7 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
             .eq('tenant_id', tenantId),
         supabaseAdmin
             .from('activities')
-            .select('id, outcome, occurred_at, sending_account, campaign_email_events(event_type)')
+            .select('id, outcome, occurred_at, sending_account, campaign_step_order, campaign_email_events(event_type)')
             .eq('campaign_id', campaignId)
             .eq('tenant_id', tenantId)
             .eq('type', 'campaign_email'),
@@ -746,6 +748,7 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
     const clickSet = new Set<string>();
     const byAccount: Record<string, number> = {};       // kutu-başı gönderim
     const dailyMap: Record<string, { sent: number; opens: number }> = {}; // gün-başı (UTC)
+    const byStep: Record<number, { sent: number; opens: number; clicks: number }> = {}; // adım-başı
 
     for (const act of (activityRes.data || []) as any[]) {
         if (act.outcome !== 'sent') continue; // sadece gerçekten gönderilenler → oranlar %100'ü aşmaz
@@ -754,17 +757,27 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
         const acct = act.sending_account || '—';
         byAccount[acct] = (byAccount[acct] || 0) + 1;
 
+        const events = act.campaign_email_events || [];
+        const hasOpen = events.some((e: any) => e.event_type === 'open');
+        const hasClick = events.some((e: any) => e.event_type === 'click');
+
         const day = (act.occurred_at || '').slice(0, 10); // YYYY-MM-DD (UTC)
         if (day) {
             const d = dailyMap[day] || (dailyMap[day] = { sent: 0, opens: 0 });
             d.sent++;
-            if ((act.campaign_email_events || []).some((e: any) => e.event_type === 'open')) d.opens++;
+            if (hasOpen) d.opens++;
         }
 
-        for (const evt of act.campaign_email_events || []) {
-            if (evt.event_type === 'open') openSet.add(act.id);
-            if (evt.event_type === 'click') clickSet.add(act.id);
+        // Adım kırılımı — yalnız step_order bilinen (yeni) kayıtlar.
+        if (typeof act.campaign_step_order === 'number') {
+            const s = byStep[act.campaign_step_order] || (byStep[act.campaign_step_order] = { sent: 0, opens: 0, clicks: 0 });
+            s.sent++;
+            if (hasOpen) s.opens++;
+            if (hasClick) s.clicks++;
         }
+
+        if (hasOpen) openSet.add(act.id);
+        if (hasClick) clickSet.add(act.id);
     }
 
     const opens = openSet.size;
@@ -778,6 +791,10 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
         .map(([date, v]) => ({ date, sent: v.sent, opens: v.opens }))
         .sort((a, b) => a.date.localeCompare(b.date))
         .slice(-14);
+    // Adım kırılımı: adım sırasına göre artan
+    const by_step = Object.entries(byStep)
+        .map(([step, v]) => ({ step: Number(step), sent: v.sent, opens: v.opens, clicks: v.clicks }))
+        .sort((a, b) => a.step - b.step);
     // Yanıtlar enrollment durumundan gelir: IMAP/webhook yanıt yakalayınca 'replied'
     // yapıyor. campaign_email_events'e 'reply' yazan bir yol yok, o yüzden esas kaynak
     // durum sayısıdır (kart ile durum çubuğu böylece tutarlı olur).
@@ -798,6 +815,7 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
         reply_rate: sentCount > 0 ? replied / sentCount : 0,
         by_account,
         daily,
+        by_step,
         // Açılma/tıklama pikseli yalnız API_BASE_URL tanımlıysa enjekte edilir
         // (localhost'ta alıcı erişemez). UI bu sayıların neden boş olduğunu açıklar.
         tracking_enabled: !!API_BASE,

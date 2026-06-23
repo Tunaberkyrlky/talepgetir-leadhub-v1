@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { SimpleGrid, Paper, Text, Progress, Stack, Alert, Group, Skeleton } from '@mantine/core';
-import { IconSend, IconEye, IconClick, IconMessageReply, IconEyeOff, IconInbox } from '@tabler/icons-react';
+import { IconSend, IconEye, IconClick, IconMessageReply, IconEyeOff, IconInbox, IconListNumbers } from '@tabler/icons-react';
 import {
     AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
@@ -50,7 +50,9 @@ export default function CampaignStatsPanel({ campaignId }: { campaignId: string 
     // Dayanıklılık: eski/kısmi API yanıtında bu alanlar olmayabilir.
     const byAccount = stats.by_account ?? [];
     const daily = stats.daily ?? [];
+    const byStep = stats.by_step ?? [];
     const maxAccount = Math.max(1, ...byAccount.map((a) => a.sent));
+    const maxStep = Math.max(1, ...byStep.map((s) => s.sent));
 
     return (
         <Stack gap="md">
@@ -103,6 +105,29 @@ export default function CampaignStatsPanel({ campaignId }: { campaignId: string 
                             <Area type="monotone" dataKey="opens" stroke="#51cf66" strokeWidth={2} fill="url(#cs-opens)" name={t('campaign.stats.opens', 'Opens')} />
                         </AreaChart>
                     </ResponsiveContainer>
+                </Paper>
+            )}
+
+            {byStep.length >= 2 && stats.emails_sent > 0 && (
+                <Paper p="sm" radius="md" withBorder>
+                    <Group gap="xs" mb="xs">
+                        <IconListNumbers size={14} color="var(--mantine-color-teal-6)" />
+                        <Text size="xs" fw={600} c="dimmed">{t('campaign.stats.byStep', 'By step')}</Text>
+                    </Group>
+                    <Stack gap={8}>
+                        {byStep.map((s) => (
+                            <div key={s.step}>
+                                <Group justify="space-between" gap="xs" wrap="nowrap">
+                                    <Text size="xs" fw={500}>{t('campaign.stats.stepN', { n: s.step, defaultValue: 'Step {{n}}' })}</Text>
+                                    <Group gap="md" wrap="nowrap">
+                                        <Text size="xs" c="dimmed">{t('campaign.stats.sent', 'Sent')} {s.sent}</Text>
+                                        <Text size="xs" c="dimmed">{t('campaign.stats.opens', 'Opens')} {s.opens} ({fmt(s.sent > 0 ? s.opens / s.sent : 0)})</Text>
+                                    </Group>
+                                </Group>
+                                <Progress value={(s.sent / maxStep) * 100} size="xs" radius="xl" color="teal" mt={2} />
+                            </div>
+                        ))}
+                    </Stack>
                 </Paper>
             )}
 
