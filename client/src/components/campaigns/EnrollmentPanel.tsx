@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-    Stack, Group, Text, Badge, Button, Table, TextInput, MultiSelect, Paper, Loader, Center, Checkbox,
+    Stack, Group, Text, Badge, Button, Table, TextInput, MultiSelect, Paper, Loader, Center, Checkbox, Skeleton,
     Menu, ActionIcon, Modal, Select, Pagination,
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
@@ -292,7 +292,7 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
                     </Group>
                 )}
 
-                {isLoading ? <Center py="md"><Loader size="sm" color="violet" /></Center> :
+                {isLoading ? <Stack gap="xs" py="xs">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} height={36} radius="sm" />)}</Stack> :
                     !enrollments || enrollments.length === 0 ? <Text size="sm" c="dimmed" ta="center" py="md">{t('campaign.audience.noneEnrolled', 'No contacts enrolled yet.')}</Text> :
                         filteredEnrollments.length === 0 ? <Text size="sm" c="dimmed" ta="center" py="md">{t('campaign.audience.noEnrolledMatch', 'No enrolled contacts match.')}</Text> : (
                             <>

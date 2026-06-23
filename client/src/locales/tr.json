@@ -1013,6 +1013,8 @@
             "waitBefore": "Göndermeden önce bekle (önceki adımdan sonra)",
             "firstStepNote": "Kişi kaydolur olmaz gönderilir.",
             "variables": "Değişkenler",
+            "insertVariable": "Değişken ekle: {{label}}",
+            "insertSpintax": "Spintax (rastgele seçim) ekle",
             "write": "Yaz",
             "preview": "Önizle",
             "previewSubject": "Konu",

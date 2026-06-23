@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { SimpleGrid, Paper, Text, Loader, Center, Progress, Stack, Alert, Group } from '@mantine/core';
+import { SimpleGrid, Paper, Text, Progress, Stack, Alert, Group, Skeleton } from '@mantine/core';
 import { IconSend, IconEye, IconClick, IconMessageReply, IconEyeOff, IconInbox } from '@tabler/icons-react';
 import {
     AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid,
@@ -35,7 +35,14 @@ export default function CampaignStatsPanel({ campaignId }: { campaignId: string 
         refetchInterval: 30_000,
     });
 
-    if (isLoading) return <Center py="md"><Loader size="sm" color="violet" /></Center>;
+    if (isLoading) return (
+        <Stack gap="md">
+            <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
+                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} height={96} radius="md" />)}
+            </SimpleGrid>
+            <Skeleton height={56} radius="md" />
+        </Stack>
+    );
     if (!stats) return null;
 
     const total = stats.total_enrolled || 1; // 0'a bölme koruması

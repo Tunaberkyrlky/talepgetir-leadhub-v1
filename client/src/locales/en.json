@@ -1013,6 +1013,8 @@
             "waitBefore": "Wait before sending (after previous step)",
             "firstStepNote": "Sent as soon as the contact is enrolled.",
             "variables": "Variables",
+            "insertVariable": "Insert variable: {{label}}",
+            "insertSpintax": "Insert spintax (random pick)",
             "write": "Write",
             "preview": "Preview",
             "previewSubject": "Subject",

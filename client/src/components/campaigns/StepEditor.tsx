@@ -170,7 +170,9 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                 <Text size="xs" c="dimmed" fw={500}>{t('campaign.editor.variables', 'Variables')}:</Text>
                 {VARS.map(({ key, label, color }) => (
                     <Tooltip key={key} label={`{{${key}}}`} withArrow>
-                        <Badge size="xs" variant="light" color={color}
+                        <Badge component="button" type="button" size="xs" variant="light" color={color}
+                            disabled={readOnly}
+                            aria-label={t('campaign.editor.insertVariable', { label, defaultValue: `Insert variable: ${label}` })}
                             style={{ cursor: readOnly ? 'default' : 'pointer' }}
                             onClick={() => insertText(`{{${key}}}`)}>
                             {label}
@@ -178,7 +180,9 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                     </Tooltip>
                 ))}
                 <Tooltip label="{{random|A|B|C}}" withArrow>
-                    <Badge size="xs" variant="light" color="violet"
+                    <Badge component="button" type="button" size="xs" variant="light" color="violet"
+                        disabled={readOnly}
+                        aria-label={t('campaign.editor.insertSpintax', 'Insert spintax')}
                         style={{ cursor: readOnly ? 'default' : 'pointer' }}
                         onClick={insertSpintax}>
                         {t('campaign.editor.spintax', 'Spintax')}

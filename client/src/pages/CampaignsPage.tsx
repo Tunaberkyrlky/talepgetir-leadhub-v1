@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table, Tabs,
-    Loader, Center, SimpleGrid, Button, TextInput, Select, Menu, ActionIcon, Modal, Alert, Tooltip, Switch,
+    Loader, SimpleGrid, Button, TextInput, Select, Menu, ActionIcon, Modal, Alert, Tooltip, Switch, Skeleton,
 } from '@mantine/core';
 import {
     IconSpeakerphone, IconMail, IconEye, IconMessageReply, IconCheck,
@@ -24,6 +24,24 @@ function pct(val: number): string {
     return `${(val * 100).toFixed(1)}%`;
 }
 
+// Liste yüklenirken spinner yerine düzenle benzeyen iskelet — algılanan hızı artırır.
+function CampaignListSkeleton({ stats = 0 }: { stats?: number }) {
+    return (
+        <>
+            {stats > 0 && (
+                <SimpleGrid cols={{ base: 3, sm: 3 }} mb="lg">
+                    {Array.from({ length: stats }).map((_, i) => <Skeleton key={i} height={90} radius="md" />)}
+                </SimpleGrid>
+            )}
+            <Paper radius="md" withBorder p="sm">
+                <Stack gap="xs">
+                    {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} height={40} radius="sm" />)}
+                </Stack>
+            </Paper>
+        </>
+    );
+}
+
 // ── PlusVibe tab (mevcut içerik) ───────────────────────────────────────────
 
 function PlusVibeTab() {
@@ -38,7 +56,7 @@ function PlusVibeTab() {
     const totalOpens = campaigns.reduce((sum, c) => sum + c.opens, 0);
     const totalReplies = campaigns.reduce((sum, c) => sum + c.replies, 0);
 
-    if (isLoading) return <Center py="xl"><Loader size="sm" color="violet" /></Center>;
+    if (isLoading) return <CampaignListSkeleton stats={3} />;
 
     if (campaigns.length === 0) {
         return (
@@ -201,7 +219,7 @@ function DripTab() {
             </Group>
 
             {isLoading ? (
-                <Center py="xl"><Loader size="sm" color="violet" /></Center>
+                <CampaignListSkeleton />
             ) : campaigns.length === 0 ? (
                 hasFilters ? (
                     <Stack align="center" gap="xs" py="xl">
@@ -218,6 +236,12 @@ function DripTab() {
                         <Text size="sm" c="dimmed" ta="center" maw={400}>
                             {t('campaign.createFirst', 'Create your first campaign to start sending automated email sequences.')}
                         </Text>
+                        <Button leftSection={<IconPlus size={16} />}
+                            variant="gradient" gradient={{ from: '#6c63ff', to: '#3b82f6', deg: 135 }}
+                            radius="md" mt="xs" onClick={() => navigate('/campaigns/drip/new')}
+                        >
+                            {t('campaign.new', 'New Campaign')}
+                        </Button>
                     </Stack>
                 )
             ) : (

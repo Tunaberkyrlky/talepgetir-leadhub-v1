@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.13.4',
+        date: '2026-06-23',
+        type: 'improvement',
+        title: { tr: 'Kampanya Ekranı Cilası', en: 'Campaign Screen Polish' },
+        about: {
+            tr: 'Kampanya ekranları yüklenirken boş ekran yerine içeriğin iskeleti görünür, hiç kampanyanız yokken oluşturma butonu sunulur ve değişken etiketleri klavyeyle de kullanılabilir.',
+            en: 'Campaign screens now show a content skeleton while loading instead of a blank spinner, offer a create button when you have no campaigns yet, and the variable chips can be used with the keyboard.',
+        },
+        usage: {
+            tr: 'Henüz kampanyanız yoksa boş ekranda çıkan yeni kampanya butonuyla doğrudan oluşturmaya başlayabilirsiniz.',
+            en: 'When you have no campaigns yet, you can start creating right away with the new campaign button on the empty screen.',
+        },
+    },
+    {
         version: '1.13.3',
         date: '2026-06-23',
         type: 'fix',
