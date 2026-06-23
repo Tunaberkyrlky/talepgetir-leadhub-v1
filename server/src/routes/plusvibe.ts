@@ -11,12 +11,13 @@ import {
     getCampaignStats,
     fetchAllReplies,
 } from '../lib/plusvibeClient.js';
-import { validateBody, assignCampaignSchema, campaignStatsQuerySchema } from '../lib/validation.js';
+import { validateBody, prefixRuleSchema, campaignStatsQuerySchema } from '../lib/validation.js';
 import {
     buildTenantMatcher,
     enrichOrInsertReplies,
     syncCampaigns,
     hydrateCampaignSendsForCampaign,
+    recomputeCampaignAssignments,
 } from '../lib/mail/replyImport.js';
 
 const log = createLogger('route:plusvibe');
@@ -158,104 +159,96 @@ router.post(
     }
 );
 
-// ── PATCH /api/plusvibe/campaigns/:id/assign — assign campaign to a tenant (internal only) ──
-router.patch(
-    '/campaigns/:id/assign',
+// ── Prefix rules — campaign→tenant assignment is fully prefix-driven (internal only) ──
+// A campaign is auto-assigned to the tenant whose configured prefix its name starts
+// with (e.g. "NTR - Asia" → the tenant owning "NTR"). Replaces per-campaign assign.
+
+// GET /api/plusvibe/prefix-rules — list rules (with tenant name)
+router.get(
+    '/prefix-rules',
     requireRole('superadmin', 'ops_agent'),
-    validateBody(assignCampaignSchema),
+    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { data, error } = await supabaseAdmin
+                .from('campaign_prefix_rules')
+                .select('id, prefix, tenant_id, created_at, tenants(name)')
+                .order('prefix', { ascending: true });
+            if (error) throw new AppError('Failed to fetch prefix rules', 500);
+            res.json({ data: data ?? [] });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'List prefix rules error');
+            next(new AppError('Failed to fetch prefix rules', 500));
+        }
+    }
+);
+
+// POST /api/plusvibe/prefix-rules — add a rule, then recompute all assignments
+router.post(
+    '/prefix-rules',
+    requireRole('superadmin', 'ops_agent'),
+    validateBody(prefixRuleSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
-            const { id } = req.params;
-            const { tenant_id } = req.body;
+            const { tenant_id, prefix } = req.body as { tenant_id: string; prefix: string };
 
-            // Verify tenant exists
             const { data: tenant } = await supabaseAdmin
                 .from('tenants')
                 .select('id, name')
                 .eq('id', tenant_id)
                 .single();
-
-            if (!tenant) {
-                throw new AppError('Tenant not found', 404);
-            }
+            if (!tenant) throw new AppError('Tenant not found', 404);
 
             const { data, error } = await supabaseAdmin
-                .from('plusvibe_campaigns')
-                .update({ tenant_id })
-                .eq('id', id)
-                .select('id, pv_campaign_id, name, tenant_id')
+                .from('campaign_prefix_rules')
+                .insert({ tenant_id, prefix: prefix.trim() })
+                .select('id, prefix, tenant_id, created_at')
                 .single();
 
-            if (error || !data) {
-                throw new AppError('Campaign not found', 404);
+            if (error) {
+                if (error.code === '23505') {
+                    res.status(409).json({ error: 'Bu prefix zaten tanımlı.' });
+                    return;
+                }
+                throw new AppError('Failed to create prefix rule', 500);
             }
 
-            log.info({ campaignId: id, tenantId: tenant_id, tenantName: tenant.name }, 'Campaign assigned to tenant');
+            log.info({ prefix, tenantId: tenant_id, tenantName: tenant.name }, 'Prefix rule created');
+            // Re-derive every campaign's tenant from the new rule set; new assignments
+            // get their threads backfilled. Fire-and-forget — don't block the response.
+            recomputeCampaignAssignments().catch((e) => log.warn({ err: e }, 'Recompute after rule add failed'));
 
-            // Backfill any replies (incl. outbound first-touch) received while the
-            // campaign was unassigned and skipped by the webhook. Fire-and-forget —
-            // never block or fail the assignment response.
-            void (async () => {
-                try {
-                    const matchEmail = await buildTenantMatcher(tenant_id);
-                    const replies = await fetchAllReplies(data.pv_campaign_id);
-                    if (replies.length > 0) {
-                        const r = await enrichOrInsertReplies({
-                            tenantId: tenant_id,
-                            pvCampaignId: data.pv_campaign_id,
-                            campaignName: data.name,
-                            replies,
-                            matchEmail,
-                        });
-                        log.info({ campaignId: id, tenantId: tenant_id, ...r }, 'Assign-time reply backfill completed');
-                    }
-                    // Backfill our outbound first-touch + steps for the replied threads.
-                    const outbound = await hydrateCampaignSendsForCampaign({
-                        tenantId: tenant_id,
-                        pvCampaignId: data.pv_campaign_id,
-                        campaignName: data.name,
-                        matchEmail,
-                    });
-                    log.info({ campaignId: id, tenantId: tenant_id, outbound }, 'Assign-time campaign-send backfill completed');
-                } catch (backfillErr) {
-                    log.warn({ err: backfillErr, campaignId: id, tenantId: tenant_id }, 'Assign-time reply backfill failed');
-                }
-            })();
-
-            res.json(data);
+            res.status(201).json(data);
         } catch (err) {
             if (err instanceof AppError) return next(err);
-            log.error({ err }, 'Assign campaign error');
-            next(new AppError('Failed to assign campaign', 500));
+            log.error({ err }, 'Create prefix rule error');
+            next(new AppError('Failed to create prefix rule', 500));
         }
     }
 );
 
-// ── PATCH /api/plusvibe/campaigns/:id/unassign — remove tenant assignment (internal only) ──
-router.patch(
-    '/campaigns/:id/unassign',
+// DELETE /api/plusvibe/prefix-rules/:id — remove a rule, then recompute
+router.delete(
+    '/prefix-rules/:id',
     requireRole('superadmin', 'ops_agent'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
+            const { error } = await supabaseAdmin
+                .from('campaign_prefix_rules')
+                .delete()
+                .eq('id', id);
+            if (error) throw new AppError('Failed to delete prefix rule', 500);
 
-            const { data, error } = await supabaseAdmin
-                .from('plusvibe_campaigns')
-                .update({ tenant_id: null })
-                .eq('id', id)
-                .select('id, pv_campaign_id, name, tenant_id')
-                .single();
+            log.info({ ruleId: id }, 'Prefix rule deleted');
+            // Campaigns matching only this prefix become unassigned on recompute.
+            recomputeCampaignAssignments().catch((e) => log.warn({ err: e }, 'Recompute after rule delete failed'));
 
-            if (error || !data) {
-                throw new AppError('Campaign not found', 404);
-            }
-
-            log.info({ campaignId: id }, 'Campaign unassigned');
-            res.json(data);
+            res.json({ ok: true });
         } catch (err) {
             if (err instanceof AppError) return next(err);
-            log.error({ err }, 'Unassign campaign error');
-            next(new AppError('Failed to unassign campaign', 500));
+            log.error({ err }, 'Delete prefix rule error');
+            next(new AppError('Failed to delete prefix rule', 500));
         }
     }
 );

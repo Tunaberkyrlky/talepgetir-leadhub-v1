@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.14.0',
+        date: '2026-06-23',
+        type: 'feature',
+        title: { tr: 'Otomatik Kampanya Atama', en: 'Automatic Campaign Assignment' },
+        about: {
+            tr: 'PlusVibe kampanyaları artık adının önekine göre ilgili müşteriye otomatik atanır.',
+            en: 'PlusVibe campaigns are now auto-assigned to the matching customer based on their name prefix.',
+        },
+        usage: {
+            tr: 'Kampanyalar sayfasındaki Atama sekmesinden önek kuralı ekleyin (örn. NTR → Naturagen); eşleşen kampanyalar otomatik atanır.',
+            en: 'On the Assignment tab of the Campaigns page, add a prefix rule (e.g. NTR → Naturagen); matching campaigns are assigned automatically.',
+        },
+        notes: {
+            tr: 'Tek tek kampanya atama kaldırıldı; atama tamamen önek kurallarıyla yapılır.',
+            en: 'Per-campaign manual assignment was removed; assignment is now driven entirely by prefix rules.',
+        },
+    },
+    {
         version: '1.13.6',
         date: '2026-06-23',
         type: 'feature',

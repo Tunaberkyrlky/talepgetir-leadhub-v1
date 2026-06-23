@@ -10,11 +10,13 @@ import { supabaseAdmin } from '../supabase.js';
 import { createLogger } from '../logger.js';
 import { parseApiReply, parseCampaignEmail } from './plusvibeAdapter.js';
 import { canonicalToReplyRow } from './types.js';
+import { matchTenant, type PrefixRule } from './campaignPrefix.js';
 import {
     listCampaigns,
     getCampaignSummary,
     getCampaignAccounts,
     fetchCampaignEmailsByLead,
+    fetchAllReplies,
     type PlusVibeCampaign,
     type PlusVibeEmail,
 } from '../plusvibeClient.js';
@@ -434,8 +436,85 @@ export async function syncCampaigns(): Promise<number> {
         }
     }
 
+    // Assignment is fully prefix-driven — (re)derive tenant_id for every campaign.
+    await recomputeCampaignAssignments();
+
     log.info({ count: campaigns.length }, 'Campaigns synced');
     return campaigns.length;
+}
+
+// ── Prefix-based campaign → tenant assignment ──
+
+/** Load all configured prefix → tenant rules. */
+export async function loadPrefixRules(): Promise<PrefixRule[]> {
+    const { data } = await supabaseAdmin
+        .from('campaign_prefix_rules')
+        .select('tenant_id, prefix');
+    return (data as PrefixRule[] | null) ?? [];
+}
+
+/**
+ * Backfill a campaign's threads for a tenant: any replies (incl. outbound
+ * first-touch + steps) received while it was unassigned. Used after a campaign is
+ * (auto-)assigned. Safe to call fire-and-forget; each step guards its own errors.
+ */
+export async function backfillCampaignThreads(params: {
+    tenantId: string;
+    pvCampaignId: string;
+    campaignName: string | null;
+}): Promise<void> {
+    const { tenantId, pvCampaignId, campaignName } = params;
+    const matchEmail = await buildTenantMatcher(tenantId);
+    const replies = await fetchAllReplies(pvCampaignId);
+    if (replies.length > 0) {
+        const r = await enrichOrInsertReplies({ tenantId, pvCampaignId, campaignName, replies, matchEmail });
+        log.info({ pvCampaignId, tenantId, ...r }, 'Auto-assign reply backfill completed');
+    }
+    const outbound = await hydrateCampaignSendsForCampaign({ tenantId, pvCampaignId, campaignName, matchEmail });
+    log.info({ pvCampaignId, tenantId, outbound }, 'Auto-assign campaign-send backfill completed');
+}
+
+/**
+ * Recompute tenant_id for every campaign from the prefix rules (assignment is fully
+ * prefix-driven — there is no manual per-campaign assignment to preserve). Updates
+ * only campaigns whose owner changes; newly-assigned campaigns get their threads
+ * backfilled. Reassignment to a different tenant is logged (historical replies keep
+ * their original tenant_id — not migrated here). Call after a sync or a rule change.
+ */
+export async function recomputeCampaignAssignments(): Promise<{
+    assigned: number; unassigned: number; reassigned: number; total: number;
+}> {
+    const rules = await loadPrefixRules();
+    const { data: campaigns } = await supabaseAdmin
+        .from('plusvibe_campaigns')
+        .select('id, pv_campaign_id, name, tenant_id');
+
+    let assigned = 0, unassigned = 0, reassigned = 0;
+    const list = (campaigns as Array<{ id: string; pv_campaign_id: string; name: string; tenant_id: string | null }> | null) ?? [];
+
+    for (const c of list) {
+        const desired = matchTenant(c.name, rules);
+        const current = c.tenant_id;
+        if (desired === current) continue;
+
+        await supabaseAdmin.from('plusvibe_campaigns').update({ tenant_id: desired }).eq('id', c.id);
+
+        if (desired && !current) {
+            assigned++;
+            void backfillCampaignThreads({ tenantId: desired, pvCampaignId: c.pv_campaign_id, campaignName: c.name })
+                .catch((err) => log.warn({ err, pvCampaignId: c.pv_campaign_id }, 'Auto-assign backfill failed'));
+        } else if (!desired && current) {
+            unassigned++;
+        } else if (desired && current) {
+            reassigned++;
+            log.warn({ pvCampaignId: c.pv_campaign_id, from: current, to: desired }, 'Campaign reassigned to a different tenant by prefix; historical replies keep their original tenant');
+            void backfillCampaignThreads({ tenantId: desired, pvCampaignId: c.pv_campaign_id, campaignName: c.name })
+                .catch((err) => log.warn({ err, pvCampaignId: c.pv_campaign_id }, 'Reassign backfill failed'));
+        }
+    }
+
+    log.info({ assigned, unassigned, reassigned, total: list.length }, 'Campaign assignments recomputed by prefix');
+    return { assigned, unassigned, reassigned, total: list.length };
 }
 
 // Debounce guard so a burst of webhooks for unknown campaigns triggers at most

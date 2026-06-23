@@ -261,7 +261,11 @@ export const trackingStatsQuerySchema = z.object({
 
 // PlusVibe webhook payload — core fields validated, rest passed through to raw_payload
 export const webhookPayloadSchema = z.object({
-    from_email: z.string().email('Invalid from_email'),
+    // Only reply events (ALL_EMAIL_REPLIES) carry from_email. Other delivery events
+    // (EMAIL_SENT/OPENED/CLICKED…) hit the same URL without it, so this is optional;
+    // the handler acks & skips any event lacking from_email.
+    from_email: z.string().email('Invalid from_email').optional().nullable(),
+    webhook_event: z.string().max(100).optional().nullable(),
     camp_id: z.string().max(500).optional().nullable(),
     campaign_name: z.string().max(500).optional().nullable(),
     text_body: z.string().optional().nullable(),
@@ -302,8 +306,14 @@ export const plusvibeCredentialSchema = z.object({
     workspace_id: z.string().min(1, 'Workspace ID is required').max(500),
 });
 
-export const assignCampaignSchema = z.object({
+// Prefix rule: a campaign-name prefix mapped to a tenant. Assignment is fully
+// prefix-driven (no per-campaign manual assign).
+export const prefixRuleSchema = z.object({
     tenant_id: uuidField('Invalid tenant_id'),
+    prefix: z.string().trim()
+        .min(1, 'Prefix required')
+        .max(50, 'Prefix too long')
+        .regex(/^[A-Za-z0-9][A-Za-z0-9 _.-]*$/, 'Prefix must start alphanumeric (letters, digits, space . _ - allowed)'),
 });
 
 export const campaignStatsQuerySchema = z.object({
