@@ -479,7 +479,7 @@ router.get('/:id/enrollments', async (req: Request, res: Response, next: NextFun
 
 router.post('/:id/enrollments/:enrollmentId/pause', async (req: Request, res: Response): Promise<void> => {
     try {
-        const ok = await pauseEnrollment((req.params.enrollmentId as string), req.tenantId!);
+        const ok = await pauseEnrollment((req.params.id as string), (req.params.enrollmentId as string), req.tenantId!);
         if (!ok) { res.status(422).json({ error: 'Enrollment is not active' }); return; }
         res.json({ ok: true });
     } catch (err) {
@@ -493,7 +493,7 @@ router.post('/:id/enrollments/:enrollmentId/resume', async (req: Request, res: R
         const { data: campaign } = await supabaseAdmin
             .from('campaigns').select('settings')
             .eq('id', (req.params.id as string)).eq('tenant_id', req.tenantId!).single();
-        const ok = await resumeEnrollment((req.params.enrollmentId as string), req.tenantId!, campaign?.settings || {});
+        const ok = await resumeEnrollment((req.params.id as string), (req.params.enrollmentId as string), req.tenantId!, campaign?.settings || {});
         if (!ok) { res.status(422).json({ error: 'Enrollment is not paused' }); return; }
         res.json({ ok: true });
     } catch (err) {
@@ -535,12 +535,12 @@ router.post('/:id/enrollments/bulk', validateBody(bulkEnrollmentActionSchema), a
             if (error) throw new AppError('Failed to remove enrollments', 500);
             affected = data?.length || 0;
         } else if (action === 'pause') {
-            affected = await bulkPauseEnrollments(ids, tenantId);
+            affected = await bulkPauseEnrollments(campaignId, ids, tenantId);
         } else {
             const { data: campaign } = await supabaseAdmin
                 .from('campaigns').select('settings')
                 .eq('id', campaignId).eq('tenant_id', tenantId).single();
-            affected = await bulkResumeEnrollments(ids, tenantId, campaign?.settings || {});
+            affected = await bulkResumeEnrollments(campaignId, ids, tenantId, campaign?.settings || {});
         }
 
         res.json({ ok: true, affected });

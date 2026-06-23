@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.13.3',
+        date: '2026-06-23',
+        type: 'fix',
+        title: { tr: 'Kampanya Kayıt Düzeltmeleri', en: 'Campaign Enrollment Fixes' },
+        about: {
+            tr: 'Yanıt veren kişiler, kampanya duraklatılıp yeniden başlatılsa bile tekrar mail almıyor ve boş konulu adımlar hatasız kaydedilebiliyor.',
+            en: 'Contacts who replied no longer get re-emailed even after a campaign is paused and resumed, and steps with an empty subject save without errors.',
+        },
+    },
+    {
         version: '1.13.2',
         date: '2026-06-22',
         type: 'improvement',

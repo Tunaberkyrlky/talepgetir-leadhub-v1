@@ -407,8 +407,9 @@ export const updateCampaignSchema = z.object({
 const emailStepSchema = z.object({
     step_type: z.literal('email'),
     // Boş bırakılabilir (yarım dizi kaydetme serbest); adım kartında uyarı gösterilir.
-    subject: z.string().max(500),
-    body_html: z.string().max(50000),
+    // null kabul edilir: route boş konuyu null saklar, reload + tekrar kaydetme bozulmasın.
+    subject: z.string().max(500).nullable(),
+    body_html: z.string().max(50000).nullable(),
     body_text: z.string().max(50000).nullish(),
 }).passthrough(); // allow extra fields (delay_days etc.) from client's unified Step type
 

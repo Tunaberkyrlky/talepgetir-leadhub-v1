@@ -52,10 +52,10 @@ interface TemplateCtx {
 
 const TEMPLATE_KEYS = ['first_name', 'last_name', 'email', 'title', 'company_name', 'website', 'industry'] as const;
 
-async function resolveTemplate(contactId: string, companyId: string): Promise<TemplateCtx> {
+async function resolveTemplate(tenantId: string, contactId: string, companyId: string): Promise<TemplateCtx> {
     const [cRes, coRes] = await Promise.all([
-        supabaseAdmin.from('contacts').select('first_name, last_name, email, title').eq('id', contactId).single(),
-        supabaseAdmin.from('companies').select('name, website, industry').eq('id', companyId).single(),
+        supabaseAdmin.from('contacts').select('first_name, last_name, email, title').eq('id', contactId).eq('tenant_id', tenantId).single(),
+        supabaseAdmin.from('companies').select('name, website, industry').eq('id', companyId).eq('tenant_id', tenantId).single(),
     ]);
     const c = cRes.data;
     const co = coRes.data;
@@ -448,7 +448,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 }
 
                 // Resolve spintax (gönderim başına rastgele) → sonra değişkenler.
-                const ctx = await resolveTemplate(enrollment.contact_id, enrollment.company_id);
+                const ctx = await resolveTemplate(enrollment.tenant_id, enrollment.contact_id, enrollment.company_id);
                 const subject = applyTemplate(applySpintax(currentStep.subject || ''), ctx);
                 let bodyHtml = applyTemplate(applySpintax(currentStep.body_html || ''), ctx);
 
@@ -615,11 +615,12 @@ export async function resumePausedEnrollments(campaignId: string, tenantId: stri
 }
 
 // Tek bir kaydı duraklat (yalnız 'active' iken). Sıradaki gönderim iptal olur.
-export async function pauseEnrollment(enrollmentId: string, tenantId: string): Promise<boolean> {
+export async function pauseEnrollment(campaignId: string, enrollmentId: string, tenantId: string): Promise<boolean> {
     const { data } = await supabaseAdmin
         .from('campaign_enrollments')
         .update({ status: 'paused', next_scheduled_at: null })
         .eq('id', enrollmentId)
+        .eq('campaign_id', campaignId)
         .eq('tenant_id', tenantId)
         .eq('status', 'active')
         .select('id');
@@ -628,12 +629,13 @@ export async function pauseEnrollment(enrollmentId: string, tenantId: string): P
 
 // Tek bir kaydı sürdür (yalnız 'paused' iken). Kaldığı adımdan, gönderim
 // penceresine göre yeniden zamanlanır.
-export async function resumeEnrollment(enrollmentId: string, tenantId: string, settings: any): Promise<boolean> {
+export async function resumeEnrollment(campaignId: string, enrollmentId: string, tenantId: string, settings: any): Promise<boolean> {
     const resumeAt = new Date(scheduleMs(Date.now(), settings)).toISOString();
     const { data } = await supabaseAdmin
         .from('campaign_enrollments')
         .update({ status: 'active', next_scheduled_at: resumeAt })
         .eq('id', enrollmentId)
+        .eq('campaign_id', campaignId)
         .eq('tenant_id', tenantId)
         .eq('status', 'paused')
         .select('id');
@@ -641,11 +643,12 @@ export async function resumeEnrollment(enrollmentId: string, tenantId: string, s
 }
 
 // Toplu duraklat — yalnız 'active' kayıtlar etkilenir; etkilenen sayısını döner.
-export async function bulkPauseEnrollments(ids: string[], tenantId: string): Promise<number> {
+export async function bulkPauseEnrollments(campaignId: string, ids: string[], tenantId: string): Promise<number> {
     const { data } = await supabaseAdmin
         .from('campaign_enrollments')
         .update({ status: 'paused', next_scheduled_at: null })
         .in('id', ids)
+        .eq('campaign_id', campaignId)
         .eq('tenant_id', tenantId)
         .eq('status', 'active')
         .select('id');
@@ -653,12 +656,13 @@ export async function bulkPauseEnrollments(ids: string[], tenantId: string): Pro
 }
 
 // Toplu sürdür — yalnız 'paused' kayıtlar; gönderim penceresine göre yeniden zamanlanır.
-export async function bulkResumeEnrollments(ids: string[], tenantId: string, settings: any): Promise<number> {
+export async function bulkResumeEnrollments(campaignId: string, ids: string[], tenantId: string, settings: any): Promise<number> {
     const resumeAt = new Date(scheduleMs(Date.now(), settings)).toISOString();
     const { data } = await supabaseAdmin
         .from('campaign_enrollments')
         .update({ status: 'active', next_scheduled_at: resumeAt })
         .in('id', ids)
+        .eq('campaign_id', campaignId)
         .eq('tenant_id', tenantId)
         .eq('status', 'paused')
         .select('id');
@@ -681,7 +685,7 @@ export async function cancelEnrollmentOnReply(senderEmail: string, tenantId: str
     const { data: cancelled } = await supabaseAdmin
         .from('campaign_enrollments')
         .update({ status: 'replied', next_scheduled_at: null })
-        .eq('status', 'active')
+        .in('status', ['active', 'paused'])
         .eq('tenant_id', tenantId)
         .in('contact_id', contactIds)
         .select('id, campaign_id');
