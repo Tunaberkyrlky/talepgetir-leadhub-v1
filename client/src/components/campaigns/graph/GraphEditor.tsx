@@ -14,7 +14,8 @@ import { useTranslation } from 'react-i18next';
 import { migrateLinearToGraph, toFlow, type GraphNodeData } from '../../../lib/graph';
 import type { CampaignStep } from '../../../types/campaign';
 
-const HANDLE_STYLE = { width: 8, height: 8, background: 'var(--mantine-color-gray-4)', border: '1px solid white' } as const;
+// Bağlantı noktaları — bilerek büyük/belirgin: oradan kolayca "line alıp" bağlamak için.
+const HANDLE_STYLE = { width: 13, height: 13, background: 'var(--mantine-color-gray-5)', border: '2px solid white', boxShadow: '0 1px 2px rgba(0,0,0,0.25)' } as const;
 
 // Önizlemede spintax'ın ilk seçeneğini gösterir (ham {{random|...}} yerine stabil metin).
 function resolveSpintaxFirst(text: string): string {
@@ -44,7 +45,10 @@ function EmailNode({ data, selected, isConnectable }: NodeProps) {
     const { t } = useTranslation();
     const d = data as GraphNodeData;
     const subject = resolveSpintaxFirst((d.subject || '').trim());
+    const name = (d.name || '').trim();
     const isEmpty = !subject && !(d.body_html || '').trim();
+    // Konu yerine adım adını göster; ad yoksa konuya, o da yoksa "(konusuz)"ya düş.
+    const primary = name || subject || t('campaign.editor.graph.untitled', '(no subject)');
     return (
         <div style={{ width: 210 }}>
             <Handle type="target" position={Position.Top} style={HANDLE_STYLE} isConnectable={isConnectable} />
@@ -57,7 +61,7 @@ function EmailNode({ data, selected, isConnectable }: NodeProps) {
                     <ThemeIcon size="sm" radius="md" variant="light" color="violet"><IconMail size={14} /></ThemeIcon>
                     <div style={{ minWidth: 0, flex: 1 }}>
                         <Text size="xs" fw={600} c="violet.7">{t('campaign.editor.graph.email', 'Email')}</Text>
-                        <Text size="xs" c="dimmed" lineClamp={1}>{subject || t('campaign.editor.graph.untitled', '(no subject)')}</Text>
+                        <Text size="xs" lineClamp={1} c={name ? 'dark' : 'dimmed'} fw={name ? 500 : 400}>{primary}</Text>
                     </div>
                     {isEmpty && (
                         <ThemeIcon size="sm" radius="md" variant="light" color="orange" title={t('campaign.editor.emptyStep', 'Subject or body is empty')}>
@@ -147,28 +151,40 @@ const NODE_TYPES = { trigger: TriggerNode, email: EmailNode, wait: WaitNode, con
 // enjekte edilmez → buton görünmez.
 function EditableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, style, data }: EdgeProps) {
     const { t } = useTranslation();
+    const [hovered, setHovered] = useState(false);
     const [path, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
     const onDelete = (data as { onDelete?: () => void } | undefined)?.onDelete;
+    // Hover'da çizgiyi kalınlaştır (geri bildirim). style undefined ise RF varsayılanı.
+    const edgeStyle = { ...style, strokeWidth: hovered ? 2.5 : (style as { strokeWidth?: number } | undefined)?.strokeWidth };
     return (
         <>
-            <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+            <BaseEdge id={id} path={path} markerEnd={markerEnd} style={edgeStyle} />
             {onDelete && (
-                <EdgeLabelRenderer>
-                    <button
-                        className="nodrag nopan"
-                        title={t('campaign.editor.graph.removeEdge', 'Remove connection')}
-                        onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                        style={{
-                            position: 'absolute',
-                            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-                            pointerEvents: 'all', width: 18, height: 18, borderRadius: '50%',
-                            border: '1px solid var(--mantine-color-gray-3)', background: 'white',
-                            color: 'var(--mantine-color-red-6)', cursor: 'pointer', padding: 0,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 13, lineHeight: 1, boxShadow: '0 1px 3px rgba(0,0,0,0.18)',
-                        }}
-                    >×</button>
-                </EdgeLabelRenderer>
+                <>
+                    {/* Geniş görünmez yakalama yolu — kenarın üstüne gelince ×'i tetikler. */}
+                    <path d={path} fill="none" stroke="transparent" strokeWidth={26}
+                        style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+                        onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} />
+                    {hovered && (
+                        <EdgeLabelRenderer>
+                            <button
+                                className="nodrag nopan"
+                                title={t('campaign.editor.graph.removeEdge', 'Remove connection')}
+                                onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+                                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                                style={{
+                                    position: 'absolute',
+                                    transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+                                    pointerEvents: 'all', width: 20, height: 20, borderRadius: '50%',
+                                    border: '1px solid var(--mantine-color-red-3)', background: 'white',
+                                    color: 'var(--mantine-color-red-6)', cursor: 'pointer', padding: 0,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 14, lineHeight: 1, boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                                }}
+                            >×</button>
+                        </EdgeLabelRenderer>
+                    )}
+                </>
             )}
         </>
     );
@@ -257,6 +273,7 @@ export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOn
                 nodesConnectable={!readOnly}
                 elementsSelectable={false}
                 deleteKeyCode={null}
+                connectionRadius={48}
                 fitView
                 fitViewOptions={{ padding: 0.25 }}
                 minZoom={0.3}

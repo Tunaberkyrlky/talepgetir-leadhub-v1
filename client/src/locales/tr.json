@@ -1016,6 +1016,8 @@
             "day": "Gün",
             "addEmailStep": "E-posta adımı ekle",
             "untitledEmail": "Başlıksız e-posta",
+            "stepName": "Adım adı",
+            "stepNamePlaceholder": "örn. İlk temas maili",
             "emailStep": "E-posta Adımı",
             "delayStep": "Bekleme Adımı",
             "days": "Gün",

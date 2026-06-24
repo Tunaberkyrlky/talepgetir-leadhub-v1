@@ -10,6 +10,7 @@ export type GraphNodeKind = 'trigger' | 'email' | 'wait' | 'condition' | 'split'
 
 export interface GraphNodeData {
     // email
+    name?: string | null; // kullanıcı verdiği adım adı (config.name) — node'da konunun yerine gösterilir
     subject?: string | null;
     body_html?: string | null;
     body_text?: string | null;
@@ -112,7 +113,7 @@ export function migrateLinearToGraph(steps: CampaignStep[]): { nodes: GraphNode[
             }
             nodes.push({
                 id: nodeId, kind: 'email', position: pos ?? { x: COL_X, y },
-                data: { subject: s.subject, body_html: s.body_html, body_text: s.body_text, stepIndex: i },
+                data: { name: stepName(s), subject: s.subject, body_html: s.body_html, body_text: s.body_text, stepIndex: i },
             });
         } else if (s.step_type === 'condition') {
             nodes.push({
@@ -175,6 +176,12 @@ export function relinkLinear(steps: CampaignStep[]): CampaignStep[] {
 function readPos(step: CampaignStep): { x: number; y: number } | undefined {
     const p = (step.config as { pos?: { x: number; y: number } } | null | undefined)?.pos;
     return p && typeof p.x === 'number' && typeof p.y === 'number' ? p : undefined;
+}
+
+// Adımın kullanıcı verdiği adı (config.name). Boş/yoksa null — çağıran konuya düşer.
+export function stepName(step: CampaignStep): string | null {
+    const n = (step.config as { name?: string } | null | undefined)?.name;
+    return n && n.trim() ? n.trim() : null;
 }
 
 // ── Kayıt serileştirme: steps[] → {nodes} (save_campaign_graph RPC payload) ──

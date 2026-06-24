@@ -16,7 +16,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { CampaignStep } from '../../types/campaign';
-import { newId } from '../../lib/graph';
+import { newId, stepName } from '../../lib/graph';
 
 interface Props {
     steps: CampaignStep[];
@@ -86,7 +86,7 @@ function SortableCard({
                         </Group>
                         <Group gap={4} wrap="nowrap" mt={3}>
                             <Text size="sm" fw={500} lineClamp={1}>
-                                {step.subject || t('campaign.editor.untitledEmail', 'Untitled email')}
+                                {stepName(step) || step.subject || t('campaign.editor.untitledEmail', 'Untitled email')}
                             </Text>
                             {empty && (
                                 <Tooltip label={t('campaign.editor.emptyStep', 'Subject or body is empty')} withArrow>

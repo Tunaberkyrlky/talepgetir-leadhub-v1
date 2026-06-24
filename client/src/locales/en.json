@@ -1016,6 +1016,8 @@
             "day": "Day",
             "addEmailStep": "Add email step",
             "untitledEmail": "Untitled email",
+            "stepName": "Step name",
+            "stepNamePlaceholder": "e.g. First contact email",
             "emailStep": "Email Step",
             "delayStep": "Delay Step",
             "days": "Days",

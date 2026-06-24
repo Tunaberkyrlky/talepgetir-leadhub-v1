@@ -13,6 +13,7 @@ import SubjectEditor, { type SubjectEditorRef } from './SubjectEditor';
 import { IconMail, IconPencil, IconEye, IconSend, IconCode } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import type { CampaignStep } from '../../types/campaign';
+import { stepName } from '../../lib/graph';
 
 interface Props {
     step: CampaignStep;
@@ -137,6 +138,20 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                 <IconMail size={16} color="var(--mantine-color-indigo-6)" />
                 <Text size="sm" fw={600}>{t('campaign.editor.emailStep', 'Email Step')}</Text>
             </Group>
+
+            {/* Adım adı — node'larda ve koşul editöründe konu yerine bu ad görünür. */}
+            <TextInput
+                label={t('campaign.editor.stepName', 'Step name')}
+                placeholder={t('campaign.editor.stepNamePlaceholder', 'e.g. First contact email')}
+                value={stepName(step) || ''}
+                onChange={(e) => {
+                    const cfg = { ...((step.config as Record<string, unknown>) || {}) };
+                    const v = e.currentTarget.value;
+                    if (v.trim()) cfg.name = v; else delete cfg.name;
+                    onChange({ config: cfg });
+                }}
+                radius="md" size="sm" disabled={readOnly}
+            />
 
             {/* ── Bekleme (önceki adımdan sonra) — ilk adımda gizli ── */}
             {isFirst ? (

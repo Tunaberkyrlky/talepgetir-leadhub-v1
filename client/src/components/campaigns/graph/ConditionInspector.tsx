@@ -7,6 +7,7 @@ import { IconGitBranch, IconCheck, IconX } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { CampaignStep } from '../../../types/campaign';
+import { stepName } from '../../../lib/graph';
 
 const END = '__end__'; // Select sentinel'i — null (dal burada biter) yerine.
 
@@ -29,13 +30,13 @@ export default function ConditionInspector({ step, steps, selectedIdx, onChange,
         value: v, label: t(`campaign.editor.graph.ct.${v}`, v),
     }));
 
-    // Değerlendirilecek mail adayları — yalnız e-posta adımları.
+    // Değerlendirilecek mail adayları — yalnız e-posta adımları (adıyla; yoksa konu).
     const emailOptions = steps
         .map((s, i) => ({ s, i }))
         .filter(({ s }) => s.step_type === 'email' && !!s.id)
         .map(({ s, i }) => ({
             value: s.id as string,
-            label: `${i + 1}. ${(s.subject || '').trim() || t('campaign.editor.graph.untitled', '(no subject)')}`,
+            label: `${i + 1}. ${stepName(s) || (s.subject || '').trim() || t('campaign.editor.graph.untitled', '(no subject)')}`,
         }));
 
     // Dal hedefi adayları — koşulun kendisi hariç tüm adımlar + "Diziyi bitir".
@@ -89,7 +90,7 @@ export default function ConditionInspector({ step, steps, selectedIdx, onChange,
 
 function stepLabel(s: CampaignStep, i: number, t: TFunction): string {
     const kind = s.step_type === 'email'
-        ? ((s.subject || '').trim() || t('campaign.editor.graph.untitled', '(no subject)'))
+        ? (stepName(s) || (s.subject || '').trim() || t('campaign.editor.graph.untitled', '(no subject)'))
         : s.step_type === 'condition'
             ? t('campaign.editor.graph.condition', 'Condition')
             : t('campaign.editor.graph.wait', 'Wait');

@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.16.1',
+        date: '2026-06-24',
+        type: 'improvement',
+        title: { tr: 'Adım Adları ve Kolay Bağlama', en: 'Step Names & Easier Wiring' },
+        about: {
+            tr: 'E-posta adımlarına ad verebilir, bu adı node’larda, listede ve koşul seçimlerinde konu yerine görebilirsiniz; görsel tuvalde adımları bağlamak ve bağlantıyı kaldırmak kolaylaştı.',
+            en: 'You can name email steps and see that name instead of the subject on nodes, in the list, and in condition pickers; connecting steps and removing connections on the visual canvas is now easier.',
+        },
+        usage: {
+            tr: 'E-posta düzenleyicisindeki Adım adı alanını doldurun; tuvalde bir node’un noktasından diğerine sürükleyerek bağlayın, bir bağlantının üstüne gelince çıkan × ile kaldırın.',
+            en: 'Fill the Step name field in the email editor; on the canvas drag from a node’s dot to another to connect, and use the × that appears when you hover a connection to remove it.',
+        },
+    },
+    {
         version: '1.16.0',
         date: '2026-06-24',
         type: 'feature',
