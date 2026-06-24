@@ -822,4 +822,69 @@ router.put('/sender-names', async (req: Request, res: Response, next: NextFuncti
     }
 });
 
+// ── Digest (özet maili) ─────────────────────────────────────────────────────
+// tenants.settings: { daily_digest_enabled: bool, digest_days: number[] (0=Pazar…6=Cmt),
+// digest_hour: 0-23 }. Varsayılan: kapalı, günler [1,4] (Pzt+Per), saat 8.
+// Müşterinin kendi tenant'ı için; gönderim alıcıları tenant'a bağlı mail hesaplarıdır.
+
+const DIGEST_DEFAULT_DAYS = [1, 4];
+const DIGEST_DEFAULT_HOUR = 8;
+
+router.get('/digest', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { data: tenant, error } = await supabaseAdmin
+            .from('tenants').select('settings').eq('id', req.tenantId!).single();
+        if (error) throw new AppError('Failed to fetch digest settings', 500);
+        const s = (tenant?.settings || {}) as Record<string, unknown>;
+        const days = Array.isArray(s.digest_days) && s.digest_days.length ? s.digest_days : DIGEST_DEFAULT_DAYS;
+        const hour = Number.isInteger(s.digest_hour) ? (s.digest_hour as number) : DIGEST_DEFAULT_HOUR;
+        res.json({ data: { enabled: Boolean(s.daily_digest_enabled), days, hour } });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Get digest settings error');
+        res.status(500).json({ error: 'Failed to fetch digest settings' });
+    }
+});
+
+const digestSettingsSchema = z.object({
+    enabled: z.boolean(),
+    days: z.array(z.number().int().min(0).max(6)).max(7),
+    hour: z.number().int().min(0).max(23),
+});
+
+router.put('/digest', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Admin role required' });
+            return;
+        }
+        const result = digestSettingsSchema.safeParse(req.body);
+        if (!result.success) {
+            res.status(400).json({ error: result.error.issues[0]?.message || 'Invalid input' });
+            return;
+        }
+        const days = Array.from(new Set(result.data.days)).sort((a, b) => a - b);
+
+        const { data: tenant, error: fetchErr } = await supabaseAdmin
+            .from('tenants').select('settings').eq('id', req.tenantId!).single();
+        if (fetchErr) throw new AppError('Failed to fetch tenant', 500);
+
+        const settings = {
+            ...(tenant?.settings || {}),
+            daily_digest_enabled: result.data.enabled,
+            digest_days: days.length ? days : DIGEST_DEFAULT_DAYS,
+            digest_hour: result.data.hour,
+        };
+        const { error: updateErr } = await supabaseAdmin
+            .from('tenants').update({ settings, updated_at: new Date().toISOString() }).eq('id', req.tenantId!);
+        if (updateErr) throw new AppError('Failed to save digest settings', 500);
+
+        res.json({ data: { enabled: settings.daily_digest_enabled, days: settings.digest_days, hour: settings.digest_hour } });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Update digest settings error');
+        res.status(500).json({ error: 'Failed to update digest settings' });
+    }
+});
+
 export default router;

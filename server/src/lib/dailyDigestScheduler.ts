@@ -1,8 +1,8 @@
 /**
- * Digest Scheduler — her gün 08:00 (Europe/Istanbul) tetiklenen tick.
+ * Digest Scheduler — saat başına bir kez runDailyDigest çalıştırır (Europe/Istanbul).
  *
- * Tick günlüktür; "haftada 2 gün" gün kapısı tenant başına runDailyDigest içindedir
- * (settings.digest_days). Pattern: campaignScheduler.ts (60s interval, _running guard).
+ * Gün ve saat kapısı tenant başına runDailyDigest içindedir (settings.digest_days +
+ * digest_hour). Pattern: campaignScheduler.ts (60s interval, _running guard).
  * Idempotency: daily_digest_log UNIQUE(tenant_id, digest_date) — bkz. [[dailyDigest.ts]].
  */
 
@@ -13,12 +13,10 @@ const log = createLogger('dailyDigestScheduler');
 
 const TICK_MS = 60_000;
 const TZ = 'Europe/Istanbul';
-// Override hour for staging/dev testing; defaults to 8 (08:00 TR)
-const SEND_HOUR = Number(process.env.DAILY_DIGEST_HOUR ?? 8);
 
 let _interval: ReturnType<typeof setInterval> | null = null;
 let _running = false;
-let _lastFiredDateKey: string | null = null;
+let _lastRunKey: string | null = null; // `${dateKey}-${hour}` — saat başına bir kez çalış
 
 function currentTzHourAndDate(): { hour: number; dateKey: string } {
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -39,25 +37,24 @@ export function startDailyDigestScheduler(): void {
         return;
     }
 
-    log.info({ sendHour: SEND_HOUR, tz: TZ }, 'Daily digest scheduler started');
+    log.info({ tz: TZ }, 'Digest scheduler started');
 
     _interval = setInterval(async () => {
         if (_running) return;
 
         const { hour, dateKey } = currentTzHourAndDate();
-        if (hour !== SEND_HOUR) return;
-        // Only fire once per day per instance — DB UNIQUE handles cross-instance races.
-        if (_lastFiredDateKey === dateKey) return;
+        const key = `${dateKey}-${hour}`;
+        // Saat başına bir kez çalış; gün/saat kapısı runDailyDigest içinde per-tenant.
+        if (_lastRunKey === key) return;
 
         _running = true;
         try {
             const result = await runDailyDigest();
-            // Mark the day done only on success, so a transient failure (DB blip,
-            // Resend timeout) retries on the next tick instead of skipping the day.
-            _lastFiredDateKey = dateKey;
-            log.info(result, 'Daily digest tick complete');
+            // Sadece başarıda işaretle; geçici hata sonraki tick'te tekrar denenir.
+            _lastRunKey = key;
+            log.info(result, 'Digest tick complete');
         } catch (err) {
-            log.error({ err }, 'Daily digest tick failed — will retry next tick');
+            log.error({ err }, 'Digest tick failed — will retry next tick');
         } finally {
             _running = false;
         }

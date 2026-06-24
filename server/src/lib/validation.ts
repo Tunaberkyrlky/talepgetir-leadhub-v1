@@ -174,6 +174,7 @@ export const updateTenantSchema = z.object({
         custom_field_3_label: z.string().max(100).optional(),
         daily_digest_enabled: z.boolean().optional(),
         digest_days: z.array(z.number().int().min(0).max(6)).max(7).optional(), // 0=Pazar … 6=Cumartesi; varsayılan [1,4]
+        digest_hour: z.number().int().min(0).max(23).optional(), // gönderim saati (TR), varsayılan 8
     }).passthrough().optional(),
 });
 

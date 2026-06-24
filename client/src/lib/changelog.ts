@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.17.1',
+        date: '2026-06-24',
+        type: 'improvement',
+        title: { tr: 'Özet Maili Ayarları', en: 'Summary Email Settings' },
+        about: {
+            tr: 'Özet mailini artık Ayarlar sayfasından kendiniz açıp gönderim günlerini ve saatini seçebilirsiniz.',
+            en: 'You can now enable the summary email yourself from the Settings page and choose its send days and time.',
+        },
+        usage: {
+            tr: 'Ayarlar, Özet maili sekmesinden özelliği açın, günleri ve saati seçip kaydedin.',
+            en: 'In Settings, open the Summary email tab, enable it, pick the days and time, and save.',
+        },
+        notes: {
+            tr: 'Özet seçtiğiniz saatte yalnızca o saatte gönderilir ve tenant’a bağlı aktif mail hesaplarına ulaşır.',
+            en: 'The summary is sent only at the time you choose and reaches the active mailboxes connected to the tenant.',
+        },
+    },
+    {
         version: '1.17.0',
         date: '2026-06-24',
         type: 'feature',

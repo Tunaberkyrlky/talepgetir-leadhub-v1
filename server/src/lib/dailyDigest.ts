@@ -22,7 +22,7 @@ import { renderTenantDigest } from './digest/digestTemplate.js';
 const log = createLogger('dailyDigest');
 
 const TZ = 'Europe/Istanbul';
-const SEND_HOUR = Number(process.env.DAILY_DIGEST_HOUR ?? 8);
+const DEFAULT_HOUR = Number(process.env.DAILY_DIGEST_HOUR ?? 8); // tenant digest_hour yoksa varsayılan/dev override
 const DEFAULT_DIGEST_DAYS = [1, 4]; // Pazartesi, Perşembe
 const DAY_MS = 86_400_000;
 const FALLBACK_LOOKBACK_MS = 3.5 * DAY_MS; // ilk gönderimde geriye dönük pencere
@@ -62,6 +62,17 @@ function parseDigestDays(raw: unknown): number[] {
     if (!Array.isArray(raw)) return DEFAULT_DIGEST_DAYS;
     const days = raw.filter((d): d is number => typeof d === 'number' && Number.isInteger(d) && d >= 0 && d <= 6);
     return days.length ? Array.from(new Set(days)) : DEFAULT_DIGEST_DAYS;
+}
+
+/** Verilen UTC anının TR yerel saati (0-23). */
+function trHour(ms: number): number {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, hour: '2-digit', hour12: false }).formatToParts(new Date(ms));
+    const h = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10);
+    return h === 24 ? 0 : h;
+}
+
+function parseDigestHour(raw: unknown, fallback: number): number {
+    return (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= 23) ? raw : fallback;
 }
 
 // ── Tenant + user lookups ────────────────────────────────────────────────────
@@ -136,9 +147,10 @@ interface BuiltDigest {
 /** Bir tenant için pencereyi hesaplar, içeriği toplar ve şablonu kurar (gönderimsiz). */
 async function buildTenantDigest(tenant: TenantRow, now: Date): Promise<BuiltDigest> {
     const digestDays = parseDigestDays(tenant.settings?.digest_days);
+    const digestHour = parseDigestHour(tenant.settings?.digest_hour, DEFAULT_HOUR);
     const windowEnd = now.toISOString();
     const windowStart = (await lastSentWindowEnd(tenant.id)) ?? new Date(now.getTime() - FALLBACK_LOOKBACK_MS).toISOString();
-    const dueUntil = nextDigestBoundaryIso(now, digestDays, SEND_HOUR);
+    const dueUntil = nextDigestBoundaryIso(now, digestDays, digestHour);
 
     const data = await collectTenantDigest(tenant.id, windowStart, windowEnd, dueUntil);
     const { subject, html, text } = renderTenantDigest({ tenantName: tenant.name, data, windowStart, windowEnd });
@@ -166,6 +178,7 @@ export async function runDailyDigest(now: Date = new Date()): Promise<DigestRunR
 
     const dateKey = trDateKey(now.getTime());
     const todayWeekday = weekdayOf(dateKey);
+    const currentHour = trHour(now.getTime());
 
     const { data: tenants, error: tenantsErr } = await supabaseAdmin
         .from('tenants')
@@ -190,6 +203,12 @@ export async function runDailyDigest(now: Date = new Date()): Promise<DigestRunR
             const digestDays = parseDigestDays(tenant.settings?.digest_days);
             // Bugün bu tenant'ın digest günü mü?
             if (!digestDays.includes(todayWeekday)) {
+                result.skippedNotToday++;
+                continue;
+            }
+            // Sadece tenant'ın gönderim saatinde gönder (akşam telafisi yok; kaçarsa o gün atlanır).
+            const digestHour = parseDigestHour(tenant.settings?.digest_hour, DEFAULT_HOUR);
+            if (currentHour !== digestHour) {
                 result.skippedNotToday++;
                 continue;
             }
