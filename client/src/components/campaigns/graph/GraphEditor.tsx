@@ -2,10 +2,10 @@
 // adımları trigger → (bekle?) → mail zinciri olarak gösterir, mail node'una
 // tıklanınca sağdaki StepEditor'ı açar. Node ekleme/bağlama/silme sonraki batch'te.
 import '@xyflow/react/dist/style.css';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
-    ReactFlow, Background, Controls, MiniMap, Handle, Position, Panel,
-    type NodeProps, type NodeMouseHandler, type OnNodeDrag,
+    ReactFlow, Background, Controls, MiniMap, Handle, Position, Panel, applyNodeChanges,
+    type Node, type NodeProps, type NodeMouseHandler, type OnNodeDrag, type OnNodesChange,
 } from '@xyflow/react';
 import { Paper, Text, Group, ThemeIcon, Button } from '@mantine/core';
 import { IconMail, IconClock, IconBolt, IconPlus, IconTrash } from '@tabler/icons-react';
@@ -98,10 +98,24 @@ interface Props {
 export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOnly, onAddEmail, onDeleteStep, onMoveStep }: Props) {
     const { t } = useTranslation();
     const graph = useMemo(() => migrateLinearToGraph(steps), [steps]);
-    const { nodes, edges } = useMemo(
+    const flow = useMemo(
         () => toFlow(graph.nodes, graph.edges, selectedIndex, !readOnly),
         [graph, selectedIndex, readOnly],
     );
+
+    // React Flow düğümlerini yerel state'te tut → sürükleme sırasında konum CANLI
+    // güncellensin. (Kontrollü modda onNodesChange uygulanmazsa node imlece uymaz,
+    // doğrudan son noktaya ışınlanır.) Türetilen graf (steps/seçim/readOnly) değişince
+    // state'i tazele — render-anı state-guard (effect değil, sürüklemeyi kesmez).
+    const [rfNodes, setRfNodes] = useState<Node[]>(flow.nodes);
+    const [syncedFlow, setSyncedFlow] = useState(flow);
+    if (flow !== syncedFlow) {
+        setSyncedFlow(flow);
+        setRfNodes(flow.nodes);
+    }
+    const onNodesChange = useCallback<OnNodesChange>((changes) => {
+        setRfNodes((nds) => applyNodeChanges(changes, nds));
+    }, []);
 
     const onNodeClick = useCallback<NodeMouseHandler>((_e, node) => {
         const idx = (node.data as GraphNodeData).stepIndex;
@@ -117,9 +131,10 @@ export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOn
     return (
         <div style={{ height: 540, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--mantine-color-gray-3)' }}>
             <ReactFlow
-                nodes={nodes}
-                edges={edges}
+                nodes={rfNodes}
+                edges={flow.edges}
                 nodeTypes={NODE_TYPES}
+                onNodesChange={onNodesChange}
                 onNodeClick={onNodeClick}
                 onNodeDragStop={onNodeDragStop}
                 nodesDraggable={!readOnly}

@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.15.5',
+        date: '2026-06-24',
+        type: 'fix',
+        title: { tr: 'Görsel Akış Düzeltmeleri', en: 'Visual Flow Fixes' },
+        about: {
+            tr: 'Görsel akışta bir kutuyu sürüklerken kutu artık imleci takip ediyor ve adımlar arasındaki bağlantı çizgileri görünüyor.',
+            en: 'In the visual flow, a box now follows the cursor while you drag it and the connector lines between steps are visible.',
+        },
+    },
+    {
         version: '1.15.4',
         date: '2026-06-24',
         type: 'improvement',

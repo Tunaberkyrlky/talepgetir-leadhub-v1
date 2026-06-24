@@ -214,7 +214,7 @@ export default function CampaignEditorPage() {
     if (!isNew && isLoading) return <Center py="xl"><Loader color="violet" /></Center>;
 
     return (
-        <Container size="xl" py="md">
+        <Container size="xl" pt="md" pb={160}>
             <Stack gap="md">
                 <Paper shadow="sm" radius="lg" p="lg" withBorder>
                     <Group justify="space-between">

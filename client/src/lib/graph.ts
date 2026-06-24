@@ -164,7 +164,10 @@ export function toFlow(
         id: e.id,
         source: e.source,
         target: e.target,
-        sourceHandle: e.sourceHandle ?? undefined,
+        // 'next' lineer varsayılan handle'dır (id'siz) → sourceHandle göndermeyiz,
+        // yoksa React Flow eşleşen handle bulamayıp kenarı düşürür (görünmez olur).
+        // Adlı dallar (true/false/varyant) Batch 4b'de handle id'leriyle eşlenir.
+        sourceHandle: e.sourceHandle && e.sourceHandle !== 'next' ? e.sourceHandle : undefined,
         label: e.label,
         type: 'smoothstep',
         animated: false,
