@@ -18,6 +18,7 @@ interface Tenant {
     slug: string;
     tier: string;
     is_active: boolean;
+    settings?: Record<string, unknown> | null;
     member_count: number;
     created_at: string;
     updated_at: string;

@@ -38,6 +38,7 @@ import emailConnectionRoutes from './routes/email-connections.js';
 import trackingRoutes from './routes/tracking.js';
 import { startCampaignScheduler } from './lib/campaignScheduler.js';
 import { startImapPollingScheduler } from './lib/imapPollingScheduler.js';
+import { startDailyDigestScheduler } from './lib/dailyDigestScheduler.js';
 
 const app = express();
 const PORT = process.env.PORT || process.env.API_PORT || 3001;
@@ -251,6 +252,7 @@ app.listen(PORT, () => {
     logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'TG Core API started');
     startCampaignScheduler();
     startImapPollingScheduler();
+    startDailyDigestScheduler();
 });
 
 export default app;

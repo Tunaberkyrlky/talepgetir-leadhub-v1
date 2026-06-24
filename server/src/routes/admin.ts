@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { clearAuthCacheForUser } from '../middleware/auth.js';
+import { previewTenantDigest, sendTenantDigestNow } from '../lib/dailyDigest.js';
 import {
     validateBody,
     createUserSchema, updateUserSchema,
@@ -550,6 +551,48 @@ router.put('/tenants/:id', validateBody(updateTenantSchema), async (req: Request
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Update tenant error');
         res.status(500).json({ error: 'Failed to update tenant' });
+    }
+});
+
+// GET /api/admin/tenants/:id/digest/preview — render the digest WITHOUT sending (superadmin).
+// Default returns HTML (open in browser); ?format=json returns metadata + block data.
+// Works even before Resend is configured (render only).
+router.get('/tenants/:id/digest/preview', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const preview = await previewTenantDigest(req.params.id as string);
+        if (req.query.format === 'json') {
+            res.json({
+                tenantName: preview.tenantName,
+                recipients: preview.recipients,
+                window: { start: preview.windowStart, end: preview.windowEnd, dueUntil: preview.dueUntil },
+                isEmpty: preview.isEmpty,
+                subject: preview.subject,
+                data: preview.data,
+            });
+            return;
+        }
+        res.type('html').send(preview.html);
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Digest preview error');
+        res.status(500).json({ error: 'Failed to build digest preview' });
+    }
+});
+
+// POST /api/admin/tenants/:id/digest/send-now — force-send the digest now (superadmin, test).
+// Bypasses digest_days/enabled/idempotency; does NOT write daily_digest_log. Requires Resend.
+router.post('/tenants/:id/digest/send-now', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const id = req.params.id as string;
+        const overrideTo = typeof req.body?.to === 'string' ? req.body.to.trim()
+            : (typeof req.query.to === 'string' ? req.query.to.trim() : undefined);
+        const result = await sendTenantDigestNow(id, undefined, overrideTo || undefined);
+        await logAuditAction(req.user!.id, 'tenant.digest_test', 'tenant', id, { recipients: result.recipients.length, overrideTo: overrideTo || null });
+        res.json({ data: result });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Digest send-now error');
+        res.status(500).json({ error: 'Failed to send digest' });
     }
 });
 

@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.17.0',
+        date: '2026-06-24',
+        type: 'feature',
+        title: { tr: 'Özet Maili', en: 'Summary Email' },
+        about: {
+            tr: 'Seçtiğiniz günlerde, müşterinin bağlı mail hesaplarına önemli yanıtları, eklenen aktiviteleri, pipeline durumunu ve vadesi gelen toplantıları içeren bir özet maili gider.',
+            en: 'On the days you choose, a summary email covering important replies, added activities, pipeline status, and upcoming meetings is sent to the customer’s connected mailboxes.',
+        },
+        usage: {
+            tr: 'Yönetim ekranında müşteriyi düzenleyip Özet maili seçeneğini açın ve gönderim günlerini seçin.',
+            en: 'In the Admin screen, edit the customer, turn on Summary email and pick the send days.',
+        },
+        notes: {
+            tr: 'Özet yalnızca müşteriye bağlı aktif mail hesaplarına gider; bağlı hesap yoksa gönderim olmaz.',
+            en: 'The summary only goes to the customer’s active connected mailboxes; with no connected mailbox, nothing is sent.',
+        },
+    },
+    {
         version: '1.16.1',
         date: '2026-06-24',
         type: 'improvement',
