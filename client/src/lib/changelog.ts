@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.16.0',
+        date: '2026-06-24',
+        type: 'feature',
+        title: { tr: 'Koşullu Dallanma', en: 'Conditional Branching' },
+        about: {
+            tr: 'Görsel akışa koşul adımı ekleyip adımları birbirine bağlayarak, kişinin maili açıp açmadığına, tıklayıp tıklamadığına ya da yanıtlayıp yanıtlamadığına göre kampanyayı Evet ve Hayır dallarına ayırabilirsiniz.',
+            en: 'You can add a condition step to the visual flow and wire steps together to split the campaign into Yes and No branches based on whether the contact opened, clicked, or replied.',
+        },
+        usage: {
+            tr: 'Görsel görünümde bir node’un noktasından diğerine sürükleyerek bağlantı kurun, çizgideki × ile koparın; koşul için sağ panelden tipi, kontrol edilecek maili, bekleme süresini ve dalların gideceği adımı seçin.',
+            en: 'In the Visual view, drag from a node’s dot to another to connect, click the × on a line to disconnect; for a condition, pick the type, which email to check, the wait time, and where each branch goes from the right panel.',
+        },
+        notes: {
+            tr: 'Koşul önce belirlediğiniz süre kadar bekler, sonra kişiyi kontrol edip dalı seçer; bir dalı boş bırakırsanız dizi orada sonlanır.',
+            en: 'The condition waits for the time you set, then checks the contact and picks a branch; leaving a branch empty ends the sequence there.',
+        },
+    },
+    {
         version: '1.15.6',
         date: '2026-06-24',
         type: 'improvement',

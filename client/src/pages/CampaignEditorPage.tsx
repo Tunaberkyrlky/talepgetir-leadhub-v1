@@ -13,12 +13,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import SequenceTimeline from '../components/campaigns/SequenceTimeline';
 import StepEditor from '../components/campaigns/StepEditor';
+import ConditionInspector from '../components/campaigns/graph/ConditionInspector';
 import EnrollmentPanel from '../components/campaigns/EnrollmentPanel';
 import ActivationGuard from '../components/campaigns/ActivationGuard';
 import CampaignStatsPanel from '../components/campaigns/CampaignStatsPanel';
 import CampaignSettingsPanel from '../components/campaigns/CampaignSettingsPanel';
 import type { Campaign, CampaignStep, CampaignSettings } from '../types/campaign';
-import { newId, serializeStepsToNodes } from '../lib/graph';
+import { newId, serializeStepsToNodes, relinkLinear, TRIGGER_ID } from '../lib/graph';
 
 // Görsel tuval (React Flow) yalnız "Görsel" görünüme geçilince yüklensin — Basit
 // görünümde editör chunk'ı hafif kalır (React Flow ayrı 'flow' chunk'ında).
@@ -201,10 +202,68 @@ export default function CampaignEditorPage() {
         setStepsDirty([...steps, s]);
         setSelectedIdx(steps.length);
     };
+    // Koşul (condition) adımı — sıraya eklenir; Evet/Hayır dalları başta "Diziyi bitir"
+    // (null) olur, kullanıcı sağ panelden hedef seçer. Değerlendirilecek mail varsayılan
+    // olarak en son e-posta adımıdır (config.eval_step_id, kayıtta step_order'a çevrilir).
+    const addConditionStep = () => {
+        const lastEmail = [...steps].reverse().find((s) => s.step_type === 'email');
+        const s: CampaignStep = {
+            id: newId(),
+            step_order: steps.length + 1, step_type: 'condition',
+            subject: null, body_html: null, body_text: null,
+            delay_days: 0, delay_hours: 0,
+            condition_type: 'opened', condition_wait_hours: 72,
+            condition_true_step_id: null, condition_false_step_id: null,
+            config: lastEmail?.id ? { eval_step_id: lastEmail.id } : {},
+        };
+        setStepsDirty([...steps, s]);
+        setSelectedIdx(steps.length);
+    };
     const deleteStep = (i: number) => {
-        const updated = steps.filter((_, idx) => idx !== i).map((s, idx) => ({ ...s, step_order: idx + 1 }));
+        const deletedId = steps[i]?.id;
+        // Silinen adıma işaret eden tüm yönlendirmeleri (koşul dalları, next, eval) temizle —
+        // aksi halde kopuk pointer kalır (kayıtta "bilinmeyen node" doğrulama hatası).
+        const updated = steps.filter((_, idx) => idx !== i).map((s, idx) => {
+            const n: CampaignStep = { ...s, step_order: idx + 1 };
+            if (deletedId) {
+                if (n.condition_true_step_id === deletedId) n.condition_true_step_id = null;
+                if (n.condition_false_step_id === deletedId) n.condition_false_step_id = null;
+                if (n.next_step_id === deletedId) n.next_step_id = null;
+                const cfg = n.config as Record<string, unknown> | null;
+                if (cfg && cfg.eval_step_id === deletedId) n.config = { ...cfg, eval_step_id: undefined };
+            }
+            return n;
+        });
         setStepsDirty(updated);
         if (selectedIdx === i) setSelectedIdx(updated.length ? Math.max(0, i - 1) : null);
+    };
+    // Tuvalde bağla: kaynak adımın pointer'ını hedefe yaz. Trigger → giriş adımı seçer.
+    // handle: 'true'/'false' koşul dalı; null lineer next. Tek "next" olduğundan yeni
+    // bağlantı eskisini OTOMATİK değiştirir (graf tek pointer'dan türetilir).
+    const onConnectNodes = (sourceId: string, handle: string | null, targetId: string) => {
+        pushUndo();
+        setSteps((prev) => {
+            if (sourceId === TRIGGER_ID) return prev.map((s) => ({ ...s, is_entry: s.id === targetId }));
+            return prev.map((s) => {
+                if (s.id !== sourceId) return s;
+                if (handle === 'true') return { ...s, condition_true_step_id: targetId };
+                if (handle === 'false') return { ...s, condition_false_step_id: targetId };
+                return { ...s, next_step_id: targetId };
+            });
+        });
+        markDirty();
+    };
+    // Bağlantıyı kopar: ilgili pointer'ı açıkça null (BİTİŞ) yap. Trigger→giriş koparılamaz.
+    const onDisconnect = (sourceId: string, handle: string | null) => {
+        if (sourceId === TRIGGER_ID) return;
+        pushUndo();
+        setSteps((prev) => prev.map((s) => {
+            if (s.id !== sourceId) return s;
+            if (handle === 'true') return { ...s, condition_true_step_id: null };
+            if (handle === 'false') return { ...s, condition_false_step_id: null };
+            return { ...s, next_step_id: null };
+        }));
+        markDirty();
     };
     // Tuvalde sürükleme → adımın konumunu config.pos'a yaz (undo'ya gerek yok, küçük).
     const onMoveStep = (i: number, pos: { x: number; y: number }) => {
@@ -223,7 +282,10 @@ export default function CampaignEditorPage() {
 
     // Seçili adımın düzenleyicisi — Bekle (delay) adımı için gecikme formu, aksi
     // halde StepEditor. Hem Basit hem Görsel görünüm aynı düzenleyiciyi paylaşır.
-    const inspectorBody = !selectedStep ? null : selectedStep.step_type === 'delay' ? (
+    const inspectorBody = !selectedStep ? null : selectedStep.step_type === 'condition' ? (
+        <ConditionInspector step={selectedStep} steps={steps} selectedIdx={selectedIdx as number}
+            onChange={handleStepTextChange} readOnly={isReadOnly} />
+    ) : selectedStep.step_type === 'delay' ? (
         <Stack gap="sm">
             <Group gap="xs" mb={4}>
                 <IconHourglass size={16} color="var(--mantine-color-gray-6)" />
@@ -309,7 +371,7 @@ export default function CampaignEditorPage() {
                             <Grid>
                                 <Grid.Col span={4}>
                                     <Paper shadow="xs" radius="md" p="md" withBorder>
-                                        <SequenceTimeline steps={steps} onChange={setStepsDirty} onSelectStep={setSelectedIdx}
+                                        <SequenceTimeline steps={steps} onChange={(v) => setStepsDirty(relinkLinear(v))} onSelectStep={setSelectedIdx}
                                             selectedIndex={selectedIdx} readOnly={isReadOnly} />
                                     </Paper>
                                 </Grid.Col>
@@ -330,7 +392,9 @@ export default function CampaignEditorPage() {
                                 <Grid.Col span={8}>
                                     <Suspense fallback={<Center h={540}><Loader color="violet" /></Center>}>
                                         <GraphEditor steps={steps} selectedIndex={selectedIdx} onSelectStep={setSelectedIdx}
-                                            readOnly={isReadOnly} onAddEmail={addEmailStep} onAddWait={addWaitStep} onDeleteStep={deleteStep} onMoveStep={onMoveStep} />
+                                            readOnly={isReadOnly} onAddEmail={addEmailStep} onAddWait={addWaitStep} onAddCondition={addConditionStep}
+                                            onDeleteStep={deleteStep} onMoveStep={onMoveStep}
+                                            onConnectNodes={onConnectNodes} onDisconnect={onDisconnect} />
                                     </Suspense>
                                 </Grid.Col>
                                 <Grid.Col span={4}>

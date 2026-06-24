@@ -51,54 +51,124 @@ export function newId(): string {
 
 const GAP_Y = 130;
 const COL_X = 0;
+export const TRIGGER_ID = 'trigger';
 
-// Lineer adım dizisini graf'a çevirir: trigger → (gecikme>0 ise Bekle node) → mail → …
-// Ayrı Bekleme node modeli (kullanıcı tercihi): adımın delay'i ondan ÖNCE bir Bekle
-// node'u olur. Batch 1 salt-okunur olduğu için id'ler DETERMİNİSTİK (her render aynı) —
-// böylece useMemo ile yeniden üretilse de React Flow node kimliği ve seçim stabil kalır.
+// Bir adımın React Flow node id'si = stabil step.id (UUID). Böylece tuvaldeki
+// bağla/kopar (onConnect/edge sil) doğrudan adımın pointer'ına eşlenir — ayrı bir
+// kenar tablosu gerekmez. id yoksa (taze, kaydedilmemiş) indeks tabanlı yedek.
+export function nodeIdOf(s: CampaignStep, i: number): string {
+    return s.id || `n${i}`;
+}
+
+// Bir non-condition adımın sıradaki adımını çözer: açık next_step_id ÖNCELİKLİ
+// (string = hedef, null = açıkça BİTİŞ); TANIMSIZ (taze adım) ise lineer yedek
+// (dizideki bir sonraki adım). serialize ve migrate AYNI mantığı kullanır → tuval
+// ile kaydedilen graf birebir tutarlı.
+export function resolveLinearNext(steps: CampaignStep[], i: number): string | null {
+    const s = steps[i];
+    if (s.next_step_id !== undefined) return s.next_step_id; // açık (hedef veya BİTİŞ=null)
+    const nx = steps[i + 1];
+    return nx ? nodeIdOf(nx, i + 1) : null; // tanımsız → lineer yedek
+}
+
+// Giriş adımının indeksi: is_entry işaretli adım, yoksa ilk adım.
+function entryIndex(steps: CampaignStep[]): number {
+    const e = steps.findIndex((s) => s.is_entry);
+    return e >= 0 ? e : (steps.length ? 0 : -1);
+}
+
+// Adım dizisini graf'a çevirir: trigger → giriş → açık pointer'lara göre kenarlar.
+// Routing tek kaynak = adımların pointer'ları (next_step_id / condition_true/false_step_id);
+// dizi sırası yalnız step_order (sabit sıra) ve lineer yedek içindir, yönlendirme DEĞİL.
 export function migrateLinearToGraph(steps: CampaignStep[]): { nodes: GraphNode[]; edges: GraphEdge[] } {
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
     let y = 0;
 
-    nodes.push({ id: 'trigger', kind: 'trigger', position: { x: COL_X, y }, data: {} });
-    let prevId = 'trigger';
+    nodes.push({ id: TRIGGER_ID, kind: 'trigger', position: { x: COL_X, y }, data: {} });
     y += GAP_Y;
 
+    // stepId → indeks ve stepId → görsel "giriş" node'u (türev bekle varsa o, yoksa adım).
+    const indexOfId = new Map<string, number>();
+    const entryNodeOf = new Map<string, string>(); // gelen kenarın bağlanacağı node
+    steps.forEach((s, i) => indexOfId.set(nodeIdOf(s, i), i));
+
+    // 1. geçiş — node'lar + adım-içi türev bekle kenarı.
     steps.forEach((s, i) => {
         const dd = s.delay_days || 0;
         const dh = s.delay_hours || 0;
         const pos = readPos(s);
-        const nodeId = `step-${i}`;
+        const nodeId = nodeIdOf(s, i);
+        let entryId = nodeId;
 
         if (s.step_type === 'email') {
-            // Mail'in satır-içi "önce bekle" gecikmesi → TÜREVİ bekle node'u (düzenlenemez;
-            // gecikme mail'in StepEditor'ından değişir). Yalnız gecikme>0 ise gösterilir.
+            // Mail'in satır-içi "önce bekle" gecikmesi → TÜREVİ bekle node'u (düzenlenemez).
             if (dd > 0 || dh > 0) {
-                const waitId = `wait-${i}`;
+                const waitId = `dw-${nodeId}`;
                 nodes.push({ id: waitId, kind: 'wait', position: { x: COL_X, y }, data: { delay_days: dd, delay_hours: dh, derived: true } });
-                edges.push({ id: `e-${prevId}-${waitId}`, source: prevId, target: waitId });
-                prevId = waitId;
+                edges.push({ id: `e-${waitId}-${nodeId}`, source: waitId, target: nodeId }); // bekle → mail (adım-içi)
+                entryId = waitId;
                 y += GAP_Y;
             }
             nodes.push({
                 id: nodeId, kind: 'email', position: pos ?? { x: COL_X, y },
                 data: { subject: s.subject, body_html: s.body_html, body_text: s.body_text, stepIndex: i },
             });
-        } else {
-            // Bağımsız Bekle (delay adımı) veya Koşul adımı → tek DÜZENLENEBİLİR node.
-            const kind: GraphNodeKind = s.step_type === 'condition' ? 'condition' : 'wait';
+        } else if (s.step_type === 'condition') {
             nodes.push({
-                id: nodeId, kind, position: pos ?? { x: COL_X, y },
-                data: { delay_days: dd, delay_hours: dh, subject: s.subject, body_html: s.body_html, stepIndex: i },
+                id: nodeId, kind: 'condition', position: pos ?? { x: COL_X, y },
+                data: { condition_type: s.condition_type ?? 'opened', condition_wait_hours: s.condition_wait_hours ?? 72, config: (s.config as Record<string, unknown>) ?? undefined, stepIndex: i },
+            });
+        } else {
+            nodes.push({
+                id: nodeId, kind: 'wait', position: pos ?? { x: COL_X, y },
+                data: { delay_days: dd, delay_hours: dh, stepIndex: i },
             });
         }
-        edges.push({ id: `e-${prevId}-${nodeId}`, source: prevId, target: nodeId });
-        prevId = nodeId;
+
+        entryNodeOf.set(nodeId, entryId);
         y += GAP_Y;
     });
 
+    // Bir adım id'sini görsel giriş node'una çevirir (yoksa undefined → kenar çizilmez).
+    const targetNodeOf = (stepId: string | null | undefined): string | undefined => {
+        if (!stepId) return undefined;
+        const idx = indexOfId.get(stepId);
+        if (idx == null) return undefined;
+        return entryNodeOf.get(nodeIdOf(steps[idx], idx));
+    };
+
+    // Trigger → giriş adımı.
+    const eIdx = entryIndex(steps);
+    if (eIdx >= 0) {
+        const eNode = targetNodeOf(nodeIdOf(steps[eIdx], eIdx));
+        if (eNode) edges.push({ id: `e-${TRIGGER_ID}-${eNode}`, source: TRIGGER_ID, target: eNode });
+    }
+
+    // 2. geçiş — adımların çıkış kenarları (açık pointer / koşul dalları).
+    steps.forEach((s, i) => {
+        const nodeId = nodeIdOf(s, i);
+        if (s.step_type === 'condition') {
+            const tT = targetNodeOf(s.condition_true_step_id);
+            const tF = targetNodeOf(s.condition_false_step_id);
+            if (tT) edges.push({ id: `e-${nodeId}-true`, source: nodeId, sourceHandle: 'true', target: tT });
+            if (tF) edges.push({ id: `e-${nodeId}-false`, source: nodeId, sourceHandle: 'false', target: tF });
+        } else {
+            const tN = targetNodeOf(resolveLinearNext(steps, i));
+            if (tN) edges.push({ id: `e-${nodeId}-next`, source: nodeId, target: tN });
+        }
+    });
+
     return { nodes, edges };
+}
+
+// Dizideki adımları lineer zincire bağlar (next_step_id = sıradaki adım, son = null).
+// Basit görünüm (SequenceTimeline) sıralama/ekleme/silme yaptığında çağrılır: o görünüm
+// doğası gereği lineerdir, bu yüzden açık pointer'ları sıraya göre tazeler (eski/bayat
+// pointer kalmaz). Koşul next_step_id'si downstream'de yok sayılır (true/false kullanılır).
+export function relinkLinear(steps: CampaignStep[]): CampaignStep[] {
+    const withIds = steps.map((s) => ({ ...s, id: s.id || newId() }));
+    return withIds.map((s, i) => ({ ...s, next_step_id: i < withIds.length - 1 ? withIds[i + 1].id : null }));
 }
 
 // Bir adımın kayıtlı tuval konumunu (config.pos) okur — yoksa undefined.
@@ -134,24 +204,44 @@ export function serializeStepsToNodes(steps: CampaignStep[]): GraphSaveNode[] {
     // Her adımın stabil bir id'si olmalı (ekleme yollarında newId() atanır; eski
     // kampanyalarda sunucudan gelir). Yine de eksikse burada üret — churn olmasın.
     const withIds = steps.map((s) => ({ ...s, id: s.id || newId() }));
-    return withIds.map((s, i) => ({
-        id: s.id,
-        step_type: s.step_type,
-        step_kind: s.step_kind || s.step_type,
-        subject: s.subject ?? null,
-        body_html: s.body_html ?? null,
-        body_text: s.body_text ?? null,
-        delay_days: s.delay_days || 0,
-        delay_hours: s.delay_hours || 0,
-        condition_type: s.condition_type ?? null,
-        condition_wait_hours: s.condition_wait_hours ?? null,
-        next_step_id: i < withIds.length - 1 ? withIds[i + 1].id : null,
-        condition_true_step_id: s.condition_true_step_id ?? null,
-        condition_false_step_id: s.condition_false_step_id ?? null,
-        is_entry: i === 0,
-        step_order: i + 1,
-        config: (s.config as Record<string, unknown>) || {},
-    }));
+    // Adım id → kayıttaki step_order (1-tabanlı). Koşulun "hangi maili kontrol et"
+    // referansı (config.eval_step_id) bu haritayla motorun okuduğu eval_step_order'a çevrilir.
+    const orderOf = new Map<string, number>();
+    withIds.forEach((s, i) => orderOf.set(s.id, i + 1));
+    const eIdx = entryIndex(withIds); // tam olarak bir giriş (is_entry işaretli veya ilk adım)
+
+    return withIds.map((s, i) => {
+        const isCondition = s.step_type === 'condition';
+        const config: Record<string, unknown> = { ...((s.config as Record<string, unknown>) || {}) };
+        // Koşulun değerlendireceği mailin step_order'ını (motorun okuduğu alan) id'den çöz.
+        if (isCondition) {
+            const evalId = config.eval_step_id as string | undefined;
+            const evalOrder = evalId ? orderOf.get(evalId) : undefined;
+            if (evalOrder) config.eval_step_order = evalOrder;
+            else delete config.eval_step_order;
+        }
+        return {
+            id: s.id,
+            step_type: s.step_type,
+            step_kind: s.step_kind || s.step_type,
+            subject: s.subject ?? null,
+            body_html: s.body_html ?? null,
+            body_text: s.body_text ?? null,
+            delay_days: s.delay_days || 0,
+            delay_hours: s.delay_hours || 0,
+            condition_type: isCondition ? (s.condition_type ?? 'opened') : null,
+            condition_wait_hours: isCondition ? (s.condition_wait_hours ?? 72) : null,
+            // Koşul next_step_id taşımaz — yönlendirme true/false dallarıyla yapılır.
+            // Diğer adımlar açık next_step_id'yi korur (null = BİTİŞ), TANIMSIZ ise lineer
+            // yedeğe düşer — migrate'teki resolveLinearNext ile birebir aynı mantık.
+            next_step_id: isCondition ? null : resolveLinearNext(withIds, i),
+            condition_true_step_id: isCondition ? (s.condition_true_step_id ?? null) : null,
+            condition_false_step_id: isCondition ? (s.condition_false_step_id ?? null) : null,
+            is_entry: i === eIdx,
+            step_order: i + 1,
+            config,
+        };
+    });
 }
 
 // Graf modelini React Flow node/edge'lerine çevirir. selectedStepIndex eşleşen mail
@@ -168,22 +258,34 @@ export function toFlow(
         position: n.position,
         data: n.data,
         selected: n.data.stepIndex != null && n.data.stepIndex === selectedStepIndex,
-        // Yalnız gerçek adım (mail) node'ları sürüklenebilir; trigger/bekle türevdir.
+        // Yalnız gerçek adım (mail) node'ları sürüklenebilir; trigger/türev-bekle değil.
         draggable: editable && n.data.stepIndex != null,
-        connectable: false,
+        // Bağlanabilir: düzenlenebilir modda gerçek node'lar (trigger + adımlar). Türev bekle
+        // node'u adım-içidir → bağlanamaz (kenarlar adımın kendisine çekilir).
+        connectable: editable && !n.data.derived,
     }));
-    const flowEdges: Edge[] = edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        // 'next' lineer varsayılan handle'dır (id'siz) → sourceHandle göndermeyiz,
-        // yoksa React Flow eşleşen handle bulamayıp kenarı düşürür (görünmez olur).
-        // Adlı dallar (true/false/varyant) Batch 4b'de handle id'leriyle eşlenir.
-        sourceHandle: e.sourceHandle && e.sourceHandle !== 'next' ? e.sourceHandle : undefined,
-        label: e.label,
-        type: 'smoothstep',
-        animated: false,
-        markerEnd: { type: 'arrowclosed' as MarkerType }, // akış yönü için ok ucu
-    }));
+    const flowEdges: Edge[] = edges.map((e) => {
+        // Koşul dalları renklendirilir: true → yeşil (Evet), false → kırmızı (Hayır).
+        const branchColor = e.sourceHandle === 'true' ? 'var(--mantine-color-teal-5)'
+            : e.sourceHandle === 'false' ? 'var(--mantine-color-red-5)'
+            : undefined;
+        // Silinebilir kenar: kullanıcı yönlendirmesi (adım çıkışı). Adım-içi türev bekle
+        // (dw-) ve trigger→giriş kenarları silinemez (yapısal/zorunlu).
+        const deletable = editable && !e.source.startsWith('dw-') && e.source !== TRIGGER_ID;
+        return {
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            // 'next' lineer varsayılan handle'dır (id'siz) → sourceHandle göndermeyiz.
+            // Adlı dallar (true/false) ConditionNode handle id'leriyle eşlenir.
+            sourceHandle: e.sourceHandle && e.sourceHandle !== 'next' ? e.sourceHandle : undefined,
+            label: e.label,
+            type: 'editable', // özel kenar (üzerine gelince sil ✕ butonu)
+            deletable,
+            animated: false,
+            style: branchColor ? { stroke: branchColor, strokeWidth: 1.5 } : undefined,
+            markerEnd: { type: 'arrowclosed' as MarkerType, color: branchColor }, // akış yönü oku (dal rengiyle)
+        };
+    });
     return { nodes: flowNodes, edges: flowEdges };
 }
