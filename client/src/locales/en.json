@@ -1047,7 +1047,12 @@
                 "dayShort": "d",
                 "hourShort": "h",
                 "deleteNode": "Delete",
-                "selectNode": "Select an email node on the canvas to edit it."
+                "addWait": "Add wait",
+                "waitTitle": "Wait",
+                "waitNote": "Pauses before moving on to the next step.",
+                "dayUnit": "d",
+                "hourUnit": "h",
+                "selectNode": "Select a node on the canvas to edit it."
             },
             "testSend": "Send test",
             "testSendTitle": "Send test email",

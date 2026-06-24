@@ -2,10 +2,10 @@ import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-    Container, Paper, Group, Stack, Text, TextInput, Button, Badge, Grid, Tabs, Loader, Center, Modal, Alert, Tooltip, SegmentedControl,
+    Container, Paper, Group, Stack, Text, TextInput, Button, Badge, Grid, Tabs, Loader, Center, Modal, Alert, Tooltip, SegmentedControl, NumberInput,
 } from '@mantine/core';
 import {
-    IconArrowLeft, IconDeviceFloppy, IconPlayerPause, IconChartBar, IconUsers, IconList, IconAlertCircle, IconSettings, IconSitemap,
+    IconArrowLeft, IconDeviceFloppy, IconPlayerPause, IconChartBar, IconUsers, IconList, IconAlertCircle, IconSettings, IconSitemap, IconHourglass,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -181,12 +181,22 @@ export default function CampaignEditorPage() {
     // Görsel tuval düzenleme — SequenceTimeline ile aynı model (steps tek kaynak).
     // Yeni adım her zaman e-posta; ilk adım hemen (delay 0), sonrakiler 2 gün bekler.
     const addEmailStep = () => {
-        const isFirst = steps.length === 0;
         const s: CampaignStep = {
             id: newId(), // stabil id → {nodes} kaydında upsert (UUID churn yok)
             step_order: steps.length + 1, step_type: 'email',
             subject: '', body_html: '', body_text: null,
-            delay_days: isFirst ? 0 : 2, delay_hours: 0,
+            delay_days: 0, delay_hours: 0, // görsel: bekleme ayrı "Bekle" node'u ile eklenir
+        };
+        setStepsDirty([...steps, s]);
+        setSelectedIdx(steps.length);
+    };
+    // Bağımsız Bekleme adımı (delay node) — sıradaki adıma geçmeden önce bekler.
+    const addWaitStep = () => {
+        const s: CampaignStep = {
+            id: newId(),
+            step_order: steps.length + 1, step_type: 'delay',
+            subject: null, body_html: null, body_text: null,
+            delay_days: 1, delay_hours: 0,
         };
         setStepsDirty([...steps, s]);
         setSelectedIdx(steps.length);
@@ -210,6 +220,28 @@ export default function CampaignEditorPage() {
     const isReadOnly = campaign?.status === 'active';
     const isDraft = !campaign || campaign.status === 'draft' || campaign.status === 'paused';
     const isActive = campaign?.status === 'active';
+
+    // Seçili adımın düzenleyicisi — Bekle (delay) adımı için gecikme formu, aksi
+    // halde StepEditor. Hem Basit hem Görsel görünüm aynı düzenleyiciyi paylaşır.
+    const inspectorBody = !selectedStep ? null : selectedStep.step_type === 'delay' ? (
+        <Stack gap="sm">
+            <Group gap="xs" mb={4}>
+                <IconHourglass size={16} color="var(--mantine-color-gray-6)" />
+                <Text size="sm" fw={600}>{t('campaign.editor.graph.waitTitle', 'Wait')}</Text>
+            </Group>
+            <Text size="xs" c="dimmed">{t('campaign.editor.graph.waitNote', 'Pauses before moving on to the next step.')}</Text>
+            <Group grow>
+                <NumberInput label={t('campaign.editor.days', 'Days')} min={0} max={90} radius="md" size="sm"
+                    value={selectedStep.delay_days || 0} onChange={(v) => handleStepTextChange({ delay_days: Number(v) || 0 })} disabled={isReadOnly} />
+                <NumberInput label={t('campaign.editor.hours', 'Hours')} min={0} max={23} radius="md" size="sm"
+                    value={selectedStep.delay_hours || 0} onChange={(v) => handleStepTextChange({ delay_hours: Number(v) || 0 })} disabled={isReadOnly} />
+            </Group>
+        </Stack>
+    ) : (
+        <StepEditor key={selectedIdx} step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0}
+            onSendTest={!isNew && id ? (p) => testMut.mutateAsync(p).then(() => undefined) : undefined}
+            defaultTestEmail={user?.email} />
+    );
 
     if (!isNew && isLoading) return <Center py="xl"><Loader color="violet" /></Center>;
 
@@ -283,11 +315,7 @@ export default function CampaignEditorPage() {
                                 </Grid.Col>
                                 <Grid.Col span={8}>
                                     <Paper shadow="xs" radius="md" p="lg" withBorder mih={400}>
-                                        {selectedStep ? (
-                                            <StepEditor key={selectedIdx} step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0}
-                                                onSendTest={!isNew && id ? (p) => testMut.mutateAsync(p).then(() => undefined) : undefined}
-                                                defaultTestEmail={user?.email} />
-                                        ) : (
+                                        {selectedStep ? inspectorBody : (
                                             <Center h={300}>
                                                 <Text size="sm" c="dimmed">
                                                     {steps.length === 0 ? t('campaign.editor.addFirstStep', 'Add your first step using the button on the left.') : t('campaign.editor.selectStep', 'Select a step to edit.')}
@@ -302,18 +330,14 @@ export default function CampaignEditorPage() {
                                 <Grid.Col span={8}>
                                     <Suspense fallback={<Center h={540}><Loader color="violet" /></Center>}>
                                         <GraphEditor steps={steps} selectedIndex={selectedIdx} onSelectStep={setSelectedIdx}
-                                            readOnly={isReadOnly} onAddEmail={addEmailStep} onDeleteStep={deleteStep} onMoveStep={onMoveStep} />
+                                            readOnly={isReadOnly} onAddEmail={addEmailStep} onAddWait={addWaitStep} onDeleteStep={deleteStep} onMoveStep={onMoveStep} />
                                     </Suspense>
                                 </Grid.Col>
                                 <Grid.Col span={4}>
                                     <Paper shadow="xs" radius="md" p="lg" withBorder mih={400}>
-                                        {selectedStep ? (
-                                            <StepEditor key={selectedIdx} step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0}
-                                                onSendTest={!isNew && id ? (p) => testMut.mutateAsync(p).then(() => undefined) : undefined}
-                                                defaultTestEmail={user?.email} />
-                                        ) : (
+                                        {selectedStep ? inspectorBody : (
                                             <Center h={300}>
-                                                <Text size="sm" c="dimmed" ta="center">{t('campaign.editor.graph.selectNode', 'Select an email node on the canvas to edit it.')}</Text>
+                                                <Text size="sm" c="dimmed" ta="center">{t('campaign.editor.graph.selectNode', 'Select a node on the canvas to edit it.')}</Text>
                                             </Center>
                                         )}
                                     </Paper>

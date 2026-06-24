@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.15.6',
+        date: '2026-06-24',
+        type: 'improvement',
+        title: { tr: 'Görsel Akış Cilası', en: 'Visual Flow Polish' },
+        about: {
+            tr: 'Görsel akışta mail konuları temiz görünür, boş adımlar uyarı gösterir, bağlantılar yön okuyla akar ve artık ayrı bir Bekleme adımı ekleyebilirsiniz.',
+            en: 'In the visual flow, email subjects display cleanly, empty steps show a warning, connections flow with a direction arrow, and you can now add a standalone Wait step.',
+        },
+        usage: {
+            tr: 'Görsel görünümün araç çubuğundaki Bekle ekle ile bekleme koyun; bir Bekleme kutusuna tıklayıp süresini düzenleyin.',
+            en: 'Use Add wait on the Visual toolbar to insert a wait; click a Wait box to edit its duration.',
+        },
+    },
+    {
         version: '1.15.5',
         date: '2026-06-24',
         type: 'fix',

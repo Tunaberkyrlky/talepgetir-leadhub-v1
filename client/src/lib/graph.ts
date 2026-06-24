@@ -3,7 +3,7 @@
 // kullanılır (trigger → (bekle?) → mail zinciri). Düzenlenebilir graf + kalıcı
 // kayıt sonraki batch'lerde gelir; o zaman node id'leri client-üretimi UUID olur.
 
-import type { Node, Edge } from '@xyflow/react';
+import type { Node, Edge, MarkerType } from '@xyflow/react';
 import type { CampaignStep } from '../types/campaign';
 
 export type GraphNodeKind = 'trigger' | 'email' | 'wait' | 'condition' | 'split' | 'action';
@@ -22,8 +22,10 @@ export interface GraphNodeData {
     eval_step_order?: number;
     // split/action (Batch 5)
     config?: Record<string, unknown>;
-    // Lineer adıma geri bağ — Batch 1'de seçili mail node'unu steps[stepIndex]'e eşler.
+    // Lineer adıma geri bağ — seçili mail node'unu steps[stepIndex]'e eşler.
     stepIndex?: number;
+    // Türev bekle node'u (mail'in satır-içi gecikmesinden üretilmiş, düzenlenemez).
+    derived?: boolean;
     [key: string]: unknown;
 }
 
@@ -66,22 +68,32 @@ export function migrateLinearToGraph(steps: CampaignStep[]): { nodes: GraphNode[
     steps.forEach((s, i) => {
         const dd = s.delay_days || 0;
         const dh = s.delay_hours || 0;
-        if (dd > 0 || dh > 0) {
-            const waitId = `wait-${i}`;
-            nodes.push({ id: waitId, kind: 'wait', position: { x: COL_X, y }, data: { delay_days: dd, delay_hours: dh } });
-            edges.push({ id: `e-${prevId}-${waitId}`, source: prevId, target: waitId, sourceHandle: 'next' });
-            prevId = waitId;
-            y += GAP_Y;
-        }
-        const nodeId = `step-${i}`;
-        const kind: GraphNodeKind = s.step_type === 'condition' ? 'condition' : s.step_type === 'delay' ? 'wait' : 'email';
-        // Konum: kullanıcı sürüklediyse config.pos'tan, yoksa otomatik dikey yerleşim.
         const pos = readPos(s);
-        nodes.push({
-            id: nodeId, kind, position: pos ?? { x: COL_X, y },
-            data: { subject: s.subject, body_html: s.body_html, body_text: s.body_text, stepIndex: i },
-        });
-        edges.push({ id: `e-${prevId}-${nodeId}`, source: prevId, target: nodeId, sourceHandle: 'next' });
+        const nodeId = `step-${i}`;
+
+        if (s.step_type === 'email') {
+            // Mail'in satır-içi "önce bekle" gecikmesi → TÜREVİ bekle node'u (düzenlenemez;
+            // gecikme mail'in StepEditor'ından değişir). Yalnız gecikme>0 ise gösterilir.
+            if (dd > 0 || dh > 0) {
+                const waitId = `wait-${i}`;
+                nodes.push({ id: waitId, kind: 'wait', position: { x: COL_X, y }, data: { delay_days: dd, delay_hours: dh, derived: true } });
+                edges.push({ id: `e-${prevId}-${waitId}`, source: prevId, target: waitId });
+                prevId = waitId;
+                y += GAP_Y;
+            }
+            nodes.push({
+                id: nodeId, kind: 'email', position: pos ?? { x: COL_X, y },
+                data: { subject: s.subject, body_html: s.body_html, body_text: s.body_text, stepIndex: i },
+            });
+        } else {
+            // Bağımsız Bekle (delay adımı) veya Koşul adımı → tek DÜZENLENEBİLİR node.
+            const kind: GraphNodeKind = s.step_type === 'condition' ? 'condition' : 'wait';
+            nodes.push({
+                id: nodeId, kind, position: pos ?? { x: COL_X, y },
+                data: { delay_days: dd, delay_hours: dh, subject: s.subject, body_html: s.body_html, stepIndex: i },
+            });
+        }
+        edges.push({ id: `e-${prevId}-${nodeId}`, source: prevId, target: nodeId });
         prevId = nodeId;
         y += GAP_Y;
     });
@@ -171,6 +183,7 @@ export function toFlow(
         label: e.label,
         type: 'smoothstep',
         animated: false,
+        markerEnd: { type: 'arrowclosed' as MarkerType }, // akış yönü için ok ucu
     }));
     return { nodes: flowNodes, edges: flowEdges };
 }

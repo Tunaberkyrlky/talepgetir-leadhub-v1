@@ -1047,7 +1047,12 @@
                 "dayShort": "g",
                 "hourShort": "s",
                 "deleteNode": "Sil",
-                "selectNode": "Düzenlemek için tuvalden bir mail kutusuna tıklayın."
+                "addWait": "Bekle ekle",
+                "waitTitle": "Bekleme",
+                "waitNote": "Sıradaki adıma geçmeden önce bekler.",
+                "dayUnit": "gün",
+                "hourUnit": "saat",
+                "selectNode": "Düzenlemek için tuvaldeki bir node'a tıklayın."
             },
             "testSend": "Test gönder",
             "testSendTitle": "Test maili gönder",

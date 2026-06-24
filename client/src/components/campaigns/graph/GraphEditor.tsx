@@ -1,6 +1,6 @@
-// Görsel karar ağacı tuvali (React Flow). Batch 1: SALT-OKUNUR — mevcut lineer
-// adımları trigger → (bekle?) → mail zinciri olarak gösterir, mail node'una
-// tıklanınca sağdaki StepEditor'ı açar. Node ekleme/bağlama/silme sonraki batch'te.
+// Görsel karar ağacı tuvali (React Flow). Mevcut adımları trigger → (bekle?) →
+// mail zinciri olarak gösterir; node'a tıklanınca sağdaki düzenleyici açılır.
+// Mail/Bekle ekleme, sürükle-konum ve silme araç çubuğundan yapılır.
 import '@xyflow/react/dist/style.css';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -8,12 +8,17 @@ import {
     type Node, type NodeProps, type NodeMouseHandler, type OnNodeDrag, type OnNodesChange,
 } from '@xyflow/react';
 import { Paper, Text, Group, ThemeIcon, Button } from '@mantine/core';
-import { IconMail, IconClock, IconBolt, IconPlus, IconTrash } from '@tabler/icons-react';
+import { IconMail, IconBolt, IconPlus, IconTrash, IconAlertTriangle, IconHourglass } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { migrateLinearToGraph, toFlow, type GraphNodeData } from '../../../lib/graph';
 import type { CampaignStep } from '../../../types/campaign';
 
 const HANDLE_STYLE = { width: 6, height: 6, background: 'var(--mantine-color-gray-4)', border: 'none' } as const;
+
+// Önizlemede spintax'ın ilk seçeneğini gösterir (ham {{random|...}} yerine stabil metin).
+function resolveSpintaxFirst(text: string): string {
+    return text.replace(/\{\{\s*random\s*\|((?:[^{}]|\{\{[^{}]*\}\})*)\}\}/gi, (_m, g: string) => (g.split('|')[0] || '').trim());
+}
 
 // ── Custom node'lar (Mantine temalı) ───────────────────────────────────────
 function TriggerNode() {
@@ -37,7 +42,8 @@ function TriggerNode() {
 function EmailNode({ data, selected }: NodeProps) {
     const { t } = useTranslation();
     const d = data as GraphNodeData;
-    const subject = (d.subject || '').trim();
+    const subject = resolveSpintaxFirst((d.subject || '').trim());
+    const isEmpty = !subject && !(d.body_html || '').trim();
     return (
         <div style={{ width: 210 }}>
             <Handle type="target" position={Position.Top} style={HANDLE_STYLE} isConnectable={false} />
@@ -48,10 +54,15 @@ function EmailNode({ data, selected }: NodeProps) {
                 }}>
                 <Group gap={8} wrap="nowrap">
                     <ThemeIcon size="sm" radius="md" variant="light" color="violet"><IconMail size={14} /></ThemeIcon>
-                    <div style={{ minWidth: 0 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
                         <Text size="xs" fw={600} c="violet.7">{t('campaign.editor.graph.email', 'Email')}</Text>
                         <Text size="xs" c="dimmed" lineClamp={1}>{subject || t('campaign.editor.graph.untitled', '(no subject)')}</Text>
                     </div>
+                    {isEmpty && (
+                        <ThemeIcon size="sm" radius="md" variant="light" color="orange" title={t('campaign.editor.emptyStep', 'Subject or body is empty')}>
+                            <IconAlertTriangle size={13} />
+                        </ThemeIcon>
+                    )}
                 </Group>
             </Paper>
             <Handle type="source" position={Position.Bottom} style={HANDLE_STYLE} isConnectable={false} />
@@ -59,21 +70,28 @@ function EmailNode({ data, selected }: NodeProps) {
     );
 }
 
-function WaitNode({ data }: NodeProps) {
+function WaitNode({ data, selected }: NodeProps) {
     const { t } = useTranslation();
     const d = data as GraphNodeData;
     const days = d.delay_days || 0;
     const hours = d.delay_hours || 0;
     const parts: string[] = [];
-    if (days) parts.push(`${days}${t('campaign.editor.graph.dayShort', 'd')}`);
-    if (hours) parts.push(`${hours}${t('campaign.editor.graph.hourShort', 'h')}`);
-    const dur = parts.join(' ') || '0';
+    if (days) parts.push(`${days} ${t('campaign.editor.graph.dayUnit', 'd')}`);
+    if (hours) parts.push(`${hours} ${t('campaign.editor.graph.hourUnit', 'h')}`);
+    const dur = parts.join(' ') || '—';
+    const editable = !d.derived; // bağımsız bekle adımı → seçilebilir/vurgulanabilir
     return (
-        <div style={{ width: 160 }}>
+        <div style={{ width: 170 }}>
             <Handle type="target" position={Position.Top} style={HANDLE_STYLE} isConnectable={false} />
-            <Paper withBorder radius="xl" px="sm" py={6}>
+            <Paper withBorder radius="xl" px="sm" py={6}
+                style={{
+                    borderColor: selected ? 'var(--mantine-color-gray-6)' : 'var(--mantine-color-gray-3)',
+                    borderWidth: selected ? 2 : 1,
+                    cursor: editable ? 'pointer' : 'default',
+                    background: editable ? undefined : 'var(--mantine-color-gray-0)',
+                }}>
                 <Group gap={6} wrap="nowrap" justify="center">
-                    <IconClock size={13} color="var(--mantine-color-gray-6)" />
+                    <IconHourglass size={13} color="var(--mantine-color-gray-6)" />
                     <Text size="xs" c="dimmed" fw={500}>{t('campaign.editor.graph.wait', 'Wait')} {dur}</Text>
                 </Group>
             </Paper>
@@ -91,11 +109,12 @@ interface Props {
     onSelectStep: (i: number) => void;
     readOnly?: boolean;
     onAddEmail?: () => void;
+    onAddWait?: () => void;
     onDeleteStep?: (i: number) => void;
     onMoveStep?: (i: number, pos: { x: number; y: number }) => void;
 }
 
-export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOnly, onAddEmail, onDeleteStep, onMoveStep }: Props) {
+export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOnly, onAddEmail, onAddWait, onDeleteStep, onMoveStep }: Props) {
     const { t } = useTranslation();
     const graph = useMemo(() => migrateLinearToGraph(steps), [steps]);
     const flow = useMemo(
@@ -151,6 +170,11 @@ export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOn
                             <Button size="xs" variant="light" color="violet" leftSection={<IconPlus size={14} />} onClick={onAddEmail}>
                                 {t('campaign.editor.addEmailStep', 'Add email step')}
                             </Button>
+                            {onAddWait && (
+                                <Button size="xs" variant="light" color="gray" leftSection={<IconHourglass size={14} />} onClick={onAddWait}>
+                                    {t('campaign.editor.graph.addWait', 'Add wait')}
+                                </Button>
+                            )}
                             <Button size="xs" variant="light" color="red" leftSection={<IconTrash size={14} />}
                                 disabled={selectedIndex === null}
                                 onClick={() => { if (selectedIndex !== null) onDeleteStep?.(selectedIndex); }}>
