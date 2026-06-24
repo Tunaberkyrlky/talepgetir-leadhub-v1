@@ -48,6 +48,7 @@ interface EnrollmentRef {
     campaign_id: string;
     status?: string | null;
     branch_path?: string | null;
+    replied_at?: string | null;
 }
 
 interface EnrollContact {
@@ -225,11 +226,13 @@ async function resolveNextStep(
 // (tracking yalnız activity_id yazıyor); bu yüzden activities.enrollment_id üzerinden
 // join edilir — event satırının enrollment_id'si DOĞRUDAN kullanılmamalı (hep null).
 // config.eval_step_order verilmişse yalnız o adımın maili kontrol edilir (yoksa herhangi
-// bir mail "açıldı mı" sayılırdı). 'replied' enrollment.status'tan okunur.
+// bir mail "açıldı mı" sayılırdı). 'replied' kalıcı replied_at işaretinden okunur —
+// status DEĞİL: yanıt gelince enrollment status'u 'replied' olup scheduler havuzundan
+// çıktığı için condition'a hiç ulaşamazdı (bkz. cancelEnrollmentOnReply).
 async function evaluateCondition(step: CampaignStep, enrollment: EnrollmentRef): Promise<boolean> {
     const ct = step.condition_type || 'opened';
-    if (ct === 'replied') return enrollment.status === 'replied';
-    if (ct === 'not_replied') return enrollment.status !== 'replied';
+    if (ct === 'replied') return !!enrollment.replied_at;
+    if (ct === 'not_replied') return !enrollment.replied_at;
 
     const wantType = ct.includes('open') ? 'open' : 'click';
     const evalOrder = step.config ? Number((step.config as any).eval_step_order) : NaN;
@@ -400,7 +403,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
         .from('campaign_enrollments')
         .select(`
             id, tenant_id, campaign_id, contact_id, company_id, email,
-            current_step_id, next_scheduled_at, branch_path, status
+            current_step_id, next_scheduled_at, branch_path, status, replied_at
         `)
         .eq('status', 'active')
         .lte('next_scheduled_at', new Date().toISOString())
@@ -772,17 +775,47 @@ export async function cancelEnrollmentOnReply(senderEmail: string, tenantId: str
 
     const contactIds = contacts.map((c) => c.id);
 
-    const { data: cancelled } = await supabaseAdmin
+    // Yanıtlayan kişinin aktif/duraklı enrollment'ları.
+    const { data: enrollments } = await supabaseAdmin
         .from('campaign_enrollments')
-        .update({ status: 'replied', next_scheduled_at: null })
+        .select('id, campaign_id')
         .in('status', ['active', 'paused'])
         .eq('tenant_id', tenantId)
-        .in('contact_id', contactIds)
-        .select('id, campaign_id');
+        .in('contact_id', contactIds);
 
-    if (cancelled?.length) {
-        log.info({ senderEmail, count: cancelled.length }, 'Enrollments cancelled on reply');
+    if (!enrollments?.length) return;
+
+    // Yanıt anını her durumda kalıcı işaretle — reply-condition node'ları bunu okur
+    // (status='replied' enrollment scheduler'dan düştüğü için condition'a ulaşamazdı).
+    await supabaseAdmin
+        .from('campaign_enrollments')
+        .update({ replied_at: new Date().toISOString() })
+        .in('id', enrollments.map((e) => e.id));
+
+    // Reply-condition'ı (replied/not_replied) olan kampanyalardaki enrollment'lar
+    // SONLANDIRILMAZ — condition node'una ulaşıp dallanabilsinler. Diğer (lineer)
+    // kampanyalarda eski iptal davranışı aynen korunur. Bugün hiçbir kampanyada
+    // reply-condition yok → bu dal dormant, mevcut davranış değişmez.
+    const campaignIds = [...new Set(enrollments.map((e) => e.campaign_id))];
+    const { data: replyCondSteps } = await supabaseAdmin
+        .from('campaign_steps')
+        .select('campaign_id')
+        .in('campaign_id', campaignIds)
+        .in('condition_type', ['replied', 'not_replied']);
+    const branchingCampaigns = new Set((replyCondSteps || []).map((s) => s.campaign_id));
+
+    const toCancel = enrollments.filter((e) => !branchingCampaigns.has(e.campaign_id)).map((e) => e.id);
+    if (toCancel.length) {
+        await supabaseAdmin
+            .from('campaign_enrollments')
+            .update({ status: 'replied', next_scheduled_at: null })
+            .in('id', toCancel);
     }
+
+    log.info(
+        { senderEmail, total: enrollments.length, cancelled: toCancel.length, kept: enrollments.length - toCancel.length },
+        'Reply processed on enrollments',
+    );
 }
 
 // ── Campaign Stats ─────────────────────────────────────────────────────────

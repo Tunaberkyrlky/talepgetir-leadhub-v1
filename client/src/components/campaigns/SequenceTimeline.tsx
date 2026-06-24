@@ -16,6 +16,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { CampaignStep } from '../../types/campaign';
+import { newId } from '../../lib/graph';
 
 interface Props {
     steps: CampaignStep[];
@@ -136,6 +137,7 @@ export default function SequenceTimeline({ steps, onChange, onSelectStep, select
     const addStep = () => {
         const isFirst = steps.length === 0;
         const s: CampaignStep = {
+            id: newId(), // stabil id → {nodes} kaydında upsert (UUID churn yok)
             step_order: steps.length + 1, step_type: 'email',
             subject: '', body_html: '', body_text: null,
             delay_days: isFirst ? 0 : 2, delay_hours: 0,

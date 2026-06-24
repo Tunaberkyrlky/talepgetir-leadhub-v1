@@ -75,8 +75,10 @@ export function migrateLinearToGraph(steps: CampaignStep[]): { nodes: GraphNode[
         }
         const nodeId = `step-${i}`;
         const kind: GraphNodeKind = s.step_type === 'condition' ? 'condition' : s.step_type === 'delay' ? 'wait' : 'email';
+        // Konum: kullanıcı sürüklediyse config.pos'tan, yoksa otomatik dikey yerleşim.
+        const pos = readPos(s);
         nodes.push({
-            id: nodeId, kind, position: { x: COL_X, y },
+            id: nodeId, kind, position: pos ?? { x: COL_X, y },
             data: { subject: s.subject, body_html: s.body_html, body_text: s.body_text, stepIndex: i },
         });
         edges.push({ id: `e-${prevId}-${nodeId}`, source: prevId, target: nodeId, sourceHandle: 'next' });
@@ -87,12 +89,66 @@ export function migrateLinearToGraph(steps: CampaignStep[]): { nodes: GraphNode[
     return { nodes, edges };
 }
 
+// Bir adımın kayıtlı tuval konumunu (config.pos) okur — yoksa undefined.
+function readPos(step: CampaignStep): { x: number; y: number } | undefined {
+    const p = (step.config as { pos?: { x: number; y: number } } | null | undefined)?.pos;
+    return p && typeof p.x === 'number' && typeof p.y === 'number' ? p : undefined;
+}
+
+// ── Kayıt serileştirme: steps[] → {nodes} (save_campaign_graph RPC payload) ──
+// Batch 4a: lineer zincir (next_step_id = sıradaki adım), ilk adım giriş. Stabil
+// id'ler korunur (upsert) → eski delete+reinsert'in UUID churn'ü ortadan kalkar,
+// böylece in-flight enrollment'ların current_step_id'si bozulmaz. config.pos saklanır.
+export interface GraphSaveNode {
+    id: string;
+    step_type: string;
+    step_kind: string;
+    subject: string | null;
+    body_html: string | null;
+    body_text: string | null;
+    delay_days: number;
+    delay_hours: number;
+    condition_type: string | null;
+    condition_wait_hours: number | null;
+    next_step_id: string | null;
+    condition_true_step_id: string | null;
+    condition_false_step_id: string | null;
+    is_entry: boolean;
+    step_order: number;
+    config: Record<string, unknown>;
+}
+
+export function serializeStepsToNodes(steps: CampaignStep[]): GraphSaveNode[] {
+    // Her adımın stabil bir id'si olmalı (ekleme yollarında newId() atanır; eski
+    // kampanyalarda sunucudan gelir). Yine de eksikse burada üret — churn olmasın.
+    const withIds = steps.map((s) => ({ ...s, id: s.id || newId() }));
+    return withIds.map((s, i) => ({
+        id: s.id,
+        step_type: s.step_type,
+        step_kind: s.step_kind || s.step_type,
+        subject: s.subject ?? null,
+        body_html: s.body_html ?? null,
+        body_text: s.body_text ?? null,
+        delay_days: s.delay_days || 0,
+        delay_hours: s.delay_hours || 0,
+        condition_type: s.condition_type ?? null,
+        condition_wait_hours: s.condition_wait_hours ?? null,
+        next_step_id: i < withIds.length - 1 ? withIds[i + 1].id : null,
+        condition_true_step_id: s.condition_true_step_id ?? null,
+        condition_false_step_id: s.condition_false_step_id ?? null,
+        is_entry: i === 0,
+        step_order: i + 1,
+        config: (s.config as Record<string, unknown>) || {},
+    }));
+}
+
 // Graf modelini React Flow node/edge'lerine çevirir. selectedStepIndex eşleşen mail
 // node'una `selected` bayrağı koyar (custom node bu prop'a göre kendini vurgular).
 export function toFlow(
     nodes: GraphNode[],
     edges: GraphEdge[],
     selectedStepIndex: number | null,
+    editable = false,
 ): { nodes: Node[]; edges: Edge[] } {
     const flowNodes: Node[] = nodes.map((n) => ({
         id: n.id,
@@ -100,7 +156,8 @@ export function toFlow(
         position: n.position,
         data: n.data,
         selected: n.data.stepIndex != null && n.data.stepIndex === selectedStepIndex,
-        draggable: false,
+        // Yalnız gerçek adım (mail) node'ları sürüklenebilir; trigger/bekle türevdir.
+        draggable: editable && n.data.stepIndex != null,
         connectable: false,
     }));
     const flowEdges: Edge[] = edges.map((e) => ({

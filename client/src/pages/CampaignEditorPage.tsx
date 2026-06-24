@@ -18,6 +18,7 @@ import ActivationGuard from '../components/campaigns/ActivationGuard';
 import CampaignStatsPanel from '../components/campaigns/CampaignStatsPanel';
 import CampaignSettingsPanel from '../components/campaigns/CampaignSettingsPanel';
 import type { Campaign, CampaignStep, CampaignSettings } from '../types/campaign';
+import { newId, serializeStepsToNodes } from '../lib/graph';
 
 // Görsel tuval (React Flow) yalnız "Görsel" görünüme geçilince yüklensin — Basit
 // görünümde editör chunk'ı hafif kalır (React Flow ayrı 'flow' chunk'ında).
@@ -136,14 +137,16 @@ export default function CampaignEditorPage() {
 
     const saveMut = useMutation<string | undefined, unknown, void>({
         mutationFn: async () => {
+            // Stabil id'lerle {nodes} graf yolundan kaydet (upsert + prune): adım
+            // UUID'leri korunur, in-flight enrollment'lar bozulmaz, konumlar saklanır.
             if (isNew) {
                 const r = await api.post('/campaigns', { name, from_name: fromName, settings });
                 const cid = r.data.data.id;
-                if (steps.length) await api.put(`/campaigns/${cid}/steps`, { steps });
+                if (steps.length) await api.put(`/campaigns/${cid}/steps`, { nodes: serializeStepsToNodes(steps) });
                 return cid;
             }
             await api.put(`/campaigns/${id}`, { name, from_name: fromName, settings });
-            await api.put(`/campaigns/${id}/steps`, { steps });
+            if (steps.length) await api.put(`/campaigns/${id}/steps`, { nodes: serializeStepsToNodes(steps) });
             return id;
         },
         onSuccess: (cid) => {
@@ -180,6 +183,7 @@ export default function CampaignEditorPage() {
     const addEmailStep = () => {
         const isFirst = steps.length === 0;
         const s: CampaignStep = {
+            id: newId(), // stabil id → {nodes} kaydında upsert (UUID churn yok)
             step_order: steps.length + 1, step_type: 'email',
             subject: '', body_html: '', body_text: null,
             delay_days: isFirst ? 0 : 2, delay_hours: 0,
@@ -191,6 +195,15 @@ export default function CampaignEditorPage() {
         const updated = steps.filter((_, idx) => idx !== i).map((s, idx) => ({ ...s, step_order: idx + 1 }));
         setStepsDirty(updated);
         if (selectedIdx === i) setSelectedIdx(updated.length ? Math.max(0, i - 1) : null);
+    };
+    // Tuvalde sürükleme → adımın konumunu config.pos'a yaz (undo'ya gerek yok, küçük).
+    const onMoveStep = (i: number, pos: { x: number; y: number }) => {
+        setSteps((prev) => {
+            const next = [...prev];
+            next[i] = { ...next[i], config: { ...(next[i].config as Record<string, unknown> | null), pos } };
+            return next;
+        });
+        markDirty();
     };
 
     const selectedStep = selectedIdx !== null ? steps[selectedIdx] : null;
@@ -289,7 +302,7 @@ export default function CampaignEditorPage() {
                                 <Grid.Col span={8}>
                                     <Suspense fallback={<Center h={540}><Loader color="violet" /></Center>}>
                                         <GraphEditor steps={steps} selectedIndex={selectedIdx} onSelectStep={setSelectedIdx}
-                                            readOnly={isReadOnly} onAddEmail={addEmailStep} onDeleteStep={deleteStep} />
+                                            readOnly={isReadOnly} onAddEmail={addEmailStep} onDeleteStep={deleteStep} onMoveStep={onMoveStep} />
                                     </Suspense>
                                 </Grid.Col>
                                 <Grid.Col span={4}>

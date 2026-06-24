@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.15.4',
+        date: '2026-06-24',
+        type: 'improvement',
+        title: { tr: 'Tuvalde Serbest Yerleşim', en: 'Free Canvas Layout' },
+        about: {
+            tr: 'Görsel akışta mail kutularını sürükleyerek istediğiniz gibi yerleştirebilir, düzeniniz kayıt sonrası korunur.',
+            en: 'In the visual flow you can drag email boxes to arrange them as you like, and your layout is kept after saving.',
+        },
+        usage: {
+            tr: 'Görsel görünümde bir mail kutusunu sürükleyip bırakın; yeri kaydettiğinizde hatırlanır.',
+            en: 'Drag and drop an email box in the Visual view; its place is remembered when you save.',
+        },
+        notes: {
+            tr: 'Duraklatılmış bir kampanyayı düzenlemek, dizide ilerleyen kişilerin sırasını artık bozmaz.',
+            en: 'Editing a paused campaign no longer disrupts the position of contacts already moving through it.',
+        },
+    },
+    {
         version: '1.15.3',
         date: '2026-06-23',
         type: 'improvement',

@@ -2,10 +2,10 @@
 // adımları trigger → (bekle?) → mail zinciri olarak gösterir, mail node'una
 // tıklanınca sağdaki StepEditor'ı açar. Node ekleme/bağlama/silme sonraki batch'te.
 import '@xyflow/react/dist/style.css';
-import { useCallback, useMemo, type MouseEvent } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
     ReactFlow, Background, Controls, MiniMap, Handle, Position, Panel,
-    type Node, type NodeProps,
+    type NodeProps, type NodeMouseHandler, type OnNodeDrag,
 } from '@xyflow/react';
 import { Paper, Text, Group, ThemeIcon, Button } from '@mantine/core';
 import { IconMail, IconClock, IconBolt, IconPlus, IconTrash } from '@tabler/icons-react';
@@ -92,20 +92,27 @@ interface Props {
     readOnly?: boolean;
     onAddEmail?: () => void;
     onDeleteStep?: (i: number) => void;
+    onMoveStep?: (i: number, pos: { x: number; y: number }) => void;
 }
 
-export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOnly, onAddEmail, onDeleteStep }: Props) {
+export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOnly, onAddEmail, onDeleteStep, onMoveStep }: Props) {
     const { t } = useTranslation();
     const graph = useMemo(() => migrateLinearToGraph(steps), [steps]);
     const { nodes, edges } = useMemo(
-        () => toFlow(graph.nodes, graph.edges, selectedIndex),
-        [graph, selectedIndex],
+        () => toFlow(graph.nodes, graph.edges, selectedIndex, !readOnly),
+        [graph, selectedIndex, readOnly],
     );
 
-    const onNodeClick = useCallback((_e: MouseEvent, node: Node) => {
+    const onNodeClick = useCallback<NodeMouseHandler>((_e, node) => {
         const idx = (node.data as GraphNodeData).stepIndex;
         if (typeof idx === 'number') onSelectStep(idx);
     }, [onSelectStep]);
+
+    // Sürükleme bitince adımın konumunu (config.pos) kaydet — yeniden açılışta korunur.
+    const onNodeDragStop = useCallback<OnNodeDrag>((_e, node) => {
+        const idx = (node.data as GraphNodeData).stepIndex;
+        if (typeof idx === 'number') onMoveStep?.(idx, { x: Math.round(node.position.x), y: Math.round(node.position.y) });
+    }, [onMoveStep]);
 
     return (
         <div style={{ height: 540, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--mantine-color-gray-3)' }}>
@@ -114,7 +121,8 @@ export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOn
                 edges={edges}
                 nodeTypes={NODE_TYPES}
                 onNodeClick={onNodeClick}
-                nodesDraggable={false}
+                onNodeDragStop={onNodeDragStop}
+                nodesDraggable={!readOnly}
                 nodesConnectable={false}
                 elementsSelectable={false}
                 fitView
