@@ -47,3 +47,7 @@ CLAUDE.md
 
 # PostHog wizard output
 posthog-setup-report.md
+
+# Graphify code-graph output (regenerate locally with `graphify update .`)
+graphify-out/
+**/graphify-out/

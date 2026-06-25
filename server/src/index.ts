@@ -36,6 +36,7 @@ import attachmentTemplatesRoutes from './routes/attachment-templates.js';
 import campaignRoutes from './routes/campaigns.js';
 import emailConnectionRoutes from './routes/email-connections.js';
 import trackingRoutes from './routes/tracking.js';
+import researchRoutes from './routes/research/index.js';
 import { startCampaignScheduler } from './lib/campaignScheduler.js';
 import { startImapPollingScheduler } from './lib/imapPollingScheduler.js';
 
@@ -209,6 +210,11 @@ app.use('/api/feedback', authMiddleware, feedbackRoutes);
 app.use('/api/attachment-templates', authMiddleware, attachmentTemplatesRoutes);
 app.use('/api/campaigns', authMiddleware, campaignRoutes);
 app.use('/api/email-connections', authMiddleware, emailConnectionRoutes);
+
+// TG-Research module (isolated). Auth only for now; tier/quota gating arrives
+// with the billing slice. The module never touches CRM tables — handoff is
+// one-way via importProcessor (F2), not wired in the skeleton.
+app.use('/api/research', authMiddleware, researchRoutes);
 
 // Nango OAuth custom callback — Google, redirect URI'nin bizim sahip olduğumuz
 // (ve Search Console'da doğrulayabildiğimiz) bir domain'de olmasını ister. Nango'nun
