@@ -20,21 +20,24 @@ function isSafeUrl(url: string): boolean {
 
 function buildCard(t: AttachmentTemplate): string {
     const safeUrl = isSafeUrl(t.file_url) ? t.file_url : '#';
+    const href = escapeHtml(safeUrl);
+    // The border/padding live on the container <td>, NOT an <a> wrapping the whole
+    // card: Outlook (Word engine) is unreliable at making an anchor that wraps a
+    // block <table> clickable. Instead the file name AND the "Görüntüle" button are
+    // each a real <a> link, so the click target survives in every client.
     return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 8px;">
-  <tr><td>
-    <a href="${escapeHtml(safeUrl)}" target="_blank" style="display: block; text-decoration: none; border: 1px solid #e8e8f0; border-radius: 10px; padding: 14px 16px; background: #fafafe;">
-      <table cellpadding="0" cellspacing="0" border="0" width="100%">
-        <tr>
-          <td valign="middle" style="font-family: ${FONT};">
-            <p style="margin: 0; font-size: 14px; font-weight: 600; color: #252540;">${escapeHtml(t.label)}</p>
-            <p style="margin: 2px 0 0; font-size: 12px; color: #999999;">${escapeHtml(t.file_type.toUpperCase())}${t.file_size ? ` &bull; ${escapeHtml(t.file_size)}` : ''}</p>
-          </td>
-          <td width="80" valign="middle" align="right">
-            <span style="font-family: ${FONT}; font-size: 12px; font-weight: 600; color: #7c3aed; background: #f5f3ff; border: 1px solid #ede9fe; border-radius: 6px; padding: 4px 10px; display: inline-block;">G&ouml;r&uuml;nt&uuml;le</span>
-          </td>
-        </tr>
-      </table>
-    </a>
+  <tr><td style="border: 1px solid #e8e8f0; border-radius: 10px; padding: 14px 16px; background: #fafafe;">
+    <table cellpadding="0" cellspacing="0" border="0" width="100%">
+      <tr>
+        <td valign="middle" style="font-family: ${FONT};">
+          <a href="${href}" target="_blank" style="text-decoration: none;"><span style="font-size: 14px; font-weight: 600; color: #252540;">${escapeHtml(t.label)}</span></a>
+          <p style="margin: 2px 0 0; font-size: 12px; color: #999999;">${escapeHtml(t.file_type.toUpperCase())}${t.file_size ? ` &bull; ${escapeHtml(t.file_size)}` : ''}</p>
+        </td>
+        <td width="92" valign="middle" align="right">
+          <a href="${href}" target="_blank" style="font-family: ${FONT}; font-size: 12px; font-weight: 600; color: #7c3aed; background: #f5f3ff; border: 1px solid #ede9fe; border-radius: 6px; padding: 6px 12px; display: inline-block; text-decoration: none;">G&ouml;r&uuml;nt&uuml;le</a>
+        </td>
+      </tr>
+    </table>
   </td></tr>
 </table>`;
 }

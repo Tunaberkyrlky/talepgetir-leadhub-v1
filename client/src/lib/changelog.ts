@@ -23,6 +23,16 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.18.1',
+        date: '2026-06-29',
+        type: 'fix',
+        title: { tr: 'Ek Kartı Tıklama Düzeltmesi', en: 'Attachment Card Click Fix' },
+        about: {
+            tr: 'Gönderdiğiniz maillerde ek kartlarındaki "Görüntüle" butonu artık tüm e-posta istemcilerinde (Outlook dâhil) tıklanabilir bir bağlantı olarak gidiyor.',
+            en: 'The "View" button on attachment cards in the emails you send is now a clickable link in all email clients, including Outlook.',
+        },
+    },
+    {
         version: '1.18.0',
         date: '2026-06-29',
         type: 'feature',
