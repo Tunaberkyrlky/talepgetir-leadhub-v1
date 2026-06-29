@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.17.2',
+        date: '2026-06-29',
+        type: 'improvement',
+        title: { tr: 'Mail Eklerinde İyileştirme', en: 'Email Attachment Improvements' },
+        about: {
+            tr: 'PlusVibe yanıt ve yönlendirmelerinde seçtiğiniz dosyalar artık indirme linki yerine gerçek mail eki olarak gönderiliyor.',
+            en: 'Files you attach to PlusVibe replies and forwards are now delivered as real email attachments instead of a download link.',
+        },
+        notes: {
+            tr: 'Bir ek gönderilemezse mail yine iletilir ve hangi dosyanın eklenemediğini bildiren bir uyarı görürsünüz.',
+            en: 'If an attachment can’t be included, the email is still delivered and you’ll see a warning naming the file that was left off.',
+        },
+    },
+    {
         version: '1.17.1',
         date: '2026-06-24',
         type: 'improvement',

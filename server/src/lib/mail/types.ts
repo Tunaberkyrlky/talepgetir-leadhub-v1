@@ -80,6 +80,10 @@ export interface SendResult {
     provider: MailProviderName;
     providerMessageId: string;
     success: boolean;
+    // Labels of real-file attachments the router could NOT load (e.g. storage
+    // download failed) and therefore did NOT attach. The message still sent, so
+    // the caller must surface this so the user knows the file was left off.
+    droppedAttachments?: string[];
 }
 
 /**

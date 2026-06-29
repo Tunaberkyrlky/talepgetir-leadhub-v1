@@ -78,6 +78,34 @@ export function getErrorMessage(error: unknown, fallback?: string): string {
     return defaultMsg;
 }
 
+/** Shape the send endpoints return when some selected attachments didn't make it. */
+export interface AttachmentSendWarning {
+    failed?: string[];      // files the server could not attach (names)
+    missingCount?: number;  // selected templates that no longer exist
+}
+
+/**
+ * After a SUCCESSFUL send, surface a yellow warning when some selected attachments
+ * were left off the message — either the file couldn't be loaded (`failed`) or the
+ * template was deleted (`missingCount`). The mail still went out, so we don't show a
+ * red error; we tell the user exactly what's missing so they can resend it.
+ * Returns true when a warning was shown, so the caller can skip the success toast.
+ */
+export function notifyAttachmentWarning(data: unknown): boolean {
+    const w = (data as { attachmentWarning?: AttachmentSendWarning } | null | undefined)?.attachmentWarning;
+    if (!w) return false;
+    let message: string;
+    if (w.failed?.length) {
+        message = i18n.t('emailReplies.attachments.partialFail', { names: w.failed.join(', ') });
+    } else if (w.missingCount && w.missingCount > 0) {
+        message = i18n.t('emailReplies.attachments.partialMissing', { count: w.missingCount });
+    } else {
+        return false;
+    }
+    notifications.show({ message, color: 'yellow', autoClose: 10000, withCloseButton: true });
+    return true;
+}
+
 /** Convenience: show an error notification from an Axios/unknown error */
 export function showErrorFromApi(error: unknown, fallback?: string) {
     const message = getErrorMessage(error, fallback);

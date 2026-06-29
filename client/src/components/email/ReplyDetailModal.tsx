@@ -13,7 +13,7 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
-import { showSuccess, showWarning, showErrorFromApi } from '../../lib/notifications';
+import { showSuccess, showWarning, showErrorFromApi, notifyAttachmentWarning } from '../../lib/notifications';
 import { useAuth } from '../../contexts/AuthContext';
 import { isInternal } from '../../lib/permissions';
 import { useStages } from '../../contexts/StagesContext';
@@ -279,8 +279,9 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 ...(ccList.length > 0 && { cc: ccList.join(', ') }),
             })).data;
         },
-        onSuccess: () => {
-            showSuccess(t('emailReplies.reply.success'));
+        onSuccess: (data) => {
+            // Mail sent — but warn (instead of plain success) if an attachment was left off.
+            if (!notifyAttachmentWarning(data)) showSuccess(t('emailReplies.reply.success'));
             setReplyOpen(false);
             setReplyBody('');
             setSelectedCc([]);
@@ -319,8 +320,8 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 note: forwardNote.trim(),
                 ...(selectedForwardAttachments.length > 0 && { attachmentIds: selectedForwardAttachments }),
             })).data,
-        onSuccess: () => {
-            showSuccess(t('emailReplies.forward.success', 'Email yönlendirildi'));
+        onSuccess: (data) => {
+            if (!notifyAttachmentWarning(data)) showSuccess(t('emailReplies.forward.success', 'Email yönlendirildi'));
             setForwardOpen(false);
             setForwardTo('');
             setForwardNote('');

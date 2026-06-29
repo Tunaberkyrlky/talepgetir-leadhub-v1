@@ -885,6 +885,8 @@
             "uploadFailed": "File upload failed",
             "fileTooLarge": "File too large (max 10MB)",
             "invalidType": "Unsupported file type",
+            "partialFail": "The email was sent, but these attachment(s) couldn't be included: {{names}}. Please try again.",
+            "partialMissing": "The email was sent, but {{count}} selected attachment(s) are no longer available.",
             "deliveryHint": "Files are sent as real attachments where the channel supports it, otherwise as a download link.",
             "deliveryFile": "File",
             "deliveryLink": "Link",

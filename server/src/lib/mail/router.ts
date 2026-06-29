@@ -44,14 +44,20 @@ function mimeForExt(ext: string): string {
     return EXT_MIME[ext.toLowerCase().replace(/^\./, '')] || 'application/octet-stream';
 }
 
-/** Download each candidate's bytes from Storage into a provider-ready attachment. */
-async function loadAttachmentFiles(atts: CanonicalAttachment[]): Promise<ResolvedAttachment[]> {
+/**
+ * Download each candidate's bytes from Storage into a provider-ready attachment.
+ * Returns the loaded files plus the labels of any that could NOT be loaded, so
+ * the caller can tell the user which attachments were left off the sent message.
+ */
+async function loadAttachmentFiles(atts: CanonicalAttachment[]): Promise<{ files: ResolvedAttachment[]; failed: string[] }> {
     const out: ResolvedAttachment[] = [];
+    const failed: string[] = [];
     for (const a of atts) {
         if (!a.storagePath) continue; // only uploaded files have bytes
         const { data, error } = await supabaseAdmin.storage.from(ATTACHMENT_BUCKET).download(a.storagePath);
         if (error || !data) {
             log.warn({ err: error, path: a.storagePath }, 'Attachment download failed; skipping file');
+            failed.push(a.originalFilename || a.label);
             continue;
         }
         const content = Buffer.from(await data.arrayBuffer());
@@ -66,7 +72,7 @@ async function loadAttachmentFiles(atts: CanonicalAttachment[]): Promise<Resolve
         const filename = (base.toLowerCase().endsWith(`.${ext}`) ? base : `${base}.${ext}`).slice(0, 255);
         out.push({ filename, mimeType: mimeForExt(a.fileType), content });
     }
-    return out;
+    return { files: out, failed };
 }
 
 export async function resolveProvider(req: CanonicalSendRequest): Promise<MailProvider> {
@@ -114,12 +120,17 @@ export async function sendMail(req: CanonicalSendRequest): Promise<SendResult> {
     // Load bytes for real-attachment candidates the caller passed (already
     // partitioned; link-card ones are in bodyHtml). Guard on capability in case
     // a caller passed attachments without probing.
+    let dropped: string[] = [];
     if (req.attachments?.length && provider.supportsAttachments(req)) {
-        req.files = await loadAttachmentFiles(req.attachments);
+        const loaded = await loadAttachmentFiles(req.attachments);
+        req.files = loaded.files;
+        dropped = loaded.failed;
     }
     log.info(
-        { channel: req.channel, origin: req.originProvider, provider: provider.name, to: req.to, files: req.files?.length ?? 0 },
+        { channel: req.channel, origin: req.originProvider, provider: provider.name, to: req.to,
+          files: req.files?.length ?? 0, dropped: dropped.length },
         'Routing outbound mail',
     );
-    return provider.send(req);
+    const result = await provider.send(req);
+    return dropped.length ? { ...result, droppedAttachments: dropped } : result;
 }

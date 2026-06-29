@@ -885,6 +885,8 @@
             "uploadFailed": "Dosya yüklenemedi",
             "fileTooLarge": "Dosya çok büyük (en fazla 10MB)",
             "invalidType": "Desteklenmeyen dosya türü",
+            "partialFail": "Mail gönderildi, ancak şu ek(ler) eklenemedi: {{names}}. Lütfen tekrar deneyin.",
+            "partialMissing": "Mail gönderildi, ancak seçtiğiniz {{count}} ek artık mevcut değil.",
             "deliveryHint": "Dosyalar destekleyen kanallarda gerçek ek, aksi halde indirme linki olarak gönderilir.",
             "deliveryFile": "Dosya",
             "deliveryLink": "Link",

@@ -164,15 +164,13 @@ export function parseCampaignEmail(rec: PlusVibeCampaignEmail, campaignName: str
 
 export const plusvibeProvider: MailProvider = {
     name: 'plusvibe',
-    // PlusVibe's reply API documents an attachments[] (file_name + base64 content)
-    // and ACCEPTS it (200 + message id) — but does NOT actually deliver the file to
-    // the recipient. Verified end-to-end: storage download succeeds, the base64 +
-    // correct filename are sent, PlusVibe returns success, yet no attachment arrives.
-    // So we never route real files through PlusVibe; the caller degrades every
-    // selected attachment to a download-link card in the body HTML (which PlusVibe
-    // delivers reliably). Real MIME attachments still work on Gmail/Outlook/SMTP.
-    supportsAttachments: () => false,
-    maxAttachmentBytes: 0,
+    // PlusVibe delivers real attachments via the reply/forward API's attachments[]
+    // (file_name + base64 content) — verified end-to-end 2026-06-29: a 59 KB PDF sent
+    // through /unibox/emails/reply arrived intact at the recipient. (An earlier note
+    // claimed silent non-delivery; that turned out to be wrong.) The 10 MB cap mirrors
+    // the upload limit in attachment-templates.ts, so every stored file fits.
+    supportsAttachments: () => true,
+    maxAttachmentBytes: 10 * 1024 * 1024,
     async send(req: CanonicalSendRequest): Promise<SendResult> {
         if (!req.inReplyToMessageId) {
             throw new Error('PlusVibe send requires inReplyToMessageId (the original PlusVibe email id)');
