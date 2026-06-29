@@ -336,7 +336,40 @@ router.get(
                 }
             }
 
-            res.json(rows.map((r: any) => ({ ...r, tracking: trackingMap[r.id] ?? null })));
+            // Resolve attachment templates referenced by OUT messages (raw_payload
+            // .attachment_ids) so the thread can show each file's name/size/type and an
+            // open link. Templates deleted since the send resolve to { missing: true }.
+            const attIds = new Set<string>();
+            for (const r of rows as any[]) {
+                const ids = r.raw_payload?.attachment_ids;
+                if (Array.isArray(ids)) for (const x of ids) if (typeof x === 'string') attIds.add(x);
+            }
+            const attMap: Record<string, { id: string; label: string; file_type: string; file_size: string; is_file: boolean; open_url: string }> = {};
+            if (attIds.size) {
+                const { data: tpls } = await supabaseAdmin
+                    .from('email_attachment_templates')
+                    .select('id, label, file_type, file_url, file_size, storage_path, original_filename')
+                    .in('id', [...attIds])
+                    .eq('tenant_id', tenantId);
+                for (const tpl of (tpls || []) as any[]) {
+                    attMap[tpl.id] = {
+                        id: tpl.id,
+                        label: tpl.original_filename || tpl.label,
+                        file_type: tpl.file_type,
+                        file_size: tpl.file_size,
+                        is_file: !!tpl.storage_path,
+                        open_url: attachmentCardUrl(tpl),
+                    };
+                }
+            }
+
+            res.json(rows.map((r: any) => {
+                const ids = r.raw_payload?.attachment_ids;
+                const attachments = Array.isArray(ids)
+                    ? ids.filter((x: unknown) => typeof x === 'string').map((id: string) => attMap[id] ?? { id, missing: true })
+                    : [];
+                return { ...r, tracking: trackingMap[r.id] ?? null, attachments };
+            }));
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Thread history error');

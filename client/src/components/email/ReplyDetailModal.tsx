@@ -10,6 +10,7 @@ import {
     IconMail, IconMailOpened, IconTrash, IconRefresh,
     IconExternalLink, IconPlus, IconChevronDown, IconX, IconCheck,
     IconArrowBackUp, IconArrowForwardUp, IconSend, IconDeviceFloppy,
+    IconPaperclip,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
@@ -578,6 +579,35 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                         </>
                                     );
                                 })()}
+                                {msg.attachments && msg.attachments.length > 0 && (
+                                    <Group gap={8} mt={10}>
+                                        {msg.attachments.map((att) => att.missing ? (
+                                            <Badge key={att.id} size="sm" variant="light" color="gray" leftSection={<IconPaperclip size={12} />}>
+                                                {t('emailReplies.attachments.unavailable', 'Ek artık mevcut değil')}
+                                            </Badge>
+                                        ) : (
+                                            <Anchor key={att.id} href={att.open_url} target="_blank" rel="noopener noreferrer" underline="never">
+                                                <Group gap={6} wrap="nowrap" style={{ border: '1px solid #e3e3ef', borderRadius: 8, padding: '4px 10px', background: '#fff' }}>
+                                                    <IconPaperclip size={14} color="#7c3aed" />
+                                                    <Box>
+                                                        <Text size="xs" fw={600} c="#3a3a52" style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {att.label}
+                                                        </Text>
+                                                        <Text fz={10} c="dimmed">
+                                                            {(att.file_type || '').toUpperCase()}{att.file_size ? ` · ${att.file_size}` : ''}
+                                                        </Text>
+                                                    </Box>
+                                                    <Badge size="xs" variant="light" color={att.is_file ? 'teal' : 'gray'}>
+                                                        {att.is_file
+                                                            ? t('emailReplies.attachments.deliveryFile', 'Dosya')
+                                                            : t('emailReplies.attachments.deliveryLink', 'Link')}
+                                                    </Badge>
+                                                    <IconExternalLink size={13} color="#9a9ab0" />
+                                                </Group>
+                                            </Anchor>
+                                        ))}
+                                    </Group>
+                                )}
                             </Box>
                         </Box>
                     );

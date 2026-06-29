@@ -148,6 +148,19 @@ export interface ThreadHistoryItem {
         [key: string]: unknown;
     } | null;
     tracking?: MessageTracking | null;
+    /** Attachments sent with this message, resolved from raw_payload.attachment_ids. */
+    attachments?: ThreadAttachment[];
+}
+
+/** An attachment as shown in the thread history (resolved server-side). */
+export interface ThreadAttachment {
+    id: string;
+    label?: string;
+    file_type?: string;
+    file_size?: string;
+    is_file?: boolean;   // true = uploaded file, false = URL/link template
+    open_url?: string;   // preview/open target (Office viewer for office files)
+    missing?: boolean;   // template was deleted after the send
 }
 
 export interface MessageTracking {

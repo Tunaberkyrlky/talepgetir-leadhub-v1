@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.18.0',
+        date: '2026-06-29',
+        type: 'feature',
+        title: { tr: 'Mail Geçmişinde Ekler', en: 'Attachments in Thread' },
+        about: {
+            tr: 'Mail geçmişinde, gönderdiğiniz eklerin adını, boyutunu ve tipini görebilir ve karta tıklayarak dosyayı açabilirsiniz.',
+            en: 'In the email thread, you can see the name, size and type of the attachments you sent, and open a file by clicking its card.',
+        },
+        usage: {
+            tr: 'Bir mesaj geçmişini açın; gönderilen ek kartları ilgili mesajın altında görünür, açmak için karta tıklayın.',
+            en: 'Open a message thread; the attachment cards appear under the message they were sent with, and you click a card to open it.',
+        },
+        notes: {
+            tr: 'Gönderimden sonra silinen ekler "mevcut değil" olarak gösterilir.',
+            en: 'Attachments deleted after sending are shown as "no longer available".',
+        },
+    },
+    {
         version: '1.17.2',
         date: '2026-06-29',
         type: 'improvement',
