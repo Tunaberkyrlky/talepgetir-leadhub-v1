@@ -164,12 +164,15 @@ export function parseCampaignEmail(rec: PlusVibeCampaignEmail, campaignName: str
 
 export const plusvibeProvider: MailProvider = {
     name: 'plusvibe',
-    // PlusVibe delivers real attachments via the reply/forward API's attachments[]
-    // (file_name + base64 content) — verified end-to-end 2026-06-29: a 59 KB PDF sent
-    // through /unibox/emails/reply arrived intact at the recipient. (An earlier note
-    // claimed silent non-delivery; that turned out to be wrong.) The 10 MB cap mirrors
-    // the upload limit in attachment-templates.ts, so every stored file fits.
-    supportsAttachments: () => true,
+    // PlusVibe delivers real attachments ONLY on the REPLY endpoint
+    // (/unibox/emails/reply accepts attachments[] = file_name + base64; verified
+    // end-to-end 2026-06-29, a 59 KB PDF arrived intact). The FORWARD endpoint has
+    // NO attachments[] param (see plusvibeClient.forwardEmail) — so for forwards we
+    // MUST report false, otherwise the caller treats files as real attachments, the
+    // forward branch can't send them, and they vanish (no real file, no link card).
+    // Reporting false on forward degrades them to body link cards instead. The 10 MB
+    // cap mirrors the upload limit in attachment-templates.ts, so every stored file fits.
+    supportsAttachments: (req) => req.channel === 'reply',
     maxAttachmentBytes: 10 * 1024 * 1024,
     async send(req: CanonicalSendRequest): Promise<SendResult> {
         if (!req.inReplyToMessageId) {

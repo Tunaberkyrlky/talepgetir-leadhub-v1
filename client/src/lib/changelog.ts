@@ -23,6 +23,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.18.2',
+        date: '2026-06-30',
+        type: 'fix',
+        title: { tr: 'Ek Kaybı Düzeltmeleri', en: 'Attachment Loss Fixes' },
+        about: {
+            tr: 'Yönlendirilen maillerde ve kaydedilmiş taslaktan gönderimde eklerin kaybolması düzeltildi; yönlendirmede ekler bağlantı kartı, yanıtta gerçek dosya olarak gider.',
+            en: 'Fixed attachments being lost on forwarded emails and when sending from a saved draft; forwards send link cards and replies send real files.',
+        },
+        notes: {
+            tr: 'Taslağı tekrar açtığınızda seçtiğiniz ekler artık korunur.',
+            en: 'Your selected attachments are now kept when you reopen a draft.',
+        },
+    },
+    {
         version: '1.18.1',
         date: '2026-06-29',
         type: 'fix',

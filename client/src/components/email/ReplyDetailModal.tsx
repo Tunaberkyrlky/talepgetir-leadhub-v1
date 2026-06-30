@@ -166,6 +166,13 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             if (savedCc && typeof savedCc === 'string') {
                 setSelectedCc(savedCc.split(',').map((e: string) => e.trim()).filter(Boolean));
             }
+            // Restore selected attachments — without this the draft sends with NO
+            // attachments (the server persisted attachment_ids, but the chips stay
+            // unselected, so the next Send silently drops them).
+            const savedAtts = draftData.draft.raw_payload?.attachment_ids;
+            if (Array.isArray(savedAtts) && savedAtts.length) {
+                setSelectedAttachments(savedAtts.filter((x: unknown): x is string => typeof x === 'string'));
+            }
         }
     }, [draftData, draftLoaded, replyBody]);
 
