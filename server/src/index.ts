@@ -243,7 +243,7 @@ app.use(errorHandler);
 // Warn about missing PlusVibe integration env vars at startup
 if (!process.env.PLUSVIBE_WEBHOOK_SECRET) {
     logger.warn(
-        'PLUSVIBE_WEBHOOK_SECRET is not set — the PlusVibe webhook endpoints (/api/webhooks/plusvibe and the legacy /api/webhooks/plusvibe/:tenantId) will reject all requests with 503. ' +
+        'PLUSVIBE_WEBHOOK_SECRET is not set — the PlusVibe webhook endpoint (/api/webhooks/plusvibe) will reject all requests with 503. ' +
         'Set this variable to enable PlusVibe webhook ingestion.'
     );
 }

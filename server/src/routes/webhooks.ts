@@ -20,8 +20,6 @@ const router = Router();
 
 const WEBHOOK_SECRET = process.env.PLUSVIBE_WEBHOOK_SECRET;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /** Middleware: validate PlusVibe HMAC-SHA256 signature before anything else */
 function verifyWebhookSecret(req: Request, res: Response, next: NextFunction): void {
     if (!WEBHOOK_SECRET) {
@@ -89,9 +87,8 @@ function sanitizePayload(body: Record<string, unknown>): unknown {
 }
 
 /**
- * Core PlusVibe inbound processing, shared by the single multi-tenant webhook and
- * the legacy per-tenant alias. The tenant is already resolved by the caller (from
- * camp_id, or from the URL on the legacy route). Sends its own HTTP response.
+ * Core PlusVibe inbound processing for the single multi-tenant webhook. The tenant
+ * is already resolved by the caller (from camp_id). Sends its own HTTP response.
  */
 async function processPlusvibeInbound(req: Request, res: Response, tenantId: string): Promise<void> {
     const { from_email, step, webhook_event } = req.body;
@@ -254,33 +251,6 @@ router.post(
                     res.status(200).json({ ok: true, skipped: 'no_camp_id' });
                     return;
             }
-        } catch (err) {
-            handleWebhookError(err, res, next);
-        }
-    },
-);
-
-// POST /api/webhooks/plusvibe/:tenantId — legacy per-tenant alias.
-// Kept for backward compatibility while tenants migrate to the single URL above.
-// TODO: remove once all tenants are switched to /api/webhooks/plusvibe.
-router.post(
-    '/plusvibe/:tenantId',
-    verifyWebhookSecret,
-    validateBody(webhookPayloadSchema),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-        try {
-            const tenantId = req.params.tenantId as string;
-
-            if (!UUID_RE.test(tenantId)) {
-                res.status(400).json({
-                    error: 'Invalid tenant ID',
-                    code: 'INVALID_TENANT_ID',
-                    hint: 'The tenantId URL segment must be a valid UUID.',
-                });
-                return;
-            }
-
-            await processPlusvibeInbound(req, res, tenantId);
         } catch (err) {
             handleWebhookError(err, res, next);
         }
