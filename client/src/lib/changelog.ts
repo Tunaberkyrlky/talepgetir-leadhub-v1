@@ -7,6 +7,8 @@ export interface ChangelogEntry {
     date: string;
     /** Baskın değişiklik tipi — başlıkta renkli badge olarak görünür. Eski entry'ler için opsiyonel (varsayılan: 'feature'). */
     type?: ChangelogType;
+    /** İlgili ekran/sayfa anahtarı (başlıkta rozet). Verilmezse başlıktan otomatik çıkarsanır. */
+    area?: string;
     title: Localized;
     /**
      * Yeni format (kısa ve öz, 3 soruya cevap). Her biri tek cümle.
@@ -22,6 +24,21 @@ export interface ChangelogEntry {
 }
 
 export const changelog: ChangelogEntry[] = [
+    {
+        version: '1.19.2',
+        date: '2026-07-01',
+        type: 'improvement',
+        area: 'general',
+        title: { tr: 'Yenilikler Paneli: Filtre ve Sayfa Etiketi', en: 'What’s New: Filter & Page Label' },
+        about: {
+            tr: 'Yenilikler panelinde artık yeni özellikler öne çıkar ve her güncellemenin hangi sayfayla ilgili olduğu başlıkta görünür.',
+            en: 'In the What’s New panel, new features are highlighted and each update shows which page it relates to in its title.',
+        },
+        usage: {
+            tr: 'Üstteki Yeni Özellikler ve Tümü düğmesinden düzeltme ile iyileştirmeleri de görebilirsiniz.',
+            en: 'Use the New Features and All toggle at the top to also see fixes and improvements.',
+        },
+    },
     {
         version: '1.19.1',
         date: '2026-07-01',
@@ -362,6 +379,7 @@ export const changelog: ChangelogEntry[] = [
         version: '1.13.0',
         date: '2026-06-22',
         type: 'feature',
+        area: 'campaigns',
         title: { tr: 'Zengin E-posta Editörü', en: 'Rich Email Editor' },
         about: {
             tr: 'Kampanya adımlarını artık zengin metin editörüyle yazabilir; kalın, başlık, liste ve link ekleyebilir, gövdede çift süslü parantez yazınca değişken ve spintax önerileri alabilirsiniz.',

@@ -84,6 +84,7 @@ Add entry to top of array in `client/src/lib/changelog.ts`. **New format** — s
     version: '{new}',
     date: '{YYYY-MM-DD}',
     type: '{feature|fix|improvement|security}',
+    area: '{campaigns|mail|settings|import|companies|activities|dashboard|pipeline|general}', // ilgili sayfa — başlıkta rozet
     title: { tr: '{kısa başlık}', en: '{short title}' },
     about: {                       // Bu güncelleme ne hakkında? (zorunlu)
         tr: '{tek cümle}',
@@ -101,6 +102,7 @@ Add entry to top of array in `client/src/lib/changelog.ts`. **New format** — s
 ```
 
 Rules:
+- **`area` zorunlu.** Güncellemenin ana ilgili sayfası; Yenilikler panelinde başlıkta rozet olur. Verilmezse başlıktan otomatik çıkarsanır ama açık yaz (isabet için). Karma içerikte en baskın sayfayı seç.
 - **Sadece 3 alan: about / usage / notes.** Eski `features: [...]` dizisini YENİ girdilerde kullanma (yalnızca geçmiş girdilerde kalır).
 - **`about` zorunlu.** `usage` yalnızca kullanıcıya görünür yeni bir kullanım (ekran/buton/davranış) varsa; saf düzeltmelerde atla. `notes` yalnızca gerçek bir uyarı/sınır varsa; yoksa atla.
 - **Her alan tek cümle, kısa ve öz.** Madde listesi, dash (—/–/-), teknik jargon yok.
