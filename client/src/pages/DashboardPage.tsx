@@ -26,6 +26,9 @@ import {
     IconTrophy,
     IconPercentage,
     IconChartBar,
+    IconMail,
+    IconClock,
+    IconStar,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
@@ -84,6 +87,15 @@ export default function DashboardPage() {
         navigate(`/pipeline?focus=${stage}`);
     }, [navigate]);
 
+    // Mail summary links carry the current dashboard date range so the mail page opens
+    // scoped to the same window the counts were computed for ('all' → no range = default).
+    const mailLink = useCallback((filter: string) => {
+        const params = new URLSearchParams(filter);
+        if (dateParams?.dateFrom) params.set('date_from', dateParams.dateFrom);
+        if (dateParams?.dateTo) params.set('date_to', dateParams.dateTo);
+        return `/email-replies?${params.toString()}`;
+    }, [dateParams]);
+
     // Overview — always loaded, refetch every visit & periodically
     const { data: overview, isLoading: overviewLoading, error: overviewError } = useQuery<OverviewData>({
         queryKey: ['statistics', 'overview', dateParams],
@@ -97,6 +109,23 @@ export default function DashboardPage() {
         staleTime: 30_000,
         refetchOnWindowFocus: true,
         refetchInterval: 5 * 60_000,
+    });
+
+    // Mail summary — unread / awaiting / interested counts, scoped to the dashboard's
+    // date range (null range = all-time). Role-gated.
+    const { data: mailStats } = useQuery<{ unread: number; awaiting: number; interested: number }>({
+        queryKey: ['dashboard-mail-stats', dateParams],
+        queryFn: async () => {
+            const params = new URLSearchParams();
+            if (dateParams?.dateFrom) params.set('date_from', dateParams.dateFrom);
+            if (dateParams?.dateTo) params.set('date_to', dateParams.dateTo);
+            const query = params.toString();
+            return (await api.get(`/email-replies/stats${query ? `?${query}` : ''}`)).data;
+        },
+        enabled: ['superadmin', 'ops_agent', 'client_admin'].includes(role),
+        retry: false,
+        staleTime: 60_000,
+        refetchOnWindowFocus: true,
     });
 
     // Company locations — for globe map (pro tier only)
@@ -365,22 +394,62 @@ export default function DashboardPage() {
                 />
             </SimpleGrid>
 
-            {/* Stage Distribution + Upcoming Agenda */}
+            {/* Left: Stage Distribution + Mail summary — Right: Upcoming Agenda (stretches to match) */}
             <SimpleGrid cols={{ base: 1, md: 2 }} mb="lg">
-                <Paper shadow="sm" radius="lg" p="lg" withBorder>
-                    <Text size="sm" fw={700} mb="md" tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
-                        {t('dashboard.stageDistribution')}
-                    </Text>
-                    {Object.entries(overview?.companiesByStage || {}).some(
-                        ([stage, count]) => stage !== 'cold' && count > 0
-                    ) ? (
-                        <StageVerticalBar data={overview?.companiesByStage || {}} onStageClick={handleStageClick} />
-                    ) : (
-                        <Text c="dimmed" size="sm" ta="center" py="md">
-                            {t('dashboard.noStageData')}
+                <Stack gap="lg">
+                    <Paper shadow="sm" radius="lg" p="lg" withBorder>
+                        <Text size="sm" fw={700} mb="md" tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                            {t('dashboard.stageDistribution')}
                         </Text>
+                        {Object.entries(overview?.companiesByStage || {}).some(
+                            ([stage, count]) => stage !== 'cold' && count > 0
+                        ) ? (
+                            <StageVerticalBar data={overview?.companiesByStage || {}} onStageClick={handleStageClick} />
+                        ) : (
+                            <Text c="dimmed" size="sm" ta="center" py="md">
+                                {t('dashboard.noStageData')}
+                            </Text>
+                        )}
+                    </Paper>
+
+                    {/* Mail summary — unread + awaiting + interested; click opens the mail page filtered */}
+                    {mailStats && (
+                        <Stack gap="xs">
+                            <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                                {t('dashboard.mailSummary', 'Mail Özeti')}
+                            </Text>
+                            <SimpleGrid cols={{ base: 1, xs: 3 }} spacing="md">
+                            <StatCard
+                                title={t('dashboard.unreadMails', 'Okunmamış')}
+                                value={mailStats.unread ?? 0}
+                                icon={<IconMail size={22} />}
+                                color="blue"
+                                compact
+                                description={t('dashboard.unreadMailsDesc', 'Tıklayınca okunmamış mailler açılır')}
+                                onClick={() => navigate(mailLink('read_status=unread'))}
+                            />
+                            <StatCard
+                                title={t('dashboard.awaitingReplies', 'Yanıt Bekleyen')}
+                                value={mailStats.awaiting ?? 0}
+                                icon={<IconClock size={22} />}
+                                color="orange"
+                                compact
+                                description={t('dashboard.awaitingRepliesDesc', 'Son sözü karşı tarafta, yanıtlamadığınız konuşmalar')}
+                                onClick={() => navigate(mailLink('awaiting=true'))}
+                            />
+                            <StatCard
+                                title={t('dashboard.interestedMails', 'İlgilenen')}
+                                value={mailStats.interested ?? 0}
+                                icon={<IconStar size={22} />}
+                                color="green"
+                                compact
+                                description={t('dashboard.interestedMailsDesc', 'İlgilenen etiketli mailleri açar')}
+                                onClick={() => navigate(mailLink('label=INTERESTED'))}
+                            />
+                            </SimpleGrid>
+                        </Stack>
                     )}
-                </Paper>
+                </Stack>
                 <UpcomingAgendaWidget />
             </SimpleGrid>
 

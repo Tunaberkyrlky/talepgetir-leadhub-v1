@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, Fragment } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     Container, Title, Group, Stack, Paper, Text, Badge, Table,
     Loader, Center, Button, SimpleGrid, Select, TextInput,
@@ -210,16 +210,25 @@ export default function EmailRepliesPage() {
     }, []);
 
     // Filters
+    // Initial filters can be seeded from the URL (e.g. Dashboard mail summary links
+    // to /email-replies?read_status=unread or ?awaiting=true). Read once on mount.
+    const [searchParams] = useSearchParams();
     const [campaignFilter, setCampaignFilter] = useState('');
     const [matchStatusFilter, setMatchStatusFilter] = useState('');
-    const [readStatusFilter, setReadStatusFilter] = useState('');
-    const [labelFilter, setLabelFilter] = useState('');
-    const [awaitingFilter, setAwaitingFilter] = useState(false);
+    const [readStatusFilter, setReadStatusFilter] = useState(() => searchParams.get('read_status') || '');
+    const [labelFilter, setLabelFilter] = useState(() => searchParams.get('label') || '');
+    const [awaitingFilter, setAwaitingFilter] = useState(() => searchParams.get('awaiting') === 'true');
     const [search, setSearch] = useState('');
     const [debouncedSearch] = useDebouncedValue(search, 300);
-    const [periodType, setPeriodType] = useState<PeriodType>('month');
+    // A date range passed from the Dashboard mail summary (?date_from & ?date_to) opens
+    // the list as a custom range, so the list matches the counts shown on the dashboard.
+    const urlDateFrom = searchParams.get('date_from');
+    const urlDateTo = searchParams.get('date_to');
+    const [periodType, setPeriodType] = useState<PeriodType>('custom');
     const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date());
-    const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null]);
+    const [customRange, setCustomRange] = useState<[Date | null, Date | null]>(
+        () => (urlDateFrom && urlDateTo) ? [new Date(urlDateFrom), new Date(urlDateTo)] : [null, null]
+    );
 
     // Pagination
     const [page, setPage] = useState(1);

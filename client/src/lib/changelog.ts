@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.1',
+        date: '2026-07-01',
+        type: 'feature',
+        title: { tr: 'Dashboard Mail Özeti', en: 'Dashboard Mail Summary' },
+        about: {
+            tr: 'Dashboard\'da okunmamış, yanıt bekleyen ve ilgilenen mail sayılarını tek bakışta görebilirsiniz.',
+            en: 'On the dashboard you can see unread, awaiting-reply and interested mail counts at a glance.',
+        },
+        usage: {
+            tr: 'Aşama Dağılımı\'nın altındaki Mail Özeti kartına tıklayınca mail sayfası, seçili tarih aralığı ve ilgili filtreyle açılır.',
+            en: 'Click a Mail Summary card under Stage Distribution to open the mail page with the selected date range and matching filter applied.',
+        },
+        notes: {
+            tr: 'Mail sayfası artık açılışta tüm mailleri gösterir; istediğiniz tarih aralığını üstten seçebilirsiniz.',
+            en: 'The mail page now shows all mail on open; you can pick a date range from the top.',
+        },
+    },
+    {
         version: '1.19.0',
         date: '2026-07-01',
         type: 'feature',
