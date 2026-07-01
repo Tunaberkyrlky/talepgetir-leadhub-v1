@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.0',
+        date: '2026-07-01',
+        type: 'feature',
+        title: { tr: 'Outlook / Microsoft 365 Bağlantısı', en: 'Outlook / Microsoft 365 Connection' },
+        about: {
+            tr: 'Outlook veya Microsoft 365 kutunuzu bağlayıp maillerinizi kendi kutunuzdan gönderebilirsiniz.',
+            en: 'You can connect your Outlook or Microsoft 365 mailbox and send emails from your own mailbox.',
+        },
+        usage: {
+            tr: 'Ayarlar, E-posta Bağlantısı bölümünden Outlook’a tıklayıp hesabınızla giriş yapın.',
+            en: 'Go to Settings, Email Connection and click Outlook to sign in with your account.',
+        },
+        notes: {
+            tr: 'Kurumsal Microsoft 365 hesaplarında ilk bağlantı için yöneticinizin onayı gerekebilir.',
+            en: 'Corporate Microsoft 365 accounts may require admin approval for the first connection.',
+        },
+    },
+    {
         version: '1.18.2',
         date: '2026-06-30',
         type: 'fix',

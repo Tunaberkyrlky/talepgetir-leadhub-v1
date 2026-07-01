@@ -218,10 +218,22 @@ router.post('/start-session', async (req: Request, res: Response, next: NextFunc
         }
 
         const nango = await getNango();
-        const result = await nango.createConnectSession({
+        // The Nango "microsoft" provider (Graph) authorizes against
+        // login.microsoftonline.com/${connectionConfig.tenant}. Pin the tenant to
+        // `common` so BOTH work/school (M365) and personal accounts can connect.
+        // Without this the flow falls through to the consumer-only endpoint
+        // (login.live.com) and business/M365 logins fail with unauthorized_client.
+        // (Google-mail needs no such config.)
+        const sessionParams: Record<string, unknown> = {
             end_user: { id: tenantId },
             allowed_integrations: [provider],
-        });
+        };
+        if (provider === 'microsoft-outlook') {
+            sessionParams.integrations_config_defaults = {
+                'microsoft-outlook': { connection_config: { tenant: 'common' } },
+            };
+        }
+        const result = await nango.createConnectSession(sessionParams);
 
         const token = result?.data?.token;
         if (!token) {
