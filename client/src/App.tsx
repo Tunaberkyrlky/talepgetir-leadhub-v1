@@ -35,6 +35,8 @@ const EmailRepliesPage = lazy(() => import('./pages/EmailRepliesPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const CampaignsPage = lazy(() => import('./pages/CampaignsPage'));
 const CampaignEditorPage = lazy(() => import('./pages/CampaignEditorPage'));
+const ResearchPage = lazy(() => import('./pages/research/ResearchPage'));
+const ResearchAdminPage = lazy(() => import('./pages/research/ResearchAdminPage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -111,6 +113,8 @@ function App() {
                           <Route path="/pipeline" element={<PipelinePage />} />
                           <Route path="/activities" element={<ActivitiesPage />} />
                           <Route path="/email-replies" element={<EmailRepliesPage />} />
+                          <Route path="/research" element={<ResearchPage />} />
+                          <Route path="/research/admin" element={<ResearchAdminPage />} />
                           <Route path="/campaigns" element={<CampaignsPage />} />
                           <Route path="/campaigns/drip/new" element={<CampaignEditorPage />} />
                           <Route path="/campaigns/drip/:id/edit" element={<CampaignEditorPage />} />

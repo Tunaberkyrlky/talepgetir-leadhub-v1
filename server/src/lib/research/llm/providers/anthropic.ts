@@ -17,7 +17,10 @@ function client(): Anthropic {
     if (!_client) {
         const apiKey = process.env.CLAUDE_KEY;
         if (!apiKey) throw new LlmError('CLAUDE_KEY is not set', 'anthropic');
-        _client = new Anthropic({ apiKey });
+        // maxRetries: 0 — see deepseek.ts: SDK retries (default 2) sit below the router meter and
+        // would let one run() be several physical attempts recorded once. One run() == one metered
+        // call; add production retries above the meter if wanted.
+        _client = new Anthropic({ apiKey, maxRetries: 0 });
     }
     return _client;
 }

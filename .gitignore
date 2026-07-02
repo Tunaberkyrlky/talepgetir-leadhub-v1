@@ -9,6 +9,7 @@ node_modules/
 # Build
 dist/
 build/
+*.tsbuildinfo
 
 # IDE
 .vscode/
@@ -37,6 +38,9 @@ temp/
 # Temporary files
 temp/*
 !temp/.gitkeep
+
+# Local research backup / reference snapshot (not source, ~139MB)
+Tg-Research-v1-bakis/
 
 # Project docs
 CRM_EXPANSION_PLAN.md

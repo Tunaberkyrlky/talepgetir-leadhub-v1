@@ -22,6 +22,12 @@ export interface LlmCitation {
 
 export interface LlmUsage {
     inputTokens?: number;
+    /** Subset of inputTokens served from the provider's prompt cache (billed cheaper). Captured so
+     *  the pilot can reconcile input COGS against the real invoice's cache-hit/miss split — e.g.
+     *  DeepSeek reuses a large constant validation system prompt across candidates. */
+    cachedInputTokens?: number;
+    /** Billed output tokens. For Gemini this MUST include thoughtsTokenCount (thinking tokens are
+     *  billed at the output rate but reported separately from candidatesTokenCount). */
     outputTokens?: number;
 }
 

@@ -14,9 +14,13 @@ import {
     failJob,
     heartbeatJob,
     reapStaleJobs,
+    releaseStaleHolds,
+    applyPeriodGrants,
     type ResearchJob,
 } from '../queue.js';
 import { getHandler } from './handlers/index.js';
+import type { MeteredError } from '../llm/meter.js';
+import { costFromUsageSummary } from '../engine/pricing.js';
 
 const log = createLogger('research:worker');
 
@@ -124,17 +128,25 @@ export class ResearchWorker {
             return;
         }
 
-        const hb = setInterval(() => void heartbeatJob(job.id, this.workerId), this.heartbeatIntervalMs);
+        const hb = setInterval(() => void heartbeatJob(job.id, this.workerId, job.lease), this.heartbeatIntervalMs);
         hb.unref?.();
         try {
             const result = await handler({
                 job,
-                heartbeat: (progress) => heartbeatJob(job.id, this.workerId, progress),
+                heartbeat: (progress) => heartbeatJob(job.id, this.workerId, job.lease, progress),
             });
-            await completeJob(job.id, this.workerId, result ?? {});
-            log.info({ jobId: job.id, type: job.type }, 'job succeeded');
+            const finalized = await completeJob(job.id, this.workerId, job.lease, result ?? {});
+            if (finalized) log.info({ jobId: job.id, type: job.type }, 'job succeeded');
+            else log.warn({ jobId: job.id, type: job.type }, 'job finished but lease was lost — result discarded');
         } catch (err) {
-            await failJob(job, err);
+            // A failed-but-PAID attempt persists its partial COGS trail on the job row (the
+            // handlers attach the meter tally to the throw), so calibration + the admin margin
+            // panel see failed spend instead of a blind spot.
+            const usage = (err && typeof err === 'object') ? (err as MeteredError).llmUsage : undefined;
+            const partial = usage && usage.totalCalls > 0
+                ? { usage_raw: usage, cost_recheck: costFromUsageSummary(usage) }
+                : undefined;
+            await failJob(job, err, partial);
         } finally {
             clearInterval(hb);
         }
@@ -146,6 +158,21 @@ export class ResearchWorker {
             if (n > 0) log.warn({ reaped: n }, 'reaped stale jobs');
         } catch (err) {
             log.error({ err }, 'reap error');
+        }
+        // Free any quota reservation stranded by a crashed worker (job terminal but hold still open).
+        try {
+            const h = await releaseStaleHolds();
+            if (h > 0) log.warn({ released: h }, 'released stale quota holds');
+        } catch (err) {
+            log.error({ err }, 'release stale holds error');
+        }
+        // Apply this period's automatic quota grants (idempotent — deterministic ledger ref per
+        // (tenant, period), so this every-tick call is a cheap no-op once the month is granted).
+        try {
+            const g = await applyPeriodGrants();
+            if (g > 0) log.info({ granted: g }, 'applied period quota grants');
+        } catch (err) {
+            log.error({ err }, 'apply period grants error');
         }
     }
 

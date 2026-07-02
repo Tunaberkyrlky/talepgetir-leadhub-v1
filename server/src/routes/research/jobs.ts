@@ -11,6 +11,8 @@ import { createLogger } from '../../lib/logger.js';
 import { validateBody, uuidField } from '../../lib/validation.js';
 import { enqueueJob } from '../../lib/research/queue.js';
 import { RESEARCH_JOB_TYPE_VALUES, isKnownJobType } from '../../lib/research/jobTypes.js';
+import { sanitizeJobForRole, sanitizeJobsForRole } from '../../lib/research/sanitize.js';
+import { effectiveCostRole } from '../../lib/research/freshRole.js';
 
 const log = createLogger('route:research:jobs');
 const router = Router();
@@ -27,9 +29,13 @@ const enqueueSchema = z.object({
 const idParamSchema = z.object({ id: uuidField('Invalid job ID') });
 
 const requireWriter = requireRole('superadmin', 'ops_agent', 'client_admin');
+// The generic enqueue is an OPS/debug tool: it has none of the dedicated routes' guards
+// (approved-ICP gate, credit gate, one-in-flight-per-ICP, maxAttempts=1 no-respend), so a
+// customer could use it to bypass them (codex P1). Customers enqueue only via those routes.
+const requireInternal = requireRole('superadmin', 'ops_agent');
 
-// ── POST /api/research/jobs — enqueue a job ─────────────────────────────────
-router.post('/', requireWriter, validateBody(enqueueSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+// ── POST /api/research/jobs — enqueue a job (INTERNAL ops tool) ──────────────
+router.post('/', requireInternal, validateBody(enqueueSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
         const { type, payload, project_id, priority } = req.body as z.infer<typeof enqueueSchema>;
@@ -66,7 +72,7 @@ router.post('/', requireWriter, validateBody(enqueueSchema), async (req: Request
             createdBy: req.user?.id ?? null,
         });
 
-        res.status(201).json(job);
+        res.status(201).json(sanitizeJobForRole(job as unknown as Record<string, unknown>, await effectiveCostRole(req.user, req.tenantId)));
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'enqueue job error');
@@ -114,7 +120,9 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         }
 
         res.json({
-            data: data || [],
+            // COGS split: client roles never receive dollar fields (result.cost_*, usage_raw,
+            // caps); internal roles get the full rows (068 + sanitize.ts).
+            data: sanitizeJobsForRole((data || []) as Record<string, unknown>[], await effectiveCostRole(req.user, req.tenantId)),
             pagination: {
                 total: count || 0,
                 page,
@@ -154,7 +162,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
             res.status(404).json({ error: 'Job not found' });
             return;
         }
-        res.json(data);
+        res.json(sanitizeJobForRole(data as Record<string, unknown>, await effectiveCostRole(req.user, req.tenantId)));
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'get job error');
@@ -191,7 +199,7 @@ router.post('/:id/cancel', requireWriter, async (req: Request, res: Response, ne
             res.status(409).json({ error: 'Job not found or not in a cancelable (queued) state' });
             return;
         }
-        res.json(data);
+        res.json(sanitizeJobForRole(data as Record<string, unknown>, await effectiveCostRole(req.user, req.tenantId)));
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'cancel job error');

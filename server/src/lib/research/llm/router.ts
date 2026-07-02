@@ -9,6 +9,7 @@ import { LlmError } from './types.js';
 import { anthropicProvider } from './providers/anthropic.js';
 import { geminiProvider } from './providers/gemini.js';
 import { deepseekProvider } from './providers/deepseek.js';
+import { recordLlmCall } from './meter.js';
 import { createLogger } from '../../logger.js';
 
 const log = createLogger('research:llm');
@@ -29,6 +30,19 @@ export async function runLlm(role: LlmRole, opts: LlmRunOptions): Promise<LlmRes
     const started = Date.now();
     try {
         const res = await provider.run(opts);
+        // Record raw usage into the active meter scope (no-op when not metered). This is the single
+        // choke point for every provider call, so the pilot's usage tally captures discovery's two
+        // calls per query AND every runLlmJson retry below — which the dollar CapTracker misses.
+        recordLlmCall({
+            provider: provider.name,
+            model: res.model,
+            role,
+            inputTokens: res.usage?.inputTokens ?? 0,
+            cachedInputTokens: res.usage?.cachedInputTokens ?? 0,
+            outputTokens: res.usage?.outputTokens ?? 0,
+            groundedQueries: res.searchQueries?.length ?? 0,
+            finish: res.finish,
+        });
         log.info(
             {
                 role,

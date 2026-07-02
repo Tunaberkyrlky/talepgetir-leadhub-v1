@@ -124,13 +124,21 @@ export const geminiProvider: LlmProvider = {
         }
 
         const um = resp.usageMetadata;
+        // Gemini bills THINKING tokens at the OUTPUT rate but reports them in thoughtsTokenCount,
+        // SEPARATE from candidatesTokenCount. Grounded search always runs with thinking on
+        // (thinkingLevel >= 'low'), so thoughtsTokenCount is reliably > 0 — folding it in is
+        // mandatory or the dominant grounded-search COGS undercounts in the UNDERPRICING direction,
+        // and the count is dropped at this boundary (unrecoverable from usage_raw). Tool-use prompt
+        // tokens (the grounding tool's input) bill at the INPUT rate — include them too.
+        const inputTokens = (um?.promptTokenCount ?? 0) + (um?.toolUsePromptTokenCount ?? 0);
+        const outputTokens = (um?.candidatesTokenCount ?? 0) + (um?.thoughtsTokenCount ?? 0);
         return {
             text,
             json,
             finish,
             provider: 'gemini',
             model,
-            usage: { inputTokens: um?.promptTokenCount, outputTokens: um?.candidatesTokenCount },
+            usage: { inputTokens, outputTokens },
             citations: citations.length ? citations : undefined,
             searchQueries: searchQueries.length ? searchQueries : undefined,
             raw: resp,

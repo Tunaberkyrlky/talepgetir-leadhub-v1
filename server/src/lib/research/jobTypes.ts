@@ -11,6 +11,10 @@
  */
 export const RESEARCH_JOB_TYPES = {
     PING: 'ping',
+    /** ICP Master (B5): generate ICP drafts from the project profile via the strategy model. */
+    ICP_GENERATE: 'icp:generate',
+    /** Y1 list-harvest (capped pilot): discover → validate → bill MATCHes for 1 ICP × 1 geo. */
+    HARVEST_RUN: 'harvest:run',
 } as const;
 
 export type ResearchJobType = (typeof RESEARCH_JOB_TYPES)[keyof typeof RESEARCH_JOB_TYPES];

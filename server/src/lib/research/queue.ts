@@ -31,6 +31,8 @@ export interface ResearchJob {
     error: string | null;
     scheduled_at: string;
     locked_by: string | null;
+    /** Per-attempt fencing token, minted by research_claim_job on each claim (060/062). */
+    lease: string | null;
     locked_at: string | null;
     heartbeat_at: string | null;
     started_at: string | null;
@@ -97,30 +99,34 @@ export async function claimJob(workerId: string, types?: string[]): Promise<Rese
 
 /**
  * Refresh the lock heartbeat (and optionally progress) for a running job.
- * Ownership-guarded: only the worker that holds the lock (locked_by) updates it,
- * so a worker whose job was reaped + reclaimed elsewhere can't clobber it.
+ * Fenced: the update only lands when BOTH locked_by (this worker) AND lease (this
+ * attempt) still match, so an attempt that was reaped + reclaimed — even by the same
+ * worker id — can never clobber the newer attempt (queue lease fencing, 062 #7).
  */
-export async function heartbeatJob(jobId: string, workerId: string, progress?: Record<string, unknown>): Promise<void> {
+export async function heartbeatJob(jobId: string, workerId: string, lease: string | null, progress?: Record<string, unknown>): Promise<void> {
     const patch: Record<string, unknown> = { heartbeat_at: new Date().toISOString() };
     if (progress) patch.progress = progress;
-    const { error } = await researchSupabaseAdmin
+    let q = researchSupabaseAdmin
         .from('research_jobs')
         .update(patch)
         .eq('id', jobId)
         .eq('locked_by', workerId)
         .eq('status', 'running');
+    q = lease ? q.eq('lease', lease) : q.is('lease', null);
+    const { error } = await q;
     if (error) log.warn({ err: error, jobId }, 'heartbeatJob failed (non-fatal)');
 }
 
 /**
- * Mark a job succeeded with its result payload. Ownership-guarded: if this worker
- * no longer holds the running lock (e.g. it was reaped as stale and reclaimed by
- * another worker), the update matches nothing and the late result is discarded
- * rather than overwriting the newer attempt.
+ * Mark a job succeeded with its result payload. Fenced by (locked_by, lease): if this
+ * attempt no longer holds the running lock (e.g. it was reaped as stale and reclaimed),
+ * the update matches nothing and the late result is discarded rather than overwriting
+ * the newer attempt. Returns true only if THIS attempt actually finalized the job, so the
+ * caller doesn't log a false "succeeded" after a lost lease.
  */
-export async function completeJob(jobId: string, workerId: string, result?: Record<string, unknown>): Promise<void> {
+export async function completeJob(jobId: string, workerId: string, lease: string | null, result?: Record<string, unknown>): Promise<boolean> {
     const now = new Date().toISOString();
-    const { data, error } = await researchSupabaseAdmin
+    let q = researchSupabaseAdmin
         .from('research_jobs')
         .update({
             status: 'succeeded',
@@ -131,15 +137,18 @@ export async function completeJob(jobId: string, workerId: string, result?: Reco
         })
         .eq('id', jobId)
         .eq('locked_by', workerId)
-        .eq('status', 'running')
-        .select('id');
+        .eq('status', 'running');
+    q = lease ? q.eq('lease', lease) : q.is('lease', null);
+    const { data, error } = await q.select('id');
     if (error) {
         log.error({ err: error, jobId }, 'completeJob failed');
         throw error;
     }
     if (!data || data.length === 0) {
-        log.warn({ jobId, workerId }, 'completeJob matched no row — lock lost (reaped/reclaimed); result discarded');
+        log.warn({ jobId, workerId }, 'completeJob matched no row — lease lost (reaped/reclaimed); result discarded');
+        return false;
     }
+    return true;
 }
 
 /**
@@ -148,7 +157,7 @@ export async function completeJob(jobId: string, workerId: string, result?: Reco
  * `job.attempts` reflects the count *after* the claim (claim does attempts + 1),
  * so the first run sees attempts = 1.
  */
-export async function failJob(job: ResearchJob, err: unknown): Promise<void> {
+export async function failJob(job: ResearchJob, err: unknown, partialResult?: Record<string, unknown>): Promise<void> {
     const message = err instanceof Error ? err.message : String(err);
     const willRetry = job.attempts < job.max_attempts;
     const now = new Date().toISOString();
@@ -157,6 +166,16 @@ export async function failJob(job: ResearchJob, err: unknown): Promise<void> {
         error: message.slice(0, 2000),
         heartbeat_at: now,
     };
+    // Persist a failed-but-paid attempt's partial COGS trail (usage_raw + cost_recheck) so the
+    // admin margin panel can SUM failed spend instead of being blind to it (05 §1b(3) — was
+    // log-only). KNOWN LIMIT (accepted, codex batch-3): each retry OVERWRITES the previous
+    // attempt's tally and a final success overwrites it again, so multi-attempt paid retries
+    // under-report — immaterial today because harvest (the dominant COGS) is maxAttempts=1 and
+    // icp:generate retries cost cents; revisit if any paid job type becomes multi-attempt.
+    // The column is hidden from client reads (068) and role-sanitized in the API.
+    if (partialResult && Object.keys(partialResult).length > 0) {
+        patch.result = partialResult;
+    }
 
     if (willRetry) {
         const backoffSec = Math.min(300, 10 * Math.pow(2, job.attempts - 1));
@@ -169,15 +188,16 @@ export async function failJob(job: ResearchJob, err: unknown): Promise<void> {
         patch.finished_at = now;
     }
 
-    // Ownership-guarded (see completeJob): only finalize a job this worker still
-    // holds, so a reaped + reclaimed job isn't clobbered by the stale worker.
-    const { data, error } = await researchSupabaseAdmin
+    // Fenced (see completeJob): only finalize the exact attempt this worker still holds
+    // (locked_by + lease), so a reaped + reclaimed job isn't clobbered by the stale attempt.
+    let q = researchSupabaseAdmin
         .from('research_jobs')
         .update(patch)
         .eq('id', job.id)
         .eq('locked_by', job.locked_by)
-        .eq('status', 'running')
-        .select('id');
+        .eq('status', 'running');
+    q = job.lease ? q.eq('lease', job.lease) : q.is('lease', null);
+    const { data, error } = await q.select('id');
     if (error) {
         log.error({ err: error, jobId: job.id }, 'failJob update failed');
         throw error;
@@ -200,6 +220,35 @@ export async function reapStaleJobs(timeout = '5 minutes'): Promise<number> {
     const { data, error } = await researchSupabaseAdmin.rpc('research_reap_stale_jobs', { p_timeout: timeout });
     if (error) {
         log.error({ err: error }, 'reapStaleJobs failed');
+        return 0;
+    }
+    return (data as number) ?? 0;
+}
+
+/**
+ * Release quota reservations stranded by a crashed worker (an OPEN hold whose job reached a
+ * terminal state or vanished, or an orphan jobless hold older than `timeout`). Run periodically
+ * by the worker alongside reapStaleJobs. Returns the number released. Non-fatal on error.
+ */
+export async function releaseStaleHolds(timeout = '15 minutes'): Promise<number> {
+    const { data, error } = await researchSupabaseAdmin.rpc('research_release_stale_holds', { p_timeout: timeout });
+    if (error) {
+        log.error({ err: error }, 'releaseStaleHolds failed');
+        return 0;
+    }
+    return (data as number) ?? 0;
+}
+
+/**
+ * Apply the current period's automatic lead-quota grants (research_tenant_settings, no Stripe —
+ * 073). IDEMPOTENT: the ledger ref is deterministic per (tenant, period), so re-running (worker
+ * ticks call this every reap interval — a cheap no-op once applied) can never double-grant.
+ * Returns the number of tenants granted this call. Non-fatal on error.
+ */
+export async function applyPeriodGrants(): Promise<number> {
+    const { data, error } = await researchSupabaseAdmin.rpc('research_apply_period_grants', {});
+    if (error) {
+        log.error({ err: error }, 'applyPeriodGrants failed');
         return 0;
     }
     return (data as number) ?? 0;

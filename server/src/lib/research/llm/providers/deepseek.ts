@@ -20,7 +20,12 @@ function client(): OpenAI {
     if (!_client) {
         const apiKey = process.env.DEEPSEEK_KEY;
         if (!apiKey) throw new LlmError('DEEPSEEK_KEY is not set', 'deepseek');
-        _client = new OpenAI({ apiKey, baseURL: BASE_URL });
+        // maxRetries: 0 — the OpenAI SDK retries (default 2) below this boundary, so one logical
+        // run() could be several physical HTTP attempts that the router meter records only once
+        // (it would undercount COGS). Disable SDK retries so one run() == one metered call. The
+        // pilot is re-runnable; if production wants retries, add them ABOVE the meter (in runLlm)
+        // so each attempt is recorded.
+        _client = new OpenAI({ apiKey, baseURL: BASE_URL, maxRetries: 0 });
     }
     return _client;
 }
@@ -92,13 +97,20 @@ export const deepseekProvider: LlmProvider = {
             }
         }
 
+        // DeepSeek auto-caches the (large, constant) validation system prefix and bills cache hits
+        // ~10x cheaper than misses. prompt_tokens is the BLENDED total; the hit count is a DeepSeek
+        // extension (top-level prompt_cache_hit_tokens, also in prompt_tokens_details.cached_tokens).
+        // Capture the cached subset so usage_raw can reconcile input COGS against the real invoice's
+        // hit/miss split — pricing.ts keeps the dollar figures blended (conservative overcount).
+        const u = resp.usage as (typeof resp.usage & { prompt_cache_hit_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } }) | undefined;
+        const cachedInputTokens = u?.prompt_cache_hit_tokens ?? u?.prompt_tokens_details?.cached_tokens;
         return {
             text,
             json,
             finish,
             provider: 'deepseek',
             model,
-            usage: { inputTokens: resp.usage?.prompt_tokens, outputTokens: resp.usage?.completion_tokens },
+            usage: { inputTokens: resp.usage?.prompt_tokens, cachedInputTokens, outputTokens: resp.usage?.completion_tokens },
             raw: resp,
         };
     },

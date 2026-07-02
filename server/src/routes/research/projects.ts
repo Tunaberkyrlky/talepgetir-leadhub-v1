@@ -18,7 +18,35 @@ const PROJECT_STATUSES = [
     'setup', 'icp', 'calibration', 'scaling', 'enrichment', 'handoff', 'paused', 'archived',
 ] as const;
 
-const jsonRecord = z.record(z.string(), z.unknown());
+// The profile is freeform JSON, but it is (a) persisted and (b) serialized straight into
+// an LLM prompt, so it must be bounded — otherwise a client could store ~10MB of nested
+// data and drive unbounded prompt cost (062 #10). Cap TOTAL keys (recursively, not just
+// top-level) + total serialized BYTES (utf-8, not utf-16 code units).
+const MAX_PROFILE_KEYS = 200;
+const MAX_PROFILE_BYTES = 20_000;
+
+function countKeysDeep(v: unknown, acc = { n: 0 }): number {
+    if (v && typeof v === 'object') {
+        if (Array.isArray(v)) {
+            for (const item of v) countKeysDeep(item, acc);
+        } else {
+            for (const [, val] of Object.entries(v)) {
+                acc.n++;
+                countKeysDeep(val, acc);
+            }
+        }
+    }
+    return acc.n;
+}
+
+const jsonRecord = z
+    .record(z.string(), z.unknown())
+    .refine((o) => countKeysDeep(o) <= MAX_PROFILE_KEYS, {
+        message: `profile has too many keys (max ${MAX_PROFILE_KEYS} total)`,
+    })
+    .refine((o) => Buffer.byteLength(JSON.stringify(o), 'utf8') <= MAX_PROFILE_BYTES, {
+        message: `profile is too large (max ${MAX_PROFILE_BYTES} bytes serialized)`,
+    });
 
 const createProjectSchema = z.object({
     name: z.string().min(1).max(200),
