@@ -1,0 +1,30 @@
+# SearXNG settings for TG-Research (baked to /etc/searxng/settings.yml).
+# The ONLY setting that has no env-var override is search.formats — JSON must be
+# enabled here or ?format=json returns 403. secret_key is overridden at runtime
+# by $SEARXNG_SECRET. limiter:false = usable server-to-server with no Valkey/Redis.
+use_default_settings: true
+
+general:
+  instance_name: "tg-research-searxng"
+
+server:
+  secret_key: "overridden-by-SEARXNG_SECRET-env"
+  limiter: false          # internal server-to-server: no bot gating, no Valkey
+  public_instance: false
+  image_proxy: false
+
+search:
+  formats:
+    - html
+    - json
+
+# OPTIONAL — route engine traffic through DataImpulse rotating proxy at scale.
+# Left commented: runs proxy-less today (fine for low volume). Uncomment + fill
+# creds to enable gateway-side IP rotation.
+# outgoing:
+#   request_timeout: 10.0
+#   max_request_timeout: 20.0
+#   retries: 1
+#   proxies:
+#     all://:
+#       - http://USER:PASS@gw.dataimpulse.com:823
