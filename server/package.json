@@ -5,9 +5,11 @@
     "scripts": {
         "dev": "tsx watch src/index.ts",
         "dev:worker": "tsx watch src/lib/research/worker/index.ts",
+        "dev:api": "tsx watch src/researchApi.ts",
         "build": "tsc && cp -r src/data dist/data",
         "start": "node dist/index.js",
-        "start:worker": "node dist/lib/research/worker/index.js"
+        "start:worker": "node dist/lib/research/worker/index.js",
+        "start:api": "node dist/researchApi.js"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.106.0",
