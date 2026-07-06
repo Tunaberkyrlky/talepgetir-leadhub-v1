@@ -18,6 +18,7 @@ import { createLogger } from '../lib/logger.js';
 import { validateBody, smtpConnectionSchema, uuidField } from '../lib/validation.js';
 import { listConnections, PUBLIC_COLUMNS } from '../lib/emailConnections.js';
 import { verifySmtp } from '../lib/mail/smtpAdapter.js';
+import { describeMailVerifyError } from '../lib/mail/verifyErrors.js';
 import { verifyImap } from '../lib/imapInbound.js';
 import { encrypt } from '../lib/encryption.js';
 import { assertPublicHost } from '../lib/ssrfGuard.js';
@@ -116,7 +117,7 @@ router.post('/smtp', validateBody(smtpConnectionSchema), async (req: Request, re
             });
         } catch (verifyErr) {
             log.warn({ err: verifyErr, host: b.smtp_host }, 'SMTP verify failed');
-            res.status(422).json({ error: 'SMTP bağlantısı doğrulanamadı. Sunucu, port, kullanıcı adı ve şifreyi kontrol edin.' });
+            res.status(422).json({ error: describeMailVerifyError(verifyErr, 'smtp') });
             return;
         }
 
@@ -135,7 +136,7 @@ router.post('/smtp', validateBody(smtpConnectionSchema), async (req: Request, re
                 });
             } catch (verifyErr) {
                 log.warn({ err: verifyErr, host: b.imap_host }, 'IMAP verify failed');
-                res.status(422).json({ error: 'IMAP (gelen) bağlantısı doğrulanamadı. Gmail için 2 adımlı doğrulama + uygulama şifresi ve IMAP erişimi gereklidir.' });
+                res.status(422).json({ error: describeMailVerifyError(verifyErr, 'imap') });
                 return;
             }
         }

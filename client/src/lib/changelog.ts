@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.3',
+        date: '2026-07-06',
+        type: 'improvement',
+        title: { tr: 'SMTP/IMAP Bağlantı Hataları Daha Açıklayıcı', en: 'Clearer SMTP/IMAP Connection Errors' },
+        about: {
+            tr: 'Kendi mail sunucunuzu bağlarken doğrulama başarısız olursa, artık nedenini (şifre, port/SSL, sertifika ya da erişim) belirten net bir mesaj görürsünüz.',
+            en: 'When connecting your own mail server fails, you now see a clear message stating the reason (password, port/SSL, certificate, or reachability).',
+        },
+    },
+    {
         version: '1.19.2',
         date: '2026-07-01',
         type: 'improvement',
