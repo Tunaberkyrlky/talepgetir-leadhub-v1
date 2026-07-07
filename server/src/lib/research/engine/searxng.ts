@@ -42,6 +42,7 @@ export function searxngBaseUrl(): string | null {
 
 interface SearxPageResponse {
     results?: Array<{ url?: unknown; title?: unknown; content?: unknown; engine?: unknown }>;
+    unresponsive_engines?: unknown[];
 }
 
 /** A page fetch either succeeded (ok) with N results, or failed (timeout/non-2xx/bad JSON). An
@@ -76,6 +77,10 @@ async function fetchPage(base: string, query: string, pageno: number, opts: Sear
         }
         const body = (await resp.json()) as SearxPageResponse;
         const rows = Array.isArray(body.results) ? body.results : [];
+        if (rows.length === 0 && Array.isArray(body.unresponsive_engines) && body.unresponsive_engines.length > 0) {
+            log.warn({ pageno, unresponsive_engines: body.unresponsive_engines }, 'searxng page had no results and unresponsive engines');
+            return { ok: false, results: [] };
+        }
         const out: SearxResult[] = [];
         for (const r of rows) {
             if (typeof r.url !== 'string' || !r.url) continue;

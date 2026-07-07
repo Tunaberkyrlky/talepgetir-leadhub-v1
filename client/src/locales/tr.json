@@ -388,7 +388,43 @@
         "subtitle": "Firmanızı tanımlayın; asistan, puanlayıp düzenleyebileceğiniz ideal alıcı profilleri önersin.",
         "tabs": {
             "icp": "ICP Master",
-            "companies": "Lead'ler"
+            "companies": "Lead'ler",
+            "trade": "Gümrük Verisi"
+        },
+        "trade": {
+            "project": "Proje",
+            "pickProject": "Proje seçin",
+            "icp": "Onaylı ICP",
+            "pickIcp": "ICP seçin",
+            "file": "Gümrük CSV",
+            "pickFile": "CSV seçin",
+            "preview": "Önizle",
+            "import": "Alıcıları içe aktar",
+            "importQueued": "Gümrük içe aktarımı sıraya alındı: {{count}} satır",
+            "research": "Araştır",
+            "researchDone": "Araştırma tamamlandı: {{matches}} uygun firma, {{billed}} yeni kredi kullanıldı",
+            "researchFailed": "Araştırma başarısız oldu",
+            "total": "{{count}} satır",
+            "accepted": "{{count}} kabul",
+            "review": "{{count}} kontrol",
+            "rejected": "{{count}} reddedildi",
+            "company": "Alıcı firma",
+            "hsCodes": "HS / GTIP",
+            "amount": "Tutar",
+            "country": "Ülke",
+            "quality": "Kalite",
+            "rowRejected": "Reddedildi",
+            "rowReview": "Kontrol",
+            "rowReady": "Hazır",
+            "history": "İçe aktarma geçmişi",
+            "empty": "Bu projeye henüz gümrük CSV yüklenmedi.",
+            "seeded": "{{count}} tohum",
+            "status": {
+                "queued": "Sırada",
+                "processing": "İşleniyor",
+                "processed": "Tamamlandı",
+                "failed": "Başarısız"
+            }
         },
         "companies": {
             "project": "Proje",
@@ -423,7 +459,11 @@
             "done": "Tarama bitti: {{matches}} uygun firma ({{billed}} yeni lead kotadan düştü)",
             "failed": "Tarama başarısız oldu",
             "needApproved": "Bu ICP ile tarama için önce onaylamanız gerekir.",
-            "noCredits": "Lead kotanız kalmadı, tarama için kota yüklemeniz gerekir."
+            "noCredits": "Lead kotanız kalmadı, tarama için kota yüklemeniz gerekir.",
+            "source": "Kaynak",
+            "sourceWeb": "Web",
+            "sourceMaps": "Harita",
+            "sourceHint": "Web = arama motorları. Harita = Google Haritalar firma taraması (BDT coğrafyaları 2GIS kullanır). Aynı kota ve faturalama."
         },
         "admin": {
             "title": "Araştırma — COGS & Marj (dahili)",

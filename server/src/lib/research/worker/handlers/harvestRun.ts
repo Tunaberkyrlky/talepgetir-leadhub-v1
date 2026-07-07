@@ -17,12 +17,13 @@
  * stranded hold is freed by the worker's stale-hold reaper. Domainless candidates are parked as
  * 'review' (no site to read) for the enrichment phase.
  */
-import type { HandlerContext } from '../types.js';
+import type { HandlerContext, JobHandler } from '../types.js';
 import { researchSupabaseAdmin } from '../../supabase.js';
 import { createLogger } from '../../../logger.js';
 import { resolveCaps, CapTracker, type EngineCaps } from '../../engine/caps.js';
 import { canonicalKey, normalizeDomain } from '../../engine/canonical.js';
-import { buildQueries, runDiscovery, type Candidate } from '../../engine/discovery.js';
+import type { Candidate } from '../../engine/discovery.js';
+import { webSearchSource, type CandidateSource } from '../../engine/sources.js';
 import { fetchPage, cachedPageContent } from '../../engine/fetch.js';
 import { validateCompany } from '../../engine/validate.js';
 import { costOfLlm, costOfFetch, costFromUsageSummary, PRICING_VERSION } from '../../engine/pricing.js';
@@ -31,7 +32,6 @@ import {
     upsertCompany,
     persistVerdict,
     billMatch,
-    logSearch,
     existingCompanies,
     companiesWithCurrentVerdict,
     suppressedCanonicalKeys,
@@ -79,7 +79,7 @@ interface CanonCandidate extends Candidate {
     canonicalKey: string;
 }
 
-export async function harvestRunHandler({ job, heartbeat }: HandlerContext): Promise<Record<string, unknown>> {
+export async function runHarvest({ job, heartbeat }: HandlerContext, source: CandidateSource): Promise<Record<string, unknown>> {
     const tenantId = job.tenant_id;
     const projectId = job.project_id;
     const icpId = typeof job.payload?.icp_id === 'string' ? job.payload.icp_id : null;
@@ -112,6 +112,7 @@ export async function harvestRunHandler({ job, heartbeat }: HandlerContext): Pro
 
     const caps: EngineCaps = resolveCaps(job.payload?.caps as Partial<EngineCaps> | undefined);
     const tracker = new CapTracker(caps);
+    const sourcePath = source.sourcePath ?? 'Y1';
 
     // ── Admission control: reserve quota up-front ────────────────────────────
     // Refuse to start (and burn COGS) if the tenant has no available credit. The reservation is the
@@ -143,25 +144,13 @@ export async function harvestRunHandler({ job, heartbeat }: HandlerContext): Pro
         const { result: built, usage } = await withLlmMeter(async () => {
         const balanceBefore = await creditBalance(tenantId);
 
-        // ── Discovery ────────────────────────────────────────────────────────────
-        await heartbeat({ stage: 'discovery' });
-        const queries = buildQueries(icpRow, geography, caps.maxQueries);
-        const rawCandidates: Candidate[] = [];
-        let queriesRun = 0;
-        for (const q of queries) {
-            if (!tracker.canQuery()) break;
-            tracker.countQuery();
-            queriesRun++;
-            const d = await runDiscovery(q);
-            tracker.addSearchCost(d.costUsd);
-            await logSearch({
-                tenantId, projectId, jobId: job.id, query: q,
-                resultCount: d.candidates.length, cacheHit: d.cacheHit, costUsd: d.costUsd,
-            });
-            rawCandidates.push(...d.candidates);
-            await heartbeat({ stage: 'discovery', queries: queriesRun, found: rawCandidates.length });
-            if (tracker.reasonToStop()) break;
-        }
+        // ── Discovery (source-specific: web search OR maps scrape) ─────────────────
+        // The ONLY source-dependent step. The source counts its own queries + adds its own search
+        // cost to the tracker and logs its per-tenant COGS; everything below is source-agnostic.
+        const { candidates: rawCandidates, queriesRun, meta: sourceMeta } = await source.gather({
+            icp: icpRow, geography, caps, tracker, heartbeat,
+            tenantId, projectId, jobId: job.id,
+        });
 
         // ── Canonicalize + within-run dedup ──────────────────────────────────────
         const canon: CanonCandidate[] = [];
@@ -190,13 +179,20 @@ export async function harvestRunHandler({ job, heartbeat }: HandlerContext): Pro
             suppressedCanonicalKeys(tenantId, allKeys),
         ]);
         const existingIds = [...existingMap.values()].map((c) => c.id);
-        // When re-scoring is OFF, treat every existing firm as already-verdicted (legacy skip-all).
-        const haveCurrentVerdict = RESCORE_EXISTING
+        // When re-scoring is OFF, legacy open-web discovery skips all existing firms. Sources that
+        // explicitly fetch existing seeded companies (trade imports) still need the verdict lookup.
+        const shouldLookupCurrentVerdict = RESCORE_EXISTING || source.fetchExisting === true;
+        const haveCurrentVerdict = shouldLookupCurrentVerdict
             ? await companiesWithCurrentVerdict({ tenantId, icpId, rulesetVersion: icpRow.ruleset_version, companyIds: existingIds })
             : new Set<string>(existingIds);
 
-        const fresh = canon.filter((c) => !existingMap.has(c.canonicalKey) && !suppressed.has(c.canonicalKey));
+        const fresh = canon.filter((c) => {
+            if (suppressed.has(c.canonicalKey)) return false;
+            const existing = existingMap.get(c.canonicalKey);
+            return !existing || (source.fetchExisting === true && !haveCurrentVerdict.has(existing.id));
+        });
         const reScoreTargets: ExistingCompany[] = RESCORE_EXISTING
+            && source.fetchExisting !== true
             ? canon
                 .filter((c) => !suppressed.has(c.canonicalKey))
                 .map((c) => existingMap.get(c.canonicalKey))
@@ -276,8 +272,9 @@ export async function harvestRunHandler({ job, heartbeat }: HandlerContext): Pro
                     await upsertCompany({
                         tenantId, canonicalKey: c.canonicalKey, projectId,
                         domain: null, name: c.name, website: c.domain ?? null, country: c.country, city: c.city,
+                        phone: c.phone, address: c.address,
                         status: 'review', siteSummary: 'domainless candidate (no website resolved)',
-                        icpId, sourcePath: 'Y1', jobId: job.id, worker, lease,
+                        icpId, sourcePath, jobId: job.id, worker, lease,
                     });
                     review++;
                 } catch (e) {
@@ -311,7 +308,8 @@ export async function harvestRunHandler({ job, heartbeat }: HandlerContext): Pro
                     await upsertCompany({
                         tenantId, canonicalKey: c.canonicalKey, projectId,
                         domain: regDomain, name: c.name, website: c.domain ?? regDomain, country: c.country, city: c.city,
-                        status: 'review', siteSummary: `site unreachable (status ${page.status})`, icpId, sourcePath: 'Y1',
+                        phone: c.phone, address: c.address,
+                        status: 'review', siteSummary: `site unreachable (status ${page.status})`, icpId, sourcePath,
                         jobId: job.id, worker, lease,
                     });
                     review++;
@@ -335,9 +333,10 @@ export async function harvestRunHandler({ job, heartbeat }: HandlerContext): Pro
                 const company = await upsertCompany({
                     tenantId, canonicalKey: c.canonicalKey, projectId,
                     domain: regDomain, name: c.name, website: c.domain ?? regDomain, country: c.country, city: c.city,
+                    phone: c.phone, address: c.address,
                     status: verdict.verdict, score: verdict.score,
                     siteSummary: verdict.summary || null, evidence: verdict.evidence,
-                    eliminationReason: verdict.elimination_reason || null, icpId, sourcePath: 'Y1',
+                    eliminationReason: verdict.elimination_reason || null, icpId, sourcePath,
                     jobId: job.id, worker, lease,
                 });
                 companyId = company.id;
@@ -374,7 +373,7 @@ export async function harvestRunHandler({ job, heartbeat }: HandlerContext): Pro
                         status: persisted.verdict, score: persisted.score,
                         evidence: persisted.evidence,
                         eliminationReason: persisted.eliminationReason,
-                        icpId, sourcePath: 'Y1', jobId: job.id, worker, lease,
+                        icpId, sourcePath, jobId: job.id, worker, lease,
                     });
                 } catch (e) {
                     if (!(e instanceof SuppressedError)) throw e;
@@ -495,6 +494,9 @@ export async function harvestRunHandler({ job, heartbeat }: HandlerContext): Pro
         const balanceAfter = await creditBalance(tenantId);
         const newlyBilled = settledHold.settled;
         const summary = {
+            source: source.name,
+            source_path: sourcePath,
+            source_meta: sourceMeta ?? null,
             icp_id: icpId,
             geography,
             queries_run: queriesRun,
@@ -555,7 +557,7 @@ export async function harvestRunHandler({ job, heartbeat }: HandlerContext): Pro
             usage_raw: usage,
             cost_recheck: costFromUsageSummary(usage),
         };
-        log.info({ jobId: job.id, ...summary }, 'harvest:run complete');
+        log.info({ jobId: job.id, ...summary }, `${source.name} harvest complete`);
         return summary;
     } catch (err) {
         // The run failed AFTER possibly spending on LLM calls — withLlmMeter attaches the partial
@@ -578,3 +580,6 @@ export async function harvestRunHandler({ job, heartbeat }: HandlerContext): Pro
         throw err;
     }
 }
+
+/** harvest:run — web-search discovery (SearXNG/Gemini) → the shared harvest pipeline. */
+export const harvestRunHandler: JobHandler = (ctx) => runHarvest(ctx, webSearchSource);

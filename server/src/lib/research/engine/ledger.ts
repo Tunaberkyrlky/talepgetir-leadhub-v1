@@ -30,7 +30,10 @@ export interface UpsertCompanyInput {
     website?: string | null;
     country?: string | null;
     city?: string | null;
-    status: string;
+    phone?: string | null;
+    address?: string | null;
+    /** null preserves an existing rollup status; a new row defaults to review in the RPC. */
+    status: string | null;
     score?: number | null;
     siteSummary?: string | null;
     evidence?: string | null;
@@ -59,6 +62,8 @@ export async function upsertCompany(input: UpsertCompanyInput): Promise<CompanyR
         p_website: input.website ?? null,
         p_country: input.country ?? null,
         p_city: input.city ?? null,
+        p_phone: input.phone ?? null,
+        p_address: input.address ?? null,
         p_status: input.status,
         p_score: input.score ?? null,
         p_site_summary: input.siteSummary ?? null,
@@ -241,6 +246,7 @@ export async function logSearch(params: {
     tenantId: string;
     projectId?: string | null;
     jobId?: string | null;
+    engine?: string;
     query: string;
     resultCount: number;
     cacheHit: boolean;
@@ -251,7 +257,7 @@ export async function logSearch(params: {
         tenant_id: params.tenantId,
         project_id: params.projectId ?? null,
         job_id: params.jobId ?? null,
-        engine: 'gemini',
+        engine: params.engine ?? 'gemini',
         query: params.query,
         query_hash: createHash('sha256').update(params.query).digest('hex'),
         result_count: params.resultCount,

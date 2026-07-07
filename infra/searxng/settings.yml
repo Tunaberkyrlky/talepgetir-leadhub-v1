@@ -18,9 +18,9 @@ search:
     - html
     - json
 
-# OPTIONAL — route engine traffic through DataImpulse rotating proxy at scale.
-# Left commented: runs proxy-less today (fine for low volume). Uncomment + fill
-# creds to enable gateway-side IP rotation.
+# OPTIONAL — route engine traffic through a rotating/residential proxy at scale.
+# Do NOT put proxy credentials in this file. Set ROTATING_PROXY as a Railway
+# secret; proxy-entrypoint.sh generates an ephemeral settings file at boot.
 # outgoing:
 #   request_timeout: 10.0
 #   max_request_timeout: 20.0

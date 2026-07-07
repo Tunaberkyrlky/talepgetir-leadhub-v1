@@ -7,3 +7,5 @@
 # is used now because this service is idle until discovery is wired to it.
 FROM searxng/searxng:latest
 COPY --chown=977:977 settings.yml /etc/searxng/settings.yml
+COPY --chmod=755 proxy-entrypoint.sh /usr/local/bin/tg-searxng-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/tg-searxng-entrypoint.sh"]

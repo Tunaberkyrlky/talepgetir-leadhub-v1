@@ -34,11 +34,14 @@ const COMPANY_STATUSES = ['match', 'partial', 'eliminated', 'review'] as const;
 const runSchema = z.object({
     icp_id: uuidField('Invalid ICP ID'),
     geography: z.string().min(1).max(120),
+    // Discovery source: 'web' (SearXNG/Gemini, default) or 'maps' (Gosom/Google Maps; 2GIS/CIS in M2).
+    // Both run the identical capped, hold-fenced, once-ever-billed pipeline — only discovery differs.
+    source: z.enum(['web', 'maps']).optional(),
     caps: z.unknown().optional(),
 });
 const internalCapsSchema = z
     .object({
-        maxQueries: z.number().int().min(1).max(20).optional(),
+        maxQueries: z.number().int().min(1).max(33).optional(),
         maxFetches: z.number().int().min(1).max(200).optional(),
         maxCandidates: z.number().int().min(1).max(300).optional(),
         maxSpendUsd: z.number().min(0.01).max(25).optional(),
@@ -49,7 +52,8 @@ const internalCapsSchema = z
 router.post('/run', requireWriter, validateBody(runSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
-        const { icp_id, geography, caps: rawCaps } = req.body as z.infer<typeof runSchema>;
+        const { icp_id, geography, source, caps: rawCaps } = req.body as z.infer<typeof runSchema>;
+        const jobType = source === 'maps' ? RESEARCH_JOB_TYPES.MAPS_HARVEST : RESEARCH_JOB_TYPES.HARVEST_RUN;
         // Internal roles may size a sanctioned larger run (resolveCaps clamps to the ceilings);
         // a client-role request silently runs with the defaults.
         let caps: z.infer<typeof internalCapsSchema>;
@@ -94,18 +98,22 @@ router.post('/run', requireWriter, validateBody(runSchema), async (req: Request,
             return;
         }
 
-        // ONE in-flight harvest per ICP (advisory guard, Workflow review): two concurrent runs of
-        // the SAME ICP make the (company, icp, ruleset) verdict a last-writer-wins race between two
-        // LIVE attempts (both hold valid leases, so the zombie fences don't apply) — an unbilled
-        // match persisted by run A can be overwritten by run B between A's persist and A's bill.
-        // The DB invariants stay safe either way (billing follows the final row of record); this
-        // guard removes the practical class + double-click enqueues. Different ICPs still run
-        // concurrently.
+        // ONE in-flight harvest per ICP across ANY harvest type (advisory guard, Workflow review):
+        // two concurrent runs of the SAME ICP — even a web run and a maps run — make the (company,
+        // icp, ruleset) verdict a last-writer-wins race between two LIVE attempts (both hold valid
+        // leases, so the zombie fences don't apply) — an unbilled match persisted by run A can be
+        // overwritten by run B between A's persist and A's bill. The DB invariants stay safe either
+        // way (billing follows the final row of record); this guard removes the practical class +
+        // double-click enqueues. Different ICPs still run concurrently.
         const { data: inflight, error: infErr } = await researchSupabaseAdmin
             .from('research_jobs')
             .select('id')
             .eq('tenant_id', tenantId)
-            .eq('type', RESEARCH_JOB_TYPES.HARVEST_RUN)
+            .in('type', [
+                RESEARCH_JOB_TYPES.HARVEST_RUN,
+                RESEARCH_JOB_TYPES.MAPS_HARVEST,
+                RESEARCH_JOB_TYPES.TRADE_HARVEST,
+            ])
             .in('status', ['queued', 'running'])
             .contains('payload', { icp_id })
             .limit(1)
@@ -124,8 +132,8 @@ router.post('/run', requireWriter, validateBody(runSchema), async (req: Request,
 
         const job = await enqueueJob({
             tenantId,
-            type: RESEARCH_JOB_TYPES.HARVEST_RUN,
-            payload: { icp_id, geography, ...(caps ? { caps } : {}) },
+            type: jobType,
+            payload: { icp_id, geography, source: source ?? 'web', ...(caps ? { caps } : {}) },
             projectId: (icp as { project_id: string }).project_id,
             // A harvest spends real money (search + LLM + fetch) and is not cost-idempotent: an
             // auto-retry would re-discover + re-spend. Run once; on failure an operator re-runs

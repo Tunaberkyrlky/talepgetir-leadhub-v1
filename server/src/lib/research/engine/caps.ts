@@ -18,7 +18,7 @@ export interface EngineCaps {
 }
 
 export const DEFAULT_CAPS: EngineCaps = {
-    maxQueries: 5,
+    maxQueries: 11,
     maxFetches: 25,
     maxCandidates: 40,
     maxSpendUsd: 2.0,
@@ -28,7 +28,7 @@ export const DEFAULT_CAPS: EngineCaps = {
 // ceiling is env-tunable so an operator can deliberately raise it for a sanctioned larger run,
 // rather than letting any client_admin jump straight to the old $25.
 const CEILING = {
-    queries: Number(process.env.RESEARCH_MAX_QUERIES_CEILING ?? 10),
+    queries: Number(process.env.RESEARCH_MAX_QUERIES_CEILING ?? 33),
     fetches: Number(process.env.RESEARCH_MAX_FETCHES_CEILING ?? 60),
     candidates: Number(process.env.RESEARCH_MAX_CANDIDATES_CEILING ?? 80),
     spendUsd: Number(process.env.RESEARCH_MAX_SPEND_CEILING ?? 5),

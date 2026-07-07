@@ -15,6 +15,12 @@ export const RESEARCH_JOB_TYPES = {
     ICP_GENERATE: 'icp:generate',
     /** Y1 list-harvest (capped pilot): discover → validate → bill MATCHes for 1 ICP × 1 geo. */
     HARVEST_RUN: 'harvest:run',
+    /** Maps-harvest: async maps scrape (Gosom/Google Maps; 2GIS/CIS in M2) → same harvest pipeline. */
+    MAPS_HARVEST: 'maps:harvest',
+    /** Y2: normalized customs buyers -> unbilled review candidates in the company ledger. */
+    TRADE_INGEST: 'trade:ingest',
+    /** Y2 explicit Research: imported buyers -> shared validation + MATCH-only billing. */
+    TRADE_HARVEST: 'trade:harvest',
 } as const;
 
 export type ResearchJobType = (typeof RESEARCH_JOB_TYPES)[keyof typeof RESEARCH_JOB_TYPES];

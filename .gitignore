@@ -11,6 +11,10 @@ dist/
 build/
 *.tsbuildinfo
 
+# Python (infra/twogis service)
+__pycache__/
+*.pyc
+
 # IDE
 .vscode/
 .idea/

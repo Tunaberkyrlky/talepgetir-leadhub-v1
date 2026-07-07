@@ -9,13 +9,14 @@ import {
     Container, Title, Text, Paper, Stack, Group, TextInput, Textarea, TagsInput,
     NumberInput, Button, Loader, Alert, SimpleGrid, Badge, Tabs,
 } from '@mantine/core';
-import { IconSparkles, IconInfoCircle, IconBuildingSkyscraper, IconTargetArrow } from '@tabler/icons-react';
+import { IconSparkles, IconInfoCircle, IconBuildingSkyscraper, IconTargetArrow, IconFileSpreadsheet } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showErrorFromApi } from '../../lib/notifications';
 import IcpCard, { type ResearchIcp } from '../../components/research/IcpCard';
 import CompaniesPanel from '../../components/research/CompaniesPanel';
+import TradeImportsPanel from '../../components/research/TradeImportsPanel';
 
 interface ResearchJob {
     id: string;
@@ -119,10 +120,17 @@ export default function ResearchPage() {
                         <Tabs.Tab value="companies" leftSection={<IconBuildingSkyscraper size={16} />}>
                             {t('research.tabs.companies', 'Leads')}
                         </Tabs.Tab>
+                        <Tabs.Tab value="trade" leftSection={<IconFileSpreadsheet size={16} />}>
+                            {t('research.tabs.trade', 'Customs data')}
+                        </Tabs.Tab>
                     </Tabs.List>
 
                     <Tabs.Panel value="companies">
                         <CompaniesPanel />
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="trade">
+                        <TradeImportsPanel />
                     </Tabs.Panel>
 
                     <Tabs.Panel value="icp">

@@ -74,6 +74,9 @@ export default function CompaniesPanel() {
     const [page, setPage] = useState(1);
     const [geography, setGeography] = useState('');
     const [runJobId, setRunJobId] = useState<string | null>(null);
+    // Discovery source: 'web' (search engines, default) or 'maps' (Google Maps / 2GIS business
+    // scrape — CIS geographies route to 2GIS). Both run the same capped, billed harvest.
+    const [source, setSource] = useState<'web' | 'maps'>('web');
 
     const projectsQuery = useQuery<{ data: ResearchProject[] }>({
         queryKey: ['research', 'projects'],
@@ -118,6 +121,7 @@ export default function CompaniesPanel() {
             const job = (await api.post('/research/harvest/run', {
                 icp_id: icpId,
                 geography: geography.trim(),
+                source,
             })).data as HarvestJob;
             setRunJobId(job.id);
             return job;
@@ -252,6 +256,24 @@ export default function CompaniesPanel() {
                             onChange={(e) => setGeography(e.currentTarget.value)}
                             w={280}
                         />
+                        <Tooltip
+                            multiline
+                            w={260}
+                            label={t('research.harvest.sourceHint', 'Web = search engines. Maps = Google Maps business scrape (CIS geographies use 2GIS). Same quota and billing.')}
+                        >
+                            <div>
+                                <Text size="xs" c="dimmed" mb={4}>{t('research.harvest.source', 'Source')}</Text>
+                                <SegmentedControl
+                                    value={source}
+                                    onChange={(v) => setSource(v as 'web' | 'maps')}
+                                    disabled={running}
+                                    data={[
+                                        { value: 'web', label: t('research.harvest.sourceWeb', 'Web') },
+                                        { value: 'maps', label: t('research.harvest.sourceMaps', 'Maps') },
+                                    ]}
+                                />
+                            </div>
+                        </Tooltip>
                         <Button
                             leftSection={<IconPlayerPlay size={16} />}
                             onClick={() => runMut.mutate()}

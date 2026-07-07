@@ -388,7 +388,43 @@
         "subtitle": "Describe your company; the assistant proposes ideal buyer profiles you score and refine.",
         "tabs": {
             "icp": "ICP Master",
-            "companies": "Leads"
+            "companies": "Leads",
+            "trade": "Customs data"
+        },
+        "trade": {
+            "project": "Project",
+            "pickProject": "Pick a project",
+            "icp": "Approved ICP",
+            "pickIcp": "Pick an ICP",
+            "file": "Customs CSV",
+            "pickFile": "Select CSV",
+            "preview": "Preview",
+            "import": "Import buyers",
+            "importQueued": "Trade import queued: {{count}} rows",
+            "research": "Research",
+            "researchDone": "Research completed: {{matches}} match, {{billed}} new credit used",
+            "researchFailed": "Research failed",
+            "total": "{{count}} rows",
+            "accepted": "{{count}} accepted",
+            "review": "{{count}} review",
+            "rejected": "{{count}} rejected",
+            "company": "Buyer company",
+            "hsCodes": "HS / GTIP",
+            "amount": "Amount",
+            "country": "Country",
+            "quality": "Quality",
+            "rowRejected": "Rejected",
+            "rowReview": "Review",
+            "rowReady": "Ready",
+            "history": "Import history",
+            "empty": "No customs CSV has been imported for this project.",
+            "seeded": "{{count}} seeded",
+            "status": {
+                "queued": "Queued",
+                "processing": "Processing",
+                "processed": "Completed",
+                "failed": "Failed"
+            }
         },
         "companies": {
             "project": "Project",
@@ -423,7 +459,11 @@
             "done": "Harvest finished: {{matches}} match ({{billed}} new lead billed)",
             "failed": "Harvest failed",
             "needApproved": "Approve this ICP first to harvest leads for it.",
-            "noCredits": "No lead quota available — top up to run a harvest."
+            "noCredits": "No lead quota available — top up to run a harvest.",
+            "source": "Source",
+            "sourceWeb": "Web",
+            "sourceMaps": "Maps",
+            "sourceHint": "Web = search engines. Maps = Google Maps business scrape (CIS geographies use 2GIS). Same quota and billing."
         },
         "admin": {
             "title": "Research — COGS & Margin (internal)",
