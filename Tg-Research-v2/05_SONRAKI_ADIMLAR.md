@@ -36,7 +36,7 @@ Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + C
 - Full 33-query proxy smoke `f1d4cce6-a1a7-481f-993a-1fec6286d7f0`: 610 raw / 317 unique candidate, tüm 11 açı x3; directory 69 sonuç / 52 yeni domain, local-language 29 / 14; `searchUsd=0`, `totalGroundedQueries=0`, kredi 8→8, 0 yeni bill. `fully_covered=false` çünkü son 2 sorgu hâlâ 9 yeni domain üretti: Alman plumbing pazarı 33 sorguda doymadı.
 - Audit smoke `bf39e9c5-76d4-4fba-93ee-8d0e81741db5`: `research_search_log.engine=searxng`, 77 sonuç, `$0` search cost.
 - Gemini fallback artık normal empty-result için açık değil; yalnız SearXNG incomplete/error path'inde ve ayrı `gemini-fallback` cache key'iyle çalışır (`RESEARCH_SEARXNG_GEMINI_FALLBACK_ON_EMPTY=1` verilmezse empty fallback yok).
-- Codex review bulguları kapandı: Gosom timeout 1-300 clamp, Gosom `web_site` parse, fallback cache reuse, maps query accounting, trade importer kolon önceliği, trade research/rescore flag ayrımı. Son re-review + server/client build temiz. Worker deploy `0be97020-b1ac-415e-815b-6f1316859253` canlı.
+- Codex review bulguları kapandı: Gosom timeout 1-300 clamp, Gosom `web_site` parse, fallback cache reuse, maps query accounting, trade importer kolon önceliği, trade research/rescore flag ayrımı. Son re-review + server/client build temiz. Clean `HEAD` archive worker deploy `8f57a95b-a12b-47b1-a492-dd42d35fd204` canlı.
 - **Kalan Y3 tuning:** 2GIS yok; öncelik full saturation kalitesi, directory/local-language kaynak listesini ülke/vertical bazında genişletme ve SearXNG engine miksini proxy ile stabilize etme.
 
 ### 1. Pilotu ölçeklendir → gerçek MATCH-başı COGS — ✅ **İLK ÖLÇÜM ALINDI** (2026-06-30)
