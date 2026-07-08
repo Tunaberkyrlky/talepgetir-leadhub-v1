@@ -23,6 +23,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.13.0',
+        date: '2026-07-08',
+        type: 'feature',
+        title: { tr: 'Cold Call', en: 'Cold Call' },
+        about: {
+            tr: 'Lead\'lerinizi uygulama içinden tek tıkla arayabilir, görüşmeleri kayıt ve yapay zeka özetleriyle geçmişte saklayabilir, ülke bazlı kendi numaralarınızı alıp yönetebilirsiniz.',
+            en: 'You can call your leads with one click from inside the app, keep calls in history with recordings and AI summaries, and buy and manage your own local numbers per country.',
+        },
+        usage: {
+            tr: 'Cold Call sayfasında Arama sekmesinden numarayı çevirin, Numaralarım sekmesinden ülke numarası alın, Geçmiş sekmesinden kayıt ve özetleri inceleyebilirsiniz.',
+            en: 'On the Cold Call page, dial from the Dialer tab, get a country number under My Numbers, and review recordings and summaries on the Call History tab.',
+        },
+        notes: {
+            tr: 'Aylık dakika kotanız vardır; bazı ülkeler pahalı veya aranamaz olarak işaretlidir ve Ülke Tarifeleri sekmesinde listelenir.',
+            en: 'You have a monthly minute quota; some countries are marked as expensive or not callable and are listed on the Country Tariffs tab.',
+        },
+    },
+    {
         version: '1.12.7',
         date: '2026-06-22',
         type: 'feature',

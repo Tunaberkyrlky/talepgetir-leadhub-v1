@@ -33,6 +33,7 @@ import {
     IconSpeakerphone,
     IconTargetArrow,
     IconCoin,
+    IconPhoneCall,
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
 import FeedbackModal from './FeedbackModal';
@@ -118,6 +119,7 @@ export default function Layout() {
         { path: '/activities', label: t('nav.activities'), icon: <IconActivity size={20} /> },
         { path: '/email-replies', label: t('nav.emailReplies'), icon: <IconMail size={20} /> },
         { path: '/research', label: t('nav.research', 'Research'), icon: <IconTargetArrow size={20} /> },
+        { path: '/cold-call', label: t('nav.coldCall', 'Cold Call'), icon: <IconPhoneCall size={20} /> },
         ...(['superadmin', 'ops_agent'].includes(user?.role || '')
             ? [
                 // Internal-only margin panel: dollar COGS never surfaces to client roles.

@@ -11,6 +11,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showSuccess, showErrorFromApi } from '../../lib/notifications';
+import CalibrationDrawer from './CalibrationDrawer';
 
 export interface ResearchIcp {
     id: string;
@@ -27,6 +28,8 @@ export interface ResearchIcp {
     note: string | null;
     status: 'draft' | 'approved' | 'rejected';
     ruleset_version: number;
+    calibration_state: 'none' | 'sampling' | 'feedback' | 'revised' | 'calibrated';
+    calibrated_at: string | null;
 }
 
 const STATUS_COLOR: Record<ResearchIcp['status'], string> = {
@@ -35,11 +38,17 @@ const STATUS_COLOR: Record<ResearchIcp['status'], string> = {
     rejected: 'red',
 };
 
+// Same map lives in CalibrationDrawer (not exported — react-refresh wants component-only exports).
+const CALIBRATION_COLOR: Record<ResearchIcp['calibration_state'], string> = {
+    none: 'gray', sampling: 'blue', feedback: 'yellow', revised: 'grape', calibrated: 'green',
+};
+
 export default function IcpCard({ icp }: { icp: ResearchIcp }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
 
     const [draft, setDraft] = useState<ResearchIcp>(icp);
+    const [calibrationOpen, setCalibrationOpen] = useState(false);
     const score = draft.human_score ?? 5;
 
     const invalidate = () => qc.invalidateQueries({ queryKey: ['research', 'icps', icp.project_id] });
@@ -94,6 +103,9 @@ export default function IcpCard({ icp }: { icp: ResearchIcp }) {
                     />
                     <Group gap="xs">
                         {draft.code && <Badge variant="light" color="violet">{draft.code}</Badge>}
+                        <Badge variant="light" color={CALIBRATION_COLOR[icp.calibration_state]}>
+                            {t(`research.calibration.state.${icp.calibration_state}`, icp.calibration_state)}
+                        </Badge>
                         <Badge color={STATUS_COLOR[draft.status]}>{draft.status}</Badge>
                     </Group>
                 </Group>
@@ -146,6 +158,9 @@ export default function IcpCard({ icp }: { icp: ResearchIcp }) {
                 />
 
                 <Group justify="flex-end" mt="xs">
+                    <Button variant="light" onClick={() => setCalibrationOpen(true)}>
+                        {t('research.calibration.open', 'Calibration')}
+                    </Button>
                     <Button variant="default" loading={saveMut.isPending} onClick={() => saveMut.mutate()}>
                         {t('research.icp.save', 'Save')}
                     </Button>
@@ -158,6 +173,9 @@ export default function IcpCard({ icp }: { icp: ResearchIcp }) {
                         {t('research.icp.approve', 'Approve')}
                     </Button>
                 </Group>
+
+                {/* Renders in a portal; mounted per card so its job polling survives closing. */}
+                <CalibrationDrawer icp={icp} opened={calibrationOpen} onClose={() => setCalibrationOpen(false)} />
             </Stack>
         </Card>
     );

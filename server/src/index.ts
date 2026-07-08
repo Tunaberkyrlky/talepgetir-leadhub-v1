@@ -37,6 +37,10 @@ import campaignRoutes from './routes/campaigns.js';
 import emailConnectionRoutes from './routes/email-connections.js';
 import trackingRoutes from './routes/tracking.js';
 import researchRoutes from './routes/research/index.js';
+import linkedinRoutes from './routes/linkedin/index.js';
+import linkedinCaptureRoutes from './routes/linkedin/capture.js';
+import coldcallRoutes from './coldcall/routes/index.js';
+import coldcallWebhookRoutes from './coldcall/routes/webhooks.js';
 import { startCampaignScheduler } from './lib/campaignScheduler.js';
 import { startImapPollingScheduler } from './lib/imapPollingScheduler.js';
 
@@ -161,6 +165,15 @@ const plusvibeImportLimiter = rateLimit({
     message: { error: 'Too many PlusVibe import requests, please try again later' },
 });
 
+// LinkedIn cookie capture is UNAUTHENTICATED (token-authed) — rate-limit it hard.
+const linkedinCaptureLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many capture requests' },
+});
+
 // Apply general rate limit to all API routes
 app.use('/api', generalLimiter);
 
@@ -191,7 +204,13 @@ app.use('/api/t', trackingLimiter, trackingRoutes);
 app.use('/api/unsubscribe', trackingLimiter, trackingRoutes);
 
 // Webhook routes — public, validated by their own secret
+app.use('/api/webhooks/coldcall', webhookLimiter, coldcallWebhookRoutes);
 app.use('/api/webhooks', webhookLimiter, webhooksRoutes);
+
+// LinkedIn cookie capture — public, authenticated by a single-use link token
+// (the MV3 extension can't send the session cookie cross-site). No authMiddleware.
+// MUST precede the protected /api/linkedin mount below (Express matches in order).
+app.use('/api/linkedin/capture', linkedinCaptureLimiter, linkedinCaptureRoutes);
 
 // Protected routes — auth middleware applied
 app.use('/api/companies', authMiddleware, dataFilter, companiesRoutes);
@@ -215,6 +234,14 @@ app.use('/api/email-connections', authMiddleware, emailConnectionRoutes);
 // with the billing slice. The module never touches CRM tables — handoff is
 // one-way via importProcessor (F2), not wired in the skeleton.
 app.use('/api/research', authMiddleware, researchRoutes);
+
+// TG-LinkedIn module (isolated). Auth only for now; caps/limits arrive in Faz 3.
+// The public capture endpoint is mounted above, BEFORE authMiddleware.
+app.use('/api/linkedin', authMiddleware, linkedinRoutes);
+
+// Cold Call module (isolated — server/src/coldcall/). Tek dokunuş bu mount +
+// yukarıdaki webhook mount'udur; ayrıntı için coldcall/routes/index.ts.
+app.use('/api/coldcall', authMiddleware, coldcallRoutes);
 
 // Nango OAuth custom callback — Google, redirect URI'nin bizim sahip olduğumuz
 // (ve Search Console'da doğrulayabildiğimiz) bir domain'de olmasını ister. Nango'nun

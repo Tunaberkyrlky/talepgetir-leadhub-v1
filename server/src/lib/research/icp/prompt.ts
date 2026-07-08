@@ -70,7 +70,8 @@ the exporter to design ICPs from.`;
 // Neutralize any attempt to close the untrusted-data fence from inside interpolated content
 // (a profile/HS value containing "<<<END_UNTRUSTED_DATA>>>" or "<<<UNTRUSTED_DATA>>>"). Without
 // this, such a value could end the fence early and have following text read as instructions.
-function stripFence(s: string): string {
+// Exported: revisePrompt.ts fences company/feedback content with the same defense.
+export function stripFence(s: string): string {
     return s.replace(/<<<\/?(?:END_)?UNTRUSTED_DATA>>>/gi, '[fenced]');
 }
 

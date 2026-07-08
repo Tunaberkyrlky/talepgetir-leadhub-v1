@@ -13,6 +13,8 @@ export const RESEARCH_JOB_TYPES = {
     PING: 'ping',
     /** ICP Master (B5): generate ICP drafts from the project profile via the strategy model. */
     ICP_GENERATE: 'icp:generate',
+    /** WP1 calibration: propose an ICP ruleset revision from human good/bad feedback (strategy model). */
+    ICP_REVISE: 'icp:revise',
     /** Y1 list-harvest (capped pilot): discover → validate → bill MATCHes for 1 ICP × 1 geo. */
     HARVEST_RUN: 'harvest:run',
     /** Maps-harvest: async maps scrape (Gosom/Google Maps; 2GIS/CIS in M2) → same harvest pipeline. */
@@ -21,6 +23,16 @@ export const RESEARCH_JOB_TYPES = {
     TRADE_INGEST: 'trade:ingest',
     /** Y2 explicit Research: imported buyers -> shared validation + MATCH-only billing. */
     TRADE_HARVEST: 'trade:harvest',
+
+    // ── TG-LinkedIn (isolated module; rides this same research_jobs queue) ─────
+    /** LinkedIn: session liveness + UA/proxy health smoke (/voyager/api/me). Faz 1. */
+    LINKEDIN_VALIDATE: 'linkedin:validate',
+    // RESERVED — do NOT add as constants until each ships a REGISTERED handler.
+    // Adding them here would widen isKnownJobType, so the internal POST /api/research/jobs
+    // could enqueue a type with no handler → worker fails "No handler registered" and
+    // burns retries (critique P1-1). Add each alongside its handler:
+    //   linkedin:invite (Faz 2) · linkedin:message (Faz 2) · linkedin:withdraw (Faz 3)
+    //   linkedin:poll (Faz 4) · linkedin:sequence-tick (Faz 4)
 } as const;
 
 export type ResearchJobType = (typeof RESEARCH_JOB_TYPES)[keyof typeof RESEARCH_JOB_TYPES];

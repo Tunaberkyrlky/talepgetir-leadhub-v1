@@ -1,8 +1,63 @@
 # TG-Research v2 — Sonraki Adımlar
 
-Son güncelleme: **2026-07-07** (Batı Maps/Gosom + telefon/adres enrichment + Y2 manuel gümrük CSV ingest + ücretli Y2 Araştır + Y3 11-açı web discovery tamamlandı). Durum özeti: `04_ILERLEME.md`. Bu dosya **resume için yapılacaklar**.
+Son güncelleme: **2026-07-08** (uçtan uca olgunluk değerlendirmesi → vizyon boşlukları WP1–WP5 olarak plana işlendi; inşa başlıyor). Durum özeti: `04_ILERLEME.md`. Bu dosya **resume için yapılacaklar**.
 
 Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + COGS görünürlüğü + CRM export + Companies UI tamamlandı; SearXNG web discovery artık ROTATING_PROXY ile Y3 11-açı framework'ünde $0 search COGS ile çalışıyor; Gosom/Google Maps Batı discovery worker'a bağlı; migrations 075-078 test research DB'de smoke ile doğrulandı. 2GIS/CIS kullanıcı kararıyla aktif yoldan çıkarıldı.**
+
+---
+
+## A-0. VİZYON DEĞERLENDİRMESİ (2026-07-08) → İŞ PAKETLERİ WP1–WP5 — **EN ÖNCELİKLİ**
+
+> **Kaynak:** uçtan uca olgunluk değerlendirmesi (2026-07-08). Hedef son durum: (1) ürün/hizmet + hedef coğrafyayı doğru anlayıp coğrafya-bazlı doğru **sub-ICP** profilleri çıkarmak, (2) her sub-ICP'ye doğru **offer/messaging açısı**, (3) coğrafya bazlı araştırmada **gerçek doygunluk** garantisi, (4) hedef firma × mesaj-açısı eşleştirme. Bulgu: motor/billing/fence katmanı 8-9/10; "akıl katmanı" eksik — ICP coğrafya-körü (geo = harvest-anı serbest metin), sub-ICP kavramı yok, `research_geographies`/`research_chunks`/`research_channels` şema-var-kod-yok, Y3 saturasyon bayrağı default'ta ölü (min 32 sorgu > cap 11) ve persist edilmiyor, offer/messaging katmanı hiç yok (F1 iptal edilmişti), geri-besleme yok.
+>
+> **Plan revizyonları (bu değerlendirmeyle):** (a) **sub-ICP** kavramı plana eklendi = ICP'nin coğrafyaya *instantiate* edilmiş hali; (b) **F1 iptali revize**: mesaj METNİ TG-Core'da kalır ama **angle haritası + firma-başı kişiselleştirme kancaları research çıktısıdır** (WP4); (c) **geri-besleme** plana eklendi (K8 tek-yön sınır korunur — research CRM'den yalnız AGREGAT okur, research-owned tabloya yazar).
+>
+> **Sıra: WP1 → WP2 → WP3 → WP4 → WP5.** Her WP: migration (SADECE izole research test DB) + server + client + `tsc -b` + smoke + **codex gpt-5.5 xhigh review** (bloklanırsa Claude ikincil adversarial review) → düzelt → SHIP. Kilitli invariant'lara (04 §5) DOKUNMA: billing ömürde-bir + fenced RPC'ler + suppression>dedup + müşteri dolar görmez. Migration numaraları (gerçekleşen): WP1=084+085+087 (084 çekirdek, 085/087 codex+review sertleştirmeleri), WP2=086, WP3=088, WP4=089, WP5=090 (çakışırsa kaydır).
+
+### WP1 — Kalibrasyon döngüsü (plan C1–C2) — önce bu
+
+**Amaç:** ölçeklemeden önce (ICP × geo) başına küçük örneklem → insan firma-bazlı "iyi/değil" → LLM'in ICP revizyon önerisi → insan onayı (ruleset bump) → tekrar örneklem → "araştırma mantığı onaylandı". Mevcut ruleset_version CAS + cross-ICP re-score altyapısı bunun için hazır; eksik olan ürün akışı.
+
+- **Migration 083:** `research_company_feedback` (tenant_id, company_id, icp_id, ruleset_version, verdict_id NULL, rating `good|bad`, note, created_by, created_at; RLS user SELECT-only, yazım API service-role tenant-scoped) + `research_icps.calibration_state` (`none|sampling|feedback|revised|calibrated`) + `research_icps.revision_draft` JSONB (LLM önerisi; canlı kolonlara DOKUNMAZ) + `calibrated_at`.
+- **Server:** `calibrate:run` job = mevcut harvest spine'ı küçük cap'lerle (örn. maxCandidates=12, maxQueries=6) koşan ince sarmalayıcı — **billing aynen** (MATCH normal faturalanır; trial 50 kredi bunu emer; ömürde-bir invariant'ı bozulmaz). `icp:revise` job = strategy (Opus): girdi ICP + feedback satırları (good/bad + o firmaların evidence/summary'leri) → çıktı `revision_draft` (signals/negative_signals/elimination_rules değişiklikleri + gerekçe). Route'lar: `POST /icps/:id/calibrate`, `POST/GET /icps/:id/feedback`, `POST /icps/:id/revise`, `POST /icps/:id/apply-revision` (draft'ı canlı kolonlara PATCH'ler → mevcut trigger ruleset bump + approved→draft → insan yeniden approve).
+- **Client:** ICP kartına "Kalibrasyon" akışı: örneklem tablosu (firma + kanıt + skor) → satır başına 👍/👎 + not → "Revizyon öner" → diff görünümü (mevcut vs öneri) → "Uygula" → yeniden approve → "Tekrar örnekle" → "Mantığı onayla" (`calibration_state='calibrated'`).
+- **Kabul:** izole DB'de e2e smoke (örneklem → 2+ feedback → revise → apply → ruleset bump doğrulaması → re-sample'da cross-ICP re-score'un eski firmaları yeni ruleset'te yeniden skorladığı); `tsc -b` temiz; codex review.
+
+### WP2 — Pazar yapısı araştırması → sub-ICP türetme (geo-instantiation)
+
+**Amaç:** her (onaylı ICP × hedef ülke) için kanal yapısını araştırıp ICP'yi coğrafyaya uyarlamak: yerel sinyaller, yerel dil terimleri, yerel eleme kuralları, anahtar kanallar, sertifikalar, alıcı unvanları (persona tohumu), E tahmini. `research_geographies` canlanır.
+
+- **Migration 084:** `research_geographies`'e `spec` JSONB (local_terms[], localized_signals[], localized_negative_signals[], key_channels[], certifications[], buyer_titles[], market_notes), `status` (`draft|approved|rejected`), `human_score`, `notes`, `generated_by_job_id`, `ai_draft` JSONB (ICP kalıbıyla aynı).
+- **Server:** `geo:analyze` job: (1) deterministik SearXNG sorgu şablonları (dernek/dizin/fuar/oda + "{sector} distributors {country}" + yerel dil) → ham pazar notları (reading role okur/özetler); (2) strategy role sub-ICP spec üretir → `research_geographies` draft. Onay akışı ICP kalıbıyla aynı (approve route + insan skoru). **Harvest entegrasyonu:** `harvest:run`/`maps:harvest` opsiyonel `geo_id` alır; `buildQuerySpecs`/`buildMapsKeywords` spec'in yerel terim/sinyallerini kullanır (yoksa mevcut davranış — geriye uyumlu). Verdict prompt'una sub-ICP bağlamı eklenir. **Billing bağlantısı YOK:** verdict anahtarı (icp, ruleset_version) olarak kalır — geo spec değişikliği discovery'yi etkiler, fatura semantiğini DEĞİL.
+- **Client:** ICP altında "Coğrafyalar" bölümü: ülke ekle → analiz job → sub-ICP kartı (düzenlenebilir + onay) → "Lead bul" artık geo_id ile.
+- **Kabul:** 1 ülke için canlı `geo:analyze` smoke (SearXNG $0) + geo_id'li harvest'in yerel terimleri kullandığının doğrulanması; codex review.
+
+### WP3 — Y1 kanal keşfi + liste hasadı + KALICI saturasyon/coverage
+
+**Amaç:** plandaki 🥇 kaynak (dernek/fuar/dizin üye listeleri) gerçekten inşa edilir; doygunluk run-aşırı kalıcı hale gelir; müşteriye coverage görünümü.
+
+- **Migration 085:** `research_channels`'a eksik alanlar (discovery_round, harvest durumu zaten var — kontrol et), `research_chunks`'a kümülatif alanlar: `angle_stats` JSONB (Y3 açı başına koşulan sorgu + yeni-domain sayıları, run-aşırı), `channels_found/harvested`, `n_found`, `estimate` (WP2 E'den), `saturation_a` / `saturation_b` / `fully_covered` persist. Gerekirse `research_update_chunk_coverage()` RPC (service-role; billing'e dokunmaz).
+- **Server:** `channels:discover` job (sub-ICP × ülke; çok-dilli keşif şablonları 00 §3 + WP2 key_channels tohumu → SearXNG → reading role kanal sınıflandırır: tip/ad/url/üye-liste-url → `research_channels` upsert, url-dedup; durma kuralı A: tüm keşif açıları koşuldu + son 2 turda yeni kanal yok + kanonik kategoriler kapandı). `channels:harvest` job (üye-liste URL → mevcut `fetch.ts`/Jina → reading role üye firmaları çıkarır (ad+website+şehir) → **mevcut fenced candidate spine** (canonical dedup → validate → verdict → bill), `source_path='Y1'` + `channel_id` ref; websitesiz üyeler domainless `review` park — mevcut yol). **Kümülatif saturasyon:** Y3 stop-condition chunk'ın tarihsel açı istatistikleriyle tohumlanır (`fully_covered` chunk'ta persist; 32-sorgu minimumu artık RUN başına değil HÜCRE başına kümülatif değerlendirilir). Y1 için kural-A durumu chunk'a yazılır.
+- **Client:** Coverage görünümü (ICP × geo hücresi): N bulunan / E tahmin, açı kapsaması, kanal tablosu (tip/durum/hasat), doygunluk rozeti (devam/boşluk/bitti).
+- **Kabul:** 1 ülke canlı smoke: keşif ≥5 kanal bulur → 1 kanal hasadı ≥10 aday → spine'dan geçer → chunk coverage güncellenir → ikinci run kümülatif istatistiği devralır; codex review.
+
+### WP4 — Offer/angle katmanı + firma-başı hook'lar + export genişletme
+
+**Amaç:** sub-ICP başına kanıt-bağlı değer önerisi/açı haritası (mesaj METNİ değil — o TG-Core'da) + her MATCH firmaya kişiselleştirme kancaları + hepsinin CRM köprüsünden geçmesi.
+
+- **Migration 086:** `research_offers` (tenant, project, icp_id, geo_id NULL, angle_code, pain_hypothesis, value_prop, proof_points[], objections[], language, status draft/approved, human_score, notes, ai_draft) + `research_company_verdicts`'e `hooks` JSONB + `angle_code` TEXT (NULL) — **`research_persist_verdict` RPC imza güncellemesi DİKKAT: faturalı-match dokunulmazlığı + row-of-record semantiği aynen korunur** (hooks yalnız verdict yazımı anında girer; mevcut satır korunuyorsa dönen satır kazanır). Exportable RPC + export route yeni alanları taşır.
+- **Server:** A1 profil formuna **farklılaştırıcılar** bölümü (MOQ, termin, sertifikalar, kapasite, referanslar, diller — profile JSONB'ye yapılandırılmış anahtarlar, geriye uyumlu). `offer:generate` job (strategy role; girdi: profil+farklılaştırıcılar, ICP, WP2 market_notes, örnek MATCH evidence'ları → 3-5 angle draft). `validate.ts` verdict şemasına `hooks[]` (≤3 kısa string: taşıdığı markalar/kategoriler/pazarlar) + onaylı angle listesi verilirse `angle_suggestion` eklenir — **ek fetch/LLM çağrısı YOK** (aynı reading geçişi, birkaç yüz ek çıktı token'ı). Export: custom_fields'a `Research ICP`, `Research Angle` (code + value_prop), `Research Hooks` eklenir.
+- **Client:** ICP altında "Offer/Açılar" sekmesi (kart + onay + düzenleme); CompaniesPanel satırında hook/angle chip'leri; export önizlemesinde yeni alanlar.
+- **Kabul:** canlı smoke: offer üretimi → approve → küçük harvest'te hooks+angle_suggestion dolu → export'ta custom_fields'ta görünür; faturalı-match dokunulmazlık smoke'u (verdict-smoke.sql) YEŞİL kalır; codex review.
+
+### WP5 — Kampanya geri-besleme agregatı
+
+**Amaç:** "doğru offer" iddiasını ölçümle kapatmak. K8 tek-yön sınır korunur: research CRM tablolarını YALNIZ OKUR (READ-ONLY zaten izinli), research-owned tabloya agregat yazar.
+
+- **Migration 087:** `research_outcome_stats` (tenant, icp_id, geo_id NULL, angle_code NULL, period, exported, sent, replies, positive, optouts, updated_at; UNIQUE(tenant,icp,geo,angle,period)).
+- **Server:** `feedback:aggregate` job (worker tick günlük + admin "şimdi çalıştır"): `crm_company_id` set olan research firmaları için TG-Core kampanya/yanıt tablolarından (`email-replies`, reply-stats migration 046) SAVUNMACI agregat sorgu → stats upsert. Opt-out senkronu: CRM'de opt-out olan exported firma → `research_suppress_company` RPC (zaten research-owned). `icp:revise` prompt'una (WP1) outcome stats kanıt olarak eklenir.
+- **Client:** ICP kartında yanıt-oranı rozeti; offer kartında angle bazlı istatistik.
+- **Kabul:** izole DB'de sentetik CRM yanıt satırlarıyla agregat smoke (savunmacı: tablo/kolon yoksa sessiz atlar, job fail etmez); opt-out→suppression akışı doğrulanır; codex review.
 
 ---
 
@@ -106,7 +161,7 @@ Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + C
 - **SearXNG sağlığı** — ROTATING_PROXY canlı ve son smoke'ta paid fallback yok (`searchUsd=0`), ama bazı engine'ler hâlâ CAPTCHA/timeout verebiliyor. Engine havuzu ve Yandex ağırlıklı ülkeler için Yandex arama motoru ayrıca değerlendirilmeli.
 - **Playwright JS-render fallback** — Jina pilotu karşılıyor; JS-ağır siteler için sonra.
 - **BetterEnrich enrichment** (kişi/karar verici) — **en son öncelik** (`02 §A.8`).
-- **AI-destekli mesajlar** (F1, `research_messages`) → TG-Core kampanyalarına handoff. Messaging oluşturmayı iptal ediyoruz. Bunu TG-Core'da yapacağız.
+- **AI-destekli mesajlar** (F1, `research_messages`) → TG-Core kampanyalarına handoff. Messaging oluşturmayı iptal ediyoruz. Bunu TG-Core'da yapacağız. **Revizyon (2026-07-08, WP4):** mesaj METNİ TG-Core'da kalır; **angle haritası + firma-başı hook'lar research çıktısıdır** (bkz. A-0 WP4).
 - **Import to CRM** — research_companies → TG Core `companies` (aynı DB, importProcessor handoff).
 
 ---
