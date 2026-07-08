@@ -192,11 +192,20 @@ async function processPlusvibeInbound(req: Request, res: Response, tenantId: str
     // match we already computed so the OUT rows adopt the same company/contact as
     // this reply (and we don't rebuild a matcher).
     if (canonical.campaignId && canonical.senderEmail) {
+        // PlusVibe files campaign sends under the LEAD address (campaign target), which
+        // isn't always the replier. The webhook carries the lead email (`lead`/`lead_email`)
+        // — pass it so a reply from a different address than the target still hydrates the
+        // opener. Falls back to the replier when absent (the common replier == lead case).
+        const pvLeadEmail =
+            typeof req.body.lead === 'string' ? req.body.lead
+            : typeof req.body.lead_email === 'string' ? req.body.lead_email
+            : undefined;
         hydrateThreadCampaignSends({
             tenantId,
             pvCampaignId: canonical.campaignId,
             campaignName: canonical.campaignName,
             leadEmail: canonical.senderEmail,
+            pvLeadEmail,
             match: { company_id: match.company_id, contact_id: match.contact_id, match_status: match.match_status },
         }).catch((hydrateErr) =>
             log.warn({ err: hydrateErr, camp_id: canonical.campaignId, sender: from_email }, 'Thread hydration failed'),

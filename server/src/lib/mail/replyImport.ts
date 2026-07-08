@@ -9,7 +9,7 @@
 import { supabaseAdmin } from '../supabase.js';
 import { createLogger } from '../logger.js';
 import { parseApiReply, parseCampaignEmail } from './plusvibeAdapter.js';
-import { canonicalToReplyRow } from './types.js';
+import { canonicalToReplyRow, extractEmailAddress } from './types.js';
 import { matchTenant, type PrefixRule } from './campaignPrefix.js';
 import {
     listCampaigns,
@@ -203,11 +203,21 @@ export async function hydrateThreadCampaignSends(params: {
     tenantId: string;
     pvCampaignId: string;
     campaignName: string | null;
+    /** The reply thread's grouping key = the address that REPLIED (sender_email). */
     leadEmail: string;
+    /**
+     * The PlusVibe LEAD address (the campaign target) to fetch sends for — differs
+     * from `leadEmail` when a different person replies (replier != lead). PlusVibe
+     * files campaign sends under the lead, so this is what the API must be queried by.
+     * Falls back to `leadEmail` when unknown (the common replier == lead case).
+     */
+    pvLeadEmail?: string;
     /** Fallback matcher (bulk path). */
     matchEmail?: ReplyMatcher;
     /** Pre-computed match for this lead (webhook path) — avoids rebuilding a matcher. */
     match?: ReplyMatchResult;
+    /** Re-hydrate even if the thread was already marked checked (deliberate backfill). */
+    force?: boolean;
 }): Promise<{ imported: number; skipped: number }> {
     const { tenantId, pvCampaignId, campaignName } = params;
     const lead = params.leadEmail?.toLowerCase().trim();
@@ -244,9 +254,17 @@ export async function hydrateThreadCampaignSends(params: {
             // Representative row to mark "checked" (prefer an inbound row).
             if (!markerRow || r.direction === 'IN') markerRow = { id: r.id as string, raw_payload: rp };
         }
-        if (alreadyChecked) return { imported: 0, skipped: 0 };
+        if (alreadyChecked && !params.force) return { imported: 0, skipped: 0 };
 
-        const records = await fetchCampaignEmailsByLead(pvCampaignId, lead);
+        // Fetch by the real PlusVibe LEAD address (the campaign target). When the
+        // replier differs from the lead, the thread key (`lead` = replier) won't find
+        // the sends — so query by `pvLeadEmail` when provided, and fall back to the
+        // replier for the common case where they're the same.
+        const fetchLead = params.pvLeadEmail?.toLowerCase().trim() || lead;
+        let records = await fetchCampaignEmailsByLead(pvCampaignId, fetchLead);
+        if (records.length === 0 && fetchLead !== lead) {
+            records = await fetchCampaignEmailsByLead(pvCampaignId, lead);
+        }
 
         // Resolve the match once: thread's existing match → caller-supplied → fallback
         // matcher. Only build a full tenant matcher as a last resort (finding #6).
@@ -263,6 +281,12 @@ export async function hydrateThreadCampaignSends(params: {
 
                 const canonical = parseCampaignEmail(rec, campaignName);
                 canonical.tenantId = tenantId;
+                // Re-key the opener onto the reply thread. parseCampaignEmail keys it by
+                // the lead (the campaign target); when the replier differs that would
+                // split the opener into its own thread. Force it onto the reply's key so
+                // the opening email shows up in the same conversation. (to_address stays
+                // the lead — the truth that we sent it there is preserved.)
+                canonical.senderEmail = lead;
                 canonical.rawPayload = { source: 'plusvibe_campaign_send', plusvibe_email_id: rec.id, step: rec.current_step ?? null };
 
                 const row = {
@@ -306,6 +330,8 @@ export async function hydrateCampaignSendsForCampaign(params: {
     pvCampaignId: string;
     campaignName: string | null;
     matchEmail?: ReplyMatcher;
+    /** Re-hydrate threads already marked checked (deliberate backfill). */
+    force?: boolean;
 }): Promise<{ leads: number; imported: number; skipped: number }> {
     const { tenantId, pvCampaignId, campaignName } = params;
 
@@ -323,12 +349,37 @@ export async function hydrateCampaignSendsForCampaign(params: {
     ));
     if (leads.length === 0) return { leads: 0, imported: 0, skipped: 0 };
 
+    // Map replier → real PlusVibe lead address. PlusVibe files campaign sends under
+    // the lead (campaign target); when a different person replies, the thread key
+    // (replier) alone won't find them. Each inbound reply carries its lead email in
+    // `reply.lead`, so one campaign-wide replies pull builds the mapping. NOTE: this
+    // reply scan is a best-effort backfill aid — PlusVibe throttles repeated full
+    // /unibox/emails scans, so a throttled call yields a sparse map and some mismatched
+    // threads stay unhydrated until a later run. (Real-time hydration doesn't rely on
+    // this: the webhook carries each reply's own `lead`.)
+    const leadByReplier = new Map<string, string>();
+    try {
+        for (const rep of await fetchAllReplies(pvCampaignId)) {
+            const replier = extractEmailAddress(rep.from_address_email)?.toLowerCase();
+            const leadEmail = extractEmailAddress(((rep as Record<string, unknown>).lead as string | null) ?? '')?.toLowerCase();
+            if (replier && leadEmail && replier !== leadEmail) leadByReplier.set(replier, leadEmail);
+        }
+    } catch (err) {
+        log.warn({ err, pvCampaignId }, 'Could not build replier→lead map; assuming replier == lead');
+    }
+
     const matchEmail = params.matchEmail ?? (await buildTenantMatcher(tenantId));
     let imported = 0;
     let skipped = 0;
     for (const lead of leads) {
         try {
-            const r = await hydrateThreadCampaignSends({ tenantId, pvCampaignId, campaignName, leadEmail: lead, matchEmail });
+            const r = await hydrateThreadCampaignSends({
+                tenantId, pvCampaignId, campaignName,
+                leadEmail: lead,
+                pvLeadEmail: leadByReplier.get(lead),
+                matchEmail,
+                force: params.force,
+            });
             imported += r.imported;
             skipped += r.skipped;
         } catch (err) {

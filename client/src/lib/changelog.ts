@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.4',
+        date: '2026-07-07',
+        type: 'fix',
+        title: { tr: 'Konuşma Açılış Maili', en: 'Conversation Opening Email' },
+        about: {
+            tr: 'Başlangıç maili görünmeyen konuşmalar düzeltildi, kampanya açılış maili artık konuşmanın başında görünüyor.',
+            en: 'Conversations missing their opening email are fixed, the campaign opening email now appears at the start of the conversation.',
+        },
+    },
+    {
         version: '1.19.3',
         date: '2026-07-06',
         type: 'improvement',
