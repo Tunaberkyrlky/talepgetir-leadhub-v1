@@ -7,7 +7,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import express from 'express';
 import twilio from 'twilio';
+import { timingSafeEqual } from 'crypto';
 import { supabaseAdmin } from '../../lib/supabase.js';
+import { decrypt } from '../../lib/encryption.js';
 import { createLogger } from '../../lib/logger.js';
 import { subaccountAuthToken, masterAuth } from '../providers/twilio.js';
 import { finalizeCall } from '../lib/finalize.js';
@@ -23,36 +25,80 @@ interface VerifiedRequest extends Request {
     coldcallSettings?: ColdcallSettingsRow;
 }
 
-/** İmza doğrulama — fail-closed: doğrulanamayan her istek 403. */
+function constantTimeEqual(a: string, b: string): boolean {
+    const ba = Buffer.from(a);
+    const bb = Buffer.from(b);
+    if (ba.length !== bb.length) return false;
+    return timingSafeEqual(ba, bb);
+}
+
+/**
+ * Webhook doğrulama — fail-closed (403). İki model:
+ *   • Master AUTH TOKEN varsa → Twilio X-Twilio-Signature imzası (en güçlü).
+ *   • Master yalnız API KEY ise → subaccount auth token okunamaz, bu yüzden
+ *     URL'deki per-tenant `s` secret'ı sabit-zamanlı karşılaştırılır.
+ * Her iki yolda da tenant ayarı yüklenip req'e iliştirilir.
+ */
 async function verifyTwilioSignature(req: VerifiedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const publicUrl = process.env.COLDCALL_PUBLIC_URL;
-        const signature = req.header('X-Twilio-Signature');
-        const accountSid = typeof req.body?.AccountSid === 'string' ? req.body.AccountSid : null;
-        if (!publicUrl || !signature || !accountSid) {
+        if (!publicUrl) {
             res.status(403).json({ error: 'Forbidden' });
             return;
         }
-        const { data: settings } = await supabaseAdmin
-            .from('coldcall_settings')
-            .select('*')
-            .eq('subaccount_sid', accountSid)
-            .maybeSingle();
+        const secret = typeof req.query.s === 'string' ? req.query.s : null;
+        const accountSid = typeof req.body?.AccountSid === 'string' ? req.body.AccountSid : null;
+
+        // Tenant'ı önce secret ile (API-key modeli), yoksa AccountSid ile bul
+        let settings: ColdcallSettingsRow | null = null;
+        if (secret) {
+            const { data } = await supabaseAdmin
+                .from('coldcall_settings')
+                .select('*')
+                .eq('webhook_secret', secret)
+                .maybeSingle();
+            settings = (data as ColdcallSettingsRow) ?? null;
+        }
+        if (!settings && accountSid) {
+            const { data } = await supabaseAdmin
+                .from('coldcall_settings')
+                .select('*')
+                .eq('subaccount_sid', accountSid)
+                .maybeSingle();
+            settings = (data as ColdcallSettingsRow) ?? null;
+        }
         if (!settings) {
             res.status(403).json({ error: 'Forbidden' });
             return;
         }
-        const token = await subaccountAuthToken(accountSid);
-        const url = `${publicUrl.replace(/\/$/, '')}${req.originalUrl}`;
-        if (!twilio.validateRequest(token, signature, url, req.body)) {
-            log.warn({ accountSid, url }, 'twilio signature validation failed');
-            res.status(403).json({ error: 'Forbidden' });
-            return;
+
+        const auth = masterAuth();
+        if (auth.kind === 'auth_token' && settings.subaccount_sid) {
+            // Güçlü yol: Twilio imzası (subaccount auth token okunabilir)
+            const signature = req.header('X-Twilio-Signature');
+            if (!signature) {
+                res.status(403).json({ error: 'Forbidden' });
+                return;
+            }
+            const token = await subaccountAuthToken(settings.subaccount_sid);
+            const url = `${publicUrl.replace(/\/$/, '')}${req.originalUrl}`;
+            if (!twilio.validateRequest(token, signature, url, req.body)) {
+                log.warn({ accountSid, url }, 'twilio signature validation failed');
+                res.status(403).json({ error: 'Forbidden' });
+                return;
+            }
+        } else {
+            // API-key yolu: URL secret'ı doğrula (imza doğrulanamıyor)
+            if (!secret || !settings.webhook_secret || !constantTimeEqual(secret, settings.webhook_secret)) {
+                log.warn({ accountSid }, 'webhook secret validation failed');
+                res.status(403).json({ error: 'Forbidden' });
+                return;
+            }
         }
-        req.coldcallSettings = settings as ColdcallSettingsRow;
+        req.coldcallSettings = settings;
         next();
     } catch (err) {
-        log.error({ err }, 'twilio signature verification errored');
+        log.error({ err }, 'twilio webhook verification errored');
         res.status(403).json({ error: 'Forbidden' });
     }
 }
@@ -91,6 +137,9 @@ router.post('/voice', async (req: VerifiedRequest, res: Response): Promise<void>
         .eq('id', call.id);
 
     const publicUrl = (process.env.COLDCALL_PUBLIC_URL ?? '').replace(/\/$/, '');
+    // Status/recording callback'leri de aynı webhook secret'ını taşımalı —
+    // yoksa Twilio bunları secret'sız çağırır ve doğrulama 403 verir
+    const s = settings.webhook_secret ? `&s=${settings.webhook_secret}` : '';
     if (settings.recording_mode === 'announce') {
         const turkish = call.to_country === 'TR';
         twiml.say(
@@ -103,14 +152,14 @@ router.post('/voice', async (req: VerifiedRequest, res: Response): Promise<void>
         ...(settings.recording_mode !== 'off'
             ? {
                 record: 'record-from-answer-dual' as const,
-                recordingStatusCallback: `${publicUrl}/api/webhooks/coldcall/recording?callId=${call.id}`,
+                recordingStatusCallback: `${publicUrl}/api/webhooks/coldcall/recording?callId=${call.id}${s}`,
                 recordingStatusCallbackMethod: 'POST' as const,
             }
             : {}),
     });
     dial.number(
         {
-            statusCallback: `${publicUrl}/api/webhooks/coldcall/status?callId=${call.id}`,
+            statusCallback: `${publicUrl}/api/webhooks/coldcall/status?callId=${call.id}${s}`,
             statusCallbackMethod: 'POST',
             statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
         },
@@ -184,11 +233,19 @@ router.post('/recording', async (req: VerifiedRequest, res: Response): Promise<v
     const recordingStatus = String(req.body?.RecordingStatus ?? 'completed');
     if (!recordingUrl || !recordingSid || recordingStatus !== 'completed') return;
 
-    // Kayıt medyasına master kimlikle erişilir (master, subaccount kaynaklarına yetkili)
+    // Kayıt medyası: master AUTH TOKEN subaccount'a yetkili; master yalnız API
+    // key ise subaccount'ın kendi key'i kullanılır (master key subaccount
+    // kaynaklarına erişemez)
     let authHeader: string;
     try {
         const a = masterAuth();
-        authHeader = `Basic ${Buffer.from(`${a.username}:${a.password}`).toString('base64')}`;
+        if (a.kind === 'auth_token') {
+            authHeader = `Basic ${Buffer.from(`${a.username}:${a.password}`).toString('base64')}`;
+        } else if (settings.api_key_sid && settings.api_key_secret_enc) {
+            authHeader = `Basic ${Buffer.from(`${settings.api_key_sid}:${decrypt(settings.api_key_secret_enc)}`).toString('base64')}`;
+        } else {
+            return;
+        }
     } catch {
         return;
     }

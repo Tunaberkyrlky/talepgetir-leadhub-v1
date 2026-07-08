@@ -9,6 +9,7 @@
  * Kod tamdır ancak canlı smoke Twilio kimlik bilgileri sağlanınca yapılacak.
  */
 import twilio from 'twilio';
+import { randomBytes } from 'crypto';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { encrypt, decrypt } from '../../lib/encryption.js';
 import { AppError } from '../../middleware/errorHandler.js';
@@ -32,6 +33,9 @@ export interface MasterAuth {
     username: string;
     password: string;
     accountSid: string;
+    /** auth_token: subaccount kaynaklarına ve token okumaya yetkili;
+     *  api_key: yalnız ana hesap kaynakları + subaccount Keys.create istisnası */
+    kind: 'auth_token' | 'api_key';
 }
 
 export function masterAuth(): MasterAuth {
@@ -39,8 +43,8 @@ export function masterAuth(): MasterAuth {
     const authToken = process.env.TWILIO_AUTH_TOKEN;
     const keySid = process.env.TWILIO_API_KEY_SID || process.env.TWILIO_SID;
     const keySecret = process.env.TWILIO_API_KEY_SECRET || process.env.TWILIO_CLIENT_SECRET;
-    if (accountSid && authToken) return { username: accountSid, password: authToken, accountSid };
-    if (accountSid && keySid && keySecret) return { username: keySid, password: keySecret, accountSid };
+    if (accountSid && authToken) return { username: accountSid, password: authToken, accountSid, kind: 'auth_token' };
+    if (accountSid && keySid && keySecret) return { username: keySid, password: keySecret, accountSid, kind: 'api_key' };
     throw new AppError('Twilio is not configured on this environment', 503);
 }
 
@@ -64,10 +68,23 @@ function publicUrl(): string {
     return url.replace(/\/$/, '');
 }
 
+/**
+ * Subaccount-scoped client. Master AUTH TOKEN varsa onunla; master yalnız API
+ * key ise (subaccount kaynaklarına yetkisiz) tenant'ın kendi subaccount API
+ * key'ine düşer (provision'da oluşturulur).
+ */
 function subClient(settings: ColdcallSettingsRow) {
-    const a = masterAuth();
     if (!settings.subaccount_sid) throw new AppError('Tenant is not provisioned for Twilio', 409);
-    return twilio(a.username, a.password, { accountSid: settings.subaccount_sid });
+    const a = masterAuth();
+    if (a.kind === 'auth_token') {
+        return twilio(a.username, a.password, { accountSid: settings.subaccount_sid });
+    }
+    if (settings.api_key_sid && settings.api_key_secret_enc) {
+        return twilio(settings.api_key_sid, decrypt(settings.api_key_secret_enc), {
+            accountSid: settings.subaccount_sid,
+        });
+    }
+    throw new AppError('Tenant is not provisioned for Twilio', 409);
 }
 
 // Webhook imza doğrulaması subaccount'ın kendi auth token'ını ister —
@@ -90,32 +107,59 @@ export async function subaccountAuthToken(subaccountSid: string): Promise<string
  * coldcall_settings'e yazar. Idempotent: zaten provision'lıysa mevcut ayarları döner.
  */
 export async function provisionTenantForTwilio(tenantId: string, settings: ColdcallSettingsRow): Promise<void> {
-    if (settings.provider === 'twilio' && settings.subaccount_sid && settings.api_key_sid && settings.twiml_app_sid) return;
+    // Secret de zorunlu — eksikse (eski provision) tamamlamaya devam et
+    if (settings.provider === 'twilio' && settings.subaccount_sid && settings.api_key_sid && settings.twiml_app_sid && settings.webhook_secret) return;
     const master = masterClient();
 
-    const subaccountSid =
-        settings.subaccount_sid ??
-        (await master.api.v2010.accounts.create({ friendlyName: `tgcore-tenant-${tenantId}` })).sid;
+    let subaccountSid = settings.subaccount_sid;
+    if (!subaccountSid) {
+        // İdempotens: yarım kalmış bir provision'ın subaccount'ı varsa yeniden
+        // kullan (friendlyName deterministik) — retry'da mükerrer hesap açma
+        const friendly = `tgcore-tenant-${tenantId}`;
+        const existing = await master.api.v2010.accounts.list({ friendlyName: friendly, limit: 1 });
+        subaccountSid = existing[0]?.sid ?? (await master.api.v2010.accounts.create({ friendlyName: friendly })).sid;
+    }
 
-    const subToken = await subaccountAuthToken(subaccountSid);
-    const asSub = twilio(subaccountSid, subToken);
+    // NOT (Twilio yetki modeli): master API key subaccount kaynaklarını
+    // YÖNETEMEZ; tek istisna subaccount Keys.create. Bu yüzden sıra:
+    //   1) master kimlikle subaccount'a API key aç (istisna),
+    //   2) kalan her şeyi (TwiML app vs.) o SUBACCOUNT KEY ile yap.
+    // Master AUTH TOKEN varsa 1. adımda da o kullanılır — her iki modelde çalışır.
+    const a = masterAuth();
+    const asSubMaster = twilio(a.username, a.password, { accountSid: subaccountSid });
 
     let apiKeySid = settings.api_key_sid;
     let apiKeySecretEnc = settings.api_key_secret_enc;
     if (!apiKeySid || !apiKeySecretEnc) {
-        const key = await asSub.newKeys.create({ friendlyName: 'tgcore-voice-sdk' });
+        const key = await asSubMaster.newKeys.create({ friendlyName: 'tgcore-voice-sdk' });
         apiKeySid = key.sid;
         apiKeySecretEnc = encrypt(key.secret);
+        // Key'i hemen persiste et: sonraki adım patlasa bile retry'da yeni
+        // (öksüz) key üretmeyelim
+        await supabaseAdmin
+            .from('coldcall_settings')
+            .update({ subaccount_sid: subaccountSid, api_key_sid: apiKeySid, api_key_secret_enc: apiKeySecretEnc, updated_at: new Date().toISOString() })
+            .eq('tenant_id', tenantId);
     }
 
+    const asSub = twilio(apiKeySid, decrypt(apiKeySecretEnc), { accountSid: subaccountSid });
+
+    // Webhook doğrulama secret'ı — TwiML app URL'sine gömülür, gelen webhook'ta
+    // sabit-zamanlı karşılaştırılır (API-key modelinde imza doğrulanamadığından)
+    const webhookSecret = settings.webhook_secret ?? randomBytes(24).toString('hex');
+
+    const voiceUrl = `${publicUrl()}/api/webhooks/coldcall/voice?s=${webhookSecret}`;
     let twimlAppSid = settings.twiml_app_sid;
     if (!twimlAppSid) {
         const app = await asSub.applications.create({
             friendlyName: 'tgcore-coldcall',
-            voiceUrl: `${publicUrl()}/api/webhooks/coldcall/voice`,
+            voiceUrl,
             voiceMethod: 'POST',
         });
         twimlAppSid = app.sid;
+    } else if (!settings.webhook_secret) {
+        // Eski provision'da app secret'sız kurulmuş — voiceUrl'yi secret'la güncelle
+        await asSub.applications(twimlAppSid).update({ voiceUrl, voiceMethod: 'POST' });
     }
 
     const { error } = await supabaseAdmin
@@ -126,6 +170,7 @@ export async function provisionTenantForTwilio(tenantId: string, settings: Coldc
             api_key_sid: apiKeySid,
             api_key_secret_enc: apiKeySecretEnc,
             twiml_app_sid: twimlAppSid,
+            webhook_secret: webhookSecret,
             updated_at: new Date().toISOString(),
         })
         .eq('tenant_id', tenantId);

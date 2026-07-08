@@ -11,6 +11,7 @@ export interface ColdcallSettingsRow {
     api_key_sid: string | null;
     api_key_secret_enc: string | null;
     twiml_app_sid: string | null;
+    webhook_secret: string | null;
     recording_mode: 'always' | 'announce' | 'off';
     default_phone_number_id: string | null;
     minutes_quota: number;
