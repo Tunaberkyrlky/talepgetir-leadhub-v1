@@ -1,6 +1,27 @@
 # TG-Research v2 — İlerleme Günlüğü (build log)
 
-Son güncelleme: **2026-07-02** (verdict hardening 067-070 + COGS görünürlük ayrımı 068 + admin marj paneli + companies UI + oran teyidi pricing v2). Branch: `ssalihyetim/TG-Research` (worktree). **Commit edilmedi** (mandate: sadece istenince commit).
+Son güncelleme: **2026-07-08** (WP1 BİTTİ → codex SHIP; WP2 inşa+smoke bitti, codex review UÇUŞTA — bkz. §4.10 resume notu). Branch: `ssalihyetim/TG-Research` (worktree). **Commit edilmedi** (mandate: sadece istenince commit).
+
+## 4.10 WP2 — PAZAR YAPISI → SUB-ICP (geo-instantiation) — inşa+smoke ✅, codex review UÇUŞTA (2026-07-08)
+
+**Kavram:** `research_geographies` = SUB-ICP hücresi (ICP'nin tek ülkeye instantiate hali: yerel dil terimleri, lokalize sinyaller, kanal listesi [WP3 tohumu], sertifikalar, alıcı unvanları, pazar notu, E tahmini + güven). `geo:analyze` (Opus + opsiyonel $0 SearXNG kanıt taraması) taslağı üretir → müşteri düzenler + /10 onaylar → harvest `geo_id` ile koşar: engine yerel terimleri sorgu üretiminde, lokalize işaretleri validasyon bağlamında kullanır. **Billing bağlantısı YOK** (verdict anahtarı (icp, ruleset_version) kaldı); geo_id'siz harvest davranışı birebir eskisi gibi.
+
+- **Migration 086**: geographies'e `spec`/`ai_draft`/`generated_by_job_id` + UNIQUE (tenant, icp, lower(country)) + fenced `research_persist_geo_analysis` (lease fence + approved→draft demote + kolon projeksiyonu).
+- **Server**: `geo/schema.ts` (zod; `<<<` fence-marker reddi dahil), `geo/prompt.ts` (UNTRUSTED fence + url-uydurma yasağı), `geoAnalyze.ts` handler (meter'lı, SearXNG çökük olsa da job düşmez), `routes/research/geographies.ts` (create-or-reuse [analizli hücreyi SESSİZCE ezmez — reused+job:null döner], /analyze [in-flight adopt + 402 kredi kapısı], PATCH [spec→draft demote + estimate/confidence/rationale kolon projeksiyonu], approve [spec şart], **MAX 25 hücre/ICP**), harvest route+worker `geo_id` (approved + ICP eşleşme şart; **hücrenin ülkesi = coğrafya, serbest metin yok sayılır**), `sanitize.ts` geography-hatası dalı.
+- **Engine**: `buildQuerySpecs(icp, geo, max, geoSpec?)` — ≥2 yerel terim localSectorTerms'i değiştirir + hücre dizinleri directory açısına eklenir; `buildMapsKeywords` yerel terimleri LEAD anahtar kelimeden hemen sonra sıralar (küçük cap kesemez); `validate.ts` lokalize işaretleri **stripWebFence'li + DATA-etiketli** render eder (web-türevli string verdict prompt'unda talimat olamaz).
+- **Client**: GeographiesPanel (hücre tablosu + analiz + detay drawer'da spec düzenleme/onay) + ResearchPage "Coğrafyalar" sekmesi + CompaniesPanel launcher'da onaylı hücre seçimi (serbest metin fallback). i18n TR+EN.
+- **Review**: 2-lens Workflow (2×P2 + 8×P3, İKİSİ DE SHIP) → 10 bulgunun hepsi düzeltildi (yukarıdaki parantezler). **codex gpt-5.5 xhigh review başlatıldı, sonuç bu oturumda alınamadı** — bkz. 05 §WP2 resume notu.
+- **Smoke**: `temp/geo-smoke.sql` ALL_PASS P1-P3 (case-insensitive unique hücre, fence + persist + approved→draft, non-object spec reddi); `temp/geo-smoke.ts` canlı Opus e2e GEÇTİ (Almanya: 11 gerçek yerel terim, 10 kanal, 5 dizin, E=1500 conf 0.5, $0.063 COGS; buildQuerySpecs yerel terimi kullanıyor). Test verisi temizlendi. server tsc + client `tsc -b` + eslint temiz.
+
+## 4.9 WP1 — KALİBRASYON DÖNGÜSÜ (C1-C2) — bitti ✅ → codex SHIP (2026-07-08)
+
+**Ürün akışı:** onaylı ICP × coğrafya için küçük örneklem harvest'i (server-forced caps 6q/18f/12c, normal fenced billing — trial emer) → müşteri firma başına 👍/👎 + not → `icp:revise` (Opus, strategy role) geri bildirimden 4 ruleset dizisinin TAM replasman revizyonunu önerir → müşteri diff'i görüp uygular (062 trigger bump + approved→draft) → yeniden onay → yeniden örneklem → "mantığı onayla" (`calibrated`).
+
+- **Migration 084**: `research_company_feedback` (UNIQUE (tenant,icp,company,ruleset), user SELECT-only) + ICP kolonları (`calibration_state/revision_draft/revision_job_id/calibrated_at`) + fenced `research_persist_icp_revision`. **085**: RPC `p_base_ruleset` bağlama (DETAIL=`RULESET_MOVED`) + calibrated-terminal (DETAIL=`CALIBRATED`) + trigger taslak temizliği. **087**: trigger ruleset değişiminde kalibrasyonu SIFIRLAR (state='none', calibrated_at=NULL — kanıt per-ruleset).
+- **Server**: `icp:revise` handler (icpGenerate kalıbı: meter + partial-COGS catch; feedback 400-pencere + kırpılma bayrağı + no-op guard; `maxAttempts:1` = job id ↔ tek proposal). 6 endpoint: calibrate (kredi kapısı + in-flight guard + sanitized echo) / feedback GET+POST (**ruleset CAS**: puanlanan versiyona sabitli, 409'da yeniden puanlama) / revise / apply-revision (**çift CAS**: ruleset_version + revision_job_id; no-op reddi) / mark-calibrated (kanıt kapısı ≥1 feedback + approved+version+no-pending-revision hepsi UPDATE içinde CAS).
+- **Client**: `CalibrationDrawer` (4 adım: örneklem → değerlendirme → revizyon diff'i → tamamla; `ratingsVersion` pinleme — 409 sonrası bayat batch yeniden gönderilemez), IcpCard rozet+buton, i18n TR+EN.
+- **Review zinciri**: 2-lens Workflow review (1×P2+7×P3 → düzeltildi) → **codex gpt-5.5 xhigh: FIX FIRST (5×P1+1×P2)** → hepsi düzeltildi → **verify: 4 FIXED + 2 eksik** → kapatıldı → **verify-2: SHIP**.
+- **Smoke**: `temp/calibration-smoke.sql` ALL_PASS P1-P6 (unique, lease fence, RULESET_MOVED/CALIBRATED refusal, persist-no-bump, apply bump+draft+kalibrasyon sıfırlama, state CHECK); `temp/calibration-smoke.ts` canlı Opus e2e GEÇTİ (fenced seed → feedback → revise: 6 izlenebilir değişiklik, $0.044 COGS → apply bump). Test verisi temizlendi.
 
 > Bu dosya "şu an ne var" özetidir. Kararlar `02_ACIK_KONULAR.md`'de, mimari `00_MIMARI_PLAN.md`'de, fiyat `01_KREDI_FIYATLAMA.md`'de, alıcı değerlendirme `03_...`'te. Sonraki adımlar `05_SONRAKI_ADIMLAR.md`'de.
 

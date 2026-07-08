@@ -1,21 +1,17 @@
 /**
- * Sticky per-account proxy (§3). LinkedIn flags rotating IPs as an obvious
- * automation signal, so each account must always exit from the SAME residential/5G
- * IP. The base credential lives ONLY in the ROTATING_5G_PROXY secret env (never in
- * DB / client / image); the per-account sticky session id is injected into the
- * proxy username so the upstream provider pins one egress IP per session.
+ * Sticky per-account proxy (§3). LinkedIn flags rotating IPs as an obvious automation
+ * signal, so each account must always exit from the SAME residential/5G IP. The base
+ * credential lives ONLY in the ROTATING_5G_PROXY secret env (never in DB / client /
+ * image); the per-account sticky session id is injected into the proxy username so the
+ * upstream provider pins one egress IP per session.
  *
- * One ProxyAgent is cached per account for its lifetime so the keep-alive pool
- * (and thus the sticky IP) survives across requests. Pass the returned agent as the
- * `dispatcher` option to native fetch (or `{ dispatcher }` to undici.request) in the
- * Faz-1/2 ServerLinkedInClient.
- *
- * NOTE (VERIFY live at Faz 1): the sticky-session token syntax is provider-specific
- * (`-session-`, `-sessid-`, `-session:`…). Confirm against ONE real 5G provider
- * before the first voyager call.
+ * One ProxyAgent is cached per account so its keep-alive pool (and thus the sticky IP)
+ * survives across requests. The cache is BOUNDED and closes evicted agents — each agent
+ * owns a socket pool, so an unbounded map would leak FDs in a long-lived worker.
  */
 import { ProxyAgent } from 'undici';
 
+const MAX_AGENTS = 200;
 const agents = new Map<string, ProxyAgent>();
 
 export function proxyAgentFor(proxySessionId: string): ProxyAgent {
@@ -38,9 +34,23 @@ export function proxyAgentFor(proxySessionId: string): ProxyAgent {
     }
     const uri = `${url.protocol}//${url.username}-session-${proxySessionId}:${url.password}@${url.host}`;
 
+    // Bound the cache: close + evict the oldest (insertion order) when at capacity.
+    if (agents.size >= MAX_AGENTS) {
+        const oldest = agents.keys().next().value;
+        if (oldest !== undefined) disposeProxyAgent(oldest);
+    }
+
     const agent = new ProxyAgent(uri);
     agents.set(proxySessionId, agent);
     return agent;
+}
+
+/** Remove + close an account's cached agent (call on proxy rotation / account delete). */
+export function disposeProxyAgent(proxySessionId: string): void {
+    const a = agents.get(proxySessionId);
+    if (!a) return;
+    agents.delete(proxySessionId);
+    Promise.resolve(a.close()).catch(() => { /* best-effort */ });
 }
 
 /** Mint a new sticky session id for a freshly captured account. */

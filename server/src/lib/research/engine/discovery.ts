@@ -101,6 +101,19 @@ export interface DiscoveryQuerySpec {
     query: string;
 }
 
+/**
+ * Narrow engine view of an approved sub-ICP geo cell (WP2). The full spec contract lives in the
+ * geo analysis schema; query building consumes ONLY these two fields, so callers pick them
+ * structurally and the engine stays decoupled from the spec's zod shape. Optional everywhere —
+ * absent geoSpec keeps discovery byte-identical to the free-text-geography behavior.
+ */
+export interface GeoQuerySpec {
+    /** Local-language sector/role search phrases (replace the hardcoded localSectorTerms when ≥2). */
+    local_terms: string[];
+    /** Named country directories/portals folded into the directory angle. */
+    directories: Array<{ name: string; url?: string }>;
+}
+
 function topCities(geography: string): string[] {
     const g = geography.toLowerCase();
     if (/\bgermany\b|deutschland|\bde\b/.test(g)) return ['Berlin', 'Hamburg', 'Munich', 'Cologne', 'Frankfurt'];
@@ -165,9 +178,10 @@ function localSectorTerms(icp: BuildQueryIcp, geography: string): string[] {
     return [`${seg} local distributor`, `${seg} regional wholesaler`, `${seg} trade supplier`];
 }
 
-function directoryQueries(icp: BuildQueryIcp, geography: string): string[] {
+// `local` defaults to the hardcoded per-country terms; a geo-cell run passes the cell's resolved
+// local terms instead so the country-directory phrasings use the sub-ICP's own language.
+function directoryQueries(icp: BuildQueryIcp, geography: string, local: string[] = localSectorTerms(icp, geography)): string[] {
     const sector = searchSectorPhrase(icp, geography);
-    const local = localSectorTerms(icp, geography);
     const g = geography.toLowerCase();
     const common = [
         `Kompass ${sector} ${geography} wholesalers distributors`,
@@ -252,13 +266,23 @@ function uniqSpecs(specs: DiscoveryQuerySpec[]): DiscoveryQuerySpec[] {
     return out;
 }
 
-export function buildQuerySpecs(icp: BuildQueryIcp, geography: string, max = 11): DiscoveryQuerySpec[] {
+export function buildQuerySpecs(icp: BuildQueryIcp, geography: string, max = 11, geoSpec?: GeoQuerySpec): DiscoveryQuerySpec[] {
     const seg = searchSectorPhrase(icp, geography);
     const signals = icp.signals.slice(0, 3);
     const negatives = (icp.negative_signals ?? []).slice(0, 2);
     const cities = topCities(geography);
-    const local = localSectorTerms(icp, geography);
-    const directories = directoryQueries(icp, geography);
+    // Sub-ICP cell (WP2): the approved spec's local-language terms REPLACE the hardcoded
+    // per-country terms when the cell supplies enough of them (≥2); fewer → the cell isn't a
+    // usable language source, keep the existing heuristics. Cell directories are prepended to
+    // the directory angle (named portals beat the generic Kompass/Europages phrasings).
+    const geoTerms = (geoSpec?.local_terms ?? []).map((t) => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const local = geoTerms.length >= 2 ? geoTerms.slice(0, 5) : localSectorTerms(icp, geography);
+    const geoDirectoryQueries = (geoSpec?.directories ?? [])
+        .map((d) => (typeof d?.name === 'string' ? d.name.replace(/\s+/g, ' ').trim() : ''))
+        .filter(Boolean)
+        .slice(0, 4)
+        .map((name) => `"${name}" ${seg} ${geography}`);
+    const directories = [...geoDirectoryQueries, ...directoryQueries(icp, geography, local)];
 
     const byAngle: Array<{ angle: number; angleName: string; queries: string[] }> = [
         {
@@ -366,8 +390,8 @@ export function buildQuerySpecs(icp: BuildQueryIcp, geography: string, max = 11)
 }
 
 /** Back-compat helper for callers/tests that only need strings. */
-export function buildQueries(icp: BuildQueryIcp, geography: string, max = 11): string[] {
-    return buildQuerySpecs(icp, geography, max).map((spec) => spec.query);
+export function buildQueries(icp: BuildQueryIcp, geography: string, max = 11, geoSpec?: GeoQuerySpec): string[] {
+    return buildQuerySpecs(icp, geography, max, geoSpec).map((spec) => spec.query);
 }
 
 function sha256(s: string): string {

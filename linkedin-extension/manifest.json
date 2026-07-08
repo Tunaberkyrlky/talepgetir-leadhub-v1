@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "TG Core — LinkedIn Connector",
+  "version": "0.1.0",
+  "description": "Securely connect your LinkedIn session to TG Core so it can run outreach on your behalf.",
+  "permissions": ["cookies"],
+  "host_permissions": [
+    "https://*.linkedin.com/",
+    "http://localhost:5173/",
+    "http://localhost:3001/"
+  ],
+  "background": { "service_worker": "background.js" },
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:5173/*",
+      "http://localhost:3001/*"
+    ]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Connect LinkedIn to TG Core"
+  }
+}

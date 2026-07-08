@@ -20,11 +20,42 @@ const log = createLogger('coldcall:twilio');
 
 const TOKEN_TTL_SEC = 3600;
 
-export function masterCreds(): { sid: string; token: string } {
-    const sid = process.env.TWILIO_ACCOUNT_SID;
-    const token = process.env.TWILIO_AUTH_TOKEN;
-    if (!sid || !token) throw new AppError('Twilio is not configured on this environment', 503);
-    return { sid, token };
+/**
+ * Master kimlik: iki auth modeli desteklenir —
+ *   1) Account SID + Auth Token (klasik)
+ *   2) Account SID + API Key SID/Secret (TWILIO_API_KEY_SID/SECRET ya da
+ *      kullanıcının koyduğu TWILIO_SID/TWILIO_CLIENT_SECRET adları)
+ * twilio() client'ında username/password olarak kullanılır; accountSid scoping
+ * ile subaccount kaynaklarına erişilir.
+ */
+export interface MasterAuth {
+    username: string;
+    password: string;
+    accountSid: string;
+}
+
+export function masterAuth(): MasterAuth {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const keySid = process.env.TWILIO_API_KEY_SID || process.env.TWILIO_SID;
+    const keySecret = process.env.TWILIO_API_KEY_SECRET || process.env.TWILIO_CLIENT_SECRET;
+    if (accountSid && authToken) return { username: accountSid, password: authToken, accountSid };
+    if (accountSid && keySid && keySecret) return { username: keySid, password: keySecret, accountSid };
+    throw new AppError('Twilio is not configured on this environment', 503);
+}
+
+export function isTwilioConfigured(): boolean {
+    try {
+        masterAuth();
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function masterClient() {
+    const a = masterAuth();
+    return twilio(a.username, a.password, { accountSid: a.accountSid });
 }
 
 function publicUrl(): string {
@@ -34,9 +65,9 @@ function publicUrl(): string {
 }
 
 function subClient(settings: ColdcallSettingsRow) {
-    const { sid, token } = masterCreds();
+    const a = masterAuth();
     if (!settings.subaccount_sid) throw new AppError('Tenant is not provisioned for Twilio', 409);
-    return twilio(sid, token, { accountSid: settings.subaccount_sid });
+    return twilio(a.username, a.password, { accountSid: settings.subaccount_sid });
 }
 
 // Webhook imza doğrulaması subaccount'ın kendi auth token'ını ister —
@@ -46,8 +77,10 @@ const subTokenCache = new Map<string, { token: string; expires: number }>();
 export async function subaccountAuthToken(subaccountSid: string): Promise<string> {
     const cached = subTokenCache.get(subaccountSid);
     if (cached && cached.expires > Date.now()) return cached.token;
-    const { sid, token } = masterCreds();
-    const account = await twilio(sid, token).api.v2010.accounts(subaccountSid).fetch();
+    const a = masterAuth();
+    const account = await twilio(a.username, a.password, { accountSid: a.accountSid })
+        .api.v2010.accounts(subaccountSid)
+        .fetch();
     subTokenCache.set(subaccountSid, { token: account.authToken, expires: Date.now() + 10 * 60 * 1000 });
     return account.authToken;
 }
@@ -58,8 +91,7 @@ export async function subaccountAuthToken(subaccountSid: string): Promise<string
  */
 export async function provisionTenantForTwilio(tenantId: string, settings: ColdcallSettingsRow): Promise<void> {
     if (settings.provider === 'twilio' && settings.subaccount_sid && settings.api_key_sid && settings.twiml_app_sid) return;
-    const { sid, token } = masterCreds();
-    const master = twilio(sid, token);
+    const master = masterClient();
 
     const subaccountSid =
         settings.subaccount_sid ??

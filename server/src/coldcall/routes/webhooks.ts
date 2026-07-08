@@ -9,7 +9,7 @@ import express from 'express';
 import twilio from 'twilio';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { createLogger } from '../../lib/logger.js';
-import { subaccountAuthToken } from '../providers/twilio.js';
+import { subaccountAuthToken, masterAuth } from '../providers/twilio.js';
 import { finalizeCall } from '../lib/finalize.js';
 import { runTwilioRecordingPipeline } from '../lib/pipeline.js';
 import type { ColdcallCallRow, ColdcallSettingsRow } from '../providers/types.js';
@@ -185,10 +185,13 @@ router.post('/recording', async (req: VerifiedRequest, res: Response): Promise<v
     if (!recordingUrl || !recordingSid || recordingStatus !== 'completed') return;
 
     // Kayıt medyasına master kimlikle erişilir (master, subaccount kaynaklarına yetkili)
-    const masterSid = process.env.TWILIO_ACCOUNT_SID;
-    const masterToken = process.env.TWILIO_AUTH_TOKEN;
-    if (!masterSid || !masterToken) return;
-    const authHeader = `Basic ${Buffer.from(`${masterSid}:${masterToken}`).toString('base64')}`;
+    let authHeader: string;
+    try {
+        const a = masterAuth();
+        authHeader = `Basic ${Buffer.from(`${a.username}:${a.password}`).toString('base64')}`;
+    } catch {
+        return;
+    }
     void runTwilioRecordingPipeline(call, recordingUrl, recordingSid, duration, authHeader);
 });
 

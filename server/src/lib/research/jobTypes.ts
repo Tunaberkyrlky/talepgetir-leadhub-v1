@@ -15,6 +15,8 @@ export const RESEARCH_JOB_TYPES = {
     ICP_GENERATE: 'icp:generate',
     /** WP1 calibration: propose an ICP ruleset revision from human good/bad feedback (strategy model). */
     ICP_REVISE: 'icp:revise',
+    /** WP2 sub-ICP: instantiate an ICP for one country (local terms/signals/channels/E) into research_geographies. */
+    GEO_ANALYZE: 'geo:analyze',
     /** Y1 list-harvest (capped pilot): discover → validate → bill MATCHes for 1 ICP × 1 geo. */
     HARVEST_RUN: 'harvest:run',
     /** Maps-harvest: async maps scrape (Gosom/Google Maps; 2GIS/CIS in M2) → same harvest pipeline. */

@@ -33,7 +33,10 @@ const COMPANY_STATUSES = ['match', 'partial', 'eliminated', 'review'] as const;
 // ONLY for internal roles and silently ignores it otherwise.
 const runSchema = z.object({
     icp_id: uuidField('Invalid ICP ID'),
-    geography: z.string().min(1).max(120),
+    // Free-text geography OR an approved sub-ICP cell (geo_id, WP2) — at least one is required
+    // (handler-checked); with geo_id the geography defaults to the cell's country.
+    geography: z.string().min(1).max(120).optional(),
+    geo_id: uuidField('Invalid geography ID').optional(),
     // Discovery source: 'web' (SearXNG/Gemini, default) or 'maps' (Gosom/Google Maps; 2GIS/CIS in M2).
     // Both run the identical capped, hold-fenced, once-ever-billed pipeline — only discovery differs.
     source: z.enum(['web', 'maps']).optional(),
@@ -52,8 +55,12 @@ const internalCapsSchema = z
 router.post('/run', requireWriter, validateBody(runSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
-        const { icp_id, geography, source, caps: rawCaps } = req.body as z.infer<typeof runSchema>;
+        const { icp_id, geography, geo_id, source, caps: rawCaps } = req.body as z.infer<typeof runSchema>;
         const jobType = source === 'maps' ? RESEARCH_JOB_TYPES.MAPS_HARVEST : RESEARCH_JOB_TYPES.HARVEST_RUN;
+        if (!geography && !geo_id) {
+            res.status(400).json({ error: 'geography or geo_id required' });
+            return;
+        }
         // Internal roles may size a sanctioned larger run (resolveCaps clamps to the ceilings);
         // a client-role request silently runs with the defaults.
         let caps: z.infer<typeof internalCapsSchema>;
@@ -86,6 +93,31 @@ router.post('/run', requireWriter, validateBody(runSchema), async (req: Request,
         if ((icp as { status: string }).status !== 'approved') {
             res.status(409).json({ error: 'ICP must be approved before harvesting' });
             return;
+        }
+
+        // WP2: an approved sub-ICP cell may scope the run. Its spec affects DISCOVERY only
+        // (query building + validation context in the worker) — verdicts/billing stay keyed to
+        // (icp, ruleset_version), so geo state gates admission here, never money.
+        let effectiveGeography = geography;
+        if (geo_id) {
+            const { data: geo, error: geoErr } = await researchSupabaseAdmin
+                .from('research_geographies')
+                .select('id, icp_id, status, country')
+                .eq('id', geo_id)
+                .eq('tenant_id', tenantId)
+                .maybeSingle();
+            if (geoErr) {
+                log.error({ err: geoErr }, 'harvest geo lookup failed');
+                throw new AppError('Failed to start harvest', 500);
+            }
+            const cell = geo as { icp_id: string | null; status: string; country: string } | null;
+            if (!cell || cell.icp_id !== icp_id || cell.status !== 'approved') {
+                res.status(409).json({ error: 'Geography must be an approved cell of this ICP' });
+                return;
+            }
+            // The cell's country IS the run's geography (review P3): a mismatching free-text
+            // value would pair one country's queries with another's local terms. Ignore it.
+            effectiveGeography = cell.country;
         }
 
         // Pre-enqueue quota gate (fast-fail UX): refuse to queue a run for a tenant with no spendable
@@ -133,7 +165,7 @@ router.post('/run', requireWriter, validateBody(runSchema), async (req: Request,
         const job = await enqueueJob({
             tenantId,
             type: jobType,
-            payload: { icp_id, geography, source: source ?? 'web', ...(caps ? { caps } : {}) },
+            payload: { icp_id, geography: effectiveGeography, source: source ?? 'web', ...(geo_id ? { geo_id } : {}), ...(caps ? { caps } : {}) },
             projectId: (icp as { project_id: string }).project_id,
             // A harvest spends real money (search + LLM + fetch) and is not cost-idempotent: an
             // auto-retry would re-discover + re-spend. Run once; on failure an operator re-runs

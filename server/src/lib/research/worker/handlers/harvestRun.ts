@@ -16,13 +16,18 @@
  * and releases the remainder. A hard failure releases the whole reservation; a crashed worker's
  * stranded hold is freed by the worker's stale-hold reaper. Domainless candidates are parked as
  * 'review' (no site to read) for the enrichment phase.
+ *
+ * Sub-ICP geo cell (WP2, optional): payload.geo_id targets an APPROVED research_geographies cell
+ * of this ICP. Its spec feeds discovery (local-language terms + named directories) and validation
+ * (localized signal cues), and companies written by the run carry the geo ref. Discovery-only —
+ * billing stays keyed to (icp, ruleset_version), and a run without geo_id behaves exactly as before.
  */
 import type { HandlerContext, JobHandler } from '../types.js';
 import { researchSupabaseAdmin } from '../../supabase.js';
 import { createLogger } from '../../../logger.js';
 import { resolveCaps, CapTracker, type EngineCaps } from '../../engine/caps.js';
 import { canonicalKey, normalizeDomain } from '../../engine/canonical.js';
-import type { Candidate } from '../../engine/discovery.js';
+import type { Candidate, GeoQuerySpec } from '../../engine/discovery.js';
 import { webSearchSource, type CandidateSource } from '../../engine/sources.js';
 import { fetchPage, cachedPageContent } from '../../engine/fetch.js';
 import { validateCompany } from '../../engine/validate.js';
@@ -83,9 +88,11 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
     const tenantId = job.tenant_id;
     const projectId = job.project_id;
     const icpId = typeof job.payload?.icp_id === 'string' ? job.payload.icp_id : null;
-    const geography = typeof job.payload?.geography === 'string' ? job.payload.geography.trim() : '';
+    const geoId = typeof job.payload?.geo_id === 'string' ? job.payload.geo_id : null;
+    let geography = typeof job.payload?.geography === 'string' ? job.payload.geography.trim() : '';
     if (!icpId) throw new Error('harvest:run requires payload.icp_id');
-    if (!geography) throw new Error('harvest:run requires payload.geography');
+    // A geo-cell run may omit free-text geography (it defaults to the cell's country below).
+    if (!geography && !geoId) throw new Error('harvest:run requires payload.geography');
 
     // Load the ICP and HARD-require it be approved at its current ruleset — billing later
     // refuses anything else, so harvesting an unapproved ICP would burn COGS for nothing.
@@ -101,6 +108,59 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
     if (icpRow.status !== 'approved') {
         throw new Error(`harvest:run: ICP ${icpId} is '${icpRow.status}', not 'approved' (approve it first)`);
     }
+
+    // ── Sub-ICP geo cell (WP2, optional) ─────────────────────────────────────
+    // A run may target an APPROVED geography cell of this ICP instead of free-text geography.
+    // The route gated this at enqueue time, but the payload is minutes old by now — re-check
+    // tenant/ICP/approval here (a re-analysis demotes the cell back to draft). The cell's spec
+    // feeds DISCOVERY + validation context only: a missing/malformed spec degrades to the
+    // free-text behavior with a warning — it never fails the run.
+    let geoSpec: GeoQuerySpec | undefined;
+    let localizedSignals: string[] = [];
+    let localizedNegativeSignals: string[] = [];
+    if (geoId) {
+        const { data: geo, error: geoErr } = await researchSupabaseAdmin
+            .from('research_geographies')
+            .select('id, icp_id, country, status, spec')
+            .eq('id', geoId)
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+        if (geoErr) throw geoErr;
+        if (!geo) throw new Error(`harvest:run: geography cell ${geoId} not found for tenant ${tenantId}`);
+        if (geo.icp_id !== icpId) {
+            throw new Error(`harvest:run: geography cell ${geoId} belongs to a different ICP (expected ${icpId})`);
+        }
+        if (geo.status !== 'approved') {
+            throw new Error(`harvest:run: geography cell ${geoId} is '${geo.status}', not 'approved' (approve it first)`);
+        }
+        // The cell's country IS the geography of a geo-run (review P3): honoring a mismatching
+        // free-text value alongside geo_id would drive queries at one country with another's
+        // local terms — always take the cell's.
+        const cellCountry = typeof geo.country === 'string' ? geo.country.trim() : '';
+        if (cellCountry) geography = cellCountry;
+
+        // Narrow STRUCTURAL pick of the spec — the engine consumes only these fields, and the
+        // full zod contract belongs to the geo module. Anything malformed is simply dropped.
+        const spec = geo.spec as Record<string, unknown> | null;
+        if (spec && typeof spec === 'object' && !Array.isArray(spec)) {
+            const strings = (v: unknown): string[] =>
+                Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && s.trim().length > 0) : [];
+            geoSpec = {
+                local_terms: strings(spec.local_terms),
+                directories: Array.isArray(spec.directories)
+                    ? spec.directories.filter(
+                          (d): d is { name: string; url?: string } =>
+                              !!d && typeof d === 'object' && typeof (d as { name?: unknown }).name === 'string'
+                      )
+                    : [],
+            };
+            localizedSignals = strings(spec.localized_signals);
+            localizedNegativeSignals = strings(spec.localized_negative_signals);
+        } else {
+            log.warn({ jobId: job.id, geoId }, 'geo cell has no usable spec — proceeding with free-text discovery behavior');
+        }
+    }
+    if (!geography) throw new Error(`harvest:run: geography cell ${geoId} has no country and payload.geography is empty`);
 
     // The running attempt's fence identity — verdict persistence, billing and hold closing are all
     // lease-fenced (067): a claimed job always carries these, so their absence is a runner bug.
@@ -148,7 +208,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
         // The ONLY source-dependent step. The source counts its own queries + adds its own search
         // cost to the tracker and logs its per-tenant COGS; everything below is source-agnostic.
         const { candidates: rawCandidates, queriesRun, meta: sourceMeta } = await source.gather({
-            icp: icpRow, geography, caps, tracker, heartbeat,
+            icp: icpRow, geography, geoSpec, caps, tracker, heartbeat,
             tenantId, projectId, jobId: job.id,
         });
 
@@ -203,10 +263,13 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
         ).length;
 
         // ICP fields the validator scores against (shared by the fetch path and the re-score path).
+        // A geo-cell run also carries the cell's local-language cues into the validation prompt.
         const icpFields = {
             name: icpRow.name, segment: icpRow.segment,
             signals: icpRow.signals ?? [], negative_signals: icpRow.negative_signals ?? [],
             elimination_rules: icpRow.elimination_rules ?? [],
+            localized_signals: localizedSignals.length > 0 ? localizedSignals : undefined,
+            localized_negative_signals: localizedNegativeSignals.length > 0 ? localizedNegativeSignals : undefined,
         };
 
         // ── Fetch → validate → persist → bill ────────────────────────────────────
@@ -274,7 +337,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                         domain: null, name: c.name, website: c.domain ?? null, country: c.country, city: c.city,
                         phone: c.phone, address: c.address,
                         status: 'review', siteSummary: 'domainless candidate (no website resolved)',
-                        icpId, sourcePath, jobId: job.id, worker, lease,
+                        icpId, geoId, sourcePath, jobId: job.id, worker, lease,
                     });
                     review++;
                 } catch (e) {
@@ -309,7 +372,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                         tenantId, canonicalKey: c.canonicalKey, projectId,
                         domain: regDomain, name: c.name, website: c.domain ?? regDomain, country: c.country, city: c.city,
                         phone: c.phone, address: c.address,
-                        status: 'review', siteSummary: `site unreachable (status ${page.status})`, icpId, sourcePath,
+                        status: 'review', siteSummary: `site unreachable (status ${page.status})`, icpId, geoId, sourcePath,
                         jobId: job.id, worker, lease,
                     });
                     review++;
@@ -336,7 +399,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                     phone: c.phone, address: c.address,
                     status: verdict.verdict, score: verdict.score,
                     siteSummary: verdict.summary || null, evidence: verdict.evidence,
-                    eliminationReason: verdict.elimination_reason || null, icpId, sourcePath,
+                    eliminationReason: verdict.elimination_reason || null, icpId, geoId, sourcePath,
                     jobId: job.id, worker, lease,
                 });
                 companyId = company.id;
@@ -373,7 +436,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                         status: persisted.verdict, score: persisted.score,
                         evidence: persisted.evidence,
                         eliminationReason: persisted.eliminationReason,
-                        icpId, sourcePath, jobId: job.id, worker, lease,
+                        icpId, geoId, sourcePath, jobId: job.id, worker, lease,
                     });
                 } catch (e) {
                     if (!(e instanceof SuppressedError)) throw e;
@@ -499,6 +562,10 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
             source_meta: sourceMeta ?? null,
             icp_id: icpId,
             geography,
+            // Sub-ICP cell provenance (WP2): 'cell' when the run targeted an approved geo cell
+            // (geo_id set), 'free-text' for the legacy geography-string path.
+            geo_id: geoId,
+            geography_source: geoId ? 'cell' : 'free-text',
             queries_run: queriesRun,
             raw_candidates: rawCandidates.length,
             unique_candidates: canon.length,

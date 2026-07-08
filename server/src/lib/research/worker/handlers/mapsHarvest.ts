@@ -6,7 +6,9 @@
  * runHarvest, so all money invariants (reservation cap, lease fencing, KVKK suppression > dedup,
  * once-ever billing) hold identically. Like harvest:run this spends real money downstream and is
  * not cost-idempotent, so it is enqueued maxAttempts:1 (an operator re-runs on failure; the
- * idempotent bill RPC + reconciliation pass make a re-run safe).
+ * idempotent bill RPC + reconciliation pass make a re-run safe). The optional sub-ICP geo cell
+ * (WP2, payload.geo_id) is handled inside runHarvest too — the cell's local terms feed the maps
+ * keywords and its localized cues feed validation, identically gated and fully backward compatible.
  */
 import type { JobHandler } from '../types.js';
 import { runHarvest } from './harvestRun.js';

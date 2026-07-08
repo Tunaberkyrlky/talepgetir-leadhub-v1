@@ -9,13 +9,14 @@ import {
     Container, Title, Text, Paper, Stack, Group, TextInput, Textarea, TagsInput,
     NumberInput, Button, Loader, Alert, SimpleGrid, Badge, Tabs,
 } from '@mantine/core';
-import { IconSparkles, IconInfoCircle, IconBuildingSkyscraper, IconTargetArrow, IconFileSpreadsheet, IconBrandLinkedin } from '@tabler/icons-react';
+import { IconSparkles, IconInfoCircle, IconBuildingSkyscraper, IconTargetArrow, IconFileSpreadsheet, IconBrandLinkedin, IconWorldPin } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showErrorFromApi } from '../../lib/notifications';
 import IcpCard, { type ResearchIcp } from '../../components/research/IcpCard';
 import CompaniesPanel from '../../components/research/CompaniesPanel';
+import GeographiesPanel from '../../components/research/GeographiesPanel';
 import TradeImportsPanel from '../../components/research/TradeImportsPanel';
 import LinkedInAccountsPanel from '../../components/linkedin/LinkedInAccountsPanel';
 
@@ -118,6 +119,9 @@ export default function ResearchPage() {
                         <Tabs.Tab value="icp" leftSection={<IconTargetArrow size={16} />}>
                             {t('research.tabs.icp', 'ICP Master')}
                         </Tabs.Tab>
+                        <Tabs.Tab value="geographies" leftSection={<IconWorldPin size={16} />}>
+                            {t('research.tabs.geographies', 'Geographies')}
+                        </Tabs.Tab>
                         <Tabs.Tab value="companies" leftSection={<IconBuildingSkyscraper size={16} />}>
                             {t('research.tabs.companies', 'Leads')}
                         </Tabs.Tab>
@@ -128,6 +132,10 @@ export default function ResearchPage() {
                             {t('research.tabs.linkedin', 'LinkedIn Accounts')}
                         </Tabs.Tab>
                     </Tabs.List>
+
+                    <Tabs.Panel value="geographies">
+                        <GeographiesPanel />
+                    </Tabs.Panel>
 
                     <Tabs.Panel value="companies">
                         <CompaniesPanel />

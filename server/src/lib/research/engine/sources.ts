@@ -13,7 +13,7 @@
  * Both feed rawCandidates + a queriesRun count back to runHarvest; each does its OWN source cost
  * accounting (tracker.addSearchCost + logSearch) since only the source knows its queries/cost.
  */
-import { buildQuerySpecs, runDiscovery, type Candidate } from './discovery.js';
+import { buildQuerySpecs, runDiscovery, type Candidate, type GeoQuerySpec } from './discovery.js';
 import { normalizeDomain } from './canonical.js';
 import { isJunkDomain } from './domainFilter.js';
 import { logSearch } from './ledger.js';
@@ -56,6 +56,8 @@ export interface GatherContext {
         ruleset_version: number;
     };
     geography: string;
+    /** Approved sub-ICP geo cell spec (WP2), narrow view — absent on free-text-geography runs. */
+    geoSpec?: GeoQuerySpec;
     caps: EngineCaps;
     /** The run's cap+cost rail — the source counts its own queries + adds its own search cost. */
     tracker: CapTracker;
@@ -92,7 +94,7 @@ export const webSearchSource: CandidateSource = {
     sourcePath: 'Y3',
     async gather(ctx: GatherContext): Promise<GatherResult> {
         await ctx.heartbeat({ stage: 'discovery' });
-        const specs = buildQuerySpecs(ctx.icp, ctx.geography, ctx.caps.maxQueries);
+        const specs = buildQuerySpecs(ctx.icp, ctx.geography, ctx.caps.maxQueries, ctx.geoSpec);
         const rawCandidates: Candidate[] = [];
         const seenDomains = new Set<string>();
         const angleCounts: Record<string, number> = {};
@@ -166,14 +168,19 @@ export const webSearchSource: CandidateSource = {
  * Deterministic maps keywords from the ICP + geography (no LLM). Tighter than the web-search
  * phrasings (buildQueries) because a maps query is a place+category lookup, not a document search.
  */
-export function buildMapsKeywords(icp: GatherContext['icp'], geography: string, max = 5): string[] {
+export function buildMapsKeywords(icp: GatherContext['icp'], geography: string, max = 5, geoSpec?: GeoQuerySpec): string[] {
     const seg = (icp.segment || icp.name).replace(/\s+/g, ' ').trim();
-    const base = [
-        `${seg} ${geography}`,
+    const base = [`${seg} ${geography}`];
+    // Sub-ICP cell (WP2): a maps lookup is exactly the language-sensitive case, so the approved
+    // spec's top local terms rank RIGHT AFTER the lead keyword — appending them last would let
+    // a small internal maxQueries cap slice them off entirely (review P3). The dedup + max
+    // slice still bounds keyword count exactly as before.
+    for (const term of (geoSpec?.local_terms ?? []).slice(0, 2)) base.push(`${term} ${geography}`.trim());
+    base.push(
         `${seg} importer ${geography}`,
         `${seg} wholesaler ${geography}`,
         `${seg} distributor ${geography}`,
-    ];
+    );
     for (const sig of icp.signals.slice(0, 2)) base.push(`${sig} ${geography}`.trim());
     return [...new Set(base.map((q) => q.trim()).filter(Boolean))].slice(0, Math.max(1, max));
 }
@@ -185,7 +192,7 @@ export const mapsSource: CandidateSource = {
     async gather(ctx: GatherContext): Promise<GatherResult> {
         await ctx.heartbeat({ stage: 'maps_discovery' });
         const scraper = pickMapsBackend(ctx.geography);
-        const keywords = buildMapsKeywords(ctx.icp, ctx.geography, ctx.caps.maxQueries);
+        const keywords = buildMapsKeywords(ctx.icp, ctx.geography, ctx.caps.maxQueries, ctx.geoSpec);
 
         // Count one query unit per keyword. Gosom submits one scrape job per keyword, and 2GIS fans
         // keywords into Catalog searches, so this keeps query caps and summaries aligned with work.

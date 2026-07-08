@@ -4,11 +4,11 @@
  * ortamda çalışır.
  */
 import { mockProvider } from './mock.js';
-import { twilioProvider } from './twilio.js';
+import { twilioProvider, isTwilioConfigured } from './twilio.js';
 import type { ColdcallSettingsRow, TelephonyProvider } from './types.js';
 
 export function twilioConfigured(): boolean {
-    return !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
+    return isTwilioConfigured();
 }
 
 export function providerFor(settings: ColdcallSettingsRow): TelephonyProvider {

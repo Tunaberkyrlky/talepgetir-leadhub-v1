@@ -93,6 +93,10 @@ export default function CalibrationDrawer({
     const [geography, setGeography] = useState('');
     const [source, setSource] = useState<'web' | 'maps'>('web');
     const [ratings, setRatings] = useState<Record<string, RatingDraft>>({});
+    // The ruleset the local ratings were MADE against (codex verify #1): captured when rating
+    // starts, sent with the save, and reset whenever the drafts are cleared — so a 409'd batch
+    // can never be resubmitted against a newer ruleset it doesn't describe.
+    const [ratingsVersion, setRatingsVersion] = useState<number | null>(null);
     const [job, setJob] = useState<TrackedJob | null>(null);
 
     const invalidateIcp = () => {
@@ -128,6 +132,7 @@ export default function CalibrationDrawer({
     useEffect(() => {
         const rows = feedbackQuery.data?.data;
         if (!rows?.length) return;
+        setRatingsVersion((v) => v ?? feedbackQuery.data?.ruleset_version ?? null);
         setRatings((prev) => {
             const next = { ...prev };
             for (const r of rows) {
@@ -198,10 +203,11 @@ export default function CalibrationDrawer({
                     rating: v.rating as 'good' | 'bad',
                     ...(v.note.trim() ? { note: v.note.trim().slice(0, 2000) } : {}),
                 }));
-            // Pinned to the ruleset the customer rated against — the server 409s if it moved.
+            // Pinned to the ruleset the ratings were MADE against — not whatever is current at
+            // save time. The server 409s if the ICP moved since.
             await api.post(`/research/icps/${icpId}/feedback`, {
                 items,
-                ruleset_version: (icpQuery.data ?? icp)?.ruleset_version,
+                ruleset_version: ratingsVersion ?? (icpQuery.data ?? icp)?.ruleset_version,
             });
             return items.length;
         },
@@ -213,6 +219,10 @@ export default function CalibrationDrawer({
         onError: (err: unknown) => {
             if (httpInfo(err).status === 409) {
                 showWarning(t('research.calibration.feedbackStale', 'The ICP changed since you rated these companies — reloaded, review and rate again.'));
+                // The drafts describe firms sampled under OLD rules — drop them so a second
+                // Save can't resubmit them against the new ruleset (codex verify #1).
+                setRatings({});
+                setRatingsVersion(null);
                 invalidateIcp();
                 invalidateFeedback();
                 return;
@@ -254,6 +264,7 @@ export default function CalibrationDrawer({
         onSuccess: () => {
             showSuccess(t('research.calibration.applied', 'Revision applied — the ICP is back in draft, review and approve it again.'));
             setRatings({});
+            setRatingsVersion(null);
             invalidateIcp();
             invalidateFeedback();
         },
@@ -296,13 +307,19 @@ export default function CalibrationDrawer({
     const canSample = live.status === 'approved' && geography.trim().length > 0 && !anyRunning;
     const ratedCount = Object.values(ratings).filter((r) => r.rating !== null).length;
 
-    const setRating = (id: string, rating: 'good' | 'bad') =>
+    const captureRatingsVersion = () =>
+        setRatingsVersion((v) => v ?? (icpQuery.data ?? icp)?.ruleset_version ?? null);
+    const setRating = (id: string, rating: 'good' | 'bad') => {
+        captureRatingsVersion();
         setRatings((prev) => {
             const cur = prev[id] ?? { rating: null, note: '' };
             return { ...prev, [id]: { ...cur, rating: cur.rating === rating ? null : rating } };
         });
-    const setNote = (id: string, note: string) =>
+    };
+    const setNote = (id: string, note: string) => {
+        captureRatingsVersion();
         setRatings((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { rating: null, note: '' }), note } }));
+    };
 
     return (
         <Drawer

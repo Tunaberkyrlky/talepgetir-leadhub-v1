@@ -14,7 +14,7 @@ Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + C
 >
 > **Sıra: WP1 → WP2 → WP3 → WP4 → WP5.** Her WP: migration (SADECE izole research test DB) + server + client + `tsc -b` + smoke + **codex gpt-5.5 xhigh review** (bloklanırsa Claude ikincil adversarial review) → düzelt → SHIP. Kilitli invariant'lara (04 §5) DOKUNMA: billing ömürde-bir + fenced RPC'ler + suppression>dedup + müşteri dolar görmez. Migration numaraları (gerçekleşen): WP1=084+085+087 (084 çekirdek, 085/087 codex+review sertleştirmeleri), WP2=086, WP3=088, WP4=089, WP5=090 (çakışırsa kaydır).
 
-### WP1 — Kalibrasyon döngüsü (plan C1–C2) — önce bu
+### WP1 — Kalibrasyon döngüsü (plan C1–C2) — ✅ **BİTTİ → codex SHIP** (2026-07-08, detay `04 §4.9`; migrations 084+085+087)
 
 **Amaç:** ölçeklemeden önce (ICP × geo) başına küçük örneklem → insan firma-bazlı "iyi/değil" → LLM'in ICP revizyon önerisi → insan onayı (ruleset bump) → tekrar örneklem → "araştırma mantığı onaylandı". Mevcut ruleset_version CAS + cross-ICP re-score altyapısı bunun için hazır; eksik olan ürün akışı.
 
@@ -23,7 +23,11 @@ Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + C
 - **Client:** ICP kartına "Kalibrasyon" akışı: örneklem tablosu (firma + kanıt + skor) → satır başına 👍/👎 + not → "Revizyon öner" → diff görünümü (mevcut vs öneri) → "Uygula" → yeniden approve → "Tekrar örnekle" → "Mantığı onayla" (`calibration_state='calibrated'`).
 - **Kabul:** izole DB'de e2e smoke (örneklem → 2+ feedback → revise → apply → ruleset bump doğrulaması → re-sample'da cross-ICP re-score'un eski firmaları yeni ruleset'te yeniden skorladığı); `tsc -b` temiz; codex review.
 
-### WP2 — Pazar yapısı araştırması → sub-ICP türetme (geo-instantiation)
+### WP2 — Pazar yapısı araştırması → sub-ICP türetme (geo-instantiation) — inşa+smoke ✅, **RESUME: codex verdict'i al**
+
+> **RESUME (2026-07-08):** İnşa + 2-lens review düzeltmeleri + smoke'lar bitti (detay `04 §4.10`). codex gpt-5.5 xhigh review'ü arka planda başlatılmıştı; çıktı dosyası:
+> `/private/tmp/claude-501/-Users-salihyetim-orca-workspaces-TG-Core-copy-16-06-TG-Research/7a30201c-0449-4e10-830a-a7463cffc8d9/scratchpad/wp2-codex-out.txt`
+> Varsa verdict'i oku → FIX FIRST ise bulguları kapat + verify turu; dosya yoksa/boşsa `wp2-codex-prompt.txt` (aynı klasör) ile codex'i yeniden koş. SHIP gelince WP2'yi 04'te ✅'le ve WP3'e geç.
 
 **Amaç:** her (onaylı ICP × hedef ülke) için kanal yapısını araştırıp ICP'yi coğrafyaya uyarlamak: yerel sinyaller, yerel dil terimleri, yerel eleme kuralları, anahtar kanallar, sertifikalar, alıcı unvanları (persona tohumu), E tahmini. `research_geographies` canlanır.
 

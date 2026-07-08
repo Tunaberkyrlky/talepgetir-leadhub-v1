@@ -877,6 +877,9 @@ router.post('/:id/mark-calibrated', requireWriter, async (req: Request, res: Res
             .eq('tenant_id', tenantId)
             .eq('status', 'approved')
             .eq('ruleset_version', (icp as { ruleset_version: number }).ruleset_version)
+            // A concurrent icp:revise can persist a proposal without touching status/version —
+            // assert no-pending-revision IN the write too (codex verify #5), not just the gate.
+            .is('revision_job_id', null)
             .select()
             .maybeSingle();
         if (error) {

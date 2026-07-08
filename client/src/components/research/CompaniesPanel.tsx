@@ -73,6 +73,9 @@ export default function CompaniesPanel() {
     const [status, setStatus] = useState<string>('all');
     const [page, setPage] = useState(1);
     const [geography, setGeography] = useState('');
+    // Approved geography cell (WP2 sub-ICP) — when set, the run posts geo_id and the free-text
+    // geography is ignored (the engine defaults to the cell's country + localized spec).
+    const [geoId, setGeoId] = useState<string | null>(null);
     const [runJobId, setRunJobId] = useState<string | null>(null);
     // Discovery source: 'web' (search engines, default) or 'maps' (Google Maps / 2GIS business
     // scrape — CIS geographies route to 2GIS). Both run the same capped, billed harvest.
@@ -97,6 +100,22 @@ export default function CompaniesPanel() {
     const icps = icpsQuery.data?.data ?? [];
     const selectedIcp = icps.find((i) => i.id === icpId) ?? null;
 
+    // Approved geo cells for the selected ICP feed the launcher's cell Select (free text stays
+    // available as a fallback — no geo cells means byte-identical legacy behavior).
+    const geosQuery = useQuery<{ data: { id: string; country: string; status: string }[] }>({
+        queryKey: ['research', 'geographies', icpId],
+        queryFn: async () => (await api.get(`/research/geographies?icp_id=${icpId}`)).data,
+        enabled: !!icpId,
+    });
+    const approvedGeos = useMemo(
+        () => (geosQuery.data?.data ?? []).filter((g) => g.status === 'approved'),
+        [geosQuery.data]
+    );
+    // A cell can be demoted (re-analysis/edit) while selected — fall back to free text then.
+    useEffect(() => {
+        if (geoId && !approvedGeos.some((g) => g.id === geoId)) setGeoId(null);
+    }, [geoId, approvedGeos]);
+
     const creditsQuery = useQuery<{ balance: number; available: number; reserved: number }>({
         queryKey: ['research', 'credits'],
         queryFn: async () => (await api.get('/research/harvest/credits')).data,
@@ -120,8 +139,8 @@ export default function CompaniesPanel() {
         mutationFn: async () => {
             const job = (await api.post('/research/harvest/run', {
                 icp_id: icpId,
-                geography: geography.trim(),
                 source,
+                ...(geoId ? { geo_id: geoId } : { geography: geography.trim() }),
             })).data as HarvestJob;
             setRunJobId(job.id);
             return job;
@@ -181,7 +200,8 @@ export default function CompaniesPanel() {
 
     const running = runMut.isPending || JOB_RUNNING(runStatus);
     const canRun =
-        !!selectedIcp && selectedIcp.status === 'approved' && geography.trim().length > 0 &&
+        !!selectedIcp && selectedIcp.status === 'approved' &&
+        (!!geoId || geography.trim().length > 0) &&
         (credits?.available ?? 0) >= 1 && !running;
 
     const statusOptions = useMemo(
@@ -248,12 +268,26 @@ export default function CompaniesPanel() {
             {selectedIcp && (
                 <Paper withBorder radius="md" p="md">
                     <Group align="flex-end" gap="sm" wrap="wrap">
+                        {approvedGeos.length > 0 && (
+                            <Select
+                                label={t('research.geographies.cell', 'Approved geography')}
+                                data={[
+                                    { value: '', label: t('research.geographies.freeText', 'Free text') },
+                                    ...approvedGeos.map((g) => ({ value: g.id, label: g.country })),
+                                ]}
+                                value={geoId ?? ''}
+                                onChange={(v) => setGeoId(v ? v : null)}
+                                w={200}
+                                allowDeselect={false}
+                            />
+                        )}
                         <TextInput
                             label={t('research.harvest.geography', 'Geography')}
                             placeholder={t('research.harvest.geographyPh', 'e.g. Germany, Netherlands, Bavaria…')}
                             leftSection={<IconWorld size={16} />}
                             value={geography}
                             onChange={(e) => setGeography(e.currentTarget.value)}
+                            disabled={!!geoId}
                             w={280}
                         />
                         <Tooltip

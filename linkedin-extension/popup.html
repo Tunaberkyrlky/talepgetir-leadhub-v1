@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font: 13px -apple-system, system-ui, sans-serif; width: 300px; padding: 14px; color: #1a1a1a; }
+    h3 { margin: 0 0 8px; font-size: 15px; }
+    p { margin: 0 0 10px; color: #555; line-height: 1.4; }
+    input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
+    button { margin-top: 10px; width: 100%; padding: 9px; border: 0; border-radius: 6px; background: #0a66c2; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: default; }
+    #status { margin-top: 10px; font-size: 12px; min-height: 16px; }
+    .ok { color: #128a4b; }
+    .err { color: #c0392b; }
+  </style>
+</head>
+<body>
+  <h3>Connect LinkedIn to TG Core</h3>
+  <p>Make sure you are logged into LinkedIn in this browser. Paste the pairing token from TG Core, then click Connect.</p>
+  <input id="token" placeholder="Pairing token" autocomplete="off" />
+  <button id="connect">Connect</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

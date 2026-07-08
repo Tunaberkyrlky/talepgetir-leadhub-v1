@@ -23,6 +23,11 @@ function sanitizeJobError(error: unknown): string | null {
     if (/insufficient research credits/i.test(error)) {
         return 'Insufficient lead quota — top up and re-run.';
     }
+    // Order matters: the geography-cell check must precede the generic not-'approved' pattern,
+    // or a demoted geo cell would misdirect the customer to re-approve the (approved) ICP.
+    if (/geography cell .* not 'approved'/i.test(error)) {
+        return 'The geography must be approved before running.';
+    }
     if (/ICP .* not.*approved|not 'approved'/i.test(error)) {
         return 'The ICP must be approved before running.';
     }
