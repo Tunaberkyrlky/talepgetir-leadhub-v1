@@ -152,16 +152,39 @@ export function countryByCode(code: string): CountryVoiceInfo | undefined {
 }
 
 /**
+ * NANP (+1) premium / yüksek-maliyet / IRSF-riskli alan kodları (NPA).
+ * +1 sadece US/CA değil; ~25 Karayip/Pasifik ülkesi de +1 kullanır ve bunların
+ * dakika maliyeti US'in 5-30 katı (ve dolandırıcılık hedefi). Bunları US
+ * tarifesiyle karıştırmak marj eritir → fail-closed: bu NPA'lar aranamaz.
+ * (Kaynak: NANPA ülke-kodu atamaları; premium 900 dahil.)
+ */
+const NANP_PREMIUM_NPAS = new Set([
+    '242', '246', '264', '268', '284', '340', '345', '441', '473', '649', '658',
+    '664', '721', '758', '767', '784', '809', '829', '849', '868', '869', '876',
+    '900', // premium-rate
+]);
+
+function blockedNanp(npa: string): CountryVoiceInfo {
+    return {
+        code: 'XN', nameTr: `Karayip/Premium (+1 ${npa})`, nameEn: `Caribbean/Premium (+1 ${npa})`,
+        dialCode: '+1', outUsdPerMin: 0.5, callable: false, blockedReason: 'premium_rate_risk',
+    };
+}
+
+/**
  * E.164 numaradan ülke tespiti — en uzun dial code eşleşmesi.
- * (+1 US/CA çakışması: numara satın alınan ülke değil ARANAN yön önemli;
- * +1 için US tarifesi kullanılır, ikisi de aynı fiyat bandındadır.)
  */
 const sortedByDialLen = [...COUNTRY_PRICING].sort((a, b) => b.dialCode.length - a.dialCode.length);
 
 export function countryForE164(e164: string): CountryVoiceInfo | undefined {
     // KZ/RU ikisi de +7: RU bloklu olduğundan +7'yi KZ'ye düşürmemek için
-    // önce tam liste sırasında uzun kod eşleşmesi yapılır; +7 çakışmasında RU
-    // (bloklu) tercih edilir — fail-closed: emin olmadığımız +7 yönü aranamaz.
+    // +7 çakışmasında RU (bloklu) tercih edilir — fail-closed.
     if (/^\+7\d/.test(e164)) return byCode.get('RU');
+    // +1 NANP: premium/Karayip NPA'ları bloke; kalanı US/CA tarifesi (codex P1).
+    if (/^\+1\d{3}/.test(e164)) {
+        const npa = e164.slice(2, 5);
+        if (NANP_PREMIUM_NPAS.has(npa)) return blockedNanp(npa);
+        return byCode.get('US');
+    }
     return sortedByDialLen.find((c) => e164.startsWith(c.dialCode));
 }

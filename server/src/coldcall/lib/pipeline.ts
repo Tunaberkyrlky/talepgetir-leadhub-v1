@@ -209,6 +209,13 @@ async function deepgramTranscribe(audio: Buffer): Promise<SttResult | null> {
             };
         };
         const utterances = body.results?.utterances ?? [];
+        // Boş sonuç = STT başarısız (codex P2): kayıt var ama hiç konuşma
+        // çıkarılamadıysa transkripti 'failed' işaretle; boş 'done' üretip
+        // heuristik özetin "görüşülemedi" demesine izin verme (yanıltıcı olur).
+        if (utterances.length === 0) {
+            log.warn('deepgram returned no utterances — treating as STT failure');
+            return null;
+        }
         const segments: TranscriptSegment[] = utterances.map((u) => ({
             speaker: u.channel === 0 ? 'agent' : 'lead',
             start_sec: Math.round(u.start * 10) / 10,

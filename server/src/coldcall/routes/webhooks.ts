@@ -11,7 +11,7 @@ import { timingSafeEqual } from 'crypto';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { decrypt } from '../../lib/encryption.js';
 import { createLogger } from '../../lib/logger.js';
-import { subaccountAuthToken, masterAuth } from '../providers/twilio.js';
+import { subaccountAuthToken, masterAuth, decryptWebhookSecret } from '../providers/twilio.js';
 import { finalizeCall } from '../lib/finalize.js';
 import { runTwilioRecordingPipeline } from '../lib/pipeline.js';
 import type { ColdcallCallRow, ColdcallSettingsRow } from '../providers/types.js';
@@ -49,24 +49,18 @@ async function verifyTwilioSignature(req: VerifiedRequest, res: Response, next: 
         const secret = typeof req.query.s === 'string' ? req.query.s : null;
         const accountSid = typeof req.body?.AccountSid === 'string' ? req.body.AccountSid : null;
 
-        // Tenant'ı önce secret ile (API-key modeli), yoksa AccountSid ile bul
-        let settings: ColdcallSettingsRow | null = null;
-        if (secret) {
-            const { data } = await supabaseAdmin
-                .from('coldcall_settings')
-                .select('*')
-                .eq('webhook_secret', secret)
-                .maybeSingle();
-            settings = (data as ColdcallSettingsRow) ?? null;
+        // Tenant'ı SUBACCOUNT SID ile çöz (Twilio her webhook body'sinde AccountSid
+        // gönderir). Secret artık şifreli saklandığı için düz-metinle sorgulanamaz.
+        if (!accountSid) {
+            res.status(403).json({ error: 'Forbidden' });
+            return;
         }
-        if (!settings && accountSid) {
-            const { data } = await supabaseAdmin
-                .from('coldcall_settings')
-                .select('*')
-                .eq('subaccount_sid', accountSid)
-                .maybeSingle();
-            settings = (data as ColdcallSettingsRow) ?? null;
-        }
+        const { data } = await supabaseAdmin
+            .from('coldcall_settings')
+            .select('*')
+            .eq('subaccount_sid', accountSid)
+            .maybeSingle();
+        const settings = (data as ColdcallSettingsRow) ?? null;
         if (!settings) {
             res.status(403).json({ error: 'Forbidden' });
             return;
@@ -88,8 +82,9 @@ async function verifyTwilioSignature(req: VerifiedRequest, res: Response, next: 
                 return;
             }
         } else {
-            // API-key yolu: URL secret'ı doğrula (imza doğrulanamıyor)
-            if (!secret || !settings.webhook_secret || !constantTimeEqual(secret, settings.webhook_secret)) {
+            // API-key yolu: URL secret'ı at-rest şifreliyi çözüp sabit-zamanlı doğrula
+            const expected = settings.webhook_secret ? decryptWebhookSecret(settings.webhook_secret) : null;
+            if (!secret || !expected || !constantTimeEqual(secret, expected)) {
                 log.warn({ accountSid }, 'webhook secret validation failed');
                 res.status(403).json({ error: 'Forbidden' });
                 return;
@@ -131,15 +126,30 @@ router.post('/voice', async (req: VerifiedRequest, res: Response): Promise<void>
         return;
     }
 
-    await supabaseAdmin
+    // Atomik claim (codex P1): yalnız HENÜZ başlatılmamış (queued + SID yok)
+    // çağrı satırı PSTN'e çıkabilir. Aynı callId ile TwiML app'i tekrar tetikleyip
+    // (geçerli token'la) ekstra faturasız çağrı açmayı ve terminal satırı
+    // diriltmeyi engeller — claim başarısızsa çağrıyı reddet.
+    const { data: claimed } = await supabaseAdmin
         .from('coldcall_calls')
         .update({ provider_call_sid: callSid, status: 'ringing' })
-        .eq('id', call.id);
+        .eq('id', call.id)
+        .eq('status', 'queued')
+        .is('provider_call_sid', null)
+        .select('id')
+        .maybeSingle();
+    if (!claimed) {
+        log.warn({ callId: call.id, callSid }, 'voice webhook claim failed (reused/terminal call)');
+        twiml.say('This call cannot be completed.');
+        twiml.hangup();
+        res.type('text/xml').send(twiml.toString());
+        return;
+    }
 
     const publicUrl = (process.env.COLDCALL_PUBLIC_URL ?? '').replace(/\/$/, '');
-    // Status/recording callback'leri de aynı webhook secret'ını taşımalı —
-    // yoksa Twilio bunları secret'sız çağırır ve doğrulama 403 verir
-    const s = settings.webhook_secret ? `&s=${settings.webhook_secret}` : '';
+    // Status/recording callback'leri de aynı webhook secret'ını taşımalı (düz metin,
+    // at-rest şifreliyi çözerek) — yoksa Twilio bunları çağırınca doğrulama 403 verir
+    const s = settings.webhook_secret ? `&s=${decryptWebhookSecret(settings.webhook_secret)}` : '';
     if (settings.recording_mode === 'announce') {
         const turkish = call.to_country === 'TR';
         twiml.say(

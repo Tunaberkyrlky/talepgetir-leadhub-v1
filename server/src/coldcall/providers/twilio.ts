@@ -103,6 +103,18 @@ export async function subaccountAuthToken(subaccountSid: string): Promise<string
 }
 
 /**
+ * Saklanan webhook secret'ını düz metne çevirir. Migration-toleranslı:
+ * decrypt başarısızsa (eski düz-metin satır) değeri olduğu gibi döner.
+ */
+export function decryptWebhookSecret(stored: string): string {
+    try {
+        return decrypt(stored);
+    } catch {
+        return stored;
+    }
+}
+
+/**
  * Tenant'ı Twilio'ya taşır: subaccount + API key + TwiML app oluşturur ve
  * coldcall_settings'e yazar. Idempotent: zaten provision'lıysa mevcut ayarları döner.
  */
@@ -144,9 +156,12 @@ export async function provisionTenantForTwilio(tenantId: string, settings: Coldc
 
     const asSub = twilio(apiKeySid, decrypt(apiKeySecretEnc), { accountSid: subaccountSid });
 
-    // Webhook doğrulama secret'ı — TwiML app URL'sine gömülür, gelen webhook'ta
-    // sabit-zamanlı karşılaştırılır (API-key modelinde imza doğrulanamadığından)
-    const webhookSecret = settings.webhook_secret ?? randomBytes(24).toString('hex');
+    // Webhook doğrulama secret'ı — TwiML app URL'sine DÜZ metin gömülür (Twilio
+    // literal ister), ama at-rest ŞİFRELİ saklanır (codex P2). Mevcut secret varsa
+    // (decrypt edilebiliyorsa) korunur; drift'i önlemek için app voiceUrl'si her
+    // durumda güncel secret'la senkronlanır.
+    const webhookSecret = (settings.webhook_secret ? decryptWebhookSecret(settings.webhook_secret) : null)
+        ?? randomBytes(24).toString('hex');
 
     const voiceUrl = `${publicUrl()}/api/webhooks/coldcall/voice?s=${webhookSecret}`;
     let twimlAppSid = settings.twiml_app_sid;
@@ -157,8 +172,8 @@ export async function provisionTenantForTwilio(tenantId: string, settings: Coldc
             voiceMethod: 'POST',
         });
         twimlAppSid = app.sid;
-    } else if (!settings.webhook_secret) {
-        // Eski provision'da app secret'sız kurulmuş — voiceUrl'yi secret'la güncelle
+    } else {
+        // voiceUrl'yi güncel secret'la senkron tut (URL↔saklanan secret drift'i önle)
         await asSub.applications(twimlAppSid).update({ voiceUrl, voiceMethod: 'POST' });
     }
 
@@ -170,7 +185,7 @@ export async function provisionTenantForTwilio(tenantId: string, settings: Coldc
             api_key_sid: apiKeySid,
             api_key_secret_enc: apiKeySecretEnc,
             twiml_app_sid: twimlAppSid,
-            webhook_secret: webhookSecret,
+            webhook_secret: encrypt(webhookSecret),
             updated_at: new Date().toISOString(),
         })
         .eq('tenant_id', tenantId);

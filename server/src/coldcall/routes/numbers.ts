@@ -155,7 +155,16 @@ router.post('/', requireBuyer, validateBody(purchaseSchema), async (req: Request
             .select('*')
             .single();
         if (error) {
-            log.error({ err: error, e164 }, 'number insert failed after purchase');
+            // Compensation (codex P1): DB kaydı başarısızsa satın alınan numarayı
+            // iade et — yoksa Twilio'da faturalanan ama uygulamada izlenmeyen
+            // öksüz numara kalır. UNIQUE(tenant_id,e164) ihlali (mükerrer/yarış
+            // satın alma) da buraya düşer; provider'da bırakmayız.
+            log.error({ err: error, e164 }, 'number insert failed after purchase — releasing');
+            try {
+                await provider.releaseNumber(settings, purchased.provider_sid);
+            } catch (relErr) {
+                log.error({ err: relErr, providerSid: purchased.provider_sid }, 'compensating release failed — ORPHAN number may be billed');
+            }
             throw new AppError('Numara kaydedilemedi', 500);
         }
 

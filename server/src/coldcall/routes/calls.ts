@@ -298,7 +298,8 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
                     summary: trRes.data.summary,
                     action_items: trRes.data.action_items,
                     sentiment: trRes.data.sentiment,
-                    provider: trRes.data.provider,
+                    // provider (deepgram/mock/heuristic) iç detay — yalnız internal (codex P2)
+                    ...(internal ? { provider: trRes.data.provider } : {}),
                 }
                 : null,
         });
