@@ -27,6 +27,16 @@ export const VOYAGER = {
     // in an inline JSON blob — more stable than the CSRF-touchy GraphQL identity endpoint.
     profileHtmlPath: (publicId: string) => `/in/${encodeURIComponent(publicId)}/`,
 
+    // ── Pending-invite withdrawal (Faz 3, §2 "davet hijyeni") — HOT-SURFACE, RE-VERIFY LIVE. ──
+    // List the account's OUTGOING pending invitations, then withdraw the stale ones. These
+    // paths rotate like every voyager write; both are marked for live re-verification (this
+    // module has no live account yet, so the withdraw handler is DRY-RUN-default until proven).
+    sentInvitationsPath: (start = 0, count = 100) =>
+        `/voyager/api/relationships/sentInvitationViewsV2?count=${count}&start=${start}`,
+    // Withdraw one invitation by its numeric id (action=withdraw on the same collection).
+    withdrawInvitationPath: (invitationId: string) =>
+        `/voyager/api/relationships/sentInvitationViewsV2/${encodeURIComponent(invitationId)}?action=withdraw`,
+
     restliProtocolVersion: '2.0.0',
     accept: 'application/vnd.linkedin.normalized+json+2.1',
     liLang: 'en_US',
@@ -130,6 +140,8 @@ export interface VoyagerCreds {
     liAt: string;
     jsessionid: string;
     userAgent: string;
+    /** The cookie's REAL browser Accept-Language (§3). Falls back to VOYAGER.acceptLanguage. */
+    acceptLanguage?: string | null;
 }
 
 /** Standard authenticated Voyager header set (the "golden recipe", §4.1). */
@@ -140,7 +152,9 @@ export function buildHeaders(creds: VoyagerCreds): Record<string, string> {
         'csrf-token': csrf,
         'x-restli-protocol-version': VOYAGER.restliProtocolVersion,
         accept: VOYAGER.accept,
-        'accept-language': VOYAGER.acceptLanguage,
+        // Replay the account's captured Accept-Language verbatim (§3); the static default is
+        // only a fallback for pre-Faz-3 accounts that never captured one.
+        'accept-language': creds.acceptLanguage || VOYAGER.acceptLanguage,
         'x-li-lang': VOYAGER.liLang,
         'user-agent': creds.userAgent || VOYAGER.defaultUserAgent,
     };
@@ -200,4 +214,52 @@ export function parseMeIdentity(body: unknown): LinkedInIdentity {
     const name = `${first} ${last}`.trim() || null;
 
     return { memberUrn: id ? `urn:li:fsd_profile:${id}` : null, publicId, name };
+}
+
+export interface SentInvitation {
+    /** Numeric invitation id used to build the withdraw path. */
+    invitationId: string;
+    /** Full invitation urn (advisory / audit). */
+    invitationUrn: string;
+    /** Epoch ms the invite was sent, if the response carried it; null otherwise. */
+    sentAtMs: number | null;
+}
+
+/**
+ * Extract OUTGOING pending invitations from a sentInvitationViews response (§2 withdrawal).
+ * HOT-SURFACE (voyager rotates the shape): scan BOTH the top-level `elements` and the
+ * normalized `included` array for invitation entities (urn:li:fs_invitation:<id> or the
+ * dash fsd_invitation variant), pulling the numeric id and a sent timestamp when present.
+ * Deduplicates by id. A miss returns [] — the caller withdraws nothing rather than guessing.
+ */
+export function parseSentInvitations(body: unknown): SentInvitation[] {
+    if (!body || typeof body !== 'object') return [];
+    const b = body as { elements?: unknown[]; included?: unknown[] };
+    const pools: unknown[] = [
+        ...(Array.isArray(b.elements) ? b.elements : []),
+        ...(Array.isArray(b.included) ? b.included : []),
+    ];
+    const byId = new Map<string, SentInvitation>();
+
+    const readEntity = (raw: Record<string, unknown>): void => {
+        // The invitation urn may be on the object itself or on a nested `invitation` field.
+        const nested = (raw.invitation && typeof raw.invitation === 'object')
+            ? raw.invitation as Record<string, unknown> : null;
+        const node = nested ?? raw;
+        const urn = typeof node.entityUrn === 'string' ? node.entityUrn : '';
+        const m = urn.match(/urn:li:fs[d]?_invitation:(\d+)/);
+        if (!m) return;
+        const invitationId = m[1];
+        // sentTime / sentAt appears as epoch ms on the invitation entity in most shapes.
+        const t = node.sentTime ?? node.sentAt ?? (nested ? raw.sentTime : undefined);
+        const sentAtMs = typeof t === 'number' && Number.isFinite(t) ? t : null;
+        const existing = byId.get(invitationId);
+        if (!existing) byId.set(invitationId, { invitationId, invitationUrn: urn, sentAtMs });
+        else if (existing.sentAtMs == null && sentAtMs != null) existing.sentAtMs = sentAtMs;
+    };
+
+    for (const el of pools) {
+        if (el && typeof el === 'object') readEntity(el as Record<string, unknown>);
+    }
+    return [...byId.values()];
 }

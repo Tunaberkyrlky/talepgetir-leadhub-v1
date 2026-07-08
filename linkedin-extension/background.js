@@ -24,6 +24,21 @@ function assertSecureCaptureUrl(url) {
   }
 }
 
+// Build an Accept-Language header value from the browser's language preferences, mirroring
+// the q-weighted form a real request sends (first language q=1.0, then decreasing). Caps at
+// the server's 256-char limit and falls back to navigator.language / 'en-US'.
+function buildAcceptLanguage() {
+  const langs = (Array.isArray(navigator.languages) && navigator.languages.length)
+    ? navigator.languages
+    : [navigator.language || 'en-US'];
+  const parts = [];
+  for (let i = 0; i < langs.length && i < 10; i++) {
+    const q = i === 0 ? '' : ';q=' + (Math.max(0.1, 1 - i * 0.1)).toFixed(1);
+    parts.push(langs[i] + q);
+  }
+  return parts.join(',').slice(0, 256);
+}
+
 // Read li_at + JSESSIONID for linkedin.com from the privileged extension context.
 async function readLinkedInCookies() {
   const [liAt, jsession] = await Promise.all([
@@ -49,7 +64,11 @@ async function sendToBackend(token, cookies) {
       jsessionid: cookies.jsessionid,
       user_agent: navigator.userAgent,
       timezone: (Intl.DateTimeFormat().resolvedOptions().timeZone) || null,
-      // TODO(Faz 3): also capture geo (country/city) + real Accept-Language for proxy geo-match.
+      // Real browser Accept-Language (§3 anti-detection) — the app replays it verbatim on
+      // every voyager call. navigator.languages preserves the q-order the browser sends.
+      accept_language: buildAcceptLanguage(),
+      // NOTE(Faz 3): geo (country/city) stays a MANUAL connect-form field — it can't be
+      // reliably derived in an extension, and the strategy has the user pick it at connect.
     }),
   });
   if (!res.ok) {

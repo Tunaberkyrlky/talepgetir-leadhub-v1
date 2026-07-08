@@ -17,6 +17,7 @@ import { channelsHarvestHandler } from './channelsHarvest.js';
 import { linkedinValidateHandler } from './linkedinValidate.js';
 import { linkedinInviteHandler } from './linkedinInvite.js';
 import { linkedinMessageHandler } from './linkedinMessage.js';
+import { linkedinWithdrawHandler } from './linkedinWithdraw.js';
 
 const handlers: Record<string, JobHandler> = {
     [RESEARCH_JOB_TYPES.PING]: pingHandler,
@@ -32,6 +33,7 @@ const handlers: Record<string, JobHandler> = {
     [RESEARCH_JOB_TYPES.LINKEDIN_VALIDATE]: linkedinValidateHandler,
     [RESEARCH_JOB_TYPES.LINKEDIN_INVITE]: linkedinInviteHandler,
     [RESEARCH_JOB_TYPES.LINKEDIN_MESSAGE]: linkedinMessageHandler,
+    [RESEARCH_JOB_TYPES.LINKEDIN_WITHDRAW]: linkedinWithdrawHandler,
 };
 
 export function getHandler(type: string): JobHandler | undefined {

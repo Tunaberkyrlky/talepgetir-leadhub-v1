@@ -46,10 +46,12 @@ router.post('/', requireInternal, validateBody(enqueueSchema), async (req: Reque
         }
 
         // Non-idempotent LinkedIn WRITES must not go through the generic enqueue: it uses the
-        // queue's default retry count (3), so a transient failure could re-send an invite or
-        // message up to 3×. They have dedicated routes that force maxAttempts=1 (codex P2).
-        if (type === RESEARCH_JOB_TYPES.LINKEDIN_INVITE || type === RESEARCH_JOB_TYPES.LINKEDIN_MESSAGE) {
-            res.status(400).json({ error: 'Use POST /api/linkedin/accounts/:id/invite|message for LinkedIn writes' });
+        // queue's default retry count (3), so a transient failure could re-send an invite/
+        // message or re-run a withdrawal sweep. They have dedicated routes that force
+        // maxAttempts=1 + working-hours scheduling (codex P2).
+        if (type === RESEARCH_JOB_TYPES.LINKEDIN_INVITE || type === RESEARCH_JOB_TYPES.LINKEDIN_MESSAGE
+            || type === RESEARCH_JOB_TYPES.LINKEDIN_WITHDRAW) {
+            res.status(400).json({ error: 'Use POST /api/linkedin/accounts/:id/invite|message|withdraw for LinkedIn writes' });
             return;
         }
 

@@ -11,7 +11,8 @@
 import { request, type Dispatcher } from 'undici';
 import {
     VOYAGER, buildHeaders, parseMeIdentity, buildInvitePayload, buildMessagePayload,
-    parseProfileUrnFromHtml, type VoyagerCreds, type LinkedInIdentity, type MessageParams,
+    parseProfileUrnFromHtml, parseSentInvitations,
+    type VoyagerCreds, type LinkedInIdentity, type MessageParams, type SentInvitation,
 } from './voyager.js';
 
 const HEADERS_TIMEOUT_MS = 15_000;
@@ -255,4 +256,63 @@ export async function resolveProfileUrn(
     const html = await drainText(res);
     if (res.statusCode < 200 || res.statusCode >= 300) return { urn: null, httpStatus: res.statusCode };
     return { urn: parseProfileUrnFromHtml(html), httpStatus: res.statusCode };
+}
+
+// ── Pending-invite withdrawal (Faz 3, §2) — same sticky-proxy seam ────────────────
+
+export interface SentInvitationsResult {
+    invitations: SentInvitation[];
+    httpStatus: number;
+    /** True ONLY on a 2xx WITH a JSON body — a confirmed, trustworthy list read. A non-2xx OR
+     *  a 2xx non-JSON login-wall/redirect stub is `false`, so the caller must NOT read an empty
+     *  `invitations` as "nothing pending" (§4.4: never trust status alone). */
+    ok: boolean;
+}
+
+/**
+ * List the account's OUTGOING pending invitations through its sticky proxy. Returns the parsed
+ * list with ok=true only on a clean 2xx+JSON. A non-2xx OR a 2xx whose body is NOT JSON (a
+ * login-wall/checkpoint stub, §4.4) returns ok=false + [] so the caller treats it as a failed/
+ * unhealthy read — NOT a genuinely empty pending list. Throws only on TRANSPORT failure.
+ */
+export async function listSentInvitations(
+    creds: VoyagerCreds, dispatcher: Dispatcher,
+): Promise<SentInvitationsResult> {
+    const res = await request(`${VOYAGER.base}${VOYAGER.sentInvitationsPath()}`, {
+        method: 'GET',
+        headers: { ...buildHeaders(creds), referer: `${VOYAGER.base}/mynetwork/invitation-manager/sent/` },
+        dispatcher,
+        headersTimeout: HEADERS_TIMEOUT_MS,
+        bodyTimeout: BODY_TIMEOUT_MS,
+        signal: AbortSignal.timeout(TOTAL_DEADLINE_MS),
+    });
+    const raw = await drainText(res);
+    if (res.statusCode < 200 || res.statusCode >= 300) return { invitations: [], httpStatus: res.statusCode, ok: false };
+    let parsed: unknown = null;
+    try { parsed = JSON.parse(raw); } catch { parsed = null; }
+    // A 2xx that isn't JSON is a dead/challenged session masquerading as 200 — not an empty list.
+    if (parsed == null) return { invitations: [], httpStatus: res.statusCode, ok: false };
+    return { invitations: parseSentInvitations(parsed), httpStatus: res.statusCode, ok: true };
+}
+
+/** Withdraw one pending invitation by id. Throws only on TRANSPORT failure; classified §4.4. */
+export async function withdrawInvitation(
+    creds: VoyagerCreds, dispatcher: Dispatcher, invitationId: string,
+): Promise<WriteResult> {
+    const res = await request(`${VOYAGER.base}${VOYAGER.withdrawInvitationPath(invitationId)}`, {
+        method: 'POST',
+        headers: {
+            ...buildHeaders(creds),
+            'content-type': 'application/json; charset=UTF-8',
+            referer: `${VOYAGER.base}/mynetwork/invitation-manager/sent/`,
+            origin: VOYAGER.base,
+        },
+        body: '{}',
+        dispatcher,
+        headersTimeout: HEADERS_TIMEOUT_MS,
+        bodyTimeout: BODY_TIMEOUT_MS,
+        signal: AbortSignal.timeout(TOTAL_DEADLINE_MS),
+    });
+    const raw = await drainText(res);
+    return classifyWriteResponse(res.statusCode, raw);
 }

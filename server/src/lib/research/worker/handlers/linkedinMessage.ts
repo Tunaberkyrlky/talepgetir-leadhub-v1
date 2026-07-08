@@ -11,11 +11,13 @@ import { createLogger } from '../../../logger.js';
 import { sendMessage, isNotSent } from '../../../linkedin/client.js';
 import {
     loadAccount, credsFor, dispatcherFor, currentCount, consumeQuota, releaseQuota,
-    applyWriteHealth, auditAction, DAILY_CAPS, COUNTER_KEY,
+    applyWriteHealth, auditAction, dailyCapFor, weeklyCapFor, scheduleSendAt, weeklyCount,
+    maybeDeferSend, COUNTER_KEY,
 } from '../../../linkedin/actions.js';
 
 const log = createLogger('research:handler:linkedin-message');
 const COUNTER = COUNTER_KEY.message;
+const ACTION = 'message' as const;
 const TEXT_MAX = 8000; // LinkedIn message body ceiling (generous; real limit ~8k chars)
 
 export const linkedinMessageHandler: JobHandler = async ({ job, heartbeat }) => {
@@ -27,6 +29,7 @@ export const linkedinMessageHandler: JobHandler = async ({ job, heartbeat }) => 
     const recipientUrn = typeof p.recipient_urn === 'string' && p.recipient_urn ? p.recipient_urn : null;
     const text = typeof p.text === 'string' ? p.text : '';
     const dryRun = p.dry_run !== false; // SAFE DEFAULT
+    const sendNow = p.send_now === true; // bypass execution-time working-hours recheck
     if (!recipientUrn) throw new Error('linkedin:message requires payload.recipient_urn');
     if (!text.trim()) throw new Error('linkedin:message requires non-empty payload.text');
     const body = text.slice(0, TEXT_MAX);
@@ -36,16 +39,22 @@ export const linkedinMessageHandler: JobHandler = async ({ job, heartbeat }) => 
     const account = await loadAccount(tenantId, accountId);
     if (!account) throw new Error(`linkedin:message: account ${accountId} not found for tenant ${tenantId}`);
 
+    const dailyCap = dailyCapFor(account, ACTION);
+    const weeklyCap = weeklyCapFor(ACTION);
+
     // ── DRY-RUN preview ───────────────────────────────────────────────────────────
     if (dryRun) {
+        const current = currentCount(account, COUNTER);
+        const week = await weeklyCount(tenantId, accountId, ACTION);
+        const schedule = await scheduleSendAt(account, tenantId, { jitter: false });
         return {
             dry_run: true, account_id: accountId, type: 'message',
             account_status: account.status,
             has_identity: !!account.member_urn,
             recipient_urn: recipientUrn, text_length: body.length,
-            quota: { current: currentCount(account, COUNTER), cap: DAILY_CAPS.message },
-            would_send: account.status === 'ACTIVE' && !!account.member_urn
-                && currentCount(account, COUNTER) < DAILY_CAPS.message,
+            quota: { current, cap: dailyCap, weekly: week, weekly_cap: weeklyCap },
+            schedule: { next_send_at: schedule.atIso, immediate: schedule.immediate },
+            would_send: account.status === 'ACTIVE' && !!account.member_urn && current < dailyCap && week < weeklyCap,
         };
     }
 
@@ -60,10 +69,17 @@ export const linkedinMessageHandler: JobHandler = async ({ job, heartbeat }) => 
         return { account_id: accountId, type: 'message', sent: false, skipped: 'no_identity' };
     }
 
-    // Reserve a daily slot (atomic, fenced, ACTIVE-gated under the row lock).
-    const grant = await consumeQuota(tenantId, accountId, COUNTER, DAILY_CAPS.message);
+    // Execution-time working-hours recheck (§2): a late worker must not fire off-window. Defers
+    // to a fresh job before reserving quota; send_now bypasses. (member_urn re-checked above.)
+    const defer = await maybeDeferSend(account, tenantId, job.type,
+        { recipient_urn: recipientUrn, text: body }, { sendNow, createdBy: job.created_by });
+    if (defer.deferred) return { account_id: accountId, type: 'message', sent: false, deferred: true, rescheduled_to: defer.rescheduledTo, rescheduled_job_id: defer.rescheduledJobId };
+
+    // Reserve a daily slot (atomic, fenced, ACTIVE-gated + rolling-weekly under the row lock).
+    const grant = await consumeQuota(tenantId, accountId, ACTION, dailyCap, weeklyCap);
     if (!grant.granted) {
-        const classifier = grant.reason === 'not_active' ? `account_${(grant.status ?? 'unknown').toLowerCase()}` : 'daily_cap';
+        const classifier = grant.reason === 'not_active' ? `account_${(grant.status ?? 'unknown').toLowerCase()}`
+            : grant.reason === 'weekly_cap' ? 'weekly_cap' : 'daily_cap';
         await auditAction({ tenantId, accountId, type: 'message', status: 'skipped', classifier, jobId: job.id });
         return { account_id: accountId, type: 'message', sent: false, skipped: classifier, quota: grant };
     }

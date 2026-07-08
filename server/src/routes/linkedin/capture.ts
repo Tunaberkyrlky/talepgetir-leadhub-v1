@@ -27,6 +27,8 @@ const captureSchema = z.object({
     user_agent: z.string().min(1).max(1000),
     geo: z.string().max(120).optional().nullable(),
     timezone: z.string().max(64).optional().nullable(),
+    // The cookie's real browser Accept-Language (§3 anti-detection) — replayed verbatim.
+    accept_language: z.string().max(256).optional().nullable(),
 });
 
 // ── POST /api/linkedin/capture — extension posts captured cookies + UA ─────────
@@ -75,6 +77,7 @@ router.post('/', validateBody(captureSchema), async (req: Request, res: Response
                 .update({
                     li_at_enc, jsessionid_enc, user_agent: body.user_agent,
                     geo: body.geo ?? null, timezone: body.timezone ?? null,
+                    accept_language: body.accept_language ?? null,
                     status: nextStatus,
                 })
                 .eq('id', existingAccountId).eq('tenant_id', tenantId);
@@ -86,6 +89,7 @@ router.post('/', validateBody(captureSchema), async (req: Request, res: Response
                     tenant_id: tenantId, owner_user_id: createdBy, created_by: createdBy,
                     li_at_enc, jsessionid_enc, user_agent: body.user_agent,
                     geo: body.geo ?? null, timezone: body.timezone ?? null,
+                    accept_language: body.accept_language ?? null,
                     proxy_session_id: newProxySessionId(),
                     status: 'ACTIVE',
                 })

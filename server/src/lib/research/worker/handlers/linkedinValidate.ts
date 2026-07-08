@@ -19,8 +19,12 @@ import { createLogger } from '../../../logger.js';
 import { decryptCookie } from '../../../linkedin/crypto.js';
 import { proxyAgentFor } from '../../../linkedin/proxy.js';
 import { validateSession, type ValidateClassifier } from '../../../linkedin/client.js';
+import { cancelPendingAccountJobs } from '../../../linkedin/actions.js';
 
 const log = createLogger('research:handler:linkedin-validate');
+
+/** Hard health states that auto-pause the account's queue (§6) — mirror actions.HARD_STATES. */
+const HARD_STATES = new Set(['RESTRICTED', 'CHALLENGED', 'NEEDS_REAUTH']);
 
 /** Map a validate classifier to the account status it implies (null = leave unchanged). */
 function statusFor(classifier: ValidateClassifier): string | null {
@@ -39,21 +43,29 @@ interface AccountRow {
     status: string;
     proxy_session_id: string | null;
     user_agent: string | null;
+    accept_language: string | null;
+    warmup_started_at: string | null;
     li_at_enc: string | null;
     jsessionid_enc: string | null;
 }
 
 /** Mark this row a duplicate identity (RESTRICTED, no member_urn) + audit. Shared by the
- *  pre-check and the 23505 race path so both write exactly one audit row. */
+ *  pre-check and the 23505 race path so both write exactly one audit row. The status
+ *  downgrade is PAUSE-guarded (codex P2): a duplicate must never clobber an operator PAUSE;
+ *  if the row is PAUSED the queue-cancel is skipped (the operator already stopped it). */
 async function markDuplicate(tenantId: string, accountId: string, httpStatus: number, jobId: string, now: string) {
-    await researchSupabaseAdmin.from('linkedin_accounts')
+    const { data: row } = await researchSupabaseAdmin.from('linkedin_accounts')
         .update({ status: 'RESTRICTED', last_validated_at: now })
-        .eq('id', accountId).eq('tenant_id', tenantId);
+        .eq('id', accountId).eq('tenant_id', tenantId)
+        .neq('status', 'PAUSED')
+        .select('id').maybeSingle();
     const { error: auditErr } = await researchSupabaseAdmin.from('linkedin_actions').insert({
         tenant_id: tenantId, account_id: accountId, type: 'validate', status: 'ok',
         classifier: 'duplicate_identity', http_status: httpStatus, job_id: jobId,
     });
     if (auditErr) log.warn({ err: auditErr, accountId }, 'validate duplicate audit insert failed (non-fatal)');
+    // Only auto-pause the queue if we actually applied RESTRICTED (row matched, i.e. not PAUSED).
+    if (row) await cancelPendingAccountJobs(tenantId, accountId, 'duplicate_identity');
 }
 
 export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) => {
@@ -65,7 +77,7 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
 
     const { data, error: loadErr } = await researchSupabaseAdmin
         .from('linkedin_accounts')
-        .select('id, status, proxy_session_id, user_agent, li_at_enc, jsessionid_enc')
+        .select('id, status, proxy_session_id, user_agent, accept_language, warmup_started_at, li_at_enc, jsessionid_enc')
         .eq('id', accountId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
@@ -85,6 +97,7 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
             liAt: decryptCookie(account.li_at_enc),
             jsessionid: decryptCookie(account.jsessionid_enc),
             userAgent: account.user_agent ?? '',
+            acceptLanguage: account.accept_language,
         };
         result = await validateSession(creds, proxyAgentFor(account.proxy_session_id));
     } catch (err) {
@@ -128,8 +141,20 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
         if (result.identity.publicId) patch.public_id = result.identity.publicId;
         if (result.identity.name) patch.name = result.identity.name;
     }
-    const { error: updErr } = await researchSupabaseAdmin
+    // Start the warmup clock the FIRST time an account validates alive (§1 ramp origin). Only
+    // set it once; it's persisted so a re-validate can never reset the ramp progress.
+    if (result.classifier === 'success' && !account.warmup_started_at) patch.warmup_started_at = now;
+
+    // DB-level PAUSE guard (codex P1): the in-memory `account.status !== 'PAUSED'` check above
+    // was loaded BEFORE the multi-second proxied probe, so an operator PAUSE that landed during
+    // the probe could be lifted back to ACTIVE by this write. When we're setting status, the
+    // .neq('status','PAUSED') makes the DB the arbiter — a concurrent PAUSE wins. (When patch has
+    // no status field — rate_limited/unknown — the guard is unnecessary; last_validated_at +
+    // identity are benign to write onto any status.)
+    let q = researchSupabaseAdmin
         .from('linkedin_accounts').update(patch).eq('id', accountId).eq('tenant_id', tenantId);
+    if (patch.status) q = q.neq('status', 'PAUSED');
+    const { data: updRow, error: updErr } = await q.select('id').maybeSingle();
 
     if (updErr) {
         // Unique-index race: a concurrent validate claimed this member_urn between our
@@ -142,6 +167,17 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
         }
         throw updErr;
     }
+    // No row matched a status-setting update → a PAUSE landed concurrently and won. Record the
+    // probe classifier but do NOT auto-pause (the operator already stopped it) or claim ACTIVE.
+    if (patch.status && !updRow) {
+        const { error: auditErr } = await researchSupabaseAdmin.from('linkedin_actions').insert({
+            tenant_id: tenantId, account_id: accountId, type: 'validate', status: 'ok',
+            classifier: result.classifier, http_status: result.httpStatus, job_id: job.id,
+        });
+        if (auditErr) log.warn({ err: auditErr, accountId }, 'validate (paused) audit insert failed (non-fatal)');
+        log.info({ jobId: job.id, accountId, classifier: result.classifier }, 'linkedin:validate: PAUSE won concurrently — status unchanged');
+        return { account_id: accountId, status: 'PAUSED', classifier: result.classifier };
+    }
 
     const { error: auditErr } = await researchSupabaseAdmin.from('linkedin_actions').insert({
         tenant_id: tenantId, account_id: accountId, type: 'validate', status: 'ok',
@@ -149,7 +185,12 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
     });
     if (auditErr) log.warn({ err: auditErr, accountId }, 'validate audit insert failed (non-fatal)');
 
-    const finalStatus = patch.status ?? account.status;
+    const finalStatus = (patch.status as string | undefined) ?? account.status;
+    // §6 auto-pause: a probe that lands the account in a hard state cancels its queued jobs so
+    // it stops attempting sends until re-auth/verify. (patch.status only set when not PAUSED.)
+    if (patch.status && HARD_STATES.has(patch.status as string)) {
+        await cancelPendingAccountJobs(tenantId, accountId, `validate:${result.classifier}`);
+    }
     log.info({ jobId: job.id, accountId, classifier: result.classifier, status: finalStatus }, 'linkedin:validate complete');
     return { account_id: accountId, status: finalStatus, classifier: result.classifier };
 };

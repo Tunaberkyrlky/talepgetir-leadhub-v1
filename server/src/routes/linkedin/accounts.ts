@@ -16,6 +16,8 @@ import { enqueueJob } from '../../lib/research/queue.js';
 import { RESEARCH_JOB_TYPES } from '../../lib/research/jobTypes.js';
 import { sanitizeJobForRole } from '../../lib/research/sanitize.js';
 import { effectiveCostRole } from '../../lib/research/freshRole.js';
+import { isInternalRole } from '../../lib/roles.js';
+import { loadAccount, scheduleSendAt } from '../../lib/linkedin/actions.js';
 
 const log = createLogger('route:linkedin:accounts');
 const router = Router();
@@ -126,29 +128,46 @@ const inviteSchema = z.object({
     public_id: z.string().min(1).max(200).optional(),
     note: z.string().max(300).optional(),
     dry_run: z.boolean().optional(),
+    send_now: z.boolean().optional(), // bypass working-hours scheduling (smoke/urgent real send)
 }).refine((b) => !!b.profile_urn || !!b.public_id, { message: 'profile_urn or public_id required' });
 
 const messageSchema = z.object({
     recipient_urn: z.string().min(1).max(200),
     text: z.string().min(1).max(8000),
     dry_run: z.boolean().optional(),
+    send_now: z.boolean().optional(),
 });
 
-/** Load the account (ownership check) and enqueue a write job. Shared by invite/message. */
+const withdrawSchema = z.object({
+    withdraw_after_days: z.number().int().min(7).max(30).optional(),
+    max_withdrawals: z.number().int().min(1).max(50).optional(),
+    dry_run: z.boolean().optional(),
+});
+
+/**
+ * Load the account (ownership check) and enqueue a write job. Shared by invite/message/withdraw.
+ * When `schedule` is set, stamp scheduled_at with the account's next humane slot (§2 working-
+ * hours + jitter) so the queue defers the send; dry-run/withdraw/send_now run promptly.
+ */
 async function enqueueWrite(
     req: Request, res: Response, id: string, type: string, payload: Record<string, unknown>,
+    opts?: { schedule?: boolean },
 ): Promise<void> {
     const tenantId = req.tenantId!;
-    const { data: account, error: loadErr } = await researchSupabaseAdmin
-        .from('linkedin_accounts').select('id')
-        .eq('id', id).eq('tenant_id', tenantId).maybeSingle();
-    if (loadErr) throw new AppError('Failed to enqueue action', 500);
+    const account = await loadAccount(tenantId, id);
     if (!account) { res.status(404).json({ error: 'Account not found' }); return; }
+
+    let scheduledAt: Date | undefined;
+    if (opts?.schedule) {
+        const s = await scheduleSendAt(account, tenantId);
+        scheduledAt = new Date(s.atMs);
+    }
 
     const job = await enqueueJob({
         tenantId, type,
         payload: { account_id: id, ...payload },
         maxAttempts: 1, // non-idempotent write; operator re-runs on failure
+        scheduledAt,
         createdBy: req.user?.id ?? null,
     });
     res.status(202).json(sanitizeJobForRole(
@@ -163,9 +182,13 @@ router.post('/:id/invite', requireWriter, validateBody(inviteSchema), async (req
         const id = String(req.params.id);
         if (!uuidField().safeParse(id).success) { res.status(400).json({ error: 'Invalid id' }); return; }
         const b = req.body as z.infer<typeof inviteSchema>;
+        // send_now (bypass §2 working-hours scheduling) is an INTERNAL-only escape hatch for
+        // smoke/urgent sends — a client_admin can't use it to sidestep humanized pacing (codex P2).
+        const sendNow = b.send_now === true && isInternalRole(req.user?.role ?? '');
+        const scheduleSend = b.dry_run === false && !sendNow;
         await enqueueWrite(req, res, id, RESEARCH_JOB_TYPES.LINKEDIN_INVITE, {
-            profile_urn: b.profile_urn, public_id: b.public_id, note: b.note, dry_run: b.dry_run ?? true,
-        });
+            profile_urn: b.profile_urn, public_id: b.public_id, note: b.note, dry_run: b.dry_run ?? true, send_now: sendNow,
+        }, { schedule: scheduleSend });
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'enqueue invite error');
@@ -179,13 +202,32 @@ router.post('/:id/message', requireWriter, validateBody(messageSchema), async (r
         const id = String(req.params.id);
         if (!uuidField().safeParse(id).success) { res.status(400).json({ error: 'Invalid id' }); return; }
         const b = req.body as z.infer<typeof messageSchema>;
+        const sendNow = b.send_now === true && isInternalRole(req.user?.role ?? '');
+        const scheduleSend = b.dry_run === false && !sendNow;
         await enqueueWrite(req, res, id, RESEARCH_JOB_TYPES.LINKEDIN_MESSAGE, {
-            recipient_urn: b.recipient_urn, text: b.text, dry_run: b.dry_run ?? true,
-        });
+            recipient_urn: b.recipient_urn, text: b.text, dry_run: b.dry_run ?? true, send_now: sendNow,
+        }, { schedule: scheduleSend });
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'enqueue message error');
         next(new AppError('Failed to enqueue message', 500));
+    }
+});
+
+// ── POST /accounts/:id/withdraw — retract stale pending invites (dry-run default) ──
+// Cleanup, not an outreach send → not working-hours scheduled; runs promptly.
+router.post('/:id/withdraw', requireWriter, validateBody(withdrawSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const id = String(req.params.id);
+        if (!uuidField().safeParse(id).success) { res.status(400).json({ error: 'Invalid id' }); return; }
+        const b = req.body as z.infer<typeof withdrawSchema>;
+        await enqueueWrite(req, res, id, RESEARCH_JOB_TYPES.LINKEDIN_WITHDRAW, {
+            withdraw_after_days: b.withdraw_after_days, max_withdrawals: b.max_withdrawals, dry_run: b.dry_run ?? true,
+        });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'enqueue withdraw error');
+        next(new AppError('Failed to enqueue withdraw', 500));
     }
 });
 

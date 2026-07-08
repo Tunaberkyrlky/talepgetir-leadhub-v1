@@ -15,11 +15,13 @@ import { sendInvite, resolveProfileUrn, isNotSent } from '../../../linkedin/clie
 import { INVITE_NOTE_MAX } from '../../../linkedin/voyager.js';
 import {
     loadAccount, credsFor, dispatcherFor, currentCount, consumeQuota, releaseQuota,
-    applyWriteHealth, classifierForHttp, auditAction, DAILY_CAPS, COUNTER_KEY,
+    applyWriteHealth, classifierForHttp, auditAction, dailyCapFor, weeklyCapFor,
+    scheduleSendAt, weeklyCount, maybeDeferSend, COUNTER_KEY,
 } from '../../../linkedin/actions.js';
 
 const log = createLogger('research:handler:linkedin-invite');
 const COUNTER = COUNTER_KEY.invite;
+const ACTION = 'invite' as const;
 
 export const linkedinInviteHandler: JobHandler = async ({ job, heartbeat }) => {
     const tenantId = job.tenant_id;
@@ -31,6 +33,7 @@ export const linkedinInviteHandler: JobHandler = async ({ job, heartbeat }) => {
     const publicId = typeof p.public_id === 'string' && p.public_id ? p.public_id : null;
     const note = typeof p.note === 'string' ? p.note.trim().slice(0, INVITE_NOTE_MAX) : '';
     const dryRun = p.dry_run !== false; // SAFE DEFAULT: preview unless explicitly false
+    const sendNow = p.send_now === true; // bypass execution-time working-hours recheck
     if (!profileUrn && !publicId) throw new Error('linkedin:invite requires payload.profile_urn or payload.public_id');
 
     await heartbeat({ stage: 'invite', account_id: accountId, dry_run: dryRun });
@@ -38,15 +41,22 @@ export const linkedinInviteHandler: JobHandler = async ({ job, heartbeat }) => {
     const account = await loadAccount(tenantId, accountId);
     if (!account) throw new Error(`linkedin:invite: account ${accountId} not found for tenant ${tenantId}`);
 
-    // ── DRY-RUN: deterministic preview, no side effects ───────────────────────────
+    const dailyCap = dailyCapFor(account, ACTION);
+    const weeklyCap = weeklyCapFor(ACTION);
+
+    // ── DRY-RUN: deterministic preview, no side effects (reads are plain SELECTs) ──
     if (dryRun) {
+        const current = currentCount(account, COUNTER);
+        const week = await weeklyCount(tenantId, accountId, ACTION);
+        const schedule = await scheduleSendAt(account, tenantId, { jitter: false });
         return {
             dry_run: true, account_id: accountId, type: 'invite',
             account_status: account.status,
             target: profileUrn ?? { public_id: publicId, note: 'resolved at send' },
             note_length: note.length, noteless: note.length === 0,
-            quota: { current: currentCount(account, COUNTER), cap: DAILY_CAPS.invite },
-            would_send: account.status === 'ACTIVE' && currentCount(account, COUNTER) < DAILY_CAPS.invite,
+            quota: { current, cap: dailyCap, weekly: week, weekly_cap: weeklyCap },
+            schedule: { next_send_at: schedule.atIso, immediate: schedule.immediate },
+            would_send: account.status === 'ACTIVE' && current < dailyCap && week < weeklyCap,
         };
     }
 
@@ -57,11 +67,18 @@ export const linkedinInviteHandler: JobHandler = async ({ job, heartbeat }) => {
         return { account_id: accountId, type: 'invite', sent: false, skipped: `account_${account.status}` };
     }
 
-    // Reserve a daily slot up front (atomic, fenced, ACTIVE-gated). The RPC re-checks status
-    // under the row lock, so a PAUSE that raced our pre-check still blocks the reservation.
-    const grant = await consumeQuota(tenantId, accountId, COUNTER, DAILY_CAPS.invite);
+    // Execution-time working-hours recheck: a late worker must not fire off-window (§2). Defers
+    // to a fresh job at the next humane slot BEFORE reserving quota (no slot leak). send_now skips.
+    const defer = await maybeDeferSend(account, tenantId, job.type,
+        { profile_urn: profileUrn, public_id: publicId, note }, { sendNow, createdBy: job.created_by });
+    if (defer.deferred) return { account_id: accountId, type: 'invite', sent: false, deferred: true, rescheduled_to: defer.rescheduledTo, rescheduled_job_id: defer.rescheduledJobId };
+
+    // Reserve a daily slot up front (atomic, fenced, ACTIVE-gated + rolling-weekly). The RPC
+    // re-checks status under the row lock, so a PAUSE that raced our pre-check still blocks it.
+    const grant = await consumeQuota(tenantId, accountId, ACTION, dailyCap, weeklyCap);
     if (!grant.granted) {
-        const classifier = grant.reason === 'not_active' ? `account_${(grant.status ?? 'unknown').toLowerCase()}` : 'daily_cap';
+        const classifier = grant.reason === 'not_active' ? `account_${(grant.status ?? 'unknown').toLowerCase()}`
+            : grant.reason === 'weekly_cap' ? 'weekly_cap' : 'daily_cap';
         await auditAction({ tenantId, accountId, type: 'invite', status: 'skipped', classifier, jobId: job.id });
         return { account_id: accountId, type: 'invite', sent: false, skipped: classifier, quota: grant };
     }
