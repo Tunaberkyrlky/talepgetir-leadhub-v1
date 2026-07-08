@@ -836,6 +836,8 @@
             "failed": "Yanıt gönderilemedi",
             "draftSaved": "Taslak kaydedildi — aktivite zaman çizelgesine not eklendi",
             "draftFailed": "Taslak kaydedilemedi",
+            "draftSaving": "Kaydediliyor…",
+            "draftAutoSaved": "Taslak otomatik kaydedildi",
             "noCampaign": "Yanıt gönderilemez — kampanya bağlı değil",
             "customCc": "Özel CC email..."
         },

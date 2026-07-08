@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -84,6 +84,10 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [customCc, setCustomCc] = useState('');
     const [selectedAttachments, setSelectedAttachments] = useState<string[]>([]);
     const [draftLoaded, setDraftLoaded] = useState<string | null>(null);
+    // Auto-save draft state (see the debounced effect + flushDraft below).
+    const draftSavedSigRef = useRef('');
+    const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [ccInputOpen, setCcInputOpen] = useState(false);
     const [expandedQuotes, setExpandedQuotes] = useState<Set<string>>(new Set());
 
@@ -109,6 +113,9 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         setForwardTo('');
         setForwardNote('');
         setSelectedForwardAttachments([]);
+        draftSavedSigRef.current = '';
+        setDraftStatus('idle');
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [reply?.id]);
 
@@ -173,6 +180,17 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             if (Array.isArray(savedAtts) && savedAtts.length) {
                 setSelectedAttachments(savedAtts.filter((x: unknown): x is string => typeof x === 'string'));
             }
+            // Treat the just-restored content as already-saved so the debounced
+            // auto-save doesn't immediately re-post the draft we just loaded.
+            const restoredAtts = Array.isArray(savedAtts)
+                ? savedAtts.filter((x: unknown): x is string => typeof x === 'string') : [];
+            const restoredCc = (savedCc && typeof savedCc === 'string')
+                ? [...new Set(savedCc.split(',').map((e: string) => e.trim()).filter(Boolean))] : [];
+            draftSavedSigRef.current = JSON.stringify({
+                b: (draftData.draft.reply_body || '').trim(),
+                a: [...restoredAtts].sort(),
+                c: restoredCc.sort(),
+            });
         }
     }, [draftData, draftLoaded, replyBody]);
 
@@ -295,6 +313,10 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             setSelectedCc([]);
             setCustomCc('');
             setSelectedAttachments([]);
+            // Draft consumed by the send — clear local guard + drop the cached draft.
+            draftSavedSigRef.current = '';
+            setDraftStatus('idle');
+            queryClient.invalidateQueries({ queryKey: ['email-reply-draft', localReply?.id] });
             markAsRead();
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
@@ -303,22 +325,46 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         onError: (err) => showErrorFromApi(err, t('emailReplies.reply.failed')),
     });
 
-    const saveDraftMutation = useMutation({
-        mutationFn: async () => {
-            const ccList = buildCcList();
-            return (await api.post(`/email-replies/${localReply!.id}/save-draft`, {
-                body: replyBody.trim(),
-                ...(selectedAttachments.length > 0 && { attachmentIds: selectedAttachments }),
-                ...(ccList.length > 0 && { cc: ccList.join(', ') }),
-            })).data;
-        },
-        onSuccess: () => {
-            showSuccess(t('emailReplies.reply.draftSaved'));
-            queryClient.invalidateQueries({ queryKey: ['email-replies'] });
-            queryClient.invalidateQueries({ queryKey: ['activities'] });
-        },
-        onError: (err) => showErrorFromApi(err, t('emailReplies.reply.draftFailed')),
-    });
+    // ── Auto-save draft ── debounced & silent. The server upserts ONE draft row per
+    // thread (no duplicate rows, no timeline note), so re-saving is cheap and safe.
+    const draftSignature = (): string =>
+        JSON.stringify({ b: replyBody.trim(), a: [...selectedAttachments].sort(), c: buildCcList().sort() });
+
+    const persistDraft = async (sig: string): Promise<void> => {
+        if (!localReply || !replyBody.trim()) return;
+        const ccList = buildCcList();
+        await api.post(`/email-replies/${localReply.id}/save-draft`, {
+            body: replyBody.trim(),
+            ...(selectedAttachments.length > 0 && { attachmentIds: selectedAttachments }),
+            ...(ccList.length > 0 && { cc: ccList.join(', ') }),
+        });
+        draftSavedSigRef.current = sig;
+    };
+
+    // Debounce: save 1.5s after the last change while the composer is open.
+    useEffect(() => {
+        if (!replyOpen || !localReply || !replyBody.trim()) return;
+        const sig = draftSignature();
+        if (sig === draftSavedSigRef.current) return; // unchanged (incl. a just-restored draft)
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = setTimeout(() => {
+            setDraftStatus('saving');
+            persistDraft(sig).then(() => setDraftStatus('saved')).catch(() => setDraftStatus('idle'));
+        }, 1500);
+        return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [replyOpen, replyBody, selectedAttachments, selectedCc, localReply?.id]);
+
+    // Flush any pending change immediately when the composer/modal closes.
+    const flushDraft = (): void => {
+        if (!replyOpen || !localReply || !replyBody.trim()) return;
+        const sig = draftSignature();
+        if (sig === draftSavedSigRef.current) return;
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        void persistDraft(sig).catch(() => { /* best effort on close */ });
+    };
+
+    const closeComposer = (): void => { flushDraft(); setReplyOpen(false); };
 
     // ── Forward via PlusVibe ──
     const forwardMutation = useMutation({
@@ -351,7 +397,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         <>
         <Modal
             opened={opened}
-            onClose={onClose}
+            onClose={() => { flushDraft(); onClose(); }}
             size="xl"
             radius="lg"
             centered
@@ -740,7 +786,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                 size="sm"
                                 variant="subtle"
                                 color="gray"
-                                onClick={() => setReplyOpen(false)}
+                                onClick={closeComposer}
                             >
                                 <IconX size={12} />
                             </ActionIcon>
@@ -868,27 +914,24 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                     size="xs"
                                     variant="subtle"
                                     color="gray"
-                                    onClick={() => { setReplyOpen(false); setSelectedAttachments([]); }}
+                                    onClick={() => { closeComposer(); setSelectedAttachments([]); }}
                                 >
                                     {t('emailReplies.reply.cancel')}
                                 </Button>
-                                <Button
-                                    size="xs"
-                                    variant="light"
-                                    color="gray"
-                                    leftSection={<IconDeviceFloppy size={12} />}
-                                    loading={saveDraftMutation.isPending}
-                                    disabled={!replyBody.trim() || sendReplyMutation.isPending}
-                                    onClick={() => saveDraftMutation.mutate()}
-                                >
-                                    {t('emailReplies.reply.saveDraft')}
-                                </Button>
+                                {draftStatus !== 'idle' && (
+                                    <Text size="xs" c="dimmed" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <IconDeviceFloppy size={12} />
+                                        {draftStatus === 'saving'
+                                            ? t('emailReplies.reply.draftSaving', 'Kaydediliyor…')
+                                            : t('emailReplies.reply.draftAutoSaved', 'Taslak otomatik kaydedildi')}
+                                    </Text>
+                                )}
                                 <Button
                                     size="xs"
                                     color="violet"
                                     leftSection={<IconSend size={12} />}
                                     loading={sendReplyMutation.isPending}
-                                    disabled={!replyBody.trim() || saveDraftMutation.isPending}
+                                    disabled={!replyBody.trim()}
                                     onClick={() => sendReplyMutation.mutate()}
                                 >
                                     {t('emailReplies.reply.send')}
@@ -1110,7 +1153,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                     size="xs"
                                     leftSection={<IconArrowForwardUp size={13} />}
                                     onClick={() => {
-                                        setReplyOpen(false);
+                                        closeComposer();
                                         setForwardOpen((v) => !v);
                                     }}
                                 >

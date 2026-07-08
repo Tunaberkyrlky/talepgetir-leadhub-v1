@@ -25,6 +25,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.5',
+        date: '2026-07-08',
+        type: 'improvement',
+        title: { tr: 'Taslaklar Otomatik Kaydediliyor', en: 'Drafts Save Automatically' },
+        about: {
+            tr: 'Yanıt yazarken taslağınız otomatik kaydedilir; pencereyi kapatsanız bile yazdıklarınız, seçtiğiniz ekler ve CC korunur.',
+            en: 'While you write a reply, your draft is saved automatically; even if you close the window, your text, selected attachments and CC are kept.',
+        },
+        usage: {
+            tr: 'Yazmaya devam edin; artık "Taslak Kaydet"e basmanız gerekmez, kutunun altında "Taslak otomatik kaydedildi" görünür.',
+            en: 'Just keep writing — you no longer need to press "Save Draft"; "Draft saved automatically" appears under the box.',
+        },
+        notes: {
+            tr: 'Yanıtı gönderdiğinizde taslak otomatik temizlenir.',
+            en: 'Once you send the reply, the draft is cleared automatically.',
+        },
+    },
+    {
         version: '1.19.4',
         date: '2026-07-07',
         type: 'fix',

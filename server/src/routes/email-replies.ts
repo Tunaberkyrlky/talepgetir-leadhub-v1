@@ -1030,6 +1030,16 @@ router.post(
                 return;
             }
 
+            // Sent — drop any saved draft for this thread so it doesn't reappear on reopen.
+            const { error: draftDelErr } = await supabaseAdmin
+                .from('email_replies')
+                .delete()
+                .eq('parent_reply_id', id)
+                .eq('tenant_id', tenantId)
+                .eq('direction', 'OUT')
+                .contains('raw_payload', { source: 'draft' });
+            if (draftDelErr) log.warn({ err: draftDelErr }, 'Draft cleanup after send failed (non-critical)');
+
             log.info({ replyId: id, outboundId: inserted.id, to: emailReply.sender_email }, 'Reply sent via PlusVibe');
             res.json({ sent: true, stored: true, data: inserted, ...(warning && { attachmentWarning: warning }) });
         } catch (err) {
@@ -1378,7 +1388,6 @@ router.post(
             const { id } = paramResult.data;
             const { body: draftText, attachmentIds, cc } = req.body as { body: string; attachmentIds?: string[]; cc?: string };
             const tenantId = req.tenantId!;
-            const userId = req.user!.id;
 
             // Fetch the original email reply
             const { data: emailReply, error: fetchErr } = await supabaseAdmin
@@ -1392,20 +1401,13 @@ router.post(
                 throw new AppError('Email reply not found', 404);
             }
 
-            // Insert draft record
-            const draftRow = {
-                tenant_id: tenantId,
-                campaign_id: emailReply.campaign_id,
-                campaign_name: emailReply.campaign_name,
-                sender_email: emailReply.sender_email,
+            // Upsert ONE draft row per reply thread (keyed by parent_reply_id) so
+            // auto-save updates in place instead of piling up duplicate rows. No
+            // activity-timeline note: a work-in-progress draft shouldn't show on the
+            // (client-visible) timeline, and auto-save would spam it every keystroke.
+            const draftPayload = {
                 reply_body: draftText,
                 replied_at: new Date().toISOString(),
-                company_id: emailReply.company_id,
-                contact_id: emailReply.contact_id,
-                match_status: emailReply.company_id ? 'matched' : 'unmatched',
-                read_status: 'read' as const,
-                direction: 'OUT' as const,
-                parent_reply_id: id,
                 raw_payload: {
                     source: 'draft',
                     ...(cc && { cc }),
@@ -1413,40 +1415,58 @@ router.post(
                 },
             };
 
-            const { data: draft, error: draftErr } = await supabaseAdmin
+            const { data: existing } = await supabaseAdmin
                 .from('email_replies')
-                .insert(draftRow)
                 .select('id')
-                .single();
+                .eq('parent_reply_id', id)
+                .eq('tenant_id', tenantId)
+                .eq('direction', 'OUT')
+                .contains('raw_payload', { source: 'draft' })
+                .order('replied_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
 
-            if (draftErr) {
-                log.error({ err: draftErr }, 'Failed to save draft');
-                throw new AppError('Failed to save draft', 500);
-            }
-
-            // Log activity note if company is linked
-            let activityId: string | null = null;
-            if (emailReply.company_id) {
-                const { data: activity } = await supabaseAdmin
-                    .from('activities')
+            let draftId: string;
+            if (existing) {
+                const { data: updated, error: updErr } = await supabaseAdmin
+                    .from('email_replies')
+                    .update(draftPayload)
+                    .eq('id', existing.id)
+                    .eq('tenant_id', tenantId)
+                    .select('id')
+                    .single();
+                if (updErr || !updated) {
+                    log.error({ err: updErr }, 'Failed to update draft');
+                    throw new AppError('Failed to save draft', 500);
+                }
+                draftId = updated.id;
+            } else {
+                const { data: inserted, error: insErr } = await supabaseAdmin
+                    .from('email_replies')
                     .insert({
                         tenant_id: tenantId,
+                        campaign_id: emailReply.campaign_id,
+                        campaign_name: emailReply.campaign_name,
+                        sender_email: emailReply.sender_email,
                         company_id: emailReply.company_id,
                         contact_id: emailReply.contact_id,
-                        type: 'not',
-                        summary: `Taslak mail kaydedildi — ${emailReply.sender_email}`,
-                        detail: draftText.length > 200 ? draftText.slice(0, 200) + '...' : draftText,
-                        visibility: 'client',
-                        occurred_at: new Date().toISOString(),
-                        created_by: userId,
+                        match_status: emailReply.company_id ? 'matched' : 'unmatched',
+                        read_status: 'read' as const,
+                        direction: 'OUT' as const,
+                        parent_reply_id: id,
+                        ...draftPayload,
                     })
                     .select('id')
                     .single();
-                activityId = activity?.id || null;
+                if (insErr || !inserted) {
+                    log.error({ err: insErr }, 'Failed to save draft');
+                    throw new AppError('Failed to save draft', 500);
+                }
+                draftId = inserted.id;
             }
 
-            log.info({ replyId: id, draftId: draft.id, activityId }, 'Draft saved');
-            res.json({ saved: true, draftId: draft.id, activityId });
+            log.info({ replyId: id, draftId }, 'Draft saved');
+            res.json({ saved: true, draftId });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Save draft error');
