@@ -190,7 +190,7 @@ interface SttResult { segments: TranscriptSegment[]; language: string }
 
 /** Deepgram STT — dual-channel (multichannel): kanal 0 = agent, kanal 1 = lead. */
 async function deepgramTranscribe(audio: Buffer): Promise<SttResult | null> {
-    const key = process.env.DEEPGRAM_KEY;
+    const key = process.env.DEEPGRAM_KEY || process.env.DEEPGRAM_API;
     if (!key) {
         log.warn('DEEPGRAM_KEY not set — real STT unavailable');
         return null;
