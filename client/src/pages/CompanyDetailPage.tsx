@@ -66,6 +66,7 @@ import ClosingReportModal from '../components/ClosingReportModal';
 import ActivityTimeline from '../components/ActivityTimeline';
 import type { ActivityTimelineHandle } from '../components/ActivityTimeline';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
+import CallButton from '../components/coldcall/CallButton';
 import type { ClosingOutcome } from '../types/activity';
 import type { EmailReply } from '../types/emailReply';
 
@@ -148,9 +149,11 @@ interface ContactCardProps {
     onEdit: (contact: Contact) => void;
     onDelete: (contact: Contact) => void;
     t: (key: string) => string;
+    companyId?: string;
+    companyName?: string;
 }
 
-function ContactCard({ contact, canEdit, isSuperadmin, onNavigate, onEdit, onDelete, t }: ContactCardProps) {
+function ContactCard({ contact, canEdit, isSuperadmin, onNavigate, onEdit, onDelete, t, companyId, companyName }: ContactCardProps) {
     const href = safeUrl(contact.linkedin);
     return (
         <Card withBorder radius="md" p="md" style={{ cursor: 'pointer' }} onClick={() => onNavigate(contact.id)}>
@@ -187,6 +190,13 @@ function ContactCard({ contact, canEdit, isSuperadmin, onNavigate, onEdit, onDel
                         <Group gap={4}>
                             <IconPhone size={14} color="gray" />
                             <Text size="xs">{contact.phone_e164}</Text>
+                            <CallButton
+                                phone={contact.phone_e164}
+                                companyId={companyId}
+                                companyName={companyName}
+                                contactId={contact.id}
+                                size="xs"
+                            />
                         </Group>
                     )}
                     {href && (
@@ -548,6 +558,7 @@ export default function CompanyDetailPage() {
                             <Group gap={4}>
                                 <IconPhone size={15} color="gray" />
                                 <Text size="sm" c="dimmed">{company.company_phone}</Text>
+                                <CallButton phone={company.company_phone} companyId={company.id} companyName={company.name} />
                             </Group>
                         )}
                         {company.company_email && (
@@ -771,6 +782,8 @@ export default function CompanyDetailPage() {
                                 onEdit: handleEditContact,
                                 onDelete: setDeleteContactTarget,
                                 t,
+                                companyId: company.id,
+                                companyName: company.name,
                             };
                             return (
                                 <Stack gap="sm">

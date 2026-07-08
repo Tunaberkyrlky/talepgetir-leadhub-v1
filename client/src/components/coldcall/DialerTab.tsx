@@ -31,13 +31,21 @@ interface CompanyOption {
     company_phone: string | null;
 }
 
-export default function DialerTab() {
+export interface DialerInitialCall {
+    to: string;
+    companyId?: string;
+    companyName?: string;
+    contactId?: string;
+}
+
+export default function DialerTab({ initial }: { initial?: DialerInitialCall }) {
     const { t, i18n } = useTranslation();
     const qc = useQueryClient();
 
     const [companySearch, setCompanySearch] = useState('');
-    const [companyId, setCompanyId] = useState<string | null>(null);
-    const [toNumber, setToNumber] = useState('');
+    const [companyId, setCompanyId] = useState<string | null>(initial?.companyId ?? null);
+    const [contactId, setContactId] = useState<string | null>(initial?.contactId ?? null);
+    const [toNumber, setToNumber] = useState(initial?.to ?? '');
     const [fromNumberId, setFromNumberId] = useState<string | null>(null);
 
     const [activeCallId, setActiveCallId] = useState<string | null>(null);
@@ -105,6 +113,7 @@ export default function DialerTab() {
                 to_e164: toNumber.replace(/[\s()-]/g, ''),
                 phone_number_id: fromNumberId ?? undefined,
                 company_id: companyId ?? undefined,
+                contact_id: contactId ?? undefined,
             }),
         onSuccess: async ({ call: created, mode }) => {
             setActiveCallId(created.id);
@@ -283,13 +292,23 @@ export default function DialerTab() {
                 value={companyId}
                 onChange={(v) => {
                     setCompanyId(v);
+                    // Şirket değişti → önceki şirketin kişisi çağrıya bağlanamaz
+                    if (v !== initial?.companyId) setContactId(null);
+                    else setContactId(initial?.contactId ?? null);
                     const selected = (companiesQuery.data ?? []).find((c) => c.id === v);
                     if (selected?.company_phone) setToNumber(selected.company_phone.replace(/[\s()-]/g, ''));
                 }}
-                data={(companiesQuery.data ?? []).map((c) => ({
-                    value: c.id,
-                    label: c.company_phone ? `${c.name} · ${c.company_phone}` : c.name,
-                }))}
+                data={(() => {
+                    const opts = (companiesQuery.data ?? []).map((c) => ({
+                        value: c.id,
+                        label: c.company_phone ? `${c.name} · ${c.company_phone}` : c.name,
+                    }));
+                    // CallButton'dan gelen şirket listede yoksa seçenek olarak enjekte et
+                    if (initial?.companyId && !opts.some((o) => o.value === initial.companyId)) {
+                        opts.unshift({ value: initial.companyId, label: initial.companyName ?? initial.companyId });
+                    }
+                    return opts;
+                })()}
                 nothingFoundMessage={
                     companySearch.length < 2
                         ? t('coldcall.companyTypeMore', 'Type at least 2 characters')

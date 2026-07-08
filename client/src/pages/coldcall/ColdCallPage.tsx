@@ -9,6 +9,7 @@ import { Container, Group, Progress, Stack, Tabs, Text, Title } from '@mantine/c
 import { IconGlobe, IconHistory, IconPhone, IconPhonePlus } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { coldcallApi } from './../../components/coldcall/api';
 import DialerTab from '../../components/coldcall/DialerTab';
 import CallsTab from '../../components/coldcall/CallsTab';
@@ -17,6 +18,16 @@ import CountriesTab from '../../components/coldcall/CountriesTab';
 
 export default function ColdCallPage() {
     const { t } = useTranslation();
+    // CRM yüzeylerinden gelen tek-tık arama (CallButton): ?to=…&company_id=…
+    const [searchParams] = useSearchParams();
+    const initialCall = searchParams.get('to')
+        ? {
+            to: searchParams.get('to')!,
+            companyId: searchParams.get('company_id') ?? undefined,
+            companyName: searchParams.get('company_name') ?? undefined,
+            contactId: searchParams.get('contact_id') ?? undefined,
+        }
+        : undefined;
     const configQuery = useQuery({ queryKey: ['coldcall', 'config'], queryFn: coldcallApi.config });
     const config = configQuery.data;
     const quotaPct = config ? Math.min(100, (config.minutes_used / Math.max(1, config.minutes_quota)) * 100) : 0;
@@ -59,7 +70,7 @@ export default function ColdCallPage() {
                     </Tabs.Tab>
                 </Tabs.List>
 
-                <Tabs.Panel value="dialer"><DialerTab /></Tabs.Panel>
+                <Tabs.Panel value="dialer"><DialerTab initial={initialCall} /></Tabs.Panel>
                 <Tabs.Panel value="calls"><CallsTab /></Tabs.Panel>
                 <Tabs.Panel value="numbers"><NumbersTab /></Tabs.Panel>
                 <Tabs.Panel value="countries"><CountriesTab /></Tabs.Panel>
