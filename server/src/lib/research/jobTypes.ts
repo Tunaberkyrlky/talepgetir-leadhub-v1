@@ -25,6 +25,10 @@ export const RESEARCH_JOB_TYPES = {
     TRADE_INGEST: 'trade:ingest',
     /** Y2 explicit Research: imported buyers -> shared validation + MATCH-only billing. */
     TRADE_HARVEST: 'trade:harvest',
+    /** WP3 Y1: discover company-list channels for one approved sub-ICP cell (SearXNG + reading role). */
+    CHANNELS_DISCOVER: 'channels:discover',
+    /** WP3 Y1: harvest one channel's member list -> shared fenced spine (validate + bill). */
+    CHANNELS_HARVEST: 'channels:harvest',
 
     // ── TG-LinkedIn (isolated module; rides this same research_jobs queue) ─────
     /** LinkedIn: session liveness + UA/proxy health smoke (/voyager/api/me). Faz 1. */

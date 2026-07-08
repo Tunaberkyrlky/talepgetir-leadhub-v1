@@ -41,6 +41,9 @@ export interface UpsertCompanyInput {
     icpId?: string | null;
     geoId?: string | null;
     sourcePath?: string | null;
+    /** Y1 channel provenance (WP3/092): which list source produced this firm. COALESCE
+     *  semantics in the RPC — a later non-channel run never clears an existing ref. */
+    channelId?: string | null;
     /** The running attempt's fence identity (070) — the RPC refuses unfenced rollup writes. */
     jobId: string;
     worker: string;
@@ -75,6 +78,7 @@ export async function upsertCompany(input: UpsertCompanyInput): Promise<CompanyR
         p_job_id: input.jobId,
         p_worker: input.worker,
         p_lease: input.lease,
+        p_channel: input.channelId ?? null,
     });
     if (error) {
         // Structured suppression marker (069/070). The insert-trigger path (060) has no DETAIL,

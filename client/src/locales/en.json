@@ -700,8 +700,35 @@
             "approvedToast": "Geography approved.",
             "approveHint": "Approved cells become selectable in the harvest launcher.",
             "needSpec": "Run the analysis first — the cell needs a spec before approval.",
+            "staleApprove": "This geography changed since you opened it — review the latest spec and approve again.",
             "cell": "Approved geography",
             "freeText": "Free text"
+        },
+        "channels": {
+            "title": "Channels & coverage",
+            "approveFirst": "Approve the cell to unlock channel discovery and coverage.",
+            "discover": "Discover channels",
+            "discoverStarted": "Channel discovery started — new channels appear here as the round completes.",
+            "harvest": "Harvest",
+            "reharvest": "Re-harvest",
+            "harvestStarted": "Harvest started — members flow into Companies as they validate.",
+            "found": "Found",
+            "queries": "Queries",
+            "ruleA": "Lists",
+            "ruleB": "Open web",
+            "saturated": "saturated",
+            "open": "in progress",
+            "fullyCovered": "Fully covered",
+            "noCoverage": "No coverage yet — run a discovery round or a harvest to start tracking this cell.",
+            "colName": "Channel",
+            "colType": "Type",
+            "colStatus": "Status",
+            "colFound": "Members",
+            "status": {
+                "pending": "pending",
+                "harvested": "harvested",
+                "unreachable": "unreachable"
+            }
         },
         "admin": {
             "title": "Research — COGS & Margin (internal)",

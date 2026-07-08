@@ -700,8 +700,35 @@
             "approvedToast": "Coğrafya onaylandı.",
             "approveHint": "Onaylı hücreleri tarama başlatırken seçebilirsiniz.",
             "needSpec": "Onaylamadan önce hücre için analiz çalıştırmanız gerekir.",
+            "staleApprove": "Bu coğrafya siz açtıktan sonra değişti, güncel içeriği inceleyip yeniden onaylayabilirsiniz.",
             "cell": "Onaylı coğrafya",
             "freeText": "Serbest metin"
+        },
+        "channels": {
+            "title": "Kanallar ve kapsama",
+            "approveFirst": "Kanal keşfi ve kapsama takibi için önce hücreyi onaylayabilirsiniz.",
+            "discover": "Kanal keşfet",
+            "discoverStarted": "Kanal keşfi başladı, tur tamamlandıkça yeni kanallar burada görünür.",
+            "harvest": "Hasat et",
+            "reharvest": "Yeniden hasat",
+            "harvestStarted": "Hasat başladı, üyeler doğrulandıkça Şirketler listesine akar.",
+            "found": "Bulunan",
+            "queries": "Sorgu",
+            "ruleA": "Listeler",
+            "ruleB": "Açık web",
+            "saturated": "doygun",
+            "open": "devam ediyor",
+            "fullyCovered": "Tam kapsandı",
+            "noCoverage": "Henüz kapsama verisi yok, keşif turu ya da hasat başlatarak takibi açabilirsiniz.",
+            "colName": "Kanal",
+            "colType": "Tip",
+            "colStatus": "Durum",
+            "colFound": "Üye",
+            "status": {
+                "pending": "bekliyor",
+                "harvested": "hasat edildi",
+                "unreachable": "erişilemedi"
+            }
         },
         "admin": {
             "title": "Araştırma — COGS & Marj (dahili)",

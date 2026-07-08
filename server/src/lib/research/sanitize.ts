@@ -18,7 +18,7 @@ const COST_RESULT_KEYS = ['cost_usd', 'cost_recheck', 'usage_raw', 'caps', 'pric
  * from direct client reads. Known, customer-actionable failures keep a specific message; anything
  * else collapses to a generic one (the job id is the support reference).
  */
-function sanitizeJobError(error: unknown): string | null {
+export function sanitizeJobError(error: unknown): string | null {
     if (typeof error !== 'string' || error.length === 0) return null;
     if (/insufficient research credits/i.test(error)) {
         return 'Insufficient lead quota — top up and re-run.';

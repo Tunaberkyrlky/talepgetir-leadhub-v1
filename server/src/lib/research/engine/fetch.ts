@@ -52,8 +52,14 @@ function pageUrl(rawUrl: string): string {
     return rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`;
 }
 
-function clip(s: string): string {
-    return s.length > MAX_CONTENT_CHARS ? s.slice(0, MAX_CONTENT_CHARS) : s;
+// Store/return split (WP3): the CACHE keeps up to STORE_MAX_CHARS so long list pages
+// (directory/member lists — the Y1 channel harvest input) survive intact, while every
+// caller still RECEIVES the tight default budget unless it explicitly asks for more.
+// Validation reads are unchanged: default return clip = MAX_CONTENT_CHARS as before.
+const STORE_MAX_CHARS = Number(process.env.RESEARCH_PAGE_STORE_MAX_CHARS ?? 48_000);
+
+function clip(s: string, max = MAX_CONTENT_CHARS): string {
+    return s.length > max ? s.slice(0, max) : s;
 }
 
 function htmlToText(html: string): string {
@@ -206,7 +212,7 @@ async function guardedDirectFetch(startUrl: string): Promise<{ content: string; 
         if (resp.status < 200 || resp.status >= 300) {
             return { content: '', status: resp.status }; // non-2xx → no usable content
         }
-        const text = clip(htmlToText(await readCapped(resp)));
+        const text = clip(htmlToText(await readCapped(resp)), STORE_MAX_CHARS);
         return { content: text, status: resp.status };
     }
     return null; // too many redirects
@@ -215,13 +221,25 @@ async function guardedDirectFetch(startUrl: string): Promise<{ content: string; 
 /**
  * Fetch a page's text, cache-first. Never throws — on any failure returns method='error' with
  * empty content (the caller records 'review' WITHOUT spending an LLM call).
+ * opts.maxChars raises the RETURN budget (bounded by STORE_MAX_CHARS) for callers that need a
+ * long list page (Y1 channel harvest); the default stays the tight validation budget. The cache
+ * stores the long text either way, so a later long-budget read of a page first fetched for
+ * validation may still be short — acceptable staleness (TTL bounds it).
  */
-export async function fetchPage(rawUrl: string): Promise<PageResult> {
+export async function fetchPage(rawUrl: string, opts?: { maxChars?: number }): Promise<PageResult> {
+    const budget = Math.min(Math.max(1, opts?.maxChars ?? MAX_CONTENT_CHARS), STORE_MAX_CHARS);
     const url = pageUrl(rawUrl);
     const urlHash = sha256(url);
 
     const cached = await fromCache(urlHash);
-    if (cached) return cached;
+    if (cached) {
+        // A long-budget read of a row cached under the OLD short clip (pre-split, or first
+        // fetched for validation) would silently hand the caller a quarter of the page for the
+        // whole TTL — refetch instead when the row is plausibly a short-stored copy. Genuinely
+        // short pages re-fetch once per long-budget read (rare, explicit harvests) — acceptable.
+        const shortStored = budget > MAX_CONTENT_CHARS && cached.content.length <= MAX_CONTENT_CHARS;
+        if (!shortStored) return { ...cached, content: clip(cached.content, budget) };
+    }
 
     // Primary: Jina Reader (clean markdown; fetches on Jina's infra — not an SSRF vector for us).
     try {
@@ -231,10 +249,10 @@ export async function fetchPage(rawUrl: string): Promise<PageResult> {
         const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
         const resp = await fetch(`https://r.jina.ai/${url}`, { headers, signal: ctrl.signal }).finally(() => clearTimeout(timer));
         if (resp.ok) {
-            const text = clip((await readCapped(resp)).trim());
+            const text = clip((await readCapped(resp)).trim(), STORE_MAX_CHARS);
             if (text) {
                 await writeCache(url, urlHash, text, resp.status, 'jina');
-                return { url, content: text, status: resp.status, method: 'jina', cacheHit: false, networkCall: true };
+                return { url, content: clip(text, budget), status: resp.status, method: 'jina', cacheHit: false, networkCall: true };
             }
         } else {
             log.warn({ url, status: resp.status }, 'jina reader non-ok; falling back to guarded direct fetch');
@@ -247,7 +265,7 @@ export async function fetchPage(rawUrl: string): Promise<PageResult> {
     const direct = await guardedDirectFetch(url);
     if (direct && direct.content) {
         await writeCache(url, urlHash, direct.content, direct.status, 'fetch');
-        return { url, content: direct.content, status: direct.status, method: 'fetch', cacheHit: false, networkCall: true };
+        return { url, content: clip(direct.content, budget), status: direct.status, method: 'fetch', cacheHit: false, networkCall: true };
     }
     return { url, content: '', status: direct?.status ?? 0, method: 'error', cacheHit: false, networkCall: true };
 }
@@ -260,5 +278,7 @@ export async function fetchPage(rawUrl: string): Promise<PageResult> {
  */
 export async function cachedPageContent(domain: string): Promise<string | null> {
     const cached = await fromCache(sha256(pageUrl(domain)));
-    return cached?.content?.trim() || null;
+    const content = cached?.content?.trim() || null;
+    // Same return budget as a default fetchPage read — the cache may hold the longer stored copy.
+    return content ? clip(content) : null;
 }

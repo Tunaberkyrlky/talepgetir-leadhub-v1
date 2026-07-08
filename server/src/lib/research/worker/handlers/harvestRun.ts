@@ -28,7 +28,8 @@ import { createLogger } from '../../../logger.js';
 import { resolveCaps, CapTracker, type EngineCaps } from '../../engine/caps.js';
 import { canonicalKey, normalizeDomain } from '../../engine/canonical.js';
 import type { Candidate, GeoQuerySpec } from '../../engine/discovery.js';
-import { webSearchSource, type CandidateSource } from '../../engine/sources.js';
+import { webSearchSource, type CandidateSource, type PriorCellStats } from '../../engine/sources.js';
+import { readCellChunk, updateChunkCoverageSafe, type ChunkRow } from '../../channels/coverage.js';
 import { fetchPage, cachedPageContent } from '../../engine/fetch.js';
 import { validateCompany } from '../../engine/validate.js';
 import { costOfLlm, costOfFetch, costFromUsageSummary, PRICING_VERSION } from '../../engine/pricing.js';
@@ -118,10 +119,11 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
     let geoSpec: GeoQuerySpec | undefined;
     let localizedSignals: string[] = [];
     let localizedNegativeSignals: string[] = [];
+    let cellEstimate: number | null = null;
     if (geoId) {
         const { data: geo, error: geoErr } = await researchSupabaseAdmin
             .from('research_geographies')
-            .select('id, icp_id, country, status, spec')
+            .select('id, icp_id, country, status, spec, estimate')
             .eq('id', geoId)
             .eq('tenant_id', tenantId)
             .maybeSingle();
@@ -138,6 +140,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
         // local terms — always take the cell's.
         const cellCountry = typeof geo.country === 'string' ? geo.country.trim() : '';
         if (cellCountry) geography = cellCountry;
+        cellEstimate = typeof geo.estimate === 'number' ? geo.estimate : null;
 
         // Narrow STRUCTURAL pick of the spec — the engine consumes only these fields, and the
         // full zod contract belongs to the geo module. Anything malformed is simply dropped.
@@ -161,6 +164,29 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
         }
     }
     if (!geography) throw new Error(`harvest:run: geography cell ${geoId} has no country and payload.geography is empty`);
+
+    // ── Cumulative cell coverage (WP3): prior chunk stats seed the Y3 stop-condition ─────
+    // Geo-cell runs only — a free-text run has no cell identity to accumulate under. The
+    // chunk's composite angle keys ('3:directory_site_filter') collapse to plain angle
+    // numbers for the saturation math. Read failures degrade to run-local behavior.
+    let priorChunk: ChunkRow | null = null;
+    let priorStats: PriorCellStats | undefined;
+    if (geoId) {
+        try {
+            priorChunk = await readCellChunk(tenantId, icpId, geoId);
+        } catch (err) {
+            log.warn({ err, jobId: job.id, geoId }, 'cell chunk read failed — Y3 saturation runs without cumulative seed');
+        }
+        if (priorChunk) {
+            const angleCounts: Record<string, number> = {};
+            for (const [key, n] of Object.entries(priorChunk.angle_stats ?? {})) {
+                const angle = key.split(':')[0];
+                if (!angle || typeof n !== 'number') continue;
+                angleCounts[angle] = (angleCounts[angle] ?? 0) + n;
+            }
+            priorStats = { queriesTotal: priorChunk.queries_total ?? 0, angleCounts };
+        }
+    }
 
     // The running attempt's fence identity — verdict persistence, billing and hold closing are all
     // lease-fenced (067): a claimed job always carries these, so their absence is a runner bug.
@@ -208,7 +234,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
         // The ONLY source-dependent step. The source counts its own queries + adds its own search
         // cost to the tracker and logs its per-tenant COGS; everything below is source-agnostic.
         const { candidates: rawCandidates, queriesRun, meta: sourceMeta } = await source.gather({
-            icp: icpRow, geography, geoSpec, caps, tracker, heartbeat,
+            icp: icpRow, geography, geoSpec, priorStats, caps, tracker, heartbeat,
             tenantId, projectId, jobId: job.id,
         });
 
@@ -337,7 +363,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                         domain: null, name: c.name, website: c.domain ?? null, country: c.country, city: c.city,
                         phone: c.phone, address: c.address,
                         status: 'review', siteSummary: 'domainless candidate (no website resolved)',
-                        icpId, geoId, sourcePath, jobId: job.id, worker, lease,
+                        icpId, geoId, sourcePath, channelId: source.channelId ?? null, jobId: job.id, worker, lease,
                     });
                     review++;
                 } catch (e) {
@@ -373,7 +399,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                         domain: regDomain, name: c.name, website: c.domain ?? regDomain, country: c.country, city: c.city,
                         phone: c.phone, address: c.address,
                         status: 'review', siteSummary: `site unreachable (status ${page.status})`, icpId, geoId, sourcePath,
-                        jobId: job.id, worker, lease,
+                        channelId: source.channelId ?? null, jobId: job.id, worker, lease,
                     });
                     review++;
                 } catch (e) {
@@ -400,7 +426,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                     status: verdict.verdict, score: verdict.score,
                     siteSummary: verdict.summary || null, evidence: verdict.evidence,
                     eliminationReason: verdict.elimination_reason || null, icpId, geoId, sourcePath,
-                    jobId: job.id, worker, lease,
+                    channelId: source.channelId ?? null, jobId: job.id, worker, lease,
                 });
                 companyId = company.id;
             } catch (e) {
@@ -436,7 +462,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                         status: persisted.verdict, score: persisted.score,
                         evidence: persisted.evidence,
                         eliminationReason: persisted.eliminationReason,
-                        icpId, geoId, sourcePath, jobId: job.id, worker, lease,
+                        icpId, geoId, sourcePath, channelId: source.channelId ?? null, jobId: job.id, worker, lease,
                     });
                 } catch (e) {
                     if (!(e instanceof SuppressedError)) throw e;
@@ -609,6 +635,37 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
             stopped_by: reservationExhausted ? 'reservation_exhausted' : tracker.reasonToStop(),
             pricing_version: PRICING_VERSION,
         };
+
+        // ── Persist cumulative cell coverage (WP3, geo-cell runs only) ─────────────
+        // Advisory analytics through the fenced RPC (091): Y3 runs accumulate angle/query
+        // stats + rule-B saturation; a Y1/Y2 source updates N only. found_count is the
+        // authoritative registry count for the cell (companies stamped with this icp+geo).
+        // fully_covered = rule A (channel harvest, persisted by the channel jobs) AND rule B.
+        // Never fails the run — the leads are already persisted, billed and settled above.
+        if (geoId) {
+            const { count: cellCompanyCount, error: cntErr } = await researchSupabaseAdmin
+                .from('research_companies')
+                .select('id', { count: 'exact', head: true })
+                .eq('tenant_id', tenantId)
+                .eq('icp_id', icpId)
+                .eq('geo_id', geoId);
+            if (cntErr) log.warn({ err: cntErr, jobId: job.id, geoId }, 'cell company count failed — coverage keeps prior N');
+            const meta = (sourceMeta ?? {}) as Record<string, unknown>;
+            const isY3 = sourcePath === 'Y3';
+            const saturationB = isY3 ? meta.fully_covered === true : undefined;
+            await updateChunkCoverageSafe({
+                tenantId, jobId: job.id, worker, lease,
+                projectId, icpId, geoId,
+                angleDelta: isY3 && meta.angle_query_counts && typeof meta.angle_query_counts === 'object'
+                    ? (meta.angle_query_counts as Record<string, number>)
+                    : undefined,
+                queriesDelta: isY3 ? queriesRun : 0,
+                lastTwoNewDomains: isY3 && typeof meta.last_two_new_domains === 'number' ? meta.last_two_new_domains : undefined,
+                foundCount: cntErr ? undefined : cellCompanyCount ?? undefined,
+                estimate: cellEstimate ?? undefined,
+                saturationB,
+            });
+        }
         return summary;
         });
 

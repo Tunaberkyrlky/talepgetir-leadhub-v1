@@ -332,15 +332,28 @@ export default function GeographiesPanel() {
                 </Text>
             )}
 
-            {/* Keyed on cell id + generating job so a finished re-analysis re-seeds the form. */}
+            {/* Keyed on cell id + updated_at so ANY landed row change (re-analysis, an edit in
+                another tab, the stale-409 refetch) remounts and re-seeds the form — the fields
+                on screen always belong to the same row generation as the approve CAS token. */}
             <GeoDetailDrawer
-                key={detailCell ? `${detailCell.id}:${detailCell.generated_by_job_id ?? ''}` : 'none'}
+                key={detailCell ? `${detailCell.id}:${detailCell.updated_at}` : 'none'}
                 cell={detailCell}
                 opened={!!detailCell}
                 onClose={() => setDetailId(null)}
                 analyzing={analyzing}
                 onReanalyze={(id) => reanalyzeMut.mutate(id)}
-                onChanged={invalidateCells}
+                onChanged={(row) => {
+                    // Write the mutation's returned row straight into the cache BEFORE the
+                    // refetch lands: a Save→Approve in quick succession must CAS with the
+                    // post-save updated_at, not the one the drawer was opened with.
+                    if (row) {
+                        qc.setQueryData<{ data: GeoCell[] }>(
+                            ['research', 'geographies', icpId],
+                            (old) => (old ? { ...old, data: old.data.map((c) => (c.id === row.id ? row : c)) } : old)
+                        );
+                    }
+                    invalidateCells();
+                }}
             />
         </Stack>
     );
@@ -355,7 +368,9 @@ function GeoDetailDrawer({
     onClose: () => void;
     analyzing: boolean;
     onReanalyze: (geoId: string) => void;
-    onChanged: () => void;
+    // Pass the mutation's returned row so the parent can seed the cache with the fresh
+    // updated_at (CAS token) without waiting for the refetch.
+    onChanged: (row?: GeoCell) => void;
 }) {
     const { t } = useTranslation();
     const spec = cell?.spec ?? null;
@@ -388,24 +403,34 @@ function GeoDetailDrawer({
                     estimate_basis: spec?.estimate_basis ?? '',
                 },
             };
-            return (await api.patch(`/research/geographies/${cell!.id}`, body)).data;
+            return (await api.patch(`/research/geographies/${cell!.id}`, body)).data as GeoCell;
         },
-        onSuccess: () => {
+        onSuccess: (row) => {
             showSuccess(t('research.geographies.saved', 'Geography saved — the cell is back in draft.'));
-            onChanged();
+            onChanged(row);
         },
         onError: (err: unknown) => showErrorFromApi(err),
     });
 
     const approveMut = useMutation({
+        // updated_at is the CAS token: approval binds to the exact spec this drawer loaded —
+        // if a re-analysis or another tab rewrote it meanwhile, the server 409s instead of
+        // approving a spec the human never saw.
         mutationFn: async () =>
-            (await api.post(`/research/geographies/${cell!.id}/approve`, { human_score: score })).data,
-        onSuccess: () => {
+            (await api.post(`/research/geographies/${cell!.id}/approve`, { human_score: score, updated_at: cell!.updated_at })).data as GeoCell,
+        onSuccess: (row) => {
             showSuccess(t('research.geographies.approvedToast', 'Geography approved.'));
-            onChanged();
+            onChanged(row);
         },
         onError: (err: unknown) => {
             if (httpInfo(err).status === 409) {
+                const stale = (err as { response?: { data?: { current_updated_at?: string } } }).response?.data?.current_updated_at;
+                if (stale) {
+                    // Refetch so the drawer remounts with the spec that actually exists now.
+                    showWarning(t('research.geographies.staleApprove', 'This geography changed since you opened it — review the latest spec and approve again.'));
+                    onChanged();
+                    return;
+                }
                 showWarning(t('research.geographies.needSpec', 'Run the analysis first — the cell needs a spec before approval.'));
                 return;
             }
@@ -562,7 +587,197 @@ function GeoDetailDrawer({
                         </Group>
                     </Stack>
                 )}
+
+                {/* WP3 — Y1 channel discovery + list harvest + cumulative coverage. Gated on an
+                    APPROVED cell (discovery consumes the approved spec; harvest bills money). */}
+                {cell.status === 'approved' ? (
+                    <>
+                        <Divider />
+                        <CellCoveragePanel geoId={cell.id} />
+                    </>
+                ) : (
+                    <Text size="xs" c="dimmed">
+                        {t('research.channels.approveFirst', 'Approve the cell to unlock channel discovery and coverage.')}
+                    </Text>
+                )}
             </Stack>
         </Drawer>
+    );
+}
+
+interface ChannelRow {
+    id: string;
+    type: string;
+    name: string;
+    url: string | null;
+    member_list_url: string | null;
+    discovery_round: number;
+    harvest_status: 'pending' | 'harvested' | 'unreachable';
+    harvested_at: string | null;
+    companies_found: number | null;
+    harvest_error: string | null;
+    note: string | null;
+}
+
+interface CoverageRow {
+    found_count: number;
+    estimate: number | null;
+    queries_total: number;
+    channels_found: number;
+    channels_harvested: number;
+    saturation_a: boolean;
+    saturation_b: boolean;
+    fully_covered: boolean;
+    discovery_rounds_no_new: number;
+    status: string;
+    updated_at: string;
+}
+
+const HARVEST_STATUS_COLOR: Record<ChannelRow['harvest_status'], string> = {
+    pending: 'gray',
+    harvested: 'green',
+    unreachable: 'red',
+};
+
+/** WP3 coverage panel — the cell's channel table + cumulative saturation state.
+ *  Polls while mounted (worker jobs land asynchronously); all money stays server-side. */
+function CellCoveragePanel({ geoId }: { geoId: string }) {
+    const { t } = useTranslation();
+    const qc = useQueryClient();
+
+    const coverageQuery = useQuery<{ data: CoverageRow | null }>({
+        queryKey: ['research', 'coverage', geoId],
+        queryFn: async () => (await api.get(`/research/channels/coverage?geo_id=${geoId}`)).data,
+        refetchInterval: 7000,
+    });
+    const channelsQuery = useQuery<{ data: ChannelRow[] }>({
+        queryKey: ['research', 'channels', geoId],
+        queryFn: async () => (await api.get(`/research/channels?geo_id=${geoId}`)).data,
+        refetchInterval: 7000,
+    });
+    const coverage = coverageQuery.data?.data ?? null;
+    const channels = channelsQuery.data?.data ?? [];
+
+    const refresh = () => {
+        void qc.invalidateQueries({ queryKey: ['research', 'coverage', geoId] });
+        void qc.invalidateQueries({ queryKey: ['research', 'channels', geoId] });
+    };
+
+    const onJobError = (err: unknown) => {
+        const { status } = httpInfo(err);
+        if (status === 402) {
+            showError(t('research.geographies.noCredits', 'You do not have research credits — top up before analyzing geographies.'));
+            return;
+        }
+        showErrorFromApi(err);
+    };
+
+    const discoverMut = useMutation({
+        mutationFn: async () => (await api.post('/research/channels/discover', { geo_id: geoId })).data,
+        onSuccess: () => {
+            showSuccess(t('research.channels.discoverStarted', 'Channel discovery started — new channels appear here as the round completes.'));
+            refresh();
+        },
+        onError: onJobError,
+    });
+
+    const harvestMut = useMutation({
+        mutationFn: async (channelId: string) => (await api.post(`/research/channels/${channelId}/harvest`, {})).data,
+        onSuccess: () => {
+            showSuccess(t('research.channels.harvestStarted', 'Harvest started — members flow into Companies as they validate.'));
+            refresh();
+        },
+        onError: onJobError,
+    });
+
+    return (
+        <Stack gap="sm">
+            <Group justify="space-between" align="center">
+                <Text fw={600}>{t('research.channels.title', 'Channels & coverage')}</Text>
+                <Button
+                    size="xs" variant="light" leftSection={<IconSparkles size={14} />}
+                    onClick={() => discoverMut.mutate()} loading={discoverMut.isPending}
+                >
+                    {t('research.channels.discover', 'Discover channels')}
+                </Button>
+            </Group>
+
+            {coverage ? (
+                <Group gap="xs" wrap="wrap">
+                    <Badge variant="light" color="blue">
+                        {t('research.channels.found', 'Found')}: {coverage.found_count}{coverage.estimate != null ? ` / E ${coverage.estimate}` : ''}
+                    </Badge>
+                    <Badge variant="light" color="grape">
+                        {t('research.channels.queries', 'Queries')}: {coverage.queries_total}
+                    </Badge>
+                    <Badge variant="light" color={coverage.saturation_a ? 'green' : 'gray'}>
+                        {t('research.channels.ruleA', 'Lists')}: {coverage.saturation_a ? t('research.channels.saturated', 'saturated') : t('research.channels.open', 'in progress')}
+                    </Badge>
+                    <Badge variant="light" color={coverage.saturation_b ? 'green' : 'gray'}>
+                        {t('research.channels.ruleB', 'Open web')}: {coverage.saturation_b ? t('research.channels.saturated', 'saturated') : t('research.channels.open', 'in progress')}
+                    </Badge>
+                    {coverage.fully_covered && (
+                        <Badge color="teal">{t('research.channels.fullyCovered', 'Fully covered')}</Badge>
+                    )}
+                </Group>
+            ) : (
+                <Text size="xs" c="dimmed">
+                    {t('research.channels.noCoverage', 'No coverage yet — run a discovery round or a harvest to start tracking this cell.')}
+                </Text>
+            )}
+
+            {channels.length > 0 && (
+                <Table withTableBorder={false} verticalSpacing={4} fz="xs">
+                    <Table.Thead>
+                        <Table.Tr>
+                            <Table.Th>{t('research.channels.colName', 'Channel')}</Table.Th>
+                            <Table.Th>{t('research.channels.colType', 'Type')}</Table.Th>
+                            <Table.Th>{t('research.channels.colStatus', 'Status')}</Table.Th>
+                            <Table.Th>{t('research.channels.colFound', 'Members')}</Table.Th>
+                            <Table.Th />
+                        </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                        {channels.map((c) => (
+                            <Table.Tr key={c.id}>
+                                <Table.Td>
+                                    {c.url ? (
+                                        <Text size="xs" c="blue" component="a" href={externalHref(c.url)} target="_blank" rel="noreferrer">
+                                            {c.name}
+                                        </Text>
+                                    ) : (
+                                        <Text size="xs">{c.name}</Text>
+                                    )}
+                                </Table.Td>
+                                <Table.Td>
+                                    <Badge size="xs" variant="light" color="violet">
+                                        {t(`research.geographies.channelType.${c.type}`, c.type)}
+                                    </Badge>
+                                </Table.Td>
+                                <Table.Td>
+                                    <Tooltip label={c.harvest_error ?? ''} disabled={!c.harvest_error}>
+                                        <Badge size="xs" variant="light" color={HARVEST_STATUS_COLOR[c.harvest_status] ?? 'gray'}>
+                                            {t(`research.channels.status.${c.harvest_status}`, c.harvest_status)}
+                                        </Badge>
+                                    </Tooltip>
+                                </Table.Td>
+                                <Table.Td>{c.companies_found ?? '—'}</Table.Td>
+                                <Table.Td>
+                                    <Button
+                                        size="compact-xs" variant="subtle"
+                                        onClick={() => harvestMut.mutate(c.id)}
+                                        loading={harvestMut.isPending && harvestMut.variables === c.id}
+                                    >
+                                        {c.harvest_status === 'pending'
+                                            ? t('research.channels.harvest', 'Harvest')
+                                            : t('research.channels.reharvest', 'Re-harvest')}
+                                    </Button>
+                                </Table.Td>
+                            </Table.Tr>
+                        ))}
+                    </Table.Tbody>
+                </Table>
+            )}
+        </Stack>
     );
 }

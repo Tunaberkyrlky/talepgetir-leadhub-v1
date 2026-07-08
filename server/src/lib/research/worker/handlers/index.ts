@@ -12,6 +12,8 @@ import { harvestRunHandler } from './harvestRun.js';
 import { mapsHarvestHandler } from './mapsHarvest.js';
 import { tradeIngestHandler } from './tradeIngest.js';
 import { tradeHarvestHandler } from './tradeHarvest.js';
+import { channelsDiscoverHandler } from './channelsDiscover.js';
+import { channelsHarvestHandler } from './channelsHarvest.js';
 import { linkedinValidateHandler } from './linkedinValidate.js';
 import { linkedinInviteHandler } from './linkedinInvite.js';
 import { linkedinMessageHandler } from './linkedinMessage.js';
@@ -25,6 +27,8 @@ const handlers: Record<string, JobHandler> = {
     [RESEARCH_JOB_TYPES.MAPS_HARVEST]: mapsHarvestHandler,
     [RESEARCH_JOB_TYPES.TRADE_INGEST]: tradeIngestHandler,
     [RESEARCH_JOB_TYPES.TRADE_HARVEST]: tradeHarvestHandler,
+    [RESEARCH_JOB_TYPES.CHANNELS_DISCOVER]: channelsDiscoverHandler,
+    [RESEARCH_JOB_TYPES.CHANNELS_HARVEST]: channelsHarvestHandler,
     [RESEARCH_JOB_TYPES.LINKEDIN_VALIDATE]: linkedinValidateHandler,
     [RESEARCH_JOB_TYPES.LINKEDIN_INVITE]: linkedinInviteHandler,
     [RESEARCH_JOB_TYPES.LINKEDIN_MESSAGE]: linkedinMessageHandler,

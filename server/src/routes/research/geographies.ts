@@ -49,6 +49,11 @@ const updateGeoSchema = z
 
 const approveGeoSchema = z.object({
     human_score: z.number().int().min(0).max(10),
+    // CAS token (ICP approve pattern, but REQUIRED — this endpoint has no legacy callers):
+    // the row's updated_at as the client loaded it, so the approval binds to the exact spec
+    // the human reviewed. Every spec write — human PATCH or the fenced persist RPC — bumps
+    // updated_at (056 trigger), so a stale drawer 409s instead of approving unseen work.
+    updated_at: z.string().datetime({ offset: true, message: 'updated_at must be a valid ISO datetime' }),
 });
 
 const idParamSchema = z.object({ id: uuidField('Invalid geography ID') });
@@ -117,63 +122,100 @@ router.post('/', requireWriter, validateBody(createSchema), async (req: Request,
             return;
         }
 
-        // Ceiling before creating anything (advisory count — the ceiling is an abuse bound,
-        // not an invariant, so a razor-thin race past it is acceptable).
-        const { count: cellCount, error: cntErr } = await researchSupabaseAdmin
+        // Reuse FIRST (codex P3): re-adding an existing country must reuse its row even when
+        // the ICP is at the cell ceiling — the ceiling bounds NEW Opus-spend surface, not
+        // access to cells that already exist.
+        let geography: Record<string, unknown> | null = null;
+        const { data: preExisting, error: preErr } = await researchSupabaseAdmin
             .from('research_geographies')
-            .select('id', { count: 'exact', head: true })
+            .select('*')
             .eq('tenant_id', tenantId)
-            .eq('icp_id', icp_id);
-        if (cntErr) {
-            log.error({ err: cntErr }, 'geography count failed');
+            .eq('icp_id', icp_id)
+            .ilike('country', likeExact(country))
+            .maybeSingle();
+        if (preErr) {
+            log.error({ err: preErr }, 'geography reuse lookup failed');
             throw new AppError('Failed to create geography', 500);
         }
-        if ((cellCount ?? 0) >= MAX_CELLS_PER_ICP) {
-            res.status(409).json({ error: `This ICP already has ${MAX_CELLS_PER_ICP} geographies — remove or reuse existing cells` });
-            return;
+        if (preExisting) geography = preExisting as Record<string, unknown>;
+
+        if (!geography) {
+            // Ceiling applies to a genuine CREATE only (advisory count — the ceiling is an
+            // abuse bound, not an invariant, so a razor-thin race past it is acceptable).
+            const { count: cellCount, error: cntErr } = await researchSupabaseAdmin
+                .from('research_geographies')
+                .select('id', { count: 'exact', head: true })
+                .eq('tenant_id', tenantId)
+                .eq('icp_id', icp_id);
+            if (cntErr) {
+                log.error({ err: cntErr }, 'geography count failed');
+                throw new AppError('Failed to create geography', 500);
+            }
+            if ((cellCount ?? 0) >= MAX_CELLS_PER_ICP) {
+                // Race window: a concurrent request may have created THIS country between the
+                // reuse lookup and the count — the count now trips the ceiling, but the correct
+                // answer is still "reuse", not 409. Re-check before refusing.
+                const { data: raced, error: racedErr } = await researchSupabaseAdmin
+                    .from('research_geographies')
+                    .select('*')
+                    .eq('tenant_id', tenantId)
+                    .eq('icp_id', icp_id)
+                    .ilike('country', likeExact(country))
+                    .maybeSingle();
+                if (racedErr) {
+                    log.error({ err: racedErr }, 'geography ceiling recheck failed');
+                    throw new AppError('Failed to create geography', 500);
+                }
+                if (!raced) {
+                    res.status(409).json({ error: `This ICP already has ${MAX_CELLS_PER_ICP} geographies — remove or reuse existing cells` });
+                    return;
+                }
+                geography = raced as Record<string, unknown>;
+            }
         }
 
-        // One cell per (tenant, icp, country) — INSERT first and treat the unique violation
-        // (086 index) as "already exists": no read-then-insert race, re-adding a country
-        // simply reuses the existing row.
-        let geography: Record<string, unknown>;
-        const { data: created, error: insErr } = await researchSupabaseAdmin
-            .from('research_geographies')
-            .insert({
-                tenant_id: tenantId,
-                project_id: (icp as { project_id: string }).project_id,
-                icp_id,
-                country,
-                region: region ?? null,
-            })
-            .select()
-            .single();
-        if (insErr) {
-            if (insErr.code !== '23505') {
-                log.error({ err: insErr }, 'geography insert failed');
-                throw new AppError('Failed to create geography', 500);
-            }
-            const { data: existing, error: exErr } = await researchSupabaseAdmin
+        if (!geography) {
+            // One cell per (tenant, icp, country) — the unique violation (086 index) covers
+            // the lookup→insert race window: a concurrent create is adopted, not errored.
+            const { data: created, error: insErr } = await researchSupabaseAdmin
                 .from('research_geographies')
-                .select('*')
-                .eq('tenant_id', tenantId)
-                .eq('icp_id', icp_id)
-                .ilike('country', likeExact(country))
-                .maybeSingle();
-            if (exErr || !existing) {
-                log.error({ err: exErr }, 'geography conflict lookup failed');
-                throw new AppError('Failed to create geography', 500);
+                .insert({
+                    tenant_id: tenantId,
+                    project_id: (icp as { project_id: string }).project_id,
+                    icp_id,
+                    country,
+                    region: region ?? null,
+                })
+                .select()
+                .single();
+            if (insErr) {
+                if (insErr.code !== '23505') {
+                    log.error({ err: insErr }, 'geography insert failed');
+                    throw new AppError('Failed to create geography', 500);
+                }
+                const { data: existing, error: exErr } = await researchSupabaseAdmin
+                    .from('research_geographies')
+                    .select('*')
+                    .eq('tenant_id', tenantId)
+                    .eq('icp_id', icp_id)
+                    .ilike('country', likeExact(country))
+                    .maybeSingle();
+                if (exErr || !existing) {
+                    log.error({ err: exErr }, 'geography conflict lookup failed');
+                    throw new AppError('Failed to create geography', 500);
+                }
+                geography = existing as Record<string, unknown>;
+            } else {
+                geography = created as Record<string, unknown>;
             }
-            geography = existing as Record<string, unknown>;
-            // Re-adding a country that was ALREADY analyzed must not silently burn Opus and
-            // overwrite (possibly hand-tuned, approved) work — the explicit Re-analyze path
-            // carries that intent (review P2). A spec-less leftover cell still auto-analyzes.
-            if (geography.spec != null) {
-                res.status(200).json({ geography, job: null, reused: true });
-                return;
-            }
-        } else {
-            geography = created as Record<string, unknown>;
+        }
+
+        // Re-adding a country that was ALREADY analyzed must not silently burn Opus and
+        // overwrite (possibly hand-tuned, approved) work — the explicit Re-analyze path
+        // carries that intent (review P2). A spec-less leftover cell still auto-analyzes.
+        if (geography.spec != null) {
+            res.status(200).json({ geography, job: null, reused: true });
+            return;
         }
         const geoId = geography.id as string;
 
@@ -348,7 +390,7 @@ router.post('/:id/approve', requireWriter, validateBody(approveGeoSchema), async
             return;
         }
         const tenantId = req.tenantId!;
-        const { human_score } = req.body as z.infer<typeof approveGeoSchema>;
+        const { human_score, updated_at } = req.body as z.infer<typeof approveGeoSchema>;
 
         const { data: geo, error: geoErr } = await researchSupabaseAdmin
             .from('research_geographies')
@@ -371,11 +413,15 @@ router.post('/:id/approve', requireWriter, validateBody(approveGeoSchema), async
             return;
         }
 
+        // CAS: only approve if the row is still the one the client reviewed. A concurrent
+        // re-analysis or spec edit bumps updated_at (trigger), so this match fails → 409,
+        // never an unseen approval.
         const { data, error } = await researchSupabaseAdmin
             .from('research_geographies')
             .update({ status: 'approved', human_score })
             .eq('id', parsed.data.id)
             .eq('tenant_id', tenantId)
+            .eq('updated_at', updated_at)
             .select()
             .maybeSingle();
         if (error) {
@@ -383,6 +429,20 @@ router.post('/:id/approve', requireWriter, validateBody(approveGeoSchema), async
             throw new AppError('Failed to approve geography', 500);
         }
         if (!data) {
+            // No row matched: either the cell is gone, or its spec moved under us.
+            const { data: exists } = await researchSupabaseAdmin
+                .from('research_geographies')
+                .select('id, updated_at')
+                .eq('id', parsed.data.id)
+                .eq('tenant_id', tenantId)
+                .maybeSingle();
+            if (exists) {
+                res.status(409).json({
+                    error: 'Geography changed since you loaded it; review the latest spec and approve again',
+                    current_updated_at: (exists as { updated_at: string }).updated_at,
+                });
+                return;
+            }
             res.status(404).json({ error: 'Geography not found' });
             return;
         }

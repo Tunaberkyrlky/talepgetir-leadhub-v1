@@ -355,6 +355,7 @@ router.post('/:id/calibrate', requireWriter, validateBody(calibrateSchema), asyn
                 RESEARCH_JOB_TYPES.HARVEST_RUN,
                 RESEARCH_JOB_TYPES.MAPS_HARVEST,
                 RESEARCH_JOB_TYPES.TRADE_HARVEST,
+                RESEARCH_JOB_TYPES.CHANNELS_HARVEST,
             ])
             .in('status', ['queued', 'running'])
             .contains('payload', { icp_id: parsed.data.id })

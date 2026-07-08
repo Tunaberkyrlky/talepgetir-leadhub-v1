@@ -12,7 +12,7 @@ Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + C
 >
 > **Plan revizyonları (bu değerlendirmeyle):** (a) **sub-ICP** kavramı plana eklendi = ICP'nin coğrafyaya *instantiate* edilmiş hali; (b) **F1 iptali revize**: mesaj METNİ TG-Core'da kalır ama **angle haritası + firma-başı kişiselleştirme kancaları research çıktısıdır** (WP4); (c) **geri-besleme** plana eklendi (K8 tek-yön sınır korunur — research CRM'den yalnız AGREGAT okur, research-owned tabloya yazar).
 >
-> **Sıra: WP1 → WP2 → WP3 → WP4 → WP5.** Her WP: migration (SADECE izole research test DB) + server + client + `tsc -b` + smoke + **codex gpt-5.5 xhigh review** (bloklanırsa Claude ikincil adversarial review) → düzelt → SHIP. Kilitli invariant'lara (04 §5) DOKUNMA: billing ömürde-bir + fenced RPC'ler + suppression>dedup + müşteri dolar görmez. Migration numaraları (gerçekleşen): WP1=084+085+087 (084 çekirdek, 085/087 codex+review sertleştirmeleri), WP2=086, WP3=088, WP4=089, WP5=090 (çakışırsa kaydır).
+> **Sıra: WP1 → WP2 → WP3 → WP4 → WP5.** Her WP: migration (SADECE izole research test DB) + server + client + `tsc -b` + smoke + **codex gpt-5.5 xhigh review** (bloklanırsa Claude ikincil adversarial review) → düzelt → SHIP. Kilitli invariant'lara (04 §5) DOKUNMA: billing ömürde-bir + fenced RPC'ler + suppression>dedup + müşteri dolar görmez. Migration numaraları (gerçekleşen): WP1=084+085+087, WP2=086+090 (088/089 coldcall aldı), WP3=091+092+093+094. **WP4→095, WP5→096** (çakışırsa kaydır — coldcall/linkedin paralel numara alıyor, eklemeden önce `ls migrations` kontrol et).
 
 ### WP1 — Kalibrasyon döngüsü (plan C1–C2) — ✅ **BİTTİ → codex SHIP** (2026-07-08, detay `04 §4.9`; migrations 084+085+087)
 
@@ -23,11 +23,9 @@ Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + C
 - **Client:** ICP kartına "Kalibrasyon" akışı: örneklem tablosu (firma + kanıt + skor) → satır başına 👍/👎 + not → "Revizyon öner" → diff görünümü (mevcut vs öneri) → "Uygula" → yeniden approve → "Tekrar örnekle" → "Mantığı onayla" (`calibration_state='calibrated'`).
 - **Kabul:** izole DB'de e2e smoke (örneklem → 2+ feedback → revise → apply → ruleset bump doğrulaması → re-sample'da cross-ICP re-score'un eski firmaları yeni ruleset'te yeniden skorladığı); `tsc -b` temiz; codex review.
 
-### WP2 — Pazar yapısı araştırması → sub-ICP türetme (geo-instantiation) — inşa+smoke ✅, **RESUME: codex verdict'i al**
+### WP2 — Pazar yapısı araştırması → sub-ICP türetme (geo-instantiation) — ✅ **BİTTİ → codex SHIP** (2026-07-08, detay `04 §4.10`; migrations 086+090)
 
-> **RESUME (2026-07-08):** İnşa + 2-lens review düzeltmeleri + smoke'lar bitti (detay `04 §4.10`). codex gpt-5.5 xhigh review'ü arka planda başlatılmıştı; çıktı dosyası:
-> `/private/tmp/claude-501/-Users-salihyetim-orca-workspaces-TG-Core-copy-16-06-TG-Research/7a30201c-0449-4e10-830a-a7463cffc8d9/scratchpad/wp2-codex-out.txt`
-> Varsa verdict'i oku → FIX FIRST ise bulguları kapat + verify turu; dosya yoksa/boşsa `wp2-codex-prompt.txt` (aynı klasör) ile codex'i yeniden koş. SHIP gelince WP2'yi 04'te ✅'le ve WP3'e geç.
+> **KAPANIŞ (2026-07-08):** İlk codex FIX FIRST'ün 3 bulgusu düzeltildi; verify turunda codex 4 yeni/kalan bulgu verdi (2 P1 + 2 P2), onlar da düzeltildi ve ikinci verify **SHIP** döndü. Yapılanlar: (1) approve artık **zorunlu** `updated_at` CAS token'ı ile — spec'i her yazan (PATCH veya fenced RPC) trigger'la `updated_at`'i bump'lar, bayat drawer 409 + `current_updated_at` alır; client token'ı gönderir, iki 409 türünü ayırt eder, PATCH/approve yanıtları react-query cache'e yazılır ve drawer `id:updated_at` ile remount olur (Save→Approve bayat token yarışı kapandı). (2) `research_persist_geo_analysis` doğrudan atama (COALESCE değil) — DB'de `research_geo_persist_projection` migration'ı olarak zaten uygulanmıştı, lokal dosya **090** olarak eklendi (089 coldcall'a gitti). (3) Create route reuse-FIRST; 25-hücre tavanı yalnız gerçek CREATE'e; tavan tetiklenirse aynı-ülke yarışına karşı re-check → reuse. Smoke: geo-smoke.sql ALL_PASS (P1–P4, null-re-analiz projeksiyon temizliği dahil); `tsc -b` server+client temiz.
 
 **Amaç:** her (onaylı ICP × hedef ülke) için kanal yapısını araştırıp ICP'yi coğrafyaya uyarlamak: yerel sinyaller, yerel dil terimleri, yerel eleme kuralları, anahtar kanallar, sertifikalar, alıcı unvanları (persona tohumu), E tahmini. `research_geographies` canlanır.
 
@@ -36,7 +34,9 @@ Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + C
 - **Client:** ICP altında "Coğrafyalar" bölümü: ülke ekle → analiz job → sub-ICP kartı (düzenlenebilir + onay) → "Lead bul" artık geo_id ile.
 - **Kabul:** 1 ülke için canlı `geo:analyze` smoke (SearXNG $0) + geo_id'li harvest'in yerel terimleri kullandığının doğrulanması; codex review.
 
-### WP3 — Y1 kanal keşfi + liste hasadı + KALICI saturasyon/coverage
+### WP3 — Y1 kanal keşfi + liste hasadı + KALICI saturasyon/coverage — ✅ **BİTTİ → codex SHIP** (2026-07-08, detay `04 §4.11`; migrations 091+092+093+094)
+
+> **KAPANIŞ (2026-07-08):** `channels:discover` + `channels:harvest` (mevcut fenced spine'a `channelListSource` olarak takıldı, `source_path='Y1'` + `channel_id` provenance) + kümülatif hücre saturasyonu (Y3 32-sorgu minimumu artık HÜCRE başına; kural-A persist; `fully_covered=A&&B` RPC-içi) + CellCoveragePanel canlı. Review zinciri: 2-lens (1×P1+3×P2) → codex xhigh FIX FIRST (3×P1+2×P2: üye-website kod-içi grounding, chunks DML revoke [094], ICP-genelinde 4-tip harvest guard'ı [harvest/trade/channels/icps-calibrate], SearXNG `complete`-duyarlı round geçerliliği, taze-rol caps) → hepsi düzeltildi → **verify-2 SHIP**. Canlı e2e ×3 geçti (keşif ≥11 kanal → hasat ≥11 üye → coverage persist → 2. Y3 koşusu kümülatif devraldı). **DEPLOY SIRASI: 091-094 hedef DB'ye uygulanmadan server deploy ETME** (p_channel named-arg eşleşmesi tüm upsert'leri düşürür).
 
 **Amaç:** plandaki 🥇 kaynak (dernek/fuar/dizin üye listeleri) gerçekten inşa edilir; doygunluk run-aşırı kalıcı hale gelir; müşteriye coverage görünümü.
 
