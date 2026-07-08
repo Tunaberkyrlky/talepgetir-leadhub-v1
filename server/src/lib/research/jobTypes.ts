@@ -29,12 +29,15 @@ export const RESEARCH_JOB_TYPES = {
     // ── TG-LinkedIn (isolated module; rides this same research_jobs queue) ─────
     /** LinkedIn: session liveness + UA/proxy health smoke (/voyager/api/me). Faz 1. */
     LINKEDIN_VALIDATE: 'linkedin:validate',
+    /** LinkedIn: send one connection request (§4.1). DRY-RUN default. Faz 2. */
+    LINKEDIN_INVITE: 'linkedin:invite',
+    /** LinkedIn: send one new-conversation message (§4.2). DRY-RUN default. Faz 2. */
+    LINKEDIN_MESSAGE: 'linkedin:message',
     // RESERVED — do NOT add as constants until each ships a REGISTERED handler.
     // Adding them here would widen isKnownJobType, so the internal POST /api/research/jobs
     // could enqueue a type with no handler → worker fails "No handler registered" and
     // burns retries (critique P1-1). Add each alongside its handler:
-    //   linkedin:invite (Faz 2) · linkedin:message (Faz 2) · linkedin:withdraw (Faz 3)
-    //   linkedin:poll (Faz 4) · linkedin:sequence-tick (Faz 4)
+    //   linkedin:withdraw (Faz 3) · linkedin:poll (Faz 4) · linkedin:sequence-tick (Faz 4)
 } as const;
 
 export type ResearchJobType = (typeof RESEARCH_JOB_TYPES)[keyof typeof RESEARCH_JOB_TYPES];

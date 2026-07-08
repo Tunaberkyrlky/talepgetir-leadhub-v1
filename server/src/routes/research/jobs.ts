@@ -10,7 +10,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { createLogger } from '../../lib/logger.js';
 import { validateBody, uuidField } from '../../lib/validation.js';
 import { enqueueJob } from '../../lib/research/queue.js';
-import { RESEARCH_JOB_TYPE_VALUES, isKnownJobType } from '../../lib/research/jobTypes.js';
+import { RESEARCH_JOB_TYPES, RESEARCH_JOB_TYPE_VALUES, isKnownJobType } from '../../lib/research/jobTypes.js';
 import { sanitizeJobForRole, sanitizeJobsForRole } from '../../lib/research/sanitize.js';
 import { effectiveCostRole } from '../../lib/research/freshRole.js';
 
@@ -42,6 +42,14 @@ router.post('/', requireInternal, validateBody(enqueueSchema), async (req: Reque
 
         if (!isKnownJobType(type)) {
             res.status(400).json({ error: `Unknown job type. Allowed: ${RESEARCH_JOB_TYPE_VALUES.join(', ')}` });
+            return;
+        }
+
+        // Non-idempotent LinkedIn WRITES must not go through the generic enqueue: it uses the
+        // queue's default retry count (3), so a transient failure could re-send an invite or
+        // message up to 3×. They have dedicated routes that force maxAttempts=1 (codex P2).
+        if (type === RESEARCH_JOB_TYPES.LINKEDIN_INVITE || type === RESEARCH_JOB_TYPES.LINKEDIN_MESSAGE) {
+            res.status(400).json({ error: 'Use POST /api/linkedin/accounts/:id/invite|message for LinkedIn writes' });
             return;
         }
 

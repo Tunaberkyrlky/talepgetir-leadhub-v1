@@ -118,6 +118,77 @@ router.post('/link-token', requireWriter, validateBody(linkTokenSchema), async (
     }
 });
 
+// ── Faz-2 write actions — enqueue a single invite / message (DRY-RUN by default) ──
+// dry_run defaults TRUE: a bare call previews the plan (no decrypt, no send). A real
+// action requires dry_run:false explicitly — the module has no live-tested send path yet.
+const inviteSchema = z.object({
+    profile_urn: z.string().min(1).max(200).optional(),
+    public_id: z.string().min(1).max(200).optional(),
+    note: z.string().max(300).optional(),
+    dry_run: z.boolean().optional(),
+}).refine((b) => !!b.profile_urn || !!b.public_id, { message: 'profile_urn or public_id required' });
+
+const messageSchema = z.object({
+    recipient_urn: z.string().min(1).max(200),
+    text: z.string().min(1).max(8000),
+    dry_run: z.boolean().optional(),
+});
+
+/** Load the account (ownership check) and enqueue a write job. Shared by invite/message. */
+async function enqueueWrite(
+    req: Request, res: Response, id: string, type: string, payload: Record<string, unknown>,
+): Promise<void> {
+    const tenantId = req.tenantId!;
+    const { data: account, error: loadErr } = await researchSupabaseAdmin
+        .from('linkedin_accounts').select('id')
+        .eq('id', id).eq('tenant_id', tenantId).maybeSingle();
+    if (loadErr) throw new AppError('Failed to enqueue action', 500);
+    if (!account) { res.status(404).json({ error: 'Account not found' }); return; }
+
+    const job = await enqueueJob({
+        tenantId, type,
+        payload: { account_id: id, ...payload },
+        maxAttempts: 1, // non-idempotent write; operator re-runs on failure
+        createdBy: req.user?.id ?? null,
+    });
+    res.status(202).json(sanitizeJobForRole(
+        job as unknown as Record<string, unknown>,
+        await effectiveCostRole(req.user, req.tenantId),
+    ));
+}
+
+// ── POST /accounts/:id/invite — enqueue a connection request (dry-run default) ──
+router.post('/:id/invite', requireWriter, validateBody(inviteSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const id = String(req.params.id);
+        if (!uuidField().safeParse(id).success) { res.status(400).json({ error: 'Invalid id' }); return; }
+        const b = req.body as z.infer<typeof inviteSchema>;
+        await enqueueWrite(req, res, id, RESEARCH_JOB_TYPES.LINKEDIN_INVITE, {
+            profile_urn: b.profile_urn, public_id: b.public_id, note: b.note, dry_run: b.dry_run ?? true,
+        });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'enqueue invite error');
+        next(new AppError('Failed to enqueue invite', 500));
+    }
+});
+
+// ── POST /accounts/:id/message — enqueue a new-conversation message (dry-run default) ──
+router.post('/:id/message', requireWriter, validateBody(messageSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const id = String(req.params.id);
+        if (!uuidField().safeParse(id).success) { res.status(400).json({ error: 'Invalid id' }); return; }
+        const b = req.body as z.infer<typeof messageSchema>;
+        await enqueueWrite(req, res, id, RESEARCH_JOB_TYPES.LINKEDIN_MESSAGE, {
+            recipient_urn: b.recipient_urn, text: b.text, dry_run: b.dry_run ?? true,
+        });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'enqueue message error');
+        next(new AppError('Failed to enqueue message', 500));
+    }
+});
+
 // ── POST /accounts/:id/validate — enqueue a liveness check ─────────────────────
 router.post('/:id/validate', requireWriter, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {

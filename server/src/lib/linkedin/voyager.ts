@@ -6,6 +6,7 @@
  * probe (/voyager/api/me) + the "golden recipe" headers; Faz 2 adds the invite/message
  * endpoints + their decorationIds (which MUST be re-verified live before use).
  */
+import { randomBytes, randomUUID } from 'crypto';
 
 export const VOYAGER = {
     base: 'https://www.linkedin.com',
@@ -13,6 +14,18 @@ export const VOYAGER = {
     // Long-stable liveness probe: needs only li_at + csrf. A 200 with a JSON body means
     // the session cookie is alive; the body carries the member's mini-profile identity.
     mePath: '/voyager/api/me',
+
+    // ── WRITE endpoints (Faz 2) — decorationId/queryId rotate; re-verify live (§4). ──
+    // Invite (§4.1): verified across 3 independent repos 2025-26. Noteless by default.
+    invitePath:
+        '/voyager/api/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreateV2',
+    inviteDecorationId:
+        'com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2',
+    // Message (§4.2): new-conversation create. Reply-to-thread (conversationUrn) is Faz 4.
+    messagePath: '/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage',
+    // Profile URN resolution (§4.3): the public profile HTML carries the fsd_profile urn
+    // in an inline JSON blob — more stable than the CSRF-touchy GraphQL identity endpoint.
+    profileHtmlPath: (publicId: string) => `/in/${encodeURIComponent(publicId)}/`,
 
     restliProtocolVersion: '2.0.0',
     accept: 'application/vnd.linkedin.normalized+json+2.1',
@@ -27,6 +40,86 @@ export const VOYAGER = {
     defaultUserAgent:
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
 } as const;
+
+/** LinkedIn caps a connection-request note at 300 chars on ALL plans (§4.1). */
+export const INVITE_NOTE_MAX = 300;
+
+/**
+ * Build the invite (connection-request) body. Noteless is the DEFAULT (a note over
+ * ~5/month is itself a restriction signal, §1) — a customMessage is only added when a
+ * non-empty note is passed, and it is HARD-truncated to 300 chars so a caller can never
+ * trip LinkedIn's length rejection.
+ */
+export function buildInvitePayload(profileUrn: string, note?: string): Record<string, unknown> {
+    const body: Record<string, unknown> = {
+        invitee: { inviteeUnion: { memberProfile: profileUrn } },
+    };
+    const trimmed = (note ?? '').trim();
+    if (trimmed) body.customMessage = trimmed.slice(0, INVITE_NOTE_MAX);
+    return body;
+}
+
+/**
+ * trackingId: LinkedIn expects a 16-CODE-POINT string, each code point a random byte
+ * value 0-255 — NOT a UUID and NOT base64 (either of those classifies as a bare 400,
+ * §4.2). We map each random byte through String.fromCharCode; JSON.stringify emits every
+ * code point as UTF-8 and LinkedIn's JSON parser decodes it back to the SAME code point,
+ * so the 16-code-point sequence round-trips intact (the Tom-Quirk linkedin-api recipe).
+ * HOT-UPDATE: if messages start 400-ing, re-verify this shape first.
+ */
+export function randomTrackingId(): string {
+    const bytes = randomBytes(16);
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return s;
+}
+
+export interface MessageParams {
+    /** The sender's own fsd_profile urn (member_urn resolved at validate) = mailboxUrn. */
+    mailboxUrn: string;
+    /** The recipient's fsd_profile urn. */
+    recipientUrn: string;
+    text: string;
+}
+
+/**
+ * Build a NEW-conversation message body (§4.2). originToken is a plain uuid-v4;
+ * trackingId follows randomTrackingId. Reply-to-existing-thread (conversationUrn instead
+ * of hostRecipientUrns) is a Faz-4 refinement once poll/threads exist.
+ */
+export function buildMessagePayload(p: MessageParams): Record<string, unknown> {
+    return {
+        message: {
+            body: { attributes: [], text: p.text },
+            originToken: randomUUID(),
+            renderContentUnions: [],
+        },
+        mailboxUrn: p.mailboxUrn,
+        trackingId: randomTrackingId(),
+        dedupeByClientGeneratedToken: false,
+        hostRecipientUrns: [p.recipientUrn],
+    };
+}
+
+/**
+ * Extract the OWNER's fsd_profile urn from a public-profile HTML page (§4.3). The page
+ * embeds voyager JSON in <code> blobs; the vanity→urn mapping lives under
+ * identityDashProfilesByMemberIdentity.
+ *
+ * SCOPED-ONLY, no broad fallback (codex P1): a profile page also carries OTHER people's
+ * fsd_profile urns (suggested/"people also viewed"), so "first urn anywhere" could resolve
+ * a real invite onto the wrong person. We only accept a urn tied to the owner's identity
+ * key; a miss returns null → the caller SKIPS (never sends to a guessed target). This is
+ * the same deterministic-owner discipline as parseMeIdentity. For live sends, passing an
+ * explicit profile_urn is preferred over public-id resolution.
+ */
+export function parseProfileUrnFromHtml(html: string): string | null {
+    if (!html) return null;
+    const scoped = html.match(
+        /identityDashProfilesByMemberIdentity[\s\S]{0,4000}?(urn:li:fsd_profile:[A-Za-z0-9_-]+)/,
+    );
+    return scoped?.[1] ?? null;
+}
 
 /** Strip surrounding quotes from JSESSIONID to form the csrf-token header value. */
 export function csrfFromJsessionid(jsessionid: string): string {
