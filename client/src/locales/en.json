@@ -503,7 +503,17 @@
         "buy": "Buy",
         "inventoryAvailable": "Available",
         "inventoryDocs": "Available (docs required)",
-        "searchCountry": "Search country or dial code…"
+        "searchCountry": "Search country or dial code…",
+        "colToday": "Today",
+        "colHealth": "Health",
+        "healthWarming": "Warming up",
+        "healthGood": "Healthy",
+        "healthWatch": "Watch",
+        "healthRisk": "At risk",
+        "healthNoData": "Not enough data",
+        "healthWarmingHint": "New number — daily cap ramps up over 14 days to protect reputation",
+        "healthHint": "7-day answer rate: {{r}}%",
+        "healthNoDataHint": "Fewer than 10 connected attempts in the last 7 days"
     },
     "research": {
         "title": "Research",

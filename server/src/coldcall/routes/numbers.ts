@@ -13,6 +13,7 @@ import { validateBody, uuidField } from '../../lib/validation.js';
 import { isInternalRole } from '../../lib/roles.js';
 import { COUNTRY_PRICING, countryByCode, multiplierFor, tierFor } from '../data/countryPricing.js';
 import { getSettings } from '../lib/settings.js';
+import { usageForNumbers } from '../lib/reputation.js';
 import { providerFor } from '../providers/index.js';
 
 const log = createLogger('coldcall:numbers');
@@ -72,7 +73,13 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             log.error({ err: error }, 'numbers list failed');
             throw new AppError('Failed to list numbers', 500);
         }
-        const numbers = (data ?? []).map((n) => shapeNumber(n, internal));
+        // İtibar/sağlık istatistikleri (COGS içermez — müşteriye görünür)
+        const settings = await getSettings(req.tenantId!);
+        const usage = await usageForNumbers(req.tenantId!, data ?? [], settings.daily_cap_per_number ?? 100);
+        const numbers = (data ?? []).map((n) => ({
+            ...shapeNumber(n, internal),
+            ...(usage.get(n.id) ?? {}),
+        }));
         res.json({ numbers });
     } catch (err) {
         next(err);

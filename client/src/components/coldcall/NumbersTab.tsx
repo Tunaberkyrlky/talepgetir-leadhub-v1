@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { showErrorFromApi } from '../../lib/notifications';
 import { coldcallApi } from './api';
+import { NumberHealthBadge } from './badges';
 import type { AvailableNumber } from './types';
 
 export default function NumbersTab() {
@@ -106,6 +107,8 @@ export default function NumbersTab() {
                             <Table.Th>{t('coldcall.colNumber', 'Number')}</Table.Th>
                             <Table.Th>{t('coldcall.colCountry', 'Country')}</Table.Th>
                             <Table.Th>{t('coldcall.colStatus', 'Status')}</Table.Th>
+                            <Table.Th>{t('coldcall.colToday', 'Today')}</Table.Th>
+                            <Table.Th>{t('coldcall.colHealth', 'Health')}</Table.Th>
                             <Table.Th>{t('coldcall.colPurchased', 'Purchased')}</Table.Th>
                             {internal && <Table.Th>$/mo</Table.Th>}
                             {canBuy && <Table.Th />}
@@ -122,6 +125,18 @@ export default function NumbersTab() {
                                     ) : (
                                         <Badge color="yellow" variant="light">{t('coldcall.numberPendingDocs', 'Awaiting regulatory approval')}</Badge>
                                     )}
+                                </Table.Td>
+                                <Table.Td>
+                                    {n.daily_cap != null ? (
+                                        <Text size="sm" c={(n.remaining_today ?? 1) <= 0 ? 'red' : undefined}>
+                                            {n.calls_today ?? 0} / {n.daily_cap}
+                                        </Text>
+                                    ) : (
+                                        <Text size="sm" c="dimmed">—</Text>
+                                    )}
+                                </Table.Td>
+                                <Table.Td>
+                                    <NumberHealthBadge health={n.health} answerRate={n.answer_rate_7d} />
                                 </Table.Td>
                                 <Table.Td>
                                     <Text size="sm">{new Date(n.purchased_at).toLocaleDateString(i18n.language === 'tr' ? 'tr-TR' : 'en-GB')}</Text>

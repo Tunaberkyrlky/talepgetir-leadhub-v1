@@ -69,6 +69,7 @@ import { useStages } from '../contexts/StagesContext';
 import ContactForm from '../components/ContactForm';
 import CompaniesPeopleToggle from '../components/CompaniesPeopleToggle';
 import TruncatedText from '../components/TruncatedText';
+import CallButton from '../components/coldcall/CallButton';
 
 interface Contact {
     id: string;
@@ -453,7 +454,22 @@ export default function PeoplePage() {
             case 'email':
                 return <Table.Td key="email"><TruncatedText size="sm" c="dimmed">{contact.email}</TruncatedText></Table.Td>;
             case 'phone':
-                return <Table.Td key="phone"><TruncatedText size="sm">{contact.phone_e164}</TruncatedText></Table.Td>;
+                return (
+                    <Table.Td key="phone">
+                        <Group gap={4} wrap="nowrap">
+                            <TruncatedText size="sm">{contact.phone_e164}</TruncatedText>
+                            {contact.phone_e164 && (
+                                <CallButton
+                                    phone={contact.phone_e164}
+                                    companyId={contact.companies?.id ?? contact.company_id}
+                                    companyName={contact.companies?.name}
+                                    contactId={contact.id}
+                                    size="xs"
+                                />
+                            )}
+                        </Group>
+                    </Table.Td>
+                );
             case 'seniority':
                 return (
                     <Table.Td key="seniority" style={{ whiteSpace: 'nowrap' }}>

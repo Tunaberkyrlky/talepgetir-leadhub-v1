@@ -29,6 +29,7 @@ import {
     IconLanguage,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import CallButton from '../components/coldcall/CallButton';
 import api from '../lib/api';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -220,9 +221,17 @@ export default function PersonDetailPage() {
                         <Group gap="sm">
                             <IconPhone size={16} color="var(--mantine-color-gray-5)" />
                             {contact.phone_e164 ? (
-                                <Anchor href={`tel:${contact.phone_e164}`} size="sm">
-                                    {contact.phone_e164}
-                                </Anchor>
+                                <>
+                                    <Anchor href={`tel:${contact.phone_e164}`} size="sm">
+                                        {contact.phone_e164}
+                                    </Anchor>
+                                    <CallButton
+                                        phone={contact.phone_e164}
+                                        companyId={contact.companies?.id ?? contact.company_id}
+                                        companyName={contact.companies?.name}
+                                        contactId={contact.id}
+                                    />
+                                </>
                             ) : (
                                 <Text size="sm" c="dimmed">{t('people.noPhone')}</Text>
                             )}

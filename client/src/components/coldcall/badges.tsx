@@ -49,6 +49,31 @@ export function CallStatusBadge({ status }: { status: CallStatus }) {
     return <Badge color={item.color} variant="light">{item.label}</Badge>;
 }
 
+export function NumberHealthBadge({ health, answerRate }: { health?: string; answerRate?: number | null }) {
+    const { t } = useTranslation();
+    if (!health) return null;
+    const map: Record<string, { color: string; label: string }> = {
+        warming: { color: 'blue', label: t('coldcall.healthWarming', 'Warming up') },
+        good: { color: 'green', label: t('coldcall.healthGood', 'Healthy') },
+        watch: { color: 'yellow', label: t('coldcall.healthWatch', 'Watch') },
+        risk: { color: 'red', label: t('coldcall.healthRisk', 'At risk') },
+        insufficient_data: { color: 'gray', label: t('coldcall.healthNoData', 'Not enough data') },
+    };
+    const item = map[health];
+    if (!item) return null;
+    const hint =
+        health === 'warming'
+            ? t('coldcall.healthWarmingHint', 'New number — daily cap ramps up over 14 days to protect reputation')
+            : answerRate != null
+                ? t('coldcall.healthHint', '7-day answer rate: {{r}}%', { r: Math.round(answerRate * 100) })
+                : t('coldcall.healthNoDataHint', 'Fewer than 10 connected attempts in the last 7 days');
+    return (
+        <Tooltip label={hint} withArrow>
+            <Badge color={item.color} variant="light">{item.label}</Badge>
+        </Tooltip>
+    );
+}
+
 export function SentimentBadge({ sentiment }: { sentiment: string | null | undefined }) {
     const { t } = useTranslation();
     if (!sentiment) return null;

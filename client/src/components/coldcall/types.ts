@@ -7,6 +7,7 @@ export interface ColdcallConfig {
     minutes_quota: number;
     minutes_used: number;
     max_numbers: number;
+    daily_cap_per_number: number;
     active_numbers: number;
     twilio_configured: boolean;
 }
@@ -27,6 +28,8 @@ export interface CountryInfo {
     number_monthly_usd?: number | null;
 }
 
+export type NumberHealth = 'warming' | 'good' | 'watch' | 'risk' | 'insufficient_data';
+
 export interface PhoneNumber {
     id: string;
     e164: string;
@@ -34,8 +37,15 @@ export interface PhoneNumber {
     friendly_name: string | null;
     status: 'pending_regulatory' | 'active' | 'released';
     purchased_at: string;
-    provider: string;
+    /** İtibar/sağlık istatistikleri (listede döner) */
+    calls_today?: number;
+    calls_7d?: number;
+    answer_rate_7d?: number | null;
+    daily_cap?: number;
+    remaining_today?: number;
+    health?: NumberHealth;
     /** Yalnız internal rollerde döner */
+    provider?: string;
     monthly_cost_usd?: number | null;
 }
 

@@ -17,6 +17,7 @@ export interface ColdcallSettingsRow {
     minutes_used: number;
     period_start: string;
     max_numbers: number;
+    daily_cap_per_number: number;
 }
 
 export interface ColdcallCallRow {

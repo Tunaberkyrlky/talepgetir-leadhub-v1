@@ -13,6 +13,7 @@ import { validateBody, uuidField } from '../../lib/validation.js';
 import { isInternalRole } from '../../lib/roles.js';
 import { countryForE164, multiplierFor } from '../data/countryPricing.js';
 import { getSettings, assertQuota } from '../lib/settings.js';
+import { usageForNumbers } from '../lib/reputation.js';
 import { sweepStaleCalls, TERMINAL_STATUSES } from '../lib/finalize.js';
 import { providerFor, twilioConfigured } from '../providers/index.js';
 import { summarizeTranscript } from '../lib/summarize.js';
@@ -50,6 +51,7 @@ router.get('/config', async (req: Request, res: Response, next: NextFunction): P
             minutes_quota: settings.minutes_quota,
             minutes_used: Number(settings.minutes_used),
             max_numbers: settings.max_numbers,
+            daily_cap_per_number: settings.daily_cap_per_number ?? 100,
             active_numbers: count ?? 0,
             twilio_configured: twilioConfigured(),
         });
@@ -102,31 +104,40 @@ router.post('/', requireCaller, validateBody(createSchema), async (req: Request,
         const settings = await getSettings(tenantId);
         assertQuota(settings);
 
-        // Arayan numara: istekten ya da default'tan; aktif ve tenant'ın olmalı
-        let numberQuery = supabaseAdmin
+        // Arayan numara: günlük tavan (warm-up dahil) enforce edilir; numara
+        // belirtilmemişse rotasyon — default tavan altındaysa o, değilse bugün
+        // en az kullanılan tavan-altı numara (itibar koruması, plan §9)
+        const { data: activeNumbers, error: numErr } = await supabaseAdmin
             .from('coldcall_phone_numbers')
             .select('*')
             .eq('tenant_id', tenantId)
             .eq('status', 'active');
-        if (body.phone_number_id) {
-            numberQuery = numberQuery.eq('id', body.phone_number_id);
-        } else if (settings.default_phone_number_id) {
-            numberQuery = numberQuery.eq('id', settings.default_phone_number_id);
-        }
-        const { data: numbers, error: numErr } = await numberQuery.limit(1);
         if (numErr) throw new AppError('Failed to resolve caller number', 500);
-        let fromNumber = numbers?.[0];
-        if (!fromNumber && !body.phone_number_id) {
-            // default yoksa ilk aktif numaraya düş
-            const { data: anyNum } = await supabaseAdmin
-                .from('coldcall_phone_numbers')
-                .select('*')
-                .eq('tenant_id', tenantId)
-                .eq('status', 'active')
-                .limit(1);
-            fromNumber = anyNum?.[0];
+        if (!activeNumbers?.length) throw new AppError('Arama yapmak için önce bir numara satın alın', 409);
+
+        const usage = await usageForNumbers(tenantId, activeNumbers, settings.daily_cap_per_number ?? 100);
+        let fromNumber;
+        if (body.phone_number_id) {
+            fromNumber = activeNumbers.find((n) => n.id === body.phone_number_id);
+            if (!fromNumber) throw new AppError('Numara bulunamadı', 404);
+            const u = usage.get(fromNumber.id);
+            if (u && u.remaining_today <= 0) {
+                throw new AppError(
+                    `Bu numaranın günlük arama tavanı doldu (${u.daily_cap}/gün, itibar koruması). Başka bir numara kullanın veya yarını bekleyin`,
+                    429
+                );
+            }
+        } else {
+            const underCap = activeNumbers.filter((n) => (usage.get(n.id)?.remaining_today ?? 1) > 0);
+            if (!underCap.length) {
+                throw new AppError('Tüm numaralarınız günlük arama tavanına ulaştı (itibar koruması)', 429);
+            }
+            fromNumber =
+                underCap.find((n) => n.id === settings.default_phone_number_id) ??
+                [...underCap].sort(
+                    (a, b) => (usage.get(a.id)?.calls_today ?? 0) - (usage.get(b.id)?.calls_today ?? 0)
+                )[0];
         }
-        if (!fromNumber) throw new AppError('Arama yapmak için önce bir numara satın alın', 409);
 
         // company doğrulaması — başka tenant'ın şirketine bağlanamaz
         if (body.company_id) {

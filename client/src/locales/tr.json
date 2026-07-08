@@ -503,7 +503,17 @@
         "buy": "Satın al",
         "inventoryAvailable": "Mevcut",
         "inventoryDocs": "Mevcut (belge gerekli)",
-        "searchCountry": "Ülke veya alan kodu arayın…"
+        "searchCountry": "Ülke veya alan kodu arayın…",
+        "colToday": "Bugün",
+        "colHealth": "Sağlık",
+        "healthWarming": "Isınıyor",
+        "healthGood": "Sağlıklı",
+        "healthWatch": "Dikkat",
+        "healthRisk": "Riskli",
+        "healthNoData": "Veri yetersiz",
+        "healthWarmingHint": "Yeni numara; itibar koruması için günlük tavan 14 günde kademeli artar",
+        "healthHint": "7 günlük cevaplanma oranı: %{{r}}",
+        "healthNoDataHint": "Son 7 günde 10'dan az bağlantı denemesi var"
     },
     "research": {
         "title": "Araştırma",
