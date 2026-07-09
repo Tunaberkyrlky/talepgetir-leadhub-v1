@@ -14,8 +14,35 @@ import { ProxyAgent } from 'undici';
 const MAX_AGENTS = 200;
 const agents = new Map<string, ProxyAgent>();
 
-export function proxyAgentFor(proxySessionId: string): ProxyAgent {
-    const cached = agents.get(proxySessionId);
+// DataImpulse sticky-session TTL in minutes. Docs: sessid pins one IP; the rotation
+// interval (sessttl) ranges 1-120 with a 30-min default. We use the MAX (120) so an
+// account holds its egress IP as long as the provider allows before an unavoidable
+// residential rotation. Verified live: WITHOUT a ttl the same sessid dropped its IP in
+// ~4 min (the residential device went offline); the max ttl minimizes that churn.
+const SESS_TTL_MIN = 120;
+
+/** Lowercase ISO-3166-1 alpha-2, or null. Free-text geo (e.g. "Germany") is rejected so
+ *  we never build a cr.<garbage> that could fail auth — only a clean 2-letter code opts in. */
+function normalizeCountry(country?: string | null): string | null {
+    if (!country) return null;
+    const c = String(country).trim().toLowerCase();
+    return /^[a-z]{2}$/.test(c) ? c : null;
+}
+
+/**
+ * Sticky per-account proxy agent. `proxySessionId` pins one egress IP to this account (never
+ * per-request rotation — that is LinkedIn's #1 automation flag). An optional ISO-2 country
+ * geo-locks the session so that when the residential IP does rotate it stays IN-country
+ * (a Turkish account must never suddenly egress from another country). validate and every
+ * send MUST pass the SAME country so they share one IP — else the health probe and the
+ * writes would exit from different addresses.
+ */
+export function proxyAgentFor(proxySessionId: string, country?: string | null): ProxyAgent {
+    const cc = normalizeCountry(country);
+    // Country is part of the session identity: a different cc yields a different IP, so it
+    // must key the cache too (else a geo change would reuse the wrong-country agent).
+    const cacheKey = cc ? `${proxySessionId}|${cc}` : proxySessionId;
+    const cached = agents.get(cacheKey);
     if (cached) return cached;
 
     const raw = process.env.ROTATING_5G_PROXY;
@@ -37,12 +64,14 @@ export function proxyAgentFor(proxySessionId: string): ProxyAgent {
     if (!url.username || !url.password || !url.host) {
         throw new Error('ROTATING_5G_PROXY must include USER:PASS@host:port');
     }
-    // Sticky-session syntax is provider-specific. DataImpulse pins one egress IP per
-    // session when the session id is appended to the username as `;sessid.<id>` (verified
-    // live: same id → same IP, 200; the older Bright-Data-style `-session-<id>` is
-    // rejected 407 by DataImpulse). Keep the id alphanumeric-safe for the `;`/`.` grammar.
+    // DataImpulse username params (verified live against the real gateway, 2026-07-09):
+    // `login__[cr.<cc>;]sessid.<id>;sessttl.<min>`. sessid → same IP; sessttl.120 → hold it
+    // the max window; cr → geo-lock. The Bright-Data-style `-session-<id>` is rejected 407.
+    // Keep the id alphanumeric-safe for the `;`/`.` grammar.
     const stickyId = proxySessionId.replace(/[^A-Za-z0-9]/g, '');
-    const uri = `${url.protocol}//${url.username};sessid.${stickyId}:${url.password}@${url.host}`;
+    const params = cc ? [`cr.${cc}`] : [];
+    params.push(`sessid.${stickyId}`, `sessttl.${SESS_TTL_MIN}`);
+    const uri = `${url.protocol}//${url.username}__${params.join(';')}:${url.password}@${url.host}`;
 
     // Bound the cache: close + evict the oldest (insertion order) when at capacity.
     if (agents.size >= MAX_AGENTS) {
@@ -51,7 +80,7 @@ export function proxyAgentFor(proxySessionId: string): ProxyAgent {
     }
 
     const agent = new ProxyAgent(uri);
-    agents.set(proxySessionId, agent);
+    agents.set(cacheKey, agent);
     return agent;
 }
 
