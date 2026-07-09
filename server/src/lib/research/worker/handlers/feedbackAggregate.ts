@@ -18,10 +18,30 @@
  */
 import type { HandlerContext, JobHandler } from '../types.js';
 import { researchSupabaseAdmin } from '../../supabase.js';
-import { supabaseAdmin } from '../../../supabase.js';
 import { createLogger } from '../../../logger.js';
 
 const log = createLogger('research:handler:feedback-aggregate');
+
+type CrmClient = typeof import('../../../supabase.js').supabaseAdmin;
+
+// lib/supabase throws at import when SUPABASE_* is unset — and the Railway worker
+// intentionally carries no prod creds (prod isolation). Resolved lazily so a keyless
+// worker still boots; a missing client degrades every CRM signal to zero (counted in
+// crm_read_errors), the same contract as a missing table/column.
+let crmClient: CrmClient | null | undefined;
+async function getCrmClient(jobId: string): Promise<CrmClient | null> {
+    if (crmClient !== undefined) return crmClient;
+    try {
+        crmClient = (await import('../../../supabase.js')).supabaseAdmin;
+    } catch (err) {
+        crmClient = null;
+        log.warn(
+            { err: err instanceof Error ? err.message : err, jobId },
+            'CRM client unavailable (SUPABASE_* unset on this process) — CRM signals degrade to zero'
+        );
+    }
+    return crmClient;
+}
 
 const CHUNK = 200;
 
@@ -48,6 +68,8 @@ async function readCrmSignals(
 ): Promise<{ byCompany: Map<string, OutcomeCounts>; readErrors: number }> {
     const byCompany = new Map<string, OutcomeCounts>();
     let readErrors = 0;
+    const crm = await getCrmClient(jobId);
+    if (!crm) return { byCompany, readErrors: 1 };
     const get = (id: string): OutcomeCounts => {
         let c = byCompany.get(id);
         if (!c) { c = emptyCounts(); byCompany.set(id, c); }
@@ -65,7 +87,7 @@ async function readCrmSignals(
     const pagedRead = async (table: string, columns: string, chunk: string[]): Promise<Record<string, unknown>[] | null> => {
         const rows: Record<string, unknown>[] = [];
         for (let start = 0; ; start += PAGE) {
-            const { data, error } = await supabaseAdmin
+            const { data, error } = await crm
                 .from(table)
                 .select(columns)
                 .eq('tenant_id', tenantId)
