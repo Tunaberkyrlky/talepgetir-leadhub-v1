@@ -1,6 +1,16 @@
 # TG-Research v2 — İlerleme Günlüğü (build log)
 
-Son güncelleme: **2026-07-09** — **A-0 vizyon paketlerinin TAMAMI SHIP:** WP1-3 (`aefb98b`) + WP4 (`b69d217`) + **WP5 BİTTİ → codex SHIP** (2-lens 1×P1+3×P2+3×P3 + codex 2×P1+3×P2, hepsi düzeltildi, verify SHIP). Branch: `ssalihyetim/TG-Research` (worktree).
+Son güncelleme: **2026-07-09** — **A-0 TAMAMI SHIP + Railway worker/api DEPLOY EDİLDİ** (§4.14). Branch: `ssalihyetim/TG-Research` (worktree).
+
+## 4.14 RAILWAY DEPLOY (A-0 build canlıda) — ✅ **BİTTİ → codex PASS** (2026-07-09)
+
+**Sonuç:** worker (`2b0b982b`) + research-api (`05bb9f5e`) Railway'de commit `52569e2` ile CANLI; `/api/health` OK; post-deploy smoke: SQL-enqueue edilen `feedback:aggregate` job'ını deploy edilen worker ~1sn'de `succeeded` işledi (zero-export prune yolu; `crm_read_errors=0`). Yeni handler'lar (channels:discover/harvest, offer:generate, feedback:aggregate, calibrate/geo/icp:revise) canlı registry'de.
+
+- **Ön-koşul doğrulandı:** migrations 090-100 izole DB'de (`research_geo_persist_projection` → `research_outcome_stats_2`) `list_migrations` ile teyit — deploy sırası ihlal edilmedi.
+- **Deploy yöntemi:** clean **HEAD archive** stage (`git archive HEAD` → scratchpad) + `deploy/<svc>/railway.json` root'a — çalışma ağacındaki commit'lenmemiş LinkedIn Faz 4 hunk'ları build'e SIZMADI (infra/README §staged-archive; working-tree rsync yerine bilinçli archive).
+- **İlk worker deploy'u CRASH etti → 2 kök neden, ikisi de import-zamanı:** (1) LinkedIn Faz 2/3 handler'ları worker grafiğine `lib/linkedin/crypto → middleware/errorHandler → lib/posthog`'u soktu; PostHog keysiz constructor'da assert atıyor → **fix `161d113`**: keyless-safe init (placeholder key + `disabled:true`; keyli süreçlerde davranış birebir). (2) WP5 `feedbackAggregate` CRM client'ını (`lib/supabase`) statik import ediyordu — worker'ın prod-izolasyon sözleşmesini deliyor → **fix `52569e2`**: lazy dynamic import + savunmacı degrade (client yoksa tüm CRM sinyali sıfır, `crm_read_errors=1`; env'li ortamda davranış aynı). İkisi de lokal keyless boot testiyle kanıtlandı ("research worker started"), sonra deploy.
+- **Codex xhigh review (iki commit diff'i): GATE PASS, 0 bulgu** — SDK (posthog-node 5.29.2) disabled yolunun gerçek no-op olduğu, lazy cache'in bozuk client yakalayamayacağı, kısmi CRM hatalarının savunmacı kaldığı doğrulandı.
+- **Ortam gerçeği (README düzeltmesi):** Railway worker'da `SUPABASE_*` ZATEN set ve **izole test DB'ye** işaret ediyor (prod DEĞİL) — yani canlıda feedback:aggregate degrade değil TAM çalışır; prod cred yok invariant'ı ruhen korunuyor. `POSTHOG_API_KEY` worker'da yok (bilinçli).
 
 ## 4.13 WP5 — KAMPANYA GERİ-BESLEME AGREGATI — ✅ **BİTTİ → codex SHIP** (2026-07-09)
 

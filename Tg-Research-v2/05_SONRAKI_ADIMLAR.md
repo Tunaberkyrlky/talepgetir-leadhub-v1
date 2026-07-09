@@ -1,11 +1,11 @@
 # TG-Research v2 — Sonraki Adımlar
 
-Son güncelleme: **2026-07-09** — **A-0 (WP1–WP5) TAMAMI SHIP + commit'li** (`aefb98b`/`b69d217`/`b45661d`). Durum özeti: `04_ILERLEME.md §4.9-4.13`. Bu dosya **resume için yapılacaklar**.
+Son güncelleme: **2026-07-09** — **A-0 (WP1–WP5) TAMAMI SHIP + commit'li + RAILWAY'DE CANLI** (`aefb98b`/`b69d217`/`b45661d` + deploy-fix `161d113`/`52569e2`). Durum özeti: `04_ILERLEME.md §4.9-4.14`. Bu dosya **resume için yapılacaklar**.
 
-Mevcut durum tek cümle: **Motor + "akıl katmanı" TAMAM: kalibrasyon döngüsü (WP1), sub-ICP geo-instantiation (WP2), Y1 kanal keşfi/hasadı + kalıcı hücre saturasyonu (WP3), offer/angle haritası + firma hook'ları + zengin CRM export (WP4), kampanya geri-besleme agregatı + opt-out senkronu (WP5) — hepsi izole test DB'de (migrations 084-100) codex-SHIP'li ve smoke'lu.**
+Mevcut durum tek cümle: **Motor + "akıl katmanı" TAMAM ve DEPLOY'LU: kalibrasyon döngüsü (WP1), sub-ICP geo-instantiation (WP2), Y1 kanal keşfi/hasadı + kalıcı hücre saturasyonu (WP3), offer/angle haritası + firma hook'ları + zengin CRM export (WP4), kampanya geri-besleme agregatı + opt-out senkronu (WP5) — hepsi izole test DB'de (migrations 084-100) codex-SHIP'li, smoke'lu ve Railway worker/api'de canlı.**
 
-> **DEPLOY NOTU (kritik):** Railway worker/api'ye bu build deploy edilmeden ÖNCE migrations **090-100** hedef DB'ye uygulanmalı (fenced RPC imzaları değişti — eski DB'de tüm upsert/verdict yazımları düşer). İzole test DB (`iehqsuludghrhosgxhnr`) = Railway'in mevcut DB'si olduğundan ŞU AN uygulı; ileride ayrı prod research DB açılırsa bu sıra geçerli.
-> **SIRADAKİ ADAYLAR:** (1) worker/api deploy'u (yeni handler'lar: channels:discover/harvest, offer:generate, feedback:aggregate); (2) tier kota SAYILARI; (3) Y3 saturasyon/directory tuning; (4) enrichment fazı (domainless review firmaları); (5) WP5 follow-up: export-anı ICP pinleme (P3, 04 §4.13); (6) SearXNG public domain kapalı — lokal smoke'lar Gemini fallback'le koşar.
+> ~~**DEPLOY NOTU (kritik)**~~ ✅ **DEPLOY EDİLDİ (2026-07-09, detay `04 §4.14`):** worker `2b0b982b` + research-api `05bb9f5e` @ commit `52569e2`; migrations 090-100 önceden DB'de teyitli; clean-HEAD-archive stage (LinkedIn WIP dışarıda); 2 import-crash fix'i (`161d113` keyless PostHog, `52569e2` lazy CRM client — codex xhigh PASS 0 bulgu); post-deploy `feedback:aggregate` smoke succeeded. İleride ayrı prod research DB açılırsa "migrations önce, server sonra" sırası geçerli kalır.
+> **SIRADAKİ ADAYLAR:** (1) tier kota SAYILARI; (2) Y3 saturasyon/directory tuning; (3) enrichment fazı (domainless review firmaları); (4) WP5 follow-up: export-anı ICP pinleme (P3, 04 §4.13); (5) SearXNG public domain kapalı — lokal smoke'lar Gemini fallback'le koşar (Railway worker internal URL ile SearXNG'yi normal kullanır); (6) WP5 prod-mimarisi notu: gerçek prod ayrışmasında CRM outcome okuması worker'da değil (prod cred yok) — ya research-api'de koşacak ya worker'a salt-okunur scoped prod erişimi tanımlanacak (kullanıcı kararı).
 
 ---
 
