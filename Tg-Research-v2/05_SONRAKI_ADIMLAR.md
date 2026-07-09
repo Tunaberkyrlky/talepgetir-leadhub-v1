@@ -1,8 +1,11 @@
 # TG-Research v2 — Sonraki Adımlar
 
-Son güncelleme: **2026-07-08** (uçtan uca olgunluk değerlendirmesi → vizyon boşlukları WP1–WP5 olarak plana işlendi; inşa başlıyor). Durum özeti: `04_ILERLEME.md`. Bu dosya **resume için yapılacaklar**.
+Son güncelleme: **2026-07-09** — **A-0 (WP1–WP5) TAMAMI SHIP + commit'li** (`aefb98b`/`b69d217`/`b45661d`). Durum özeti: `04_ILERLEME.md §4.9-4.13`. Bu dosya **resume için yapılacaklar**.
 
-Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + COGS görünürlüğü + CRM export + Companies UI tamamlandı; SearXNG web discovery artık ROTATING_PROXY ile Y3 11-açı framework'ünde $0 search COGS ile çalışıyor; Gosom/Google Maps Batı discovery worker'a bağlı; migrations 075-078 test research DB'de smoke ile doğrulandı. 2GIS/CIS kullanıcı kararıyla aktif yoldan çıkarıldı.**
+Mevcut durum tek cümle: **Motor + "akıl katmanı" TAMAM: kalibrasyon döngüsü (WP1), sub-ICP geo-instantiation (WP2), Y1 kanal keşfi/hasadı + kalıcı hücre saturasyonu (WP3), offer/angle haritası + firma hook'ları + zengin CRM export (WP4), kampanya geri-besleme agregatı + opt-out senkronu (WP5) — hepsi izole test DB'de (migrations 084-100) codex-SHIP'li ve smoke'lu.**
+
+> **DEPLOY NOTU (kritik):** Railway worker/api'ye bu build deploy edilmeden ÖNCE migrations **090-100** hedef DB'ye uygulanmalı (fenced RPC imzaları değişti — eski DB'de tüm upsert/verdict yazımları düşer). İzole test DB (`iehqsuludghrhosgxhnr`) = Railway'in mevcut DB'si olduğundan ŞU AN uygulı; ileride ayrı prod research DB açılırsa bu sıra geçerli.
+> **SIRADAKİ ADAYLAR:** (1) worker/api deploy'u (yeni handler'lar: channels:discover/harvest, offer:generate, feedback:aggregate); (2) tier kota SAYILARI; (3) Y3 saturasyon/directory tuning; (4) enrichment fazı (domainless review firmaları); (5) WP5 follow-up: export-anı ICP pinleme (P3, 04 §4.13); (6) SearXNG public domain kapalı — lokal smoke'lar Gemini fallback'le koşar.
 
 ---
 

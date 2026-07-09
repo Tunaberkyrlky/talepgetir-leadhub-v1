@@ -266,6 +266,14 @@ cd server && npx tsx ../temp/icp-smoke.ts
 #    DETAIL marker'ları, anti-join+suppression filtresi, settle/release fence, zombie+reaper, DML revoke)
 # CANLI harvest pilot (gerçek Gemini+DeepSeek+holds, ~$0.01-0.03, küçük caps)
 cd server && npx tsx ../temp/harvest-smoke.ts
+# WP smoke'ları (hepsi izole DB):
+#   coverage-smoke.sql (091/093 chunk RPC, MCP execute_sql, ALL_PASS P1-P6)
+#   verdict-smoke.sql (067/069/096/098, ALL_PASS P1-P10+P10b — faturalı-match + hooks + export)
+#   geo-smoke.sql (086/090, ALL_PASS P1-P4)
+#   cd server && npx tsx ../temp/channels-smoke.ts   # WP3 canlı (SearXNG internal-only → RESEARCH_SEARXNG_URL gerek ya da geçici public domain)
+#   cd server && npx tsx ../temp/offers-smoke.ts     # WP4 canlı (~$0.10; SearXNG'siz Gemini fallback ile koşar)
+#   cd server && npx tsx ../temp/outcomes-smoke.ts   # WP5 deterministik (LLM yok)
+# NOT: canlı worker aynı DB'yi dinler — smoke'lar queued job yerine yarışsız fenced RUNNING job insert eder.
 # pilot sonrası temizlik: MCP execute_sql ile research_* satırlarını sil (page/search cache TUT);
 #   service_role billing/holds DML revoke edilmiş — temizlik postgres/owner rolüyle (MCP) yapılır
 # codex review: codex exec -m gpt-5.5 -c model_reasoning_effort=xhigh -c approval_policy=never -c sandbox_mode=read-only - < prompt.txt
