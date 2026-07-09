@@ -9,11 +9,13 @@
  *   B) manual fallback (always shown): copy the token into the extension popup.
  * The token never leaves the browser except through the extension; we never send cookies.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Code, CopyButton, Group, List, Loader, Paper, Stack, Text, Title } from '@mantine/core';
 import { IconBrandLinkedin, IconCheck, IconCopy, IconInfoCircle } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import api from '../../lib/api';
 
 // Chrome's externally-connectable messaging surface (present only with the extension).
 type ChromeRuntime = {
@@ -26,9 +28,15 @@ function tokenFromHash(hash: string): string | null {
     return raw && raw.length >= 32 && raw.length <= 128 ? raw : null;
 }
 
+// Where "Connected" lands the user: the LinkedIn tab's Accounts sub-tab.
+const ACCOUNTS_URL = '/research?tab=linkedin&sub=accounts';
+// Poll long enough to install/open the extension and paste the token.
+const CONNECT_WATCH_MS = 4 * 60 * 1000;
+
 export default function LinkedInConnectPage() {
     const { t } = useTranslation();
     const location = useLocation();
+    const navigate = useNavigate();
     const token = useMemo(() => tokenFromHash(location.hash), [location.hash]);
 
     const extensionId = import.meta.env.VITE_LINKEDIN_EXTENSION_ID as string | undefined;
@@ -55,6 +63,31 @@ export default function LinkedInConnectPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [canAutoConnect]);
 
+    // The manual popup path gives this page no callback: the extension POSTs the capture
+    // straight to the server. So watch the accounts list for a bounded window and flip to
+    // "Connected" automatically when a new account row shows up — no reload, no callback.
+    const baselineIds = useRef<Set<string> | null>(null);
+    const watchDeadline = useRef<number>(Date.now() + CONNECT_WATCH_MS);
+    const watchQuery = useQuery<{ data: { id: string }[] }>({
+        queryKey: ['linkedin', 'connect-watch'],
+        queryFn: async () => (await api.get('/linkedin/accounts')).data,
+        enabled: !!token && state !== 'ok',
+        refetchInterval: () => (Date.now() < watchDeadline.current ? 3000 : false),
+    });
+    useEffect(() => {
+        const ids = watchQuery.data?.data?.map((a) => a.id);
+        if (!ids) return;
+        if (baselineIds.current === null) { baselineIds.current = new Set(ids); return; }
+        if (ids.some((id) => !baselineIds.current!.has(id)) && state !== 'ok') setState('ok');
+    }, [watchQuery.data, state]);
+
+    // On success (either path), bring the user back to the Accounts view automatically.
+    useEffect(() => {
+        if (state !== 'ok') return;
+        const id = window.setTimeout(() => navigate(ACCOUNTS_URL), 2000);
+        return () => window.clearTimeout(id);
+    }, [state, navigate]);
+
     if (!token) {
         return (
             <Paper withBorder radius="md" p="xl" maw={560} mx="auto" mt="xl">
@@ -74,9 +107,14 @@ export default function LinkedInConnectPage() {
                 </Group>
 
                 {state === 'ok' ? (
-                    <Alert color="green" icon={<IconCheck size={16} />}>
-                        {t('research.linkedin.connectPage.done', 'Connected. Return to TG Core — your account will appear once it validates.')}
-                    </Alert>
+                    <Stack gap="sm">
+                        <Alert color="green" icon={<IconCheck size={16} />}>
+                            {t('research.linkedin.connectPage.done', 'Connected. Taking you back to your accounts…')}
+                        </Alert>
+                        <Button leftSection={<IconBrandLinkedin size={16} />} onClick={() => navigate(ACCOUNTS_URL)}>
+                            {t('research.linkedin.connectPage.backToAccounts', 'Back to accounts')}
+                        </Button>
+                    </Stack>
                 ) : (
                     <>
                         {canAutoConnect && (

@@ -11,6 +11,7 @@ import {
 } from '@mantine/core';
 import { IconSparkles, IconInfoCircle, IconBuildingSkyscraper, IconTargetArrow, IconFileSpreadsheet, IconBrandLinkedin, IconWorldPin, IconUserSearch } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showErrorFromApi } from '../../lib/notifications';
@@ -32,9 +33,25 @@ interface ResearchJob {
 
 const JOB_RUNNING = (s?: string) => s === 'queued' || s === 'running';
 
+const RESEARCH_TABS = ['icp', 'geographies', 'offers', 'companies', 'enrichment', 'trade', 'linkedin'];
+
 export default function ResearchPage() {
     const { t } = useTranslation();
     const qc = useQueryClient();
+    // URL-controlled active tab (?tab=…) so the LinkedIn connect page can deep-link
+    // back to a specific tab after a session is captured (no manual reload/click).
+    const [searchParams, setSearchParams] = useSearchParams();
+    const tabParam = searchParams.get('tab');
+    const activeTab = tabParam && RESEARCH_TABS.includes(tabParam) ? tabParam : 'icp';
+    const setActiveTab = (value: string | null) => {
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            if (value && value !== 'icp') next.set('tab', value); else next.delete('tab');
+            // Sub-tab is tab-specific; drop it when switching top-level tabs.
+            if (value !== 'linkedin') next.delete('sub');
+            return next;
+        }, { replace: true });
+    };
 
     // Profile form
     const [website, setWebsite] = useState('');
@@ -116,7 +133,7 @@ export default function ResearchPage() {
 
                 {/* Panels stay MOUNTED across tab switches: CompaniesPanel may be polling a running
                     harvest job — unmounting would drop the poll and orphan the run's progress UX. */}
-                <Tabs defaultValue="icp">
+                <Tabs value={activeTab} onChange={setActiveTab}>
                     <Tabs.List mb="md">
                         <Tabs.Tab value="icp" leftSection={<IconTargetArrow size={16} />}>
                             {t('research.tabs.icp', 'ICP Master')}

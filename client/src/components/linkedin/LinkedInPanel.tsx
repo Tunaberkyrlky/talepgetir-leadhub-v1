@@ -1,16 +1,31 @@
 import { Tabs } from '@mantine/core';
 import { IconUsers, IconSend, IconInbox, IconBan } from '@tabler/icons-react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import LinkedInAccountsPanel from './LinkedInAccountsPanel';
 import LinkedInCampaignsPanel from './LinkedInCampaignsPanel';
 import LinkedInInboxPanel from './LinkedInInboxPanel';
 import LinkedInSuppressionPanel from './LinkedInSuppressionPanel';
 
+const LINKEDIN_SUBTABS = ['accounts', 'campaigns', 'inbox', 'suppression'];
+
 /** Faz 5 — the LinkedIn module home: accounts / campaigns / inbox / suppression sub-tabs. */
 export default function LinkedInPanel() {
     const { t } = useTranslation();
+    // URL-controlled sub-tab (?sub=…) so the connect page can land the user straight on
+    // "Accounts" after a session is captured.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const subParam = searchParams.get('sub');
+    const activeSub = subParam && LINKEDIN_SUBTABS.includes(subParam) ? subParam : 'accounts';
+    const setActiveSub = (value: string | null) => {
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            if (value && value !== 'accounts') next.set('sub', value); else next.delete('sub');
+            return next;
+        }, { replace: true });
+    };
     return (
-        <Tabs defaultValue="accounts" keepMounted={false}>
+        <Tabs value={activeSub} onChange={setActiveSub} keepMounted={false}>
             <Tabs.List mb="md">
                 <Tabs.Tab value="accounts" leftSection={<IconUsers size={14} />}>
                     {t('research.linkedin.subtabs.accounts', 'Accounts')}
