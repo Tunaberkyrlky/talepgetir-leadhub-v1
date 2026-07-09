@@ -37,7 +37,12 @@ export function proxyAgentFor(proxySessionId: string): ProxyAgent {
     if (!url.username || !url.password || !url.host) {
         throw new Error('ROTATING_5G_PROXY must include USER:PASS@host:port');
     }
-    const uri = `${url.protocol}//${url.username}-session-${proxySessionId}:${url.password}@${url.host}`;
+    // Sticky-session syntax is provider-specific. DataImpulse pins one egress IP per
+    // session when the session id is appended to the username as `;sessid.<id>` (verified
+    // live: same id → same IP, 200; the older Bright-Data-style `-session-<id>` is
+    // rejected 407 by DataImpulse). Keep the id alphanumeric-safe for the `;`/`.` grammar.
+    const stickyId = proxySessionId.replace(/[^A-Za-z0-9]/g, '');
+    const uri = `${url.protocol}//${url.username};sessid.${stickyId}:${url.password}@${url.host}`;
 
     // Bound the cache: close + evict the oldest (insertion order) when at capacity.
     if (agents.size >= MAX_AGENTS) {
