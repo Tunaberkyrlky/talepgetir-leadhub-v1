@@ -911,6 +911,11 @@
             "needApprovedFinish": "The ICP must be approved before you can mark it calibrated.",
             "needFeedbackFinish": "Rate at least one sampled company at the current ruleset before finishing.",
             "feedbackStale": "The ICP changed since you rated these companies — reloaded, review and rate again."
+        },
+        "outcomes": {
+            "replyRate": "Reply {{pct}}%",
+            "tooltip": "{{replies}} replies / {{sent}} sent ({{positive}} positive)",
+            "angleStats": "{{sent}} sent · {{replies}} replies · {{positive}} positive"
         }
     },
     "people": {

@@ -5,9 +5,9 @@
  */
 import { useState } from 'react';
 import {
-    Card, Stack, Group, TextInput, Textarea, TagsInput, Slider, Button, Badge, Text, Divider,
+    Card, Stack, Group, TextInput, Textarea, TagsInput, Slider, Button, Badge, Text, Divider, Tooltip,
 } from '@mantine/core';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showSuccess, showErrorFromApi } from '../../lib/notifications';
@@ -46,6 +46,15 @@ const CALIBRATION_COLOR: Record<ResearchIcp['calibration_state'], string> = {
 export default function IcpCard({ icp }: { icp: ResearchIcp }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
+
+    // WP5: campaign outcome aggregate (counts only) — the reply-rate badge. Empty until the
+    // daily feedback:aggregate has data for this ICP; cached long (stats move daily).
+    const outcomesQuery = useQuery<{ total: { sent: number; replies: number; positive: number } | null }>({
+        queryKey: ['research', 'icp-outcomes', icp.id],
+        queryFn: async () => (await api.get(`/research/icps/${icp.id}/outcomes`)).data,
+        staleTime: 5 * 60 * 1000,
+    });
+    const outcomeTotal = outcomesQuery.data?.total ?? null;
 
     const [draft, setDraft] = useState<ResearchIcp>(icp);
     const [calibrationOpen, setCalibrationOpen] = useState(false);
@@ -102,6 +111,13 @@ export default function IcpCard({ icp }: { icp: ResearchIcp }) {
                         fw={600}
                     />
                     <Group gap="xs">
+                        {outcomeTotal && outcomeTotal.sent > 0 && (
+                            <Tooltip label={t('research.outcomes.tooltip', '{{replies}} replies / {{sent}} sent ({{positive}} positive)', { replies: outcomeTotal.replies, sent: outcomeTotal.sent, positive: outcomeTotal.positive })}>
+                                <Badge variant="light" color={outcomeTotal.replies > 0 ? 'teal' : 'gray'}>
+                                    {t('research.outcomes.replyRate', 'Reply {{pct}}%', { pct: Math.round((outcomeTotal.replies / outcomeTotal.sent) * 100) })}
+                                </Badge>
+                            </Tooltip>
+                        )}
                         {draft.code && <Badge variant="light" color="violet">{draft.code}</Badge>}
                         <Badge variant="light" color={CALIBRATION_COLOR[icp.calibration_state]}>
                             {t(`research.calibration.state.${icp.calibration_state}`, icp.calibration_state)}

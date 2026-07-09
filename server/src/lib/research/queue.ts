@@ -245,6 +245,46 @@ export async function releaseStaleHolds(timeout = '15 minutes'): Promise<number>
  * ticks call this every reap interval — a cheap no-op once applied) can never double-grant.
  * Returns the number of tenants granted this call. Non-fatal on error.
  */
+/**
+ * Daily feedback-aggregate tick (WP5): enqueue ONE feedback:aggregate job per tenant that has
+ * exported research companies, at most once per UTC day. Idempotent from the reap loop — the
+ * duplicate guard checks any job of the type created today (queued/running/terminal alike),
+ * so the every-minute call is a cheap no-op after the first enqueue.
+ */
+export async function enqueueDailyFeedbackAggregates(): Promise<number> {
+    // DISTINCT runs in the DB (100 helper RPC — review P2): a raw row scan with a limit
+    // would let ONE big tenant's exported rows fill the window and silently starve every
+    // other tenant's daily aggregate (and their opt-out → suppression sync) forever.
+    const { data: tenants, error: tErr } = await researchSupabaseAdmin.rpc('research_tenants_with_exports');
+    if (tErr) throw tErr;
+    const tenantIds = ((tenants ?? []) as Array<{ tenant_id: string }>).map((r) => r.tenant_id);
+    if (tenantIds.length === 0) return 0;
+
+    const dayStart = new Date();
+    dayStart.setUTCHours(0, 0, 0, 0);
+    // Chunked .in() (codex P2): enough exporting tenants would push a single query past the
+    // gateway URL limit and fail the whole daily tick.
+    const done = new Set<string>();
+    for (let i = 0; i < tenantIds.length; i += 200) {
+        const { data: todays, error: jErr } = await researchSupabaseAdmin
+            .from('research_jobs')
+            .select('tenant_id')
+            .eq('type', 'feedback:aggregate')
+            .gte('created_at', dayStart.toISOString())
+            .in('tenant_id', tenantIds.slice(i, i + 200));
+        if (jErr) throw jErr;
+        for (const r of (todays ?? []) as Array<{ tenant_id: string }>) done.add(r.tenant_id);
+    }
+
+    let enqueued = 0;
+    for (const tenantId of tenantIds) {
+        if (done.has(tenantId)) continue;
+        await enqueueJob({ tenantId, type: 'feedback:aggregate', payload: {} });
+        enqueued++;
+    }
+    return enqueued;
+}
+
 export async function applyPeriodGrants(): Promise<number> {
     const { data, error } = await researchSupabaseAdmin.rpc('research_apply_period_grants', {});
     if (error) {

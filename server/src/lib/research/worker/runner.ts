@@ -16,6 +16,7 @@ import {
     reapStaleJobs,
     releaseStaleHolds,
     applyPeriodGrants,
+    enqueueDailyFeedbackAggregates,
     type ResearchJob,
 } from '../queue.js';
 import { getHandler } from './handlers/index.js';
@@ -152,7 +153,14 @@ export class ResearchWorker {
         }
     }
 
+    /** Re-entry guard (review P3): a reap tick slower than the interval must not overlap the
+     *  next — the duplicate-enqueue check in the feedback tick is check-then-insert. Bounded
+     *  impact either way (the handler is idempotent), single-replica worker assumed. */
+    private reapRunning = false;
+
     private async reap(): Promise<void> {
+        if (this.reapRunning) return;
+        this.reapRunning = true;
         try {
             const n = await reapStaleJobs();
             if (n > 0) log.warn({ reaped: n }, 'reaped stale jobs');
@@ -174,6 +182,15 @@ export class ResearchWorker {
         } catch (err) {
             log.error({ err }, 'apply period grants error');
         }
+        // Daily campaign-outcome aggregate (WP5) — once per tenant per UTC day (same idempotent
+        // every-tick pattern as the grants above).
+        try {
+            const f = await enqueueDailyFeedbackAggregates();
+            if (f > 0) log.info({ enqueued: f }, 'enqueued daily feedback aggregates');
+        } catch (err) {
+            log.error({ err }, 'feedback aggregate tick error');
+        }
+        this.reapRunning = false;
     }
 
     /** Stop polling and wait for in-flight jobs to finish (graceful drain). */

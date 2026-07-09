@@ -899,4 +899,52 @@ router.post('/:id/mark-calibrated', requireWriter, async (req: Request, res: Res
     }
 });
 
+// ── GET /api/research/icps/:id/outcomes — WP5 campaign outcome aggregates ────
+// Counts only (no dollars) from research_outcome_stats; total = the angle-NULL rollup rows
+// summed across geo cells, by_angle = per-code sums. Empty until feedback:aggregate has run.
+router.get('/:id/outcomes', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const parsed = idParamSchema.safeParse(req.params);
+        if (!parsed.success) {
+            res.status(400).json({ error: 'Invalid ICP ID' });
+            return;
+        }
+        const tenantId = req.tenantId!;
+        const { data, error } = await researchSupabaseAdmin
+            .from('research_outcome_stats')
+            .select('angle_code, exported, sent, replies, positive, optouts, updated_at')
+            .eq('tenant_id', tenantId)
+            .eq('icp_id', parsed.data.id)
+            .eq('period', 'all');
+        if (error) {
+            log.error({ err: error }, 'outcomes read failed');
+            throw new AppError('Failed to fetch outcomes', 500);
+        }
+        const rows = (data ?? []) as Array<{ angle_code: string | null; exported: number; sent: number; replies: number; positive: number; optouts: number; updated_at: string }>;
+        const totals = rows.filter((r) => r.angle_code == null);
+        const total = totals.length === 0 ? null : {
+            exported: totals.reduce((n, r) => n + r.exported, 0),
+            sent: totals.reduce((n, r) => n + r.sent, 0),
+            replies: totals.reduce((n, r) => n + r.replies, 0),
+            positive: totals.reduce((n, r) => n + r.positive, 0),
+            optouts: totals.reduce((n, r) => n + r.optouts, 0),
+            updated_at: totals.map((r) => r.updated_at).sort().at(-1) ?? null,
+        };
+        const byAngle = Object.values(
+            rows.filter((r) => r.angle_code != null).reduce((acc, r) => {
+                const key = r.angle_code as string;
+                acc[key] = acc[key] ?? { angle_code: key, exported: 0, sent: 0, replies: 0, positive: 0, optouts: 0 };
+                acc[key].exported += r.exported; acc[key].sent += r.sent; acc[key].replies += r.replies;
+                acc[key].positive += r.positive; acc[key].optouts += r.optouts;
+                return acc;
+            }, {} as Record<string, { angle_code: string; exported: number; sent: number; replies: number; positive: number; optouts: number }>)
+        );
+        res.json({ total, by_angle: byAngle });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'outcomes error');
+        next(new AppError('Failed to fetch outcomes', 500));
+    }
+});
+
 export default router;

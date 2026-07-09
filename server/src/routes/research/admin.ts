@@ -10,6 +10,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod/v4';
 import { researchSupabaseAdmin } from '../../lib/research/supabase.js';
+import { enqueueJob } from '../../lib/research/queue.js';
+import { RESEARCH_JOB_TYPES } from '../../lib/research/jobTypes.js';
 import { requireRole } from '../../middleware/auth.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { createLogger } from '../../lib/logger.js';
@@ -271,6 +273,27 @@ router.post('/quota/apply-period-grants', async (req: Request, res: Response, ne
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'apply period grants error');
         next(new AppError('Failed to apply period grants', 500));
+    }
+});
+
+// Manual trigger for the campaign-outcome aggregate (WP5) — enqueues one feedback:aggregate
+// job for the CURRENT tenant context (the worker's daily tick covers all tenants; this is the
+// operator's "run now" button). Deterministic + idempotent handler, no LLM/billing.
+router.post('/feedback/aggregate', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const job = await enqueueJob({
+            tenantId,
+            type: RESEARCH_JOB_TYPES.FEEDBACK_AGGREGATE,
+            payload: {},
+            createdBy: req.user?.id ?? null,
+        });
+        log.info({ jobId: job.id, by: req.user?.id }, 'feedback aggregate enqueued (manual)');
+        res.status(202).json({ job_id: job.id });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'feedback aggregate enqueue error');
+        next(new AppError('Failed to start feedback aggregate', 500));
     }
 });
 

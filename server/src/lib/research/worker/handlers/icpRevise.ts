@@ -119,7 +119,43 @@ export async function icpReviseHandler({ job, heartbeat }: HandlerContext): Prom
         };
     });
 
-    const { system, messages } = buildIcpRevisePrompt({ icp: icpRow, feedback: entries, omitted: feedbackOmitted });
+    // WP5: measured campaign outcomes (research-owned aggregate, counts only) join the
+    // revision evidence when the tenant has exported+campaigned firms for this ICP. A read
+    // failure degrades to the pre-WP5 prompt — never fails the revision.
+    let outcomes: import('../../icp/revisePrompt.js').ReviseOutcomeSummary | null = null;
+    {
+        const { data: statRows, error: statErr } = await researchSupabaseAdmin
+            .from('research_outcome_stats')
+            .select('angle_code, exported, sent, replies, positive, optouts')
+            .eq('tenant_id', tenantId)
+            .eq('icp_id', icpId)
+            .eq('period', 'all');
+        if (statErr) {
+            log.warn({ err: statErr, jobId: job.id }, 'outcome stats read failed — revising without outcomes');
+        } else {
+            const rows = (statRows ?? []) as Array<{ angle_code: string | null; exported: number; sent: number; replies: number; positive: number; optouts: number }>;
+            const totals = rows.filter((r) => r.angle_code == null);
+            if (totals.length > 0) {
+                outcomes = {
+                    exported: totals.reduce((n, r) => n + r.exported, 0),
+                    sent: totals.reduce((n, r) => n + r.sent, 0),
+                    replies: totals.reduce((n, r) => n + r.replies, 0),
+                    positive: totals.reduce((n, r) => n + r.positive, 0),
+                    optouts: totals.reduce((n, r) => n + r.optouts, 0),
+                    by_angle: Object.values(
+                        rows.filter((r) => r.angle_code != null).reduce((acc, r) => {
+                            const key = r.angle_code as string;
+                            acc[key] = acc[key] ?? { angle: key, sent: 0, replies: 0, positive: 0 };
+                            acc[key].sent += r.sent; acc[key].replies += r.replies; acc[key].positive += r.positive;
+                            return acc;
+                        }, {} as Record<string, { angle: string; sent: number; replies: number; positive: number }>)
+                    ),
+                };
+            }
+        }
+    }
+
+    const { system, messages } = buildIcpRevisePrompt({ icp: icpRow, feedback: entries, omitted: feedbackOmitted, outcomes });
 
     await heartbeat({ stage: 'revising', feedback: entries.length });
     // Metered like icp:generate (1b): Opus spend outside the harvest path, recorded raw + as a

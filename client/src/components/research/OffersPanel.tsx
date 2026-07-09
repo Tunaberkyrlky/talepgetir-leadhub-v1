@@ -77,6 +77,15 @@ export default function OffersPanel() {
     const offers = offersQuery.data?.data ?? [];
     const invalidateOffers = () => qc.invalidateQueries({ queryKey: ['research', 'offers', icpId] });
 
+    // WP5: per-angle campaign outcomes (counts only) for the stat line on each card.
+    const outcomesQuery = useQuery<{ by_angle: Array<{ angle_code: string; sent: number; replies: number; positive: number }> }>({
+        queryKey: ['research', 'icp-outcomes', icpId],
+        queryFn: async () => (await api.get(`/research/icps/${icpId}/outcomes`)).data,
+        enabled: !!icpId,
+        staleTime: 5 * 60 * 1000,
+    });
+    const statsByAngle = new Map((outcomesQuery.data?.by_angle ?? []).map((a) => [a.angle_code.toLowerCase(), a]));
+
     const generateMut = useMutation({
         mutationFn: async () => (await api.post('/research/offers/generate', { icp_id: icpId })).data as OfferJob,
         onSuccess: (job) => {
@@ -174,14 +183,16 @@ export default function OffersPanel() {
                 {offers.map((o) => (
                     // Keyed on id + updated_at (geographies convention): any landed change remounts
                     // the card so the fields and the approve CAS token stay the same row generation.
-                    <OfferCard key={`${o.id}:${o.updated_at}`} offer={o} onChanged={invalidateOffers} />
+                    <OfferCard key={`${o.id}:${o.updated_at}`} offer={o} stats={statsByAngle.get(o.angle_code.toLowerCase()) ?? null} onChanged={invalidateOffers} />
                 ))}
             </SimpleGrid>
         </Stack>
     );
 }
 
-function OfferCard({ offer, onChanged }: { offer: OfferRow; onChanged: () => void }) {
+interface AngleStats { sent: number; replies: number; positive: number }
+
+function OfferCard({ offer, stats, onChanged }: { offer: OfferRow; stats: AngleStats | null; onChanged: () => void }) {
     const { t } = useTranslation();
     const [pain, setPain] = useState(offer.pain_hypothesis);
     const [valueProp, setValueProp] = useState(offer.value_prop);
@@ -245,6 +256,12 @@ function OfferCard({ offer, onChanged }: { offer: OfferRow; onChanged: () => voi
                     </Group>
                     {offer.language && <Badge variant="outline" size="xs">{offer.language}</Badge>}
                 </Group>
+
+                {stats && stats.sent > 0 && (
+                    <Text size="xs" c="dimmed">
+                        {t('research.outcomes.angleStats', '{{sent}} sent · {{replies}} replies · {{positive}} positive', { sent: stats.sent, replies: stats.replies, positive: stats.positive })}
+                    </Text>
+                )}
 
                 <Textarea
                     label={t('research.offers.pain', 'Pain hypothesis')}

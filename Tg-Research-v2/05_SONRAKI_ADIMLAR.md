@@ -6,7 +6,7 @@ Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + C
 
 ---
 
-## A-0. VİZYON DEĞERLENDİRMESİ (2026-07-08) → İŞ PAKETLERİ WP1–WP5 — **EN ÖNCELİKLİ**
+## A-0. VİZYON DEĞERLENDİRMESİ (2026-07-08) → İŞ PAKETLERİ WP1–WP5 — ✅ **TAMAMI SHIP (2026-07-09)**
 
 > **Kaynak:** uçtan uca olgunluk değerlendirmesi (2026-07-08). Hedef son durum: (1) ürün/hizmet + hedef coğrafyayı doğru anlayıp coğrafya-bazlı doğru **sub-ICP** profilleri çıkarmak, (2) her sub-ICP'ye doğru **offer/messaging açısı**, (3) coğrafya bazlı araştırmada **gerçek doygunluk** garantisi, (4) hedef firma × mesaj-açısı eşleştirme. Bulgu: motor/billing/fence katmanı 8-9/10; "akıl katmanı" eksik — ICP coğrafya-körü (geo = harvest-anı serbest metin), sub-ICP kavramı yok, `research_geographies`/`research_chunks`/`research_channels` şema-var-kod-yok, Y3 saturasyon bayrağı default'ta ölü (min 32 sorgu > cap 11) ve persist edilmiyor, offer/messaging katmanı hiç yok (F1 iptal edilmişti), geri-besleme yok.
 >
@@ -56,7 +56,9 @@ Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + C
 - **Client:** ICP altında "Offer/Açılar" sekmesi (kart + onay + düzenleme); CompaniesPanel satırında hook/angle chip'leri; export önizlemesinde yeni alanlar.
 - **Kabul:** canlı smoke: offer üretimi → approve → küçük harvest'te hooks+angle_suggestion dolu → export'ta custom_fields'ta görünür; faturalı-match dokunulmazlık smoke'u (verdict-smoke.sql) YEŞİL kalır; codex review.
 
-### WP5 — Kampanya geri-besleme agregatı
+### WP5 — Kampanya geri-besleme agregatı — ✅ **BİTTİ → codex SHIP** (2026-07-09, detay `04 §4.13`; migrations 099+100)
+
+> **KAPANIŞ (2026-07-09) — A-0'IN SON PAKETİ:** feedback:aggregate (günlük idempotent tick + admin run-now; K8 sınırı: CRM salt-okunur+savunmacı) → research_outcome_stats (ICP×geo×açı, yalnız sayılar) + opt-out→suppression senkronu + icp:revise'a ölçülmüş-outcome kanıtı + IcpCard yanıt-oranı rozeti + OffersPanel açı statları. Review zinciri: 2-lens (1P1+3P2) → codex (2P1+3P2) → hepsi düzeltildi → verify SHIP. Smoke paylaşılan-CRM temsilci bug'ını yakalayıp düzelttirdi.
 
 **Amaç:** "doğru offer" iddiasını ölçümle kapatmak. K8 tek-yön sınır korunur: research CRM tablolarını YALNIZ OKUR (READ-ONLY zaten izinli), research-owned tabloya agregat yazar.
 

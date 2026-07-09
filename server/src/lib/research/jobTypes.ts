@@ -31,6 +31,8 @@ export const RESEARCH_JOB_TYPES = {
     CHANNELS_HARVEST: 'channels:harvest',
     /** WP4: draft 3-5 outreach angles for one approved ICP (strategy role; human-approved cards). */
     OFFER_GENERATE: 'offer:generate',
+    /** WP5: pull campaign outcomes (sent/replies/positive/optouts) back onto research aggregates; daily + run-now. */
+    FEEDBACK_AGGREGATE: 'feedback:aggregate',
 
     // ── TG-LinkedIn (isolated module; rides this same research_jobs queue) ─────
     /** LinkedIn: session liveness + UA/proxy health smoke (/voyager/api/me). Faz 1. */

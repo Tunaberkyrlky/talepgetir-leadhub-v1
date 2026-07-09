@@ -34,11 +34,23 @@ export interface ReviseFeedbackEntry {
     site_summary: string | null;
 }
 
+/** WP5 aggregate campaign outcomes for this ICP (counts only) — extra revision evidence. */
+export interface ReviseOutcomeSummary {
+    exported: number;
+    sent: number;
+    replies: number;
+    positive: number;
+    optouts: number;
+    by_angle: Array<{ angle: string; sent: number; replies: number; positive: number }>;
+}
+
 export interface IcpRevisePromptInput {
     icp: ReviseIcp;
     feedback: ReviseFeedbackEntry[];
     /** Ratings beyond the handler's window (oldest-first drop) — disclosed to the model. */
     omitted?: number;
+    /** Aggregate campaign outcomes (WP5) — rendered when present; absent = prompt unchanged. */
+    outcomes?: ReviseOutcomeSummary | null;
 }
 
 const SYSTEM = `You are a senior B2B export-consulting analyst REVISING an existing Ideal
@@ -98,6 +110,19 @@ export function buildIcpRevisePrompt(input: IcpRevisePromptInput): { system: str
         parts.push(`(Note: ${omitted} older ratings beyond this window were omitted — treat the sample as partial.)`);
     }
     parts.push(feedback.map(feedbackBlock).join('\n\n'));
+    if (input.outcomes && input.outcomes.exported > 0) {
+        // WP5: measured campaign outcomes for firms this ICP already exported — evidence for
+        // which kinds of buyers actually RESPOND, not just which look right. Research-owned
+        // aggregate counts, but angle codes are model-derived slugs — fence-stripped like all
+        // list content in this block.
+        const o = input.outcomes;
+        parts.push('');
+        parts.push(`# Measured campaign outcomes for this ICP (aggregate, cumulative)`);
+        parts.push(`exported=${o.exported} sent=${o.sent} replies=${o.replies} positive=${o.positive} optouts=${o.optouts}`);
+        for (const a of o.by_angle.slice(0, 10)) {
+            parts.push(`- angle ${stripFence(a.angle)}: sent=${a.sent} replies=${a.replies} positive=${a.positive}`);
+        }
+    }
     parts.push('<<<END_UNTRUSTED_DATA>>>');
 
     parts.push(

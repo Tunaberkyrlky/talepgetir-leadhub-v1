@@ -911,6 +911,11 @@
             "needApprovedFinish": "Kalibre işareti için ICP'nin onaylı olması gerekir.",
             "needFeedbackFinish": "Bitirmeden önce güncel kural setinde en az bir örneklem firmasını değerlendirmeniz gerekir.",
             "feedbackStale": "Değerlendirme sırasında ICP değişti, sayfa yenilendi, lütfen tekrar değerlendirin."
+        },
+        "outcomes": {
+            "replyRate": "Yanıt %{{pct}}",
+            "tooltip": "{{sent}} gönderime {{replies}} yanıt ({{positive}} olumlu)",
+            "angleStats": "{{sent}} gönderim · {{replies}} yanıt · {{positive}} olumlu"
         }
     },
     "people": {
