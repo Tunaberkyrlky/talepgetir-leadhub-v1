@@ -11,7 +11,7 @@
 import { request, type Dispatcher } from 'undici';
 import {
     VOYAGER, buildHeaders, parseMeIdentity, buildInvitePayload, buildMessagePayload,
-    parseProfileUrnFromHtml, parseSentInvitations, parseConnectionUrns, parseConversations,
+    parseProfileUrnFromIdentityJson, parseSentInvitations, parseConnectionUrns, parseConversations,
     type VoyagerCreds, type LinkedInIdentity, type MessageParams, type SentInvitation,
     type ConversationSummary,
 } from './voyager.js';
@@ -231,32 +231,37 @@ export interface ResolveResult {
 }
 
 /**
- * Resolve a fsd_profile urn from a vanity/public id by fetching the public profile HTML
- * through the account's sticky proxy (§4.3). Returns {urn:null} on any non-2xx / parse miss;
- * the httpStatus is surfaced so the caller can distinguish a plain miss from a 401/403/999
- * health signal (codex P2) instead of silently leaving the account ACTIVE. Throws only if
+ * Resolve a fsd_profile urn from a vanity/public id via the authenticated identity API
+ * through the account's sticky proxy (§4.3). Keyed by memberIdentity, so it returns only
+ * the queried member — the parser then accepts ONLY the entity whose publicIdentifier
+ * matches (never a "people also viewed" stranger; verified live that HTML scraping did).
+ * Returns {urn:null} on any non-2xx / parse miss; the httpStatus is surfaced so the caller
+ * can distinguish a plain miss from a 401/403/999 health signal (codex P2). Throws only if
  * the request itself fails (proxy/timeout).
  */
 export async function resolveProfileUrn(
     creds: VoyagerCreds, dispatcher: Dispatcher, publicId: string,
 ): Promise<ResolveResult> {
-    const res = await request(`${VOYAGER.base}${VOYAGER.profileHtmlPath(publicId)}`, {
+    const h = buildHeaders(creds);
+    const res = await request(`${VOYAGER.base}${VOYAGER.profileByIdentityPath(publicId)}`, {
         method: 'GET',
         headers: {
-            cookie: buildHeaders(creds).cookie,
-            'user-agent': buildHeaders(creds)['user-agent'],
-            'accept-language': VOYAGER.acceptLanguage,
-            accept: 'text/html,application/xhtml+xml',
-            referer: `${VOYAGER.base}/feed/`,
+            cookie: h.cookie,
+            'csrf-token': h['csrf-token'],
+            'user-agent': h['user-agent'],
+            'accept-language': h['accept-language'],
+            accept: VOYAGER.accept,
+            'x-restli-protocol-version': VOYAGER.restliProtocolVersion,
+            referer: `${VOYAGER.base}/in/${encodeURIComponent(publicId)}/`,
         },
         dispatcher,
         headersTimeout: HEADERS_TIMEOUT_MS,
         bodyTimeout: BODY_TIMEOUT_MS,
         signal: AbortSignal.timeout(TOTAL_DEADLINE_MS),
     });
-    const html = await drainText(res);
+    const body = await drainText(res);
     if (res.statusCode < 200 || res.statusCode >= 300) return { urn: null, httpStatus: res.statusCode };
-    return { urn: parseProfileUrnFromHtml(html), httpStatus: res.statusCode };
+    return { urn: parseProfileUrnFromIdentityJson(body, publicId), httpStatus: res.statusCode };
 }
 
 // ── Pending-invite withdrawal (Faz 3, §2) — same sticky-proxy seam ────────────────

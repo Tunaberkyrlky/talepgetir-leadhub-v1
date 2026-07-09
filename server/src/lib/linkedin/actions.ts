@@ -288,6 +288,20 @@ export function classifierForHttp(httpStatus: number): WriteClassifier | null {
 }
 
 /**
+ * Health classifier for a PROFILE-RESOLUTION GET (not a write). The identity API returns
+ * 403 for a member it simply can't resolve (deleted / renamed vanity / typo'd public id —
+ * verified live), so — unlike a write 403 — a resolve 403 must NOT restrict the account:
+ * one stale lead would otherwise halt every campaign on it. Only 401 (dead session) and
+ * 999 (challenge) are unambiguous account signals on a lookup; everything else is a plain
+ * miss → the caller skips as urn_unresolved (the periodic /me validate stays authoritative).
+ */
+export function classifierForResolve(httpStatus: number): WriteClassifier | null {
+    if (httpStatus === 401) return 'session_invalid';
+    if (httpStatus === 999) return 'challenge';
+    return null;
+}
+
+/**
  * Apply a health transition from a write outcome. Never lifts an operator PAUSE — the guard
  * is BOTH the in-memory snapshot AND a DB-level `status <> 'PAUSED'` on the update, so a
  * PAUSE that landed concurrently (after this handler loaded the row) is not clobbered (codex P1).

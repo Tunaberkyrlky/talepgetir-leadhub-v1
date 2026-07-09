@@ -23,9 +23,14 @@ export const VOYAGER = {
         'com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2',
     // Message (§4.2): new-conversation create. Reply-to-thread (conversationUrn) is Faz 4.
     messagePath: '/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage',
-    // Profile URN resolution (§4.3): the public profile HTML carries the fsd_profile urn
-    // in an inline JSON blob — more stable than the CSRF-touchy GraphQL identity endpoint.
-    profileHtmlPath: (publicId: string) => `/in/${encodeURIComponent(publicId)}/`,
+    // Profile URN resolution (§4.3): resolve a vanity/public id to the OWNER's fsd_profile
+    // urn via the authenticated identity API, keyed by the exact memberIdentity. VERIFIED
+    // LIVE (2026-07-09): the public profile HTML no longer carries the owner urn under a
+    // stable anchor — it now embeds OTHER people's urns (SDUI "people also viewed"), so
+    // HTML scraping would resolve the wrong person. This query returns only the queried
+    // member, so matching publicIdentifier is deterministic and safe.
+    profileByIdentityPath: (publicId: string) =>
+        `/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=${encodeURIComponent(publicId)}`,
 
     // ── Pending-invite withdrawal (Faz 3, §2 "davet hijyeni") — HOT-SURFACE, RE-VERIFY LIVE. ──
     // List the account's OUTGOING pending invitations, then withdraw the stale ones. These
@@ -122,23 +127,30 @@ export function buildMessagePayload(p: MessageParams): Record<string, unknown> {
 }
 
 /**
- * Extract the OWNER's fsd_profile urn from a public-profile HTML page (§4.3). The page
- * embeds voyager JSON in <code> blobs; the vanity→urn mapping lives under
- * identityDashProfilesByMemberIdentity.
+ * Resolve the OWNER's fsd_profile urn from the identity API's normalized JSON (§4.3),
+ * keyed by the exact public/vanity id we queried.
  *
- * SCOPED-ONLY, no broad fallback (codex P1): a profile page also carries OTHER people's
- * fsd_profile urns (suggested/"people also viewed"), so "first urn anywhere" could resolve
- * a real invite onto the wrong person. We only accept a urn tied to the owner's identity
- * key; a miss returns null → the caller SKIPS (never sends to a guessed target). This is
- * the same deterministic-owner discipline as parseMeIdentity. For live sends, passing an
- * explicit profile_urn is preferred over public-id resolution.
+ * DETERMINISTIC + SAFE (codex P1): the response's `included[]` carries profile entities;
+ * we accept ONLY the one whose `publicIdentifier` case-insensitively equals the requested
+ * id, then return its `entityUrn`. We never take "the first fsd_profile urn" — a page/graph
+ * can surface OTHER people (verified live: HTML scraping resolved a "people also viewed"
+ * stranger). A miss returns null → the caller SKIPS (never sends to a guessed target).
  */
-export function parseProfileUrnFromHtml(html: string): string | null {
-    if (!html) return null;
-    const scoped = html.match(
-        /identityDashProfilesByMemberIdentity[\s\S]{0,4000}?(urn:li:fsd_profile:[A-Za-z0-9_-]+)/,
-    );
-    return scoped?.[1] ?? null;
+export function parseProfileUrnFromIdentityJson(text: string, publicId: string): string | null {
+    if (!text) return null;
+    let json: unknown;
+    try { json = JSON.parse(text); } catch { return null; }
+    const included = (json as { included?: unknown }).included;
+    if (!Array.isArray(included)) return null;
+    const want = publicId.toLowerCase();
+    for (const el of included) {
+        const e = el as { entityUrn?: unknown; publicIdentifier?: unknown };
+        if (typeof e.entityUrn !== 'string' || typeof e.publicIdentifier !== 'string') continue;
+        if (e.publicIdentifier.toLowerCase() !== want) continue;
+        const m = e.entityUrn.match(/^urn:li:fsd_profile:[A-Za-z0-9_-]+$/);
+        if (m) return e.entityUrn;
+    }
+    return null;
 }
 
 /** Strip surrounding quotes from JSESSIONID to form the csrf-token header value. */

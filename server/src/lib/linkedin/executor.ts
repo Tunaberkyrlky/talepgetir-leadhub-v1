@@ -26,7 +26,7 @@ import { createLogger } from '../logger.js';
 import { sendInvite, sendMessage, resolveProfileUrn, isNotSent } from './client.js';
 import { INVITE_NOTE_MAX } from './voyager.js';
 import {
-    credsFor, dispatcherFor, consumeQuota, releaseQuota, applyWriteHealth, classifierForHttp,
+    credsFor, dispatcherFor, consumeQuota, releaseQuota, applyWriteHealth, classifierForResolve,
     auditAction, dailyCapFor, weeklyCapFor, COUNTER_KEY, type LinkedInAccountRow,
 } from './actions.js';
 
@@ -95,7 +95,7 @@ export async function performInvite(
         targetUrn = resolved.urn;
         if (!targetUrn) {
             await releaseQuota(tenantId, accountId, COUNTER);
-            const healthClassifier = classifierForHttp(resolved.httpStatus);
+            const healthClassifier = classifierForResolve(resolved.httpStatus);
             if (healthClassifier) {
                 const st = await applyWriteHealth(tenantId, account, healthClassifier);
                 await auditAction({ tenantId, accountId, type: 'invite', status: 'error', classifier: healthClassifier, httpStatus: resolved.httpStatus, jobId });
