@@ -18,8 +18,13 @@ export function proxyAgentFor(proxySessionId: string): ProxyAgent {
     const cached = agents.get(proxySessionId);
     if (cached) return cached;
 
-    const base = process.env.ROTATING_5G_PROXY;
-    if (!base) throw new Error('ROTATING_5G_PROXY not configured');
+    const raw = process.env.ROTATING_5G_PROXY;
+    if (!raw) throw new Error('ROTATING_5G_PROXY not configured');
+    // Providers commonly hand out the credential as bare USER:PASS@host:port with no
+    // scheme; new URL() would then read the first token as the scheme and drop the
+    // credentials. Default to http:// when no scheme is present (same as the SearXNG
+    // proxy entrypoint), so both forms work.
+    const base = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw) ? raw : `http://${raw}`;
     // Parse with the URL constructor (robust against ':'/'@' inside the password, which a
     // hand-rolled regex mis-splits). Inject the sticky session into the username so the
     // provider pins one egress IP per account. Form: http(s)://USER:PASS@host:port
