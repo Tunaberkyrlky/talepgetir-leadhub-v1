@@ -10,8 +10,12 @@
 //                AND the host MUST be in manifest host_permissions (so the fetch
 //                bypasses CORS). Cookies are the crown jewels — no plaintext.
 const CONFIG = {
-  APP_ORIGINS: ['http://localhost:5173', 'http://localhost:3001'],
-  CAPTURE_URL: 'http://localhost:3001/api/linkedin/capture',
+  APP_ORIGINS: [
+    'http://localhost:5173',
+    'http://localhost:3001',
+    'https://tg-core-staging-production.up.railway.app',
+  ],
+  CAPTURE_URL: 'https://tg-core-staging-production.up.railway.app/api/linkedin/capture',
 };
 
 // Refuse to POST the session over plaintext to a non-local host (defense against a
