@@ -224,6 +224,65 @@ export async function billMatch(params: {
 }
 
 /**
+ * Bill a company's contact enrichment via the fenced, hold-aware RPC (102). Same contract shape
+ * as billMatch: once-ever per (tenant, canonical_key) — an existing event returns as a dedup
+ * success with NO new charge; a fresh charge requires an open hold + the running lease.
+ *   • success (fresh OR dedup)               → { eventId, ledgerId }
+ *   • ineligible (suppressed / credit floor) → null (skip this company, run continues)
+ *   • RESERVATION_EXHAUSTED                  → throws ReservationExhaustedError (stop spending)
+ *   • transport/DB failure or lost lease     → throws
+ */
+export async function billEnrichment(params: {
+    companyId: string;
+    jobId: string;
+    /** null is valid ONLY for expected-dedup calls (backfill): a fresh charge with a null
+     *  hold is refused by the RPC itself. */
+    holdId: string | null;
+    worker: string;
+    lease: string;
+    contactsCount: number;
+}): Promise<BillOutcome | null> {
+    const { data, error } = await researchSupabaseAdmin.rpc('research_bill_enrichment', {
+        p_company_id: params.companyId,
+        p_job_id: params.jobId,
+        p_hold_id: params.holdId,
+        p_worker: params.worker,
+        p_lease: params.lease,
+        p_contacts: params.contactsCount,
+    });
+    if (error) {
+        if (error.code === '23514') {
+            if (error.details === 'RESERVATION_EXHAUSTED') {
+                log.info({ companyId: params.companyId, holdId: params.holdId }, 'billEnrichment: reservation exhausted (stop)');
+                throw new ReservationExhaustedError(error.message);
+            }
+            log.info({ companyId: params.companyId, msg: error.message }, 'billEnrichment: company ineligible (not billed)');
+            return null;
+        }
+        log.error({ err: error, companyId: params.companyId }, 'billEnrichment transport/DB error (or lease fenced)');
+        throw error;
+    }
+    const row = data as { id: string; ledger_id: string | null };
+    return { eventId: row.id, ledgerId: row.ledger_id };
+}
+
+/** Canonical keys (of the given set) that already carry an enrichment charge — the free-skip set:
+ *  an already-enriched company must produce NO Hunter request and NO second bill. */
+export async function enrichedCanonicalKeys(tenantId: string, keys: string[]): Promise<Set<string>> {
+    if (keys.length === 0) return new Set();
+    const { data, error } = await researchSupabaseAdmin
+        .from('research_enrichment_events')
+        .select('canonical_key')
+        .eq('tenant_id', tenantId)
+        .in('canonical_key', keys);
+    if (error) {
+        log.error({ err: error }, 'enrichedCanonicalKeys failed');
+        throw error;
+    }
+    return new Set((data ?? []).map((r) => (r as { canonical_key: string }).canonical_key));
+}
+
+/**
  * Reconciliation: current-ruleset MATCH verdicts for this ICP whose canonical_key has NO
  * billable_event yet — i.e. a match that was persisted but not billed (e.g. a crash or transport
  * error between verdict-write and bill). One SQL anti-join RPC (067) — the previous client-side

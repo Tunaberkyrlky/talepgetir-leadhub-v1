@@ -625,12 +625,118 @@ router.post('/companies/export', requireWriter, validateBody(exportSchema), asyn
             }
         }
 
+        // ── Enriched contacts ride the export (SELF-HEALING SWEEP) ──────────────────
+        // Sources ALL of this tenant's enrichment contacts whose research company is
+        // CRM-linked — not just this run's links (codex P2: an exported company drops out
+        // of research_exportable_companies, so a failed contact copy would otherwise never
+        // be retried). Email-dedup makes every sweep idempotent. DEFENSIVE: a contact-copy
+        // failure never fails the company export (already marked) — the NEXT export heals it.
+        let contactsExported = 0;
+        try {
+            type RContact = {
+                company_id: string; name: string | null; email: string; title: string | null;
+                seniority: string | null; department: string | null; priority: number | null;
+            };
+            // Keyset-paginate the tenant's enrichment contacts to exhaustion (they only grow
+            // by explicit paid runs — bounded in practice).
+            const rcontacts: RContact[] = [];
+            {
+                const PAGE = 1000;
+                let lastId: string | null = null;
+                for (;;) {
+                    let q = researchSupabaseAdmin
+                        .from('research_contacts')
+                        .select('id, company_id, name, email, title, seniority, department, priority')
+                        .eq('tenant_id', tenantId)
+                        .eq('suppressed', false)
+                        .not('email', 'is', null)
+                        .order('id', { ascending: true })
+                        .limit(PAGE);
+                    if (lastId) q = q.gt('id', lastId);
+                    const { data, error } = await q;
+                    if (error) throw error;
+                    const pageRows = (data ?? []) as Array<RContact & { id: string }>;
+                    rcontacts.push(...pageRows);
+                    if (pageRows.length < PAGE) break;
+                    lastId = pageRows[pageRows.length - 1].id;
+                }
+                // Bucket priority decides is_primary below — keep the stored order.
+                rcontacts.sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
+            }
+            {
+                // CRM link map for every contact-bearing research company (chunked).
+                const contactCompanyIds = [...new Set(rcontacts.map((c) => c.company_id))];
+                const crmIdByResearch = new Map<string, string>();
+                for (let i = 0; i < contactCompanyIds.length; i += 50) {
+                    const { data, error } = await researchSupabaseAdmin
+                        .from('research_companies')
+                        .select('id, crm_company_id')
+                        .eq('tenant_id', tenantId)
+                        .not('crm_company_id', 'is', null)
+                        .in('id', contactCompanyIds.slice(i, i + 50));
+                    if (error) throw error;
+                    for (const r of (data ?? []) as Array<{ id: string; crm_company_id: string }>) {
+                        crmIdByResearch.set(r.id, r.crm_company_id);
+                    }
+                }
+                if (rcontacts.length > 0) {
+                    // Existing CRM contacts: email keys dedup re-runs; the any-contact set decides
+                    // is_primary (only the first contact of a previously contactless company).
+                    const crmIds = [...new Set(rcontacts.map((c) => crmIdByResearch.get(c.company_id)).filter(Boolean))] as string[];
+                    const existingEmailKeys = new Set<string>();
+                    const hasAnyContact = new Set<string>();
+                    for (let i = 0; i < crmIds.length; i += 50) {
+                        const { data, error } = await supabaseAdmin
+                            .from('contacts')
+                            .select('company_id, email')
+                            .eq('tenant_id', tenantId)
+                            .in('company_id', crmIds.slice(i, i + 50));
+                        if (error) throw error;
+                        for (const row of (data ?? []) as Array<{ company_id: string; email: string | null }>) {
+                            hasAnyContact.add(row.company_id);
+                            if (row.email) existingEmailKeys.add(`${row.company_id}:${row.email.toLowerCase()}`);
+                        }
+                    }
+                    const rows: Record<string, unknown>[] = [];
+                    for (const c of rcontacts) {
+                        const crmId = crmIdByResearch.get(c.company_id);
+                        if (!crmId) continue;
+                        const key = `${crmId}:${c.email.toLowerCase()}`;
+                        if (existingEmailKeys.has(key)) continue;
+                        existingEmailKeys.add(key); // in-batch dedup too
+                        const nameParts = (c.name ?? '').trim().split(/\s+/).filter(Boolean);
+                        rows.push({
+                            tenant_id: tenantId,
+                            company_id: crmId,
+                            first_name: nameParts[0] ?? c.email.split('@')[0],
+                            last_name: nameParts.slice(1).join(' ') || null,
+                            title: c.title,
+                            email: c.email,
+                            seniority: c.seniority,
+                            department: c.department,
+                            is_primary: !hasAnyContact.has(crmId),
+                        });
+                        hasAnyContact.add(crmId);
+                    }
+                    for (let i = 0; i < rows.length; i += 200) {
+                        const chunk = rows.slice(i, i + 200);
+                        const { error } = await supabaseAdmin.from('contacts').insert(chunk);
+                        if (error) throw error;
+                        contactsExported += chunk.length;
+                    }
+                }
+            }
+        } catch (contactErr) {
+            log.warn({ err: contactErr, tenantId }, 'contact export failed (companies exported fine — re-running the export copies the contacts)');
+        }
+
         const linkedMarked = links.filter((l) => markedIds.has(l.company_id) && !insertedByRef.has(l.company_id)).length;
-        log.info({ tenantId, icpId: icp_id, exported, linkedExisting: linkedMarked, batch: pending.length }, 'research → CRM export done');
+        log.info({ tenantId, icpId: icp_id, exported, linkedExisting: linkedMarked, contactsExported, batch: pending.length }, 'research → CRM export done');
         res.json({
             total_matches: totalMatches ?? 0,
             exported,
             linked_existing: linkedMarked,
+            contacts_exported: contactsExported,
             // A FULL batch means more exportable rows may remain — repeat the action to continue
             // (the RPC filters exported rows before its limit, so the next call pages onward).
             has_more: pending.length === EXPORT_BATCH,

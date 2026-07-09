@@ -524,7 +524,8 @@
             "companies": "Leads",
             "trade": "Customs data",
             "linkedin": "LinkedIn Accounts",
-            "offers": "Offer angles"
+            "offers": "Offer angles",
+            "enrichment": "Contacts"
         },
         "linkedin": {
             "heading": "LinkedIn Accounts",
@@ -916,6 +917,41 @@
             "replyRate": "Reply {{pct}}%",
             "tooltip": "{{replies}} replies / {{sent}} sent ({{positive}} positive)",
             "angleStats": "{{sent}} sent · {{replies}} replies · {{positive}} positive"
+        },
+        "enrich": {
+            "done": "Enrichment finished: {{billed}} companies enriched, {{contacts}} contacts found ({{mismatch}} domain mismatches, {{skipped}} were already enriched)",
+            "unranked": "Other",
+            "customBucket": "Custom",
+            "buckets": "Priority titles",
+            "bucketsHint": "Selection order = priority. Each bundle carries ready-made keywords in 8 languages (e.g. Purchasing → Einkäufer, procurement, satın alma…).",
+            "bucketsPh": "e.g. Founder first, then Purchasing",
+            "custom": "Custom keywords",
+            "customHint": "Your own title words — they outrank every bundle.",
+            "customPh": "type + Enter",
+            "maxContacts": "Max contacts / company",
+            "run": "Find contacts",
+            "order": "Priority order",
+            "costPreview": "{{count}} selected — up to {{cost}} credits",
+            "freeRerun": "{{count}} already enriched (free)",
+            "running": "Enrichment running…",
+            "failed": "Enrichment failed",
+            "matchesTotal": "{{count}} MATCH companies",
+            "selectPage": "Select page",
+            "empty": "No MATCH companies yet for this ICP — harvest leads first.",
+            "domain": "Domain",
+            "contacts": "Contacts",
+            "noDomainHint": "No website domain — enrichment needs a strict domain match",
+            "noDomain": "no domain",
+            "pickHint": "Pick a project and an ICP, then select MATCH companies to find their decision makers.",
+            "contactsTitle": "Contacts",
+            "noContacts": "No contacts stored for this company.",
+            "domainMatch": "Domain match",
+            "person": "Person",
+            "title": "Title",
+            "bucket": "Priority",
+            "confidence": "Confidence",
+            "crmNote": "When you send matches to the CRM, these contacts travel with the company automatically.",
+            "promoteHint": "Click to move up"
         }
     },
     "people": {

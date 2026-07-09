@@ -524,7 +524,8 @@
             "companies": "Lead'ler",
             "trade": "Gümrük Verisi",
             "linkedin": "LinkedIn Hesapları",
-            "offers": "Offer açıları"
+            "offers": "Offer açıları",
+            "enrichment": "Kişiler"
         },
         "linkedin": {
             "heading": "LinkedIn Hesapları",
@@ -916,6 +917,41 @@
             "replyRate": "Yanıt %{{pct}}",
             "tooltip": "{{sent}} gönderime {{replies}} yanıt ({{positive}} olumlu)",
             "angleStats": "{{sent}} gönderim · {{replies}} yanıt · {{positive}} olumlu"
+        },
+        "enrich": {
+            "done": "Zenginleştirme bitti: {{billed}} firma zenginleştirildi, {{contacts}} kişi bulundu ({{mismatch}} domain uyuşmazlığı, {{skipped}} firma zaten zengindi)",
+            "unranked": "Diğer",
+            "customBucket": "Özel",
+            "buckets": "Öncelikli unvanlar",
+            "bucketsHint": "Seçim sıranız öncelik sırasıdır. Her paket 8 dilde hazır anahtar kelimeler içerir (örn. Satın Alma → Einkäufer, procurement, buyer…).",
+            "bucketsPh": "örn. önce Kurucu, sonra Satın Alma",
+            "custom": "Özel anahtar kelimeler",
+            "customHint": "Kendi unvan kelimeleriniz, tüm paketlerden önce gelir.",
+            "customPh": "yazın + Enter",
+            "maxContacts": "Firma başına max kişi",
+            "run": "Kişileri bul",
+            "order": "Öncelik sırası",
+            "costPreview": "{{count}} firma seçili, en fazla {{cost}} kredi",
+            "freeRerun": "{{count}} firma zaten zengin (ücretsiz)",
+            "running": "Zenginleştirme çalışıyor…",
+            "failed": "Zenginleştirme başarısız",
+            "matchesTotal": "{{count}} MATCH firma",
+            "selectPage": "Sayfayı seç",
+            "empty": "Bu ICP için henüz MATCH firma yok, önce lead araması çalıştırın.",
+            "domain": "Domain",
+            "contacts": "Kişiler",
+            "noDomainHint": "Website domaini yok, zenginleştirme birebir domain eşleşmesi ister",
+            "noDomain": "domain yok",
+            "pickHint": "Bir proje ve ICP seçin, sonra karar vericilerini bulmak için MATCH firmaları işaretleyin.",
+            "contactsTitle": "Kişiler",
+            "noContacts": "Bu firma için kayıtlı kişi yok.",
+            "domainMatch": "Domain eşleşmesi",
+            "person": "Kişi",
+            "title": "Unvan",
+            "bucket": "Öncelik",
+            "confidence": "Güven",
+            "crmNote": "Firmaları CRM'e gönderdiğinizde bu kişiler firmayla birlikte otomatik aktarılır.",
+            "promoteHint": "Yukarı taşımak için tıklayın"
         }
     },
     "people": {

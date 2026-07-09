@@ -33,6 +33,8 @@ export const RESEARCH_JOB_TYPES = {
     OFFER_GENERATE: 'offer:generate',
     /** WP5: pull campaign outcomes (sent/replies/positive/optouts) back onto research aggregates; daily + run-now. */
     FEEDBACK_AGGREGATE: 'feedback:aggregate',
+    /** Enrichment: Hunter domain-search contacts for selected companies (strict domain match, once-ever billing). */
+    ENRICH_RUN: 'enrich:run',
 
     // ── TG-LinkedIn (isolated module; rides this same research_jobs queue) ─────
     /** LinkedIn: session liveness + UA/proxy health smoke (/voyager/api/me). Faz 1. */

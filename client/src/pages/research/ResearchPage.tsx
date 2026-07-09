@@ -9,7 +9,7 @@ import {
     Container, Title, Text, Paper, Stack, Group, TextInput, Textarea, TagsInput,
     NumberInput, Button, Loader, Alert, SimpleGrid, Badge, Tabs,
 } from '@mantine/core';
-import { IconSparkles, IconInfoCircle, IconBuildingSkyscraper, IconTargetArrow, IconFileSpreadsheet, IconBrandLinkedin, IconWorldPin } from '@tabler/icons-react';
+import { IconSparkles, IconInfoCircle, IconBuildingSkyscraper, IconTargetArrow, IconFileSpreadsheet, IconBrandLinkedin, IconWorldPin, IconUserSearch } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
@@ -19,6 +19,7 @@ import CompaniesPanel from '../../components/research/CompaniesPanel';
 import GeographiesPanel from '../../components/research/GeographiesPanel';
 import OffersPanel from '../../components/research/OffersPanel';
 import TradeImportsPanel from '../../components/research/TradeImportsPanel';
+import EnrichmentPanel from '../../components/research/EnrichmentPanel';
 import LinkedInAccountsPanel from '../../components/linkedin/LinkedInAccountsPanel';
 
 interface ResearchJob {
@@ -129,6 +130,9 @@ export default function ResearchPage() {
                         <Tabs.Tab value="companies" leftSection={<IconBuildingSkyscraper size={16} />}>
                             {t('research.tabs.companies', 'Leads')}
                         </Tabs.Tab>
+                        <Tabs.Tab value="enrichment" leftSection={<IconUserSearch size={16} />}>
+                            {t('research.tabs.enrichment', 'Contacts')}
+                        </Tabs.Tab>
                         <Tabs.Tab value="trade" leftSection={<IconFileSpreadsheet size={16} />}>
                             {t('research.tabs.trade', 'Customs data')}
                         </Tabs.Tab>
@@ -147,6 +151,10 @@ export default function ResearchPage() {
 
                     <Tabs.Panel value="companies">
                         <CompaniesPanel />
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="enrichment">
+                        <EnrichmentPanel />
                     </Tabs.Panel>
 
                     <Tabs.Panel value="trade">
