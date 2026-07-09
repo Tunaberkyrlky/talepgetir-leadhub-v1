@@ -14,6 +14,7 @@ export handoff (writes qualified leads into the CRM `companies` table) and auth/
 | `searxng` | `infra/searxng/` (Dockerfile) | `http://searxng.railway.internal:8080` | Multi-engine web search, JSON API. Discovery backend. |
 | `gosom` | `infra/gosom/` (Dockerfile) | `http://gosom.railway.internal:8080` | Google Maps business scraper, REST API. Wired as the **`maps:harvest`** discovery backend (West). |
 | `twogis` | `infra/twogis/` (Dockerfile) | `http://twogis.railway.internal:8080` | 2GIS Catalog-API scraper for the CIS (RU/KZ/UZ/…). Code exists but is **not active**; user decision is to skip 2GIS for now. |
+| `tg-core-staging` | `deploy/tg-core-staging/` (staged deploy) | (public domain, see `railway domain`) | **Full TG-Core app on the isolated test DB** — CRM + research + coldcall + LinkedIn UI/API in one process (serves the built client). Staging for live smokes (LinkedIn real-account connect, campaigns) before prod-hardening. Jobs it enqueues are processed by the shared `worker`. |
 
 Private DNS (`*.railway.internal`) only resolves service-to-service within the project.
 
@@ -58,13 +59,14 @@ own (`deploy/<svc>/railway.json` → `deploy/<svc>/Dockerfile`):
 
 ```bash
 STAGE="$(mktemp -d)"
-rsync -a --exclude .git --exclude node_modules --exclude 'server/dist' --exclude 'client/dist' \
-  --exclude .env --exclude 'Tg-Research-v1-bakis' --exclude '*.tsbuildinfo' ./ "$STAGE"/
-cp deploy/worker/railway.json "$STAGE"/railway.json   # (or deploy/research-api/railway.json)
+git archive HEAD | tar -x -C "$STAGE"     # clean HEAD — uncommitted parallel work can't leak into the build
+cp deploy/worker/railway.json "$STAGE"/railway.json   # (or deploy/research-api/ or deploy/tg-core-staging/)
 rm -f "$STAGE"/railway.toml
-railway up "$STAGE" --path-as-root --service worker --detach   # (or --service research-api)
+railway up "$STAGE" --path-as-root --service worker --detach   # (or --service research-api / tg-core-staging)
 rm -rf "$STAGE"
 ```
+
+The same staged-archive flow deploys **`tg-core-staging`** (full app: `deploy/tg-core-staging/railway.json` → its Dockerfile builds server + client and runs `dist/index.js`).
 
 ## Env contract (real variable names)
 
@@ -83,6 +85,14 @@ unset ⇒ maps runs yield no candidates; tunables `RESEARCH_GOSOM_DEPTH` 10,
 auth + export), `POSTHOG_API_KEY` + `POSTHOG_HOST` (required — `lib/posthog` instantiates
 at import), `CLAUDE_KEY`/`GEMINI_KEY`/`DEEPSEEK_KEY`, `NODE_ENV=production`. Set
 `RESEARCH_CLIENT_URL` (comma-sep origins) once a browser UI is deployed, or CORS blocks it.
+
+**tg-core-staging** — `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` + `SUPABASE_ANON_KEY`
+all pointing at the **isolated test DB** (never prod; no `RESEARCH_SUPABASE_URL` ⇒ Model A,
+research shares the same test DB), `LINKEDIN_COOKIE_ENC_KEY` (cookie capture encrypts on
+the API side), `LINKEDIN_APP_ORIGIN` (= this service's public URL; extension capture
+origin check). Optional: `VITE_*` are NOT needed (client uses same-origin `/api`).
+LinkedIn **sends** run in the `worker`, which therefore also needs `LINKEDIN_COOKIE_ENC_KEY`
++ `ROTATING_5G_PROXY` (sticky per-account sessions).
 
 ## Discovery = SearXNG + rotating proxy
 
