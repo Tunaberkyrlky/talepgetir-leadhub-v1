@@ -319,7 +319,7 @@ export async function applyWriteHealth(
 export interface AuditFields {
     tenantId: string;
     accountId: string;
-    type: 'invite' | 'message' | 'withdraw';
+    type: 'invite' | 'message' | 'withdraw' | 'poll';
     status: 'ok' | 'error' | 'skipped';
     classifier: string;
     httpStatus?: number | null;

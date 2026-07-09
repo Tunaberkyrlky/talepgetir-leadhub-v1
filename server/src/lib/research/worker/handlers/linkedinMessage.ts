@@ -7,15 +7,12 @@
  * Reply-to-existing-thread (conversationUrn) is a Faz-4 refinement.
  */
 import type { JobHandler } from '../types.js';
-import { createLogger } from '../../../logger.js';
-import { sendMessage, isNotSent } from '../../../linkedin/client.js';
 import {
-    loadAccount, credsFor, dispatcherFor, currentCount, consumeQuota, releaseQuota,
-    applyWriteHealth, auditAction, dailyCapFor, weeklyCapFor, scheduleSendAt, weeklyCount,
+    loadAccount, currentCount, auditAction, dailyCapFor, weeklyCapFor, scheduleSendAt, weeklyCount,
     maybeDeferSend, COUNTER_KEY,
 } from '../../../linkedin/actions.js';
+import { performMessage } from '../../../linkedin/executor.js';
 
-const log = createLogger('research:handler:linkedin-message');
 const COUNTER = COUNTER_KEY.message;
 const ACTION = 'message' as const;
 const TEXT_MAX = 8000; // LinkedIn message body ceiling (generous; real limit ~8k chars)
@@ -75,47 +72,11 @@ export const linkedinMessageHandler: JobHandler = async ({ job, heartbeat }) => 
         { recipient_urn: recipientUrn, text: body }, { sendNow, createdBy: job.created_by });
     if (defer.deferred) return { account_id: accountId, type: 'message', sent: false, deferred: true, rescheduled_to: defer.rescheduledTo, rescheduled_job_id: defer.rescheduledJobId };
 
-    // Reserve a daily slot (atomic, fenced, ACTIVE-gated + rolling-weekly under the row lock).
-    const grant = await consumeQuota(tenantId, accountId, ACTION, dailyCap, weeklyCap);
-    if (!grant.granted) {
-        const classifier = grant.reason === 'not_active' ? `account_${(grant.status ?? 'unknown').toLowerCase()}`
-            : grant.reason === 'weekly_cap' ? 'weekly_cap' : 'daily_cap';
-        await auditAction({ tenantId, accountId, type: 'message', status: 'skipped', classifier, jobId: job.id });
-        return { account_id: accountId, type: 'message', sent: false, skipped: classifier, quota: grant };
-    }
-
-    let creds, dispatcher;
-    try {
-        creds = credsFor(account);
-        dispatcher = dispatcherFor(account);
-    } catch (err) {
-        await releaseQuota(tenantId, accountId, COUNTER);
-        await auditAction({ tenantId, accountId, type: 'message', status: 'error', classifier: 'transport_error', error: err instanceof Error ? err.message : String(err), jobId: job.id });
-        throw err;
-    }
-
-    let result;
-    try {
-        result = await sendMessage(creds, dispatcher, {
-            mailboxUrn: account.member_urn, recipientUrn, text: body,
-        });
-    } catch (err) {
-        await releaseQuota(tenantId, accountId, COUNTER);
-        await auditAction({ tenantId, accountId, type: 'message', status: 'error', classifier: 'transport_error', error: err instanceof Error ? err.message : String(err), jobId: job.id });
-        throw new Error(`linkedin:message transport error: ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    if (isNotSent(result.classifier)) await releaseQuota(tenantId, accountId, COUNTER);
-
-    const finalStatus = await applyWriteHealth(tenantId, account, result.classifier);
-    await auditAction({
-        tenantId, accountId, type: 'message', status: result.sent ? 'ok' : 'error',
-        classifier: result.classifier, httpStatus: result.httpStatus, error: result.detail ?? null, jobId: job.id,
-    });
-
-    log.info({ jobId: job.id, accountId, classifier: result.classifier, status: finalStatus }, 'linkedin:message complete');
+    // Reserve → send → refund-if-not-sent → health → audit (shared spine).
+    const outcome = await performMessage(account, tenantId, { recipientUrn, text: body }, job.id);
     return {
-        account_id: accountId, type: 'message', sent: result.sent, classifier: result.classifier,
-        http_status: result.httpStatus, account_status: finalStatus,
+        account_id: accountId, type: 'message', sent: outcome.sent, classifier: outcome.classifier,
+        http_status: outcome.httpStatus, account_status: outcome.accountStatus,
+        ...(outcome.skipped ? { skipped: outcome.skipped } : {}),
     };
 };

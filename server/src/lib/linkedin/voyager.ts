@@ -37,6 +37,16 @@ export const VOYAGER = {
     withdrawInvitationPath: (invitationId: string) =>
         `/voyager/api/relationships/sentInvitationViewsV2/${encodeURIComponent(invitationId)}?action=withdraw`,
 
+    // ── Poll detection (Faz 4, §2/§5) — HOT-SURFACE, RE-VERIFY LIVE (unproven, like withdraw). ──
+    // 1st-degree connections (invite ACCEPT detection): a lead's profile urn appearing here
+    // means the invite was accepted → the sequence can advance to the message step.
+    connectionsPath: (start = 0, count = 100) =>
+        `/voyager/api/relationships/connectionsV2?count=${count}&start=${start}`,
+    // Conversations (REPLY detection): a conversation whose latest message is INCOMING (not
+    // from our mailbox) means the lead replied → global stop + suppress (§5).
+    conversationsPath: (count = 40) =>
+        `/voyager/api/messaging/conversations?count=${count}`,
+
     restliProtocolVersion: '2.0.0',
     accept: 'application/vnd.linkedin.normalized+json+2.1',
     liLang: 'en_US',
@@ -262,4 +272,64 @@ export function parseSentInvitations(body: unknown): SentInvitation[] {
         if (el && typeof el === 'object') readEntity(el as Record<string, unknown>);
     }
     return [...byId.values()];
+}
+
+/**
+ * Extract the set of 1st-degree connection profile urns from a connectionsV2 response (§5
+ * accept detection). HOT-SURFACE: scan elements + included for fsd_profile urns. A miss
+ * returns an empty set — the caller then simply detects no new accepts (never a false accept).
+ */
+export function parseConnectionUrns(body: unknown): Set<string> {
+    const out = new Set<string>();
+    if (!body || typeof body !== 'object') return out;
+    const b = body as { elements?: unknown[]; included?: unknown[] };
+    const scan = (arr: unknown[] | undefined) => {
+        if (!Array.isArray(arr)) return;
+        for (const el of arr) {
+            const s = JSON.stringify(el);
+            const re = /urn:li:fsd_profile:[A-Za-z0-9_-]+/g;
+            let m: RegExpExecArray | null;
+            while ((m = re.exec(s)) !== null) out.add(m[0]);
+        }
+    };
+    scan(b.elements);
+    scan(b.included);
+    return out;
+}
+
+export interface ConversationSummary {
+    /** fsd_profile urns of the OTHER participants (our own mailbox urn excluded by the caller). */
+    participantUrns: string[];
+    /** True when the newest message in the thread was NOT sent by us (an incoming reply). */
+    incoming: boolean;
+}
+
+/**
+ * Extract conversation summaries from a messaging/conversations response (§5 reply detection).
+ * HOT-SURFACE + BEST-EFFORT: normalized messaging shapes vary, so we read each element's
+ * participant urns and a direction hint (unread count, or a lastMessage/events sender that
+ * differs from our mailbox). `myMailboxUrn` lets the caller's incoming test exclude self-sends.
+ * A miss yields []. Reply detection is UNVERIFIED against a live account — treat conservatively.
+ */
+export function parseConversations(body: unknown, myMailboxUrn: string | null): ConversationSummary[] {
+    if (!body || typeof body !== 'object') return [];
+    const b = body as { elements?: unknown[] };
+    if (!Array.isArray(b.elements)) return [];
+    const out: ConversationSummary[] = [];
+    const profileRe = /urn:li:fsd_profile:[A-Za-z0-9_-]+/g;
+    for (const el of b.elements) {
+        if (!el || typeof el !== 'object') continue;
+        const o = el as Record<string, unknown>;
+        const s = JSON.stringify(o);
+        const urns = new Set<string>();
+        let m: RegExpExecArray | null;
+        while ((m = profileRe.exec(s)) !== null) urns.add(m[0]);
+        const others = [...urns].filter((u) => u !== myMailboxUrn);
+        if (others.length === 0) continue;
+        // Direction hint: an unread count > 0 is the most portable "there is something incoming".
+        const unread = typeof o.unreadCount === 'number' ? o.unreadCount
+            : typeof o.unreadMessageCount === 'number' ? o.unreadMessageCount : 0;
+        out.push({ participantUrns: others, incoming: unread > 0 });
+    }
+    return out;
 }

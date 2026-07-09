@@ -18,6 +18,8 @@ import { sanitizeJobForRole } from '../../lib/research/sanitize.js';
 import { effectiveCostRole } from '../../lib/research/freshRole.js';
 import { isInternalRole } from '../../lib/roles.js';
 import { loadAccount, scheduleSendAt } from '../../lib/linkedin/actions.js';
+import { effectiveDailyCap, WEEKLY_CAP, warmupDay, type ActionType } from '../../lib/linkedin/limits.js';
+import { ensureRetentionLoop } from '../../lib/research/worker/handlers/linkedinRetention.js';
 
 const log = createLogger('route:linkedin:accounts');
 const router = Router();
@@ -25,9 +27,62 @@ const requireWriter = requireRole('superadmin', 'ops_agent', 'client_admin');
 
 // Never selects li_at_enc / jsessionid_enc — encrypted cookies never leave the server.
 const SAFE_COLUMNS =
-    'id, name, public_id, status, warmup_day, geo, timezone, daily_counters, last_validated_at, created_at';
+    'id, name, public_id, status, warmup_day, geo, timezone, daily_counters, warmup_started_at, next_available_at, last_validated_at, created_at';
 
-// ── GET /accounts — list this tenant's connected accounts ─────────────────────
+interface AccountListRow {
+    id: string;
+    daily_counters: Record<string, unknown> | null;
+    warmup_started_at: string | null;
+    created_at: string;
+}
+
+/** Same-day count off daily_counters — mirrors actions.ts currentCount / the 093 UTC-day roll. */
+function todayCount(counters: Record<string, unknown> | null, key: string): number {
+    const c = counters ?? {};
+    if (c.date !== new Date().toISOString().slice(0, 10)) return 0;
+    const n = Number(c[key]);
+    return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Faz 5 health rollup for the accounts table: today's landed sends vs the warmup daily cap +
+ * rolling-7-day count vs the weekly ceiling, per action. Weekly counts come from ONE grouped
+ * read over linkedin_actions for all accounts (no per-account N+1).
+ */
+async function usageFor(tenantId: string, rows: AccountListRow[]): Promise<Map<string, Record<ActionType, { today: number; daily_cap: number; week: number; weekly_cap: number }>>> {
+    const weekly = new Map<string, { invite: number; message: number }>(rows.map((a) => [a.id, { invite: 0, message: 0 }]));
+    if (rows.length > 0) {
+        // Server-side GROUP BY via RPC — a client-side select was clamped by PostgREST db-max-rows
+        // (default 1000) and under-counted near the weekly caps (Faz-5 review P3).
+        const { data: usage, error } = await researchSupabaseAdmin.rpc('linkedin_account_usage', {
+            p_tenant: tenantId, p_account_ids: rows.map((a) => a.id),
+        });
+        if (error) log.warn({ err: error }, 'usage weekly read failed (non-fatal)');
+        for (const r of (usage ?? []) as Array<{ account_id: string; invites: number; messages: number }>) {
+            const row = weekly.get(r.account_id);
+            if (row) { row.invite = Number(r.invites) || 0; row.message = Number(r.messages) || 0; }
+        }
+    }
+    const out = new Map<string, Record<ActionType, { today: number; daily_cap: number; week: number; weekly_cap: number }>>();
+    for (const a of rows) {
+        const w = weekly.get(a.id) ?? { invite: 0, message: 0 };
+        out.set(a.id, {
+            invite: {
+                today: todayCount(a.daily_counters, 'invites'),
+                daily_cap: effectiveDailyCap('invite', a.warmup_started_at, a.created_at),
+                week: w.invite, weekly_cap: WEEKLY_CAP.invite,
+            },
+            message: {
+                today: todayCount(a.daily_counters, 'messages'),
+                daily_cap: effectiveDailyCap('message', a.warmup_started_at, a.created_at),
+                week: w.message, weekly_cap: WEEKLY_CAP.message,
+            },
+        });
+    }
+    return out;
+}
+
+// ── GET /accounts — list this tenant's connected accounts (+ Faz-5 usage rollup) ──
 router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
@@ -37,7 +92,15 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             .eq('tenant_id', tenantId)
             .order('created_at', { ascending: false });
         if (error) throw new AppError('Failed to list LinkedIn accounts', 500);
-        res.json({ data: data ?? [] });
+        const rows = (data ?? []) as unknown as AccountListRow[];
+        const usage = await usageFor(tenantId, rows);
+        const enriched = rows.map((a) => ({
+            ...a,
+            // Calendar warmup age (limits.ts) — the stored warmup_day column is a legacy stub.
+            warmup_day_effective: warmupDay(a.warmup_started_at, a.created_at),
+            usage: usage.get(a.id),
+        }));
+        res.json({ data: enriched });
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'list accounts error');
@@ -251,6 +314,9 @@ router.post('/:id/validate', requireWriter, async (req: Request, res: Response, 
             maxAttempts: 1,             // non-idempotent network probe; operator re-runs on failure
             createdBy: req.user?.id ?? null,
         });
+        // Faz 5: an account now exists for this tenant → ensure the daily PII-retention loop runs
+        // even for tenants that only do manual sends / lead import and never activate a campaign.
+        await ensureRetentionLoop(tenantId, 0);
         // Parity with research routes: strip any cost fields for non-internal roles (P2-b).
         res.status(202).json(sanitizeJobForRole(
             job as unknown as Record<string, unknown>,

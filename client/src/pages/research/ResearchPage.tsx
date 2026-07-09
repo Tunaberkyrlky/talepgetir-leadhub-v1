@@ -20,7 +20,7 @@ import GeographiesPanel from '../../components/research/GeographiesPanel';
 import OffersPanel from '../../components/research/OffersPanel';
 import TradeImportsPanel from '../../components/research/TradeImportsPanel';
 import EnrichmentPanel from '../../components/research/EnrichmentPanel';
-import LinkedInAccountsPanel from '../../components/linkedin/LinkedInAccountsPanel';
+import LinkedInPanel from '../../components/linkedin/LinkedInPanel';
 
 interface ResearchJob {
     id: string;
@@ -137,7 +137,7 @@ export default function ResearchPage() {
                             {t('research.tabs.trade', 'Customs data')}
                         </Tabs.Tab>
                         <Tabs.Tab value="linkedin" leftSection={<IconBrandLinkedin size={16} />}>
-                            {t('research.tabs.linkedin', 'LinkedIn Accounts')}
+                            {t('research.tabs.linkedin', 'LinkedIn')}
                         </Tabs.Tab>
                     </Tabs.List>
 
@@ -162,7 +162,7 @@ export default function ResearchPage() {
                     </Tabs.Panel>
 
                     <Tabs.Panel value="linkedin">
-                        <LinkedInAccountsPanel />
+                        <LinkedInPanel />
                     </Tabs.Panel>
 
                     <Tabs.Panel value="icp">

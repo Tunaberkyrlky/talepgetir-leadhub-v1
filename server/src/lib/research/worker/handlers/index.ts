@@ -21,6 +21,9 @@ import { linkedinValidateHandler } from './linkedinValidate.js';
 import { linkedinInviteHandler } from './linkedinInvite.js';
 import { linkedinMessageHandler } from './linkedinMessage.js';
 import { linkedinWithdrawHandler } from './linkedinWithdraw.js';
+import { linkedinSequenceTickHandler } from './linkedinSequenceTick.js';
+import { linkedinPollHandler } from './linkedinPoll.js';
+import { linkedinRetentionHandler } from './linkedinRetention.js';
 
 const handlers: Record<string, JobHandler> = {
     [RESEARCH_JOB_TYPES.PING]: pingHandler,
@@ -40,6 +43,9 @@ const handlers: Record<string, JobHandler> = {
     [RESEARCH_JOB_TYPES.LINKEDIN_INVITE]: linkedinInviteHandler,
     [RESEARCH_JOB_TYPES.LINKEDIN_MESSAGE]: linkedinMessageHandler,
     [RESEARCH_JOB_TYPES.LINKEDIN_WITHDRAW]: linkedinWithdrawHandler,
+    [RESEARCH_JOB_TYPES.LINKEDIN_SEQUENCE_TICK]: linkedinSequenceTickHandler,
+    [RESEARCH_JOB_TYPES.LINKEDIN_POLL]: linkedinPollHandler,
+    [RESEARCH_JOB_TYPES.LINKEDIN_RETENTION]: linkedinRetentionHandler,
 };
 
 export function getHandler(type: string): JobHandler | undefined {

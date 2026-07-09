@@ -11,8 +11,9 @@
 import { request, type Dispatcher } from 'undici';
 import {
     VOYAGER, buildHeaders, parseMeIdentity, buildInvitePayload, buildMessagePayload,
-    parseProfileUrnFromHtml, parseSentInvitations,
+    parseProfileUrnFromHtml, parseSentInvitations, parseConnectionUrns, parseConversations,
     type VoyagerCreds, type LinkedInIdentity, type MessageParams, type SentInvitation,
+    type ConversationSummary,
 } from './voyager.js';
 
 const HEADERS_TIMEOUT_MS = 15_000;
@@ -315,4 +316,42 @@ export async function withdrawInvitation(
     });
     const raw = await drainText(res);
     return classifyWriteResponse(res.statusCode, raw);
+}
+
+// ── Poll reads (Faz 4, §5) — accept + reply detection, same sticky-proxy seam ──────
+
+async function getJson(creds: VoyagerCreds, dispatcher: Dispatcher, path: string): Promise<{ status: number; body: unknown }> {
+    const res = await request(`${VOYAGER.base}${path}`, {
+        method: 'GET',
+        headers: { ...buildHeaders(creds), referer: `${VOYAGER.base}/feed/` },
+        dispatcher,
+        headersTimeout: HEADERS_TIMEOUT_MS,
+        bodyTimeout: BODY_TIMEOUT_MS,
+        signal: AbortSignal.timeout(TOTAL_DEADLINE_MS),
+    });
+    const raw = await drainText(res);
+    if (res.statusCode < 200 || res.statusCode >= 300) return { status: res.statusCode, body: null };
+    let parsed: unknown = null;
+    try { parsed = JSON.parse(raw); } catch { parsed = null; }
+    return { status: res.statusCode, body: parsed };
+}
+
+export interface ConnectionsResult { urns: Set<string>; httpStatus: number; ok: boolean }
+
+/** List the account's 1st-degree connection profile urns (§5 accept detection). ok=false on a
+ *  non-2xx / non-JSON so the caller doesn't read an empty set as "no connections". */
+export async function listConnections(creds: VoyagerCreds, dispatcher: Dispatcher): Promise<ConnectionsResult> {
+    const { status, body } = await getJson(creds, dispatcher, VOYAGER.connectionsPath());
+    if (body == null) return { urns: new Set(), httpStatus: status, ok: false };
+    return { urns: parseConnectionUrns(body), httpStatus: status, ok: true };
+}
+
+export interface ConversationsResult { conversations: ConversationSummary[]; httpStatus: number; ok: boolean }
+
+/** List recent conversations with a direction hint (§5 reply detection). ok=false on a
+ *  non-2xx / non-JSON. UNVERIFIED hot-surface — the caller treats replies conservatively. */
+export async function listConversations(creds: VoyagerCreds, dispatcher: Dispatcher, myMailboxUrn: string | null): Promise<ConversationsResult> {
+    const { status, body } = await getJson(creds, dispatcher, VOYAGER.conversationsPath());
+    if (body == null) return { conversations: [], httpStatus: status, ok: false };
+    return { conversations: parseConversations(body, myMailboxUrn), httpStatus: status, ok: true };
 }

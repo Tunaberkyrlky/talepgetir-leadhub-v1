@@ -45,11 +45,16 @@ export const RESEARCH_JOB_TYPES = {
     LINKEDIN_MESSAGE: 'linkedin:message',
     /** LinkedIn: withdraw stale pending invitations (§2 hygiene). DRY-RUN default. Faz 3. */
     LINKEDIN_WITHDRAW: 'linkedin:withdraw',
+    /** LinkedIn: advance a tenant's due campaign enrollments one batch (§5). Faz 4. */
+    LINKEDIN_SEQUENCE_TICK: 'linkedin:sequence-tick',
+    /** LinkedIn: detect invite accepts + replies for one account's enrollments (§5). Faz 4. */
+    LINKEDIN_POLL: 'linkedin:poll',
+    /** LinkedIn: daily PII retention purge (old audit rows + stale-lead anonymize, §6). Faz 5. */
+    LINKEDIN_RETENTION: 'linkedin:retention',
     // RESERVED — do NOT add as constants until each ships a REGISTERED handler.
     // Adding them here would widen isKnownJobType, so the internal POST /api/research/jobs
     // could enqueue a type with no handler → worker fails "No handler registered" and
-    // burns retries (critique P1-1). Add each alongside its handler:
-    //   linkedin:poll (Faz 4) · linkedin:sequence-tick (Faz 4)
+    // burns retries (critique P1-1).
 } as const;
 
 export type ResearchJobType = (typeof RESEARCH_JOB_TYPES)[keyof typeof RESEARCH_JOB_TYPES];

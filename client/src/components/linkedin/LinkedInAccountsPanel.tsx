@@ -9,12 +9,15 @@ import api from '../../lib/api';
 import { showErrorFromApi, showSuccess } from '../../lib/notifications';
 
 type LinkedInStatus = 'ACTIVE' | 'NEEDS_REAUTH' | 'CHALLENGED' | 'RESTRICTED' | 'PAUSED';
+interface ActionUsage { today: number; daily_cap: number; week: number; weekly_cap: number }
 interface LinkedInAccount {
     id: string;
     name: string | null;
     public_id: string | null;
     status: LinkedInStatus;
     warmup_day: number;
+    warmup_day_effective?: number;
+    usage?: { invite: ActionUsage; message: ActionUsage };
     last_validated_at: string | null;
     created_at: string;
 }
@@ -22,6 +25,18 @@ interface LinkedInAccount {
 const STATUS_COLOR: Record<LinkedInStatus, string> = {
     ACTIVE: 'green', NEEDS_REAUTH: 'orange', CHALLENGED: 'yellow', RESTRICTED: 'red', PAUSED: 'gray',
 };
+
+/** today/cap (week/weeklyCap) — orange near the cap, red at it. */
+function UsageCell({ u }: { u?: ActionUsage }) {
+    if (!u) return <Text size="sm" c="dimmed">—</Text>;
+    const dayColor = u.today >= u.daily_cap ? 'red' : u.today >= u.daily_cap * 0.8 ? 'orange' : undefined;
+    return (
+        <Text size="sm" c={dayColor}>
+            {u.today}/{u.daily_cap}
+            <Text span size="xs" c="dimmed"> · {u.week}/{u.weekly_cap}</Text>
+        </Text>
+    );
+}
 
 // Poll ONLY for an account captured very recently that hasn't validated yet — bounds
 // the poll so a stubbed/never-validated account can't trigger endless 3s refetches
@@ -84,6 +99,9 @@ export default function LinkedInAccountsPanel() {
                             <Table.Tr>
                                 <Table.Th>{t('research.linkedin.account', 'Account')}</Table.Th>
                                 <Table.Th ta="center">{t('research.linkedin.status', 'Status')}</Table.Th>
+                                <Table.Th ta="center">{t('research.linkedin.health.warmup', 'Warmup')}</Table.Th>
+                                <Table.Th ta="center">{t('research.linkedin.health.invites', 'Invites (day · week)')}</Table.Th>
+                                <Table.Th ta="center">{t('research.linkedin.health.messages', 'Messages (day · week)')}</Table.Th>
                                 <Table.Th ta="right">{t('research.linkedin.actions', 'Actions')}</Table.Th>
                             </Table.Tr>
                         </Table.Thead>
@@ -101,6 +119,13 @@ export default function LinkedInAccountsPanel() {
                                             {t(`research.linkedin.statusValue.${a.status}`, a.status)}
                                         </Badge>
                                     </Table.Td>
+                                    <Table.Td ta="center">
+                                        <Text size="sm">
+                                            {t('research.linkedin.health.day', 'Day')} {a.warmup_day_effective ?? a.warmup_day ?? 0}
+                                        </Text>
+                                    </Table.Td>
+                                    <Table.Td ta="center"><UsageCell u={a.usage?.invite} /></Table.Td>
+                                    <Table.Td ta="center"><UsageCell u={a.usage?.message} /></Table.Td>
                                     <Table.Td ta="right">
                                         <Button
                                             size="xs" variant="light" leftSection={<IconTestPipe size={14} />}
