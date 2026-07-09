@@ -134,6 +134,10 @@ export async function persistVerdict(params: {
         p_job_id: params.jobId,
         p_worker: params.worker,
         p_lease: params.lease,
+        // WP4 personalization (096) — rides the same fenced write; a preserved BILLED row
+        // ignores these entirely (the RPC returns the row of record before any write).
+        p_hooks: params.verdict.hooks && params.verdict.hooks.length > 0 ? params.verdict.hooks : null,
+        p_angle_suggestion: params.verdict.angle_suggestion ?? null,
     });
     if (error) {
         // Suppression is signalled by a STRUCTURED marker (069): check_violation + DETAIL of

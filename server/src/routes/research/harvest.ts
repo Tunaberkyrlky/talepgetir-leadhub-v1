@@ -246,7 +246,7 @@ router.get('/companies', async (req: Request, res: Response, next: NextFunction)
 
             let vQuery = researchSupabaseAdmin
                 .from('research_company_verdicts')
-                .select('company_id, verdict, score, evidence, elimination_reason, model, created_at', { count: 'exact' })
+                .select('company_id, verdict, score, evidence, elimination_reason, model, created_at, hooks, angle_suggestion', { count: 'exact' })
                 .eq('tenant_id', tenantId)
                 .eq('icp_id', icp_id)
                 .eq('ruleset_version', rulesetVersion)
@@ -263,6 +263,7 @@ router.get('/companies', async (req: Request, res: Response, next: NextFunction)
             const verdicts = (vRows ?? []) as Array<{
                 company_id: string; verdict: string; score: number | null;
                 evidence: string | null; elimination_reason: string | null; model: string | null; created_at: string;
+                hooks: string[] | null; angle_suggestion: string | null;
             }>;
             const companyIds = [...new Set(verdicts.map((v) => v.company_id))];
 
@@ -300,6 +301,9 @@ router.get('/companies', async (req: Request, res: Response, next: NextFunction)
                         elimination_reason: v.elimination_reason,
                         verdict_model: v.model,
                         verdict_created_at: v.created_at,
+                        // WP4 personalization (096) — written by the same validation pass.
+                        hooks: v.hooks ?? null,
+                        angle_suggestion: v.angle_suggestion ?? null,
                     };
                 })
                 .filter((r): r is NonNullable<typeof r> => r !== null);
@@ -423,6 +427,10 @@ router.post('/companies/export', requireWriter, validateBody(exportSchema), asyn
             company_id: string; name: string; domain: string | null; website: string | null;
             country: string | null; city: string | null; site_summary: string | null;
             score: number | null; evidence: string | null;
+            // WP4 enrichment (096 RPC): ICP name + personalization hooks + the suggested angle
+            // (with the APPROVED offer's value_prop when one matches the code).
+            icp_name: string | null; hooks: string[] | null;
+            angle_suggestion: string | null; angle_value_prop: string | null;
         };
         const pending = (exportable ?? []) as ExportRow[];
 
@@ -517,6 +525,17 @@ router.post('/companies/export', requireWriter, validateBody(exportSchema), asyn
                     custom_fields: {
                         'Research Evidence': r.evidence ?? '',
                         'Research Source': 'TG-Research Y1 harvest',
+                        // WP4: angle map + per-firm hooks travel with the lead so TG-Core
+                        // campaigns can personalize without touching research tables.
+                        // 'Research Hooks' is UNTRUSTED-DERIVED text (model output from the
+                        // firm's own website, hygienized at write: fences/URLs/emails/pipes
+                        // neutralized) — any TG-Core prompt that interpolates it MUST still
+                        // fence it as data.
+                        ...(r.icp_name ? { 'Research ICP': r.icp_name } : {}),
+                        ...(r.angle_suggestion
+                            ? { 'Research Angle': r.angle_value_prop ? `${r.angle_suggestion} — ${r.angle_value_prop}` : r.angle_suggestion }
+                            : {}),
+                        ...(Array.isArray(r.hooks) && r.hooks.length > 0 ? { 'Research Hooks': r.hooks.join(' | ') } : {}),
                         // Correlation key: pairs returned CRM rows to research rows WITHOUT relying
                         // on insert-return ordering, and makes a half-failed export retry-safe.
                         research_ref: r.company_id,

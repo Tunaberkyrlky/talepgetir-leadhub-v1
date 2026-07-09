@@ -32,6 +32,9 @@ interface CompanyRow {
     score: number | null;
     evidence: string | null;
     elimination_reason: string | null;
+    /** WP4 personalization from the same validation pass (match/partial firms). */
+    hooks?: string[] | null;
+    angle_suggestion?: string | null;
     verdict_created_at?: string;
     /** Set once the company was handed off to the CRM (research → companies export). */
     crm_company_id?: string | null;
@@ -430,6 +433,22 @@ export default function CompaniesPanel() {
                                                             {c.evidence || c.elimination_reason || '—'}
                                                         </Text>
                                                     </Tooltip>
+                                                    {(c.angle_suggestion || (c.hooks?.length ?? 0) > 0) && (
+                                                        <Group gap={4} mt={4} wrap="wrap">
+                                                            {c.angle_suggestion && (
+                                                                <Badge size="xs" variant="light" color="grape">
+                                                                    {c.angle_suggestion}
+                                                                </Badge>
+                                                            )}
+                                                            {(c.hooks ?? []).map((h, i) => (
+                                                                <Tooltip key={i} label={h} withArrow>
+                                                                    <Badge size="xs" variant="outline" color="cyan" maw={160} style={{ textTransform: 'none' }}>
+                                                                        {h}
+                                                                    </Badge>
+                                                                </Tooltip>
+                                                            ))}
+                                                        </Group>
+                                                    )}
                                                 </Table.Td>
                                             </Table.Tr>
                                         ))}

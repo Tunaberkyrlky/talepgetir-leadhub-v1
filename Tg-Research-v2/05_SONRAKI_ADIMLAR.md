@@ -12,7 +12,7 @@ Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + C
 >
 > **Plan revizyonları (bu değerlendirmeyle):** (a) **sub-ICP** kavramı plana eklendi = ICP'nin coğrafyaya *instantiate* edilmiş hali; (b) **F1 iptali revize**: mesaj METNİ TG-Core'da kalır ama **angle haritası + firma-başı kişiselleştirme kancaları research çıktısıdır** (WP4); (c) **geri-besleme** plana eklendi (K8 tek-yön sınır korunur — research CRM'den yalnız AGREGAT okur, research-owned tabloya yazar).
 >
-> **Sıra: WP1 → WP2 → WP3 → WP4 → WP5.** Her WP: migration (SADECE izole research test DB) + server + client + `tsc -b` + smoke + **codex gpt-5.5 xhigh review** (bloklanırsa Claude ikincil adversarial review) → düzelt → SHIP. Kilitli invariant'lara (04 §5) DOKUNMA: billing ömürde-bir + fenced RPC'ler + suppression>dedup + müşteri dolar görmez. Migration numaraları (gerçekleşen): WP1=084+085+087, WP2=086+090 (088/089 coldcall aldı), WP3=091+092+093+094. **WP4→095, WP5→096** (çakışırsa kaydır — coldcall/linkedin paralel numara alıyor, eklemeden önce `ls migrations` kontrol et).
+> **Sıra: WP1 → WP2 → WP3 → WP4 → WP5.** Her WP: migration (SADECE izole research test DB) + server + client + `tsc -b` + smoke + **codex gpt-5.5 xhigh review** (bloklanırsa Claude ikincil adversarial review) → düzelt → SHIP. Kilitli invariant'lara (04 §5) DOKUNMA: billing ömürde-bir + fenced RPC'ler + suppression>dedup + müşteri dolar görmez. Migration numaraları (gerçekleşen): WP1=084+085+087, WP2=086+090 (088/089 coldcall), WP3=091-094, WP4=096+098 (095/097 linkedin aldı). **WP5→099** (çakışırsa kaydır — paralel oturumlar numara kapıyor, eklemeden önce `ls migrations` kontrol et).
 
 ### WP1 — Kalibrasyon döngüsü (plan C1–C2) — ✅ **BİTTİ → codex SHIP** (2026-07-08, detay `04 §4.9`; migrations 084+085+087)
 
@@ -45,7 +45,9 @@ Mevcut durum tek cümle: **Ana engine/billing/fence zinciri + tier kotaları + C
 - **Client:** Coverage görünümü (ICP × geo hücresi): N bulunan / E tahmin, açı kapsaması, kanal tablosu (tip/durum/hasat), doygunluk rozeti (devam/boşluk/bitti).
 - **Kabul:** 1 ülke canlı smoke: keşif ≥5 kanal bulur → 1 kanal hasadı ≥10 aday → spine'dan geçer → chunk coverage güncellenir → ikinci run kümülatif istatistiği devralır; codex review.
 
-### WP4 — Offer/angle katmanı + firma-başı hook'lar + export genişletme
+### WP4 — Offer/angle katmanı + firma-başı hook'lar + export genişletme — ✅ **BİTTİ → codex SHIP** (2026-07-09, detay `04 §4.12`; migrations 096+098)
+
+> **KAPANIŞ (2026-07-09):** research_offers (insan-onaylı açı kartları, MAX 20/ICP + reject yolu) + offer:generate (Opus, kanıt örnekleri suppression/ruleset-filtreli FAIL-CLOSED) + verdict şemasına hooks/angle_suggestion (AYNI reading geçişi, MATCH-only, clamp+hijyen+çifte grounding) + persist_verdict 14-arg (faturalı-match dokunulmazlığı verdict-smoke P1-P10+P10b ile yeşil) + export custom_fields üçlüsü (reddedilen angle 098 ile export'tan düşer). Review zinciri: 2-lens → codex FIX FIRST (1P1+2P2) → verify (1P1+2P2) → düzeltildi → SHIP. Canlı e2e ×2 geçti.
 
 **Amaç:** sub-ICP başına kanıt-bağlı değer önerisi/açı haritası (mesaj METNİ değil — o TG-Core'da) + her MATCH firmaya kişiselleştirme kancaları + hepsinin CRM köprüsünden geçmesi.
 

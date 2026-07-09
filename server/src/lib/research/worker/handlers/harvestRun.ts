@@ -288,6 +288,29 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
             (e) => !suppressed.has(e.canonicalKey) && haveCurrentVerdict.has(e.id)
         ).length;
 
+        // Approved offer angles (WP4): read once per run — the SAME validation pass then returns
+        // hooks + angle_suggestion for MATCH firms (no extra fetch or LLM call). A failed
+        // read degrades to validation without the angle map — never fails the paid run.
+        let approvedAngles: Array<{ code: string; value_prop: string }> = [];
+        {
+            const { data: offerRows, error: offErr } = await researchSupabaseAdmin
+                .from('research_offers')
+                .select('angle_code, value_prop')
+                .eq('tenant_id', tenantId)
+                .eq('icp_id', icpId)
+                .eq('status', 'approved')
+                // Deterministic map (review P3): without an order the >10 truncation would be an
+                // arbitrary Postgres subset that changes run to run.
+                .order('created_at', { ascending: true })
+                .limit(10);
+            if (offErr) {
+                log.warn({ err: offErr, jobId: job.id }, 'approved offers read failed — validating without the angle map');
+            } else {
+                approvedAngles = ((offerRows ?? []) as Array<{ angle_code: string; value_prop: string }>)
+                    .map((o) => ({ code: o.angle_code, value_prop: o.value_prop }));
+            }
+        }
+
         // ICP fields the validator scores against (shared by the fetch path and the re-score path).
         // A geo-cell run also carries the cell's local-language cues into the validation prompt.
         const icpFields = {
@@ -296,6 +319,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
             elimination_rules: icpRow.elimination_rules ?? [],
             localized_signals: localizedSignals.length > 0 ? localizedSignals : undefined,
             localized_negative_signals: localizedNegativeSignals.length > 0 ? localizedNegativeSignals : undefined,
+            approved_angles: approvedAngles.length > 0 ? approvedAngles : undefined,
         };
 
         // ── Fetch → validate → persist → bill ────────────────────────────────────

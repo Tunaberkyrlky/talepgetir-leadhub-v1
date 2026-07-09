@@ -9,6 +9,7 @@ import jobsRouter from './jobs.js';
 import icpsRouter from './icps.js';
 import geographiesRouter from './geographies.js';
 import channelsRouter from './channels.js';
+import offersRouter from './offers.js';
 import harvestRouter from './harvest.js';
 import adminRouter from './admin.js';
 import tradeRouter from './trade.js';
@@ -20,6 +21,7 @@ router.use('/jobs', jobsRouter);
 router.use('/icps', icpsRouter);
 router.use('/geographies', geographiesRouter);
 router.use('/channels', channelsRouter);
+router.use('/offers', offersRouter);
 router.use('/harvest', harvestRouter);
 router.use('/trade', tradeRouter);
 // Internal-only margin/COGS panel (superadmin, ops_agent — enforced inside the router).

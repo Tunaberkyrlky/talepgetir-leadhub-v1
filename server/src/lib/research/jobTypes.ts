@@ -29,6 +29,8 @@ export const RESEARCH_JOB_TYPES = {
     CHANNELS_DISCOVER: 'channels:discover',
     /** WP3 Y1: harvest one channel's member list -> shared fenced spine (validate + bill). */
     CHANNELS_HARVEST: 'channels:harvest',
+    /** WP4: draft 3-5 outreach angles for one approved ICP (strategy role; human-approved cards). */
+    OFFER_GENERATE: 'offer:generate',
 
     // ── TG-LinkedIn (isolated module; rides this same research_jobs queue) ─────
     /** LinkedIn: session liveness + UA/proxy health smoke (/voyager/api/me). Faz 1. */

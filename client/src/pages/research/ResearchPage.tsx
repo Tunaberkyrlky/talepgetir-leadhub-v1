@@ -17,6 +17,7 @@ import { showErrorFromApi } from '../../lib/notifications';
 import IcpCard, { type ResearchIcp } from '../../components/research/IcpCard';
 import CompaniesPanel from '../../components/research/CompaniesPanel';
 import GeographiesPanel from '../../components/research/GeographiesPanel';
+import OffersPanel from '../../components/research/OffersPanel';
 import TradeImportsPanel from '../../components/research/TradeImportsPanel';
 import LinkedInAccountsPanel from '../../components/linkedin/LinkedInAccountsPanel';
 
@@ -122,6 +123,9 @@ export default function ResearchPage() {
                         <Tabs.Tab value="geographies" leftSection={<IconWorldPin size={16} />}>
                             {t('research.tabs.geographies', 'Geographies')}
                         </Tabs.Tab>
+                        <Tabs.Tab value="offers" leftSection={<IconSparkles size={16} />}>
+                            {t('research.tabs.offers', 'Offer angles')}
+                        </Tabs.Tab>
                         <Tabs.Tab value="companies" leftSection={<IconBuildingSkyscraper size={16} />}>
                             {t('research.tabs.companies', 'Leads')}
                         </Tabs.Tab>
@@ -135,6 +139,10 @@ export default function ResearchPage() {
 
                     <Tabs.Panel value="geographies">
                         <GeographiesPanel />
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="offers">
+                        <OffersPanel />
                     </Tabs.Panel>
 
                     <Tabs.Panel value="companies">

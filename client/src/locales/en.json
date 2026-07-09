@@ -523,7 +523,8 @@
             "geographies": "Geographies",
             "companies": "Leads",
             "trade": "Customs data",
-            "linkedin": "LinkedIn Accounts"
+            "linkedin": "LinkedIn Accounts",
+            "offers": "Offer angles"
         },
         "linkedin": {
             "heading": "LinkedIn Accounts",
@@ -729,6 +730,41 @@
                 "harvested": "harvested",
                 "unreachable": "unreachable"
             }
+        },
+        "offers": {
+            "title": "Offer angles",
+            "project": "Project",
+            "pickProject": "Pick a project",
+            "icp": "ICP",
+            "pickIcp": "Pick an ICP",
+            "generate": "Generate angles",
+            "generateHint": "Drafts 3-5 outreach angles from your profile, the ICP and real match evidence.",
+            "generateStarted": "Angle generation started — drafts appear below when it finishes.",
+            "generateDone": "Angle drafts are ready — review, edit and approve them.",
+            "generateFailed": "Angle generation failed — try again.",
+            "noCredits": "You do not have research credits — top up before generating angles.",
+            "approveIcpFirst": "Approve the ICP before generating angles.",
+            "empty": "No angles yet — generate drafts to start the offer map.",
+            "pain": "Pain hypothesis",
+            "valueProp": "Value proposition",
+            "proofPoints": "Proof points",
+            "objections": "Likely objections",
+            "language": "Language",
+            "save": "Save",
+            "saveHint": "Saving returns the card to draft; approve it again afterwards.",
+            "saved": "Angle saved — the card is back in draft.",
+            "yourScore": "Your score",
+            "approve": "Approve",
+            "approveHint": "Approved angles feed per-firm suggestions and the CRM export.",
+            "approvedToast": "Angle approved — harvests now suggest it per firm.",
+            "staleApprove": "This angle changed since you opened it — review the latest card and approve again.",
+            "statusValue": {
+                "draft": "draft",
+                "approved": "approved",
+                "rejected": "rejected"
+            },
+            "reject": "Reject",
+            "rejectedToast": "Angle rejected — it no longer counts toward the limit."
         },
         "admin": {
             "title": "Research — COGS & Margin (internal)",

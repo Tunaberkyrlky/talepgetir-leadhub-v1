@@ -523,7 +523,8 @@
             "geographies": "Coğrafyalar",
             "companies": "Lead'ler",
             "trade": "Gümrük Verisi",
-            "linkedin": "LinkedIn Hesapları"
+            "linkedin": "LinkedIn Hesapları",
+            "offers": "Offer açıları"
         },
         "linkedin": {
             "heading": "LinkedIn Hesapları",
@@ -729,6 +730,41 @@
                 "harvested": "hasat edildi",
                 "unreachable": "erişilemedi"
             }
+        },
+        "offers": {
+            "title": "Offer açıları",
+            "project": "Proje",
+            "pickProject": "Proje seçin",
+            "icp": "ICP",
+            "pickIcp": "ICP seçin",
+            "generate": "Açı üret",
+            "generateHint": "Profiliniz, ICP ve gerçek eşleşme kanıtlarından 3-5 outreach açısı taslaklar.",
+            "generateStarted": "Açı üretimi başladı, bittiğinde taslaklar aşağıda görünür.",
+            "generateDone": "Açı taslakları hazır, inceleyip düzenleyebilir ve onaylayabilirsiniz.",
+            "generateFailed": "Açı üretimi başarısız oldu, yeniden deneyebilirsiniz.",
+            "noCredits": "Araştırma krediniz yok, açı üretmeden önce bakiye yükleyebilirsiniz.",
+            "approveIcpFirst": "Açı üretmeden önce ICP'yi onaylamanız gerekir.",
+            "empty": "Henüz açı yok, offer haritasını başlatmak için taslak üretebilirsiniz.",
+            "pain": "Ağrı hipotezi",
+            "valueProp": "Değer önerisi",
+            "proofPoints": "Kanıt noktaları",
+            "objections": "Olası itirazlar",
+            "language": "Dil",
+            "save": "Kaydet",
+            "saveHint": "Kaydetmek kartı taslağa döndürür, ardından yeniden onaylayabilirsiniz.",
+            "saved": "Açı kaydedildi, kart taslağa döndü.",
+            "yourScore": "Puanınız",
+            "approve": "Onayla",
+            "approveHint": "Onaylı açılar firma bazlı önerileri ve CRM aktarımını besler.",
+            "approvedToast": "Açı onaylandı, taramalar artık firma bazında önerecek.",
+            "staleApprove": "Bu açı siz açtıktan sonra değişti, güncel kartı inceleyip yeniden onaylayabilirsiniz.",
+            "statusValue": {
+                "draft": "taslak",
+                "approved": "onaylı",
+                "rejected": "reddedildi"
+            },
+            "reject": "Reddet",
+            "rejectedToast": "Açı reddedildi, artık limite sayılmaz."
         },
         "admin": {
             "title": "Araştırma — COGS & Marj (dahili)",
