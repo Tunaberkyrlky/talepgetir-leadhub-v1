@@ -62,6 +62,12 @@ Her AI adımı bir **taslak** üretir → müşteri onaylar / revize eder / puan
 - **Yurt dışı aktarım:** Supabase mümkünse **AB bölgesi**; ABD işleyiciler (Anthropic/BetterEnrich) için SCC / açık rıza duruşu; aktarım dayanağı belgelenir.
 - **Saklama:** firma-seviyesi veri tutulur; kişi PII için saklama penceresi + churn/atalette anonimleştirme; iptalde export + silme. **VERBİS** eşik kontrolü + üründe aydınlatma metni.
 
+**K10 — Kalıcı ayrım + outreach yerleşimi (KİLİTLİ KARAR, 2026-07-09).**
+- **TG-Research HEP AYRI KALACAK.** Kendi Railway projesi (`tg-research`: worker + research-api + SearXNG + Gosom) ve kendi izole DB'siyle çalışır; TG-Core prod'a hiçbir zaman gömülmez/birleştirilmez. TG-Core prod'a dokunan tek yüzey: export (lead devri) + auth.
+- **Lead akışı TEK YÖN:** TG-Research üretir/doğrular/zenginleştirir → nitelikli lead'ler TG-Core'a aktarılır (K8'deki "Import to CRM" köprüsü). Research, CRM tablolarına asla doğrudan yazmaz.
+- **Outreach'in evi TG-Core'dur.** Üç kanal da TG-Core'dan yürütülür: **cold email** (mevcut kampanya/e-posta modülleri) + **LinkedIn DM/invite** (Tg-LinkedIn modülü) + **cold call** (coldcall modülü). Research lead üretir; temas TG-Core'dan çıkar.
+- **Staging:** `tg-research` Railway projesine ayrı bir **full-app `tg-core-staging` servisi** eklenir (izole test DB'ye bakar). LinkedIn/coldcall canlı smoke'ları ve prod öncesi doğrulama burada koşar; TG-Core prod'u etkilemez.
+
 ---
 
 ## 2. Akış — adım adım mimari kararlar

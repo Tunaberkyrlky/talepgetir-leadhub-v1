@@ -160,6 +160,8 @@ En güvenilir: public profil HTML sayfasını çek, inline `<code id="bpr-guid-N
 
 **Proxy katmanı:** `ROTATING_5G_PROXY` env (base endpoint + kimlik). Hesap başına **sticky session token** (`linkedin_accounts.proxy_session_id`) → `undici ProxyAgent`'a geçir. Rotating değil; sticky.
 
+**Yerleşim + dağıtım (KİLİTLİ KARAR, 2026-07-09 — bkz. `Tg-Research-v2/00_MIMARI_PLAN.md` K10):** LinkedIn otomasyonu **TG-Core'un outreach kanalıdır** (cold email + LinkedIn DM + cold call üçlüsünün parçası). TG-Research ayrı bir sistem olarak **hep ayrı kalır** ve yalnızca lead üretir; lead'ler TG-Core'a devredilir, temas TG-Core'dan çıkar. Staging = `tg-research` Railway projesine eklenen **full-app `tg-core-staging` servisi** (izole test DB'ye bakar); LinkedIn canlı smoke + gerçek hesap bağlama burada yapılır, sonra prod-hardening (gerekirse dedike linkedin worker/servisi ile egress izolasyonu).
+
 ---
 
 ## 8. Veri modeli (taslak — izole `linkedin_*` tablolar, tenant-scoped, RLS)

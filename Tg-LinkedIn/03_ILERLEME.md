@@ -4,7 +4,7 @@
 > Tam strateji: `00_STRATEJI_VE_MIMARI.md` · Faz-0 spec/kritik: `01_FAZ0_BUILD_SPEC.md`, `02_FAZ0_CRITIQUE.md`.
 
 ## Tek cümle
-Headless LinkedIn outreach modülü TG-Core'a **izole modül** olarak ekleniyor (research worker/queue'ya biniyor). **Faz 0-5 kodu yazıldı** (5 = UI tamamlama + kampanya kurucu + inbox + do-not-contact + PII retention/anonymize; migration 101; 55-ajan review'un 23 bulgusu düzeltildi). **Faz 3 COMMIT b226986; Faz 4+5 UNCOMMITTED.** — Aşağısı Faz 0-4 detayı; Faz 5 en altta.
+Headless LinkedIn outreach modülü TG-Core'a **izole modül** olarak ekleniyor (research worker/queue'ya biniyor). **Faz 0-5 kodu yazıldı ve TAMAMI COMMIT'Lİ** (0/1 `6cae4bd`, 2 `e996da7`, 3 `b226986`, **4+5 `d654e8a`** — 2026-07-09 scoped commit, paralel research işleri dışarıda). — Aşağısı Faz 0-4 detayı; Faz 5 en altta.
 
 <!-- ESKİ ÖZET (Faz 0-4): -->
 Headless LinkedIn outreach modülü. **Faz 0-4 kodu yazıldı** (0 iskelet · 1 bağlan+validate · 2 tek invite+mesaj DRY-RUN · 3 limitler+warmup+çalışma-saati+jitter+withdraw+auto-pause+Accept-Language · **4 kampanya/sekans motoru: enrollment state machine + suppression + sender rotation + poll (accept/reply) + per-account serialization**), server+client tsc yeşil, migration 095+097 izole DB'ye uygulı, RPC+state-machine+tz/warmup smoke'ları ALL_PASS, her faz 5-boyutlu adversarial review'dan geçti (Faz 4: 1 P1 + P2'ler düzeltildi). Canlı gönderim testi henüz yapılmadı (env key + gerçek hesap + staging; kod dry-run varsayılanıyla kaza-koruma altında). **Faz 3 COMMIT b226986; Faz 4 UNCOMMITTED.**
@@ -12,7 +12,7 @@ Headless LinkedIn outreach modülü. **Faz 0-4 kodu yazıldı** (0 iskelet · 1 
 ## Sabit gerçekler (ezber gerektirmesin)
 - **Branch:** `ssalihyetim/TG-Research` (origin'de). PROD = `main` (dokunulmadı).
 - **Supabase projeleri:** PROD (müşteriler) = `ehnbhkxmsdticaodndvy` ("TG Core") · **İZOLE TEST DB** = `iehqsuludghrhosgxhnr` ("TG-Core-coldcrm-test"). Local `.env` → `SUPABASE_URL` test DB'ye bakıyor (`RESEARCH_SUPABASE_URL` yok → Model A, tüm veri test DB'de). `ROTATING_5G_PROXY` `.env`'de var.
-- **Migration durumu (test DB):** uygulanmış → research 055-078, coldcall 079-082, **linkedin 083 + 093 + 094 + 095** (bu modül). UYGULANMAMIŞ → calibration `084-087` (kullanıcının calibration/geo işi; CalibrationDrawer staging'de bunlar olmadan 500 verir).
+- **Migration durumu (test DB):** uygulanmış → research serisi (calibration `084-087` DAHİL — 2026-07-09'da `list_migrations` ile doğrulandı, eski "uygulanmamış" notu geçersizdi), coldcall 079-082+, **linkedin 083 + 093 + 094 + 095 + 097 + 101** (bu modül). Staging'de CalibrationDrawer 500 riski YOK.
 - **Env (Faz 1 canlı için gerekli, HENÜZ set değil):** `LINKEDIN_COOKIE_ENC_KEY=67093e7459874c6b7b31cd1c8ab99f0cb39f27f3a03f4eb853820f328a00cdf4` (bu session'da üretildi) · `LINKEDIN_APP_ORIGIN=<staging/local origin>`.
 - **LinkedIn resmî API/OAuth invite/DM GÖNDEREMEZ** → cookie-uzantı yolu tek teknik yol (tüm ticari araçlar böyle).
 
@@ -79,8 +79,10 @@ Migration `083_linkedin_foundation.sql`: `linkedin_accounts` (şifreli `li_at_en
 - **Faz 5: ✅ TAMAM (kod).** UI tamamlama (kampanya kurucu + enrollment durumları + hesap-sağlığı kolonları + unified inbox v2 + do-not-contact yönetimi) + uyumluluk (opt-out DELETE-guard + PII retention purge/anonymize + suppress escalation + identity-split re-check). Migration 101; `linkedin:retention` job kayıtlı. **Sıradaki mig = 102.**
 - **Sonraki adaylar:** canlı staging smoke (env key + gerçek hesap → dry-run kampanya → küçük `dry_run:false`); voyager hot-surface'ları canlı doğrula (decorationId/trackingId/sentInvitations/connections/conversations); LinkedIn'i kendi microservice'ine ayır (egress izolasyonu, prod-hardening).
 
-## Staging kararı (00 + memory)
-research-api = dar servis (full app değil), coldcall/linkedin UI'ını servis edemez. → mevcut `tg-research` Railway projesine **full-app `tg-core-staging` servisi** ekle (test DB'ye bakan). LinkedIn worker'ı mevcut research worker'ından gelir. Prod-hardening'de LinkedIn kendi microservice'ine ayrılabilir (egress izolasyonu).
+## Staging + mimari kararı (KİLİTLİ, 2026-07-09 — bkz. `Tg-Research-v2/00_MIMARI_PLAN.md` K10)
+- **TG-Research hep ayrı kalır** (kendi Railway projesi + izole DB); lead'ler TG-Core'a devredilir; **outreach'in evi TG-Core** (cold email + LinkedIn DM + cold call).
+- research-api = dar servis (full app değil), coldcall/linkedin UI'ını servis edemez. → mevcut `tg-research` Railway projesine **full-app `tg-core-staging` servisi** ekle (test DB'ye bakan). LinkedIn worker'ı mevcut research worker'ından gelir.
+- Sıra: staging kur → **gerçek hesap bağla + canlı smoke** → prod-hardening (gerekirse LinkedIn kendi microservice'ine ayrılır, egress izolasyonu).
 
 ## Nasıl devam edilir (/clear sonrası)
-Memory `tg-core-linkedin-automation.md` + bu doküman = tam durum. **Faz 0-3 COMMIT'li** (0/1 `6cae4bd`, 2 `e996da7`, 3 `b226986`); **Faz 4 kod-tamam ama UNCOMMITTED** (kullanıcı `versiyonla`/`commit` demeli; working tree'de paralel research WP4 `offer:generate` işi de var — LinkedIn commit'ini scoped tut). Sıradaki seçenekler: **"Faz 4'ü commit'le/versiyonla"** · **"canlı test için staging kur"** (env key + gerçek hesap → dry-run kampanya → `dry_run:false` küçük kampanya; connections/conversations + invite/message shape'i canlı doğrula) · **"Faz 5"** (UI: kampanya kurucu + enrollment durumları + hesap-sağlığı + unified inbox; opt-out/PII). Migration: linkedin 083+093+094+095+097 aldı; sıradaki boş = **098** (coldcall/research paralel numara kapıyor — `ls supabase/migrations`).
+Memory `tg-core-linkedin-automation.md` + bu doküman = tam durum. **Faz 0-5 TAMAMI COMMIT'Lİ** (0/1 `6cae4bd`, 2 `e996da7`, 3 `b226986`, 4+5 `d654e8a`). Aktif iş sırası (kullanıcı kararı 2026-07-09): **(1) `tg-core-staging` servisini Railway `tg-research` projesine kur** (full-app, test DB) → **(2) gerçek hesap bağla + canlı smoke** (dry-run kampanya → küçük `dry_run:false`; decorationId/trackingId/sentInvitations/connections/conversations shape'lerini canlı doğrula) → **(3) prod-hardening** (session epoch, egress izolasyonu / gerekirse microservice split, prod Railway env'leri). Migration: linkedin 083+093+094+095+097+101 aldı; sıradaki boş numarayı `ls supabase/migrations` ile kontrol et (paralel oturumlar numara kapıyor; 103+104 research aldı).
