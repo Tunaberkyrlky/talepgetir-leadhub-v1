@@ -1228,6 +1228,7 @@
             "enrollAll": "Tümünü kaydet ({{count}})",
             "enrolledToast": "{{count}} kişi kaydedildi",
             "cappedNote": "İlk {{max}} kişi kaydedildi.",
+            "invalidNote": "{{count}} kişi teslim edilemez olduğu için atlandı",
             "noMatch": "Filtreyle eşleşen kişi yok.",
             "showingNote": "{{total}} kişiden {{shown}} tanesi gösteriliyor. Gerisi için 'Tümünü kaydet'i kullanın.",
             "currentTitle": "Kayıtlı kişiler",
@@ -1258,7 +1259,13 @@
                 "completed": "Tamamlandı",
                 "replied": "Yanıtladı",
                 "bounced": "Sekti",
-                "unsubscribed": "Çıktı"
+                "unsubscribed": "Çıktı",
+                "skipped_invalid": "Geçersiz"
+            },
+            "skipReason": {
+                "syntax": "E-posta biçimi hatalı",
+                "no_mx": "Alan adı mail alamıyor (MX yok)",
+                "disposable": "Tek kullanımlık e-posta adresi"
             }
         },
         "activation": {
@@ -1282,6 +1289,7 @@
             "segPaused": "{{count}} duraklı",
             "segBounced": "{{count}} sekti",
             "segUnsub": "{{count}} çıktı",
+            "segInvalid": "{{count}} geçersiz",
             "overTime": "Zamana göre etkinlik",
             "byInbox": "Kutu başına gönderim",
             "byStep": "Adıma göre",

@@ -17,6 +17,7 @@ import type { ListUnsubscribe } from './mail/types.js';
 import { createLogger } from './logger.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { nextSendableTime, startOfLocalDay, startOfNextLocalDay, type SendingWindow } from './sendingWindow.js';
+import { validateEmail, validateEmails } from './emailValidator.js';
 
 const log = createLogger('campaignEngine');
 
@@ -326,12 +327,42 @@ async function countSentTodayForAccount(tenantId: string, account: string, timeZ
 
 // ── Enrollment ─────────────────────────────────────────────────────────────
 
+// Enrollment satırlarını ekler; UNIQUE(campaign_id, email) çakışmalarını (aynı kişi
+// zaten kayıtlı) sessizce atlar. Önce tek batch dener; batch 23505 verirse (en az bir
+// çakışma) tek tek eklemeye düşer. Döner: eklenen + atlanan (çakışan) sayıları.
+async function insertEnrollments(rows: Record<string, unknown>[]): Promise<{ inserted: number; skipped: number }> {
+    if (rows.length === 0) return { inserted: 0, skipped: 0 };
+
+    const { data, error } = await supabaseAdmin
+        .from('campaign_enrollments')
+        .insert(rows)
+        .select('id');
+
+    if (!error) {
+        const inserted = data?.length || 0;
+        return { inserted, skipped: rows.length - inserted };
+    }
+
+    if (error.code === '23505') {
+        let inserted = 0;
+        let skipped = 0;
+        for (const row of rows) {
+            const { error: e } = await supabaseAdmin.from('campaign_enrollments').insert(row);
+            if (e) skipped++; else inserted++;
+        }
+        return { inserted, skipped };
+    }
+
+    log.error({ err: error }, 'Batch enrollment insert failed');
+    throw new AppError('Failed to enroll leads', 500);
+}
+
 export async function enrollLeads(
     campaignId: string,
     tenantId: string,
     userId: string,
     contacts: EnrollContact[],
-): Promise<{ enrolled: number; skipped: number }> {
+): Promise<{ enrolled: number; skipped: number; invalid: number }> {
     // Fetch campaign + first step
     const { data: campaign, error: campErr } = await supabaseAdmin
         .from('campaigns')
@@ -359,47 +390,44 @@ export async function enrollLeads(
     // Legacy 'delay' düğümleri de aynı hesapla doğru çalışır.
     const firstScheduleAt = new Date(scheduleMs(applyJitter(Date.now() + calcDelayMs(firstStep), campaign.settings), campaign.settings)).toISOString();
 
-    // Batch insert enrollments — single DB call, duplicates ignored via ON CONFLICT
-    const rows = contacts.map((c) => ({
-        tenant_id: tenantId,
-        campaign_id: campaignId,
-        contact_id: c.contact_id,
-        company_id: c.company_id,
-        email: c.email.toLowerCase(),
-        status: 'active',
-        current_step_id: firstStep.id,
-        next_scheduled_at: firstScheduleAt,
-    }));
+    // ── Liste doğrulama (task-4) ────────────────────────────────────────────
+    // Sözdizimi + MX + disposable. Geçersizler (bozuk sözdizimi / MX yok /
+    // disposable) 'skipped_invalid' olarak kaydedilir → istatistikte görünür,
+    // zamanlayıcı almaz, sessiz bounce olmaz. Belirsiz (DNS timeout) → fail-open,
+    // normal 'active' kaydedilir; gönderim-anı tekrar kontrolü ikinci savunmadır.
+    const validations = await validateEmails(contacts.map((c) => c.email));
 
-    let enrolled = 0;
-    let skipped = 0;
-
-    // Try batch insert first; fall back to individual on conflict
-    const { data: inserted, error: batchErr } = await supabaseAdmin
-        .from('campaign_enrollments')
-        .insert(rows)
-        .select('id');
-
-    if (batchErr) {
-        if (batchErr.code === '23505') {
-            // Batch had duplicates — fall back to individual inserts
-            for (const row of rows) {
-                const { error } = await supabaseAdmin
-                    .from('campaign_enrollments')
-                    .insert(row);
-                if (error) { skipped++; } else { enrolled++; }
-            }
+    const validRows: Record<string, unknown>[] = [];
+    const invalidRows: Record<string, unknown>[] = [];
+    let roleCount = 0;
+    for (const c of contacts) {
+        const v = validations.get((c.email || '').trim().toLowerCase());
+        if (v?.role) roleCount++;
+        const base = {
+            tenant_id: tenantId,
+            campaign_id: campaignId,
+            contact_id: c.contact_id,
+            company_id: c.company_id,
+            email: c.email.toLowerCase(),
+            current_step_id: firstStep.id,
+        };
+        if (v && v.validity === 'invalid') {
+            // Geçersiz → kaydet ama gönderme (zamanlayıcı status='active' arar).
+            invalidRows.push({ ...base, status: 'skipped_invalid', skip_reason: v.reason, next_scheduled_at: null });
         } else {
-            log.error({ err: batchErr }, 'Batch enrollment insert failed');
-            throw new AppError('Failed to enroll leads', 500);
+            validRows.push({ ...base, status: 'active', next_scheduled_at: firstScheduleAt });
         }
-    } else {
-        enrolled = inserted?.length || 0;
-        skipped = contacts.length - enrolled;
     }
 
-    // Update denormalized counter (derive from actual count to avoid race conditions)
-    if (enrolled > 0) {
+    const validRes = await insertEnrollments(validRows);
+    const invalidRes = await insertEnrollments(invalidRows);
+    const enrolled = validRes.inserted;
+    const invalid = invalidRes.inserted;
+    const skipped = validRes.skipped + invalidRes.skipped; // çakışan (zaten kayıtlı) kişiler
+
+    // Update denormalized counter (derive from actual count to avoid race conditions).
+    // skipped_invalid satırları da birer enrollment kaydı olduğundan sayıya dâhildir.
+    if (enrolled + invalid > 0) {
         const { count } = await supabaseAdmin
             .from('campaign_enrollments')
             .select('id', { count: 'exact', head: true })
@@ -410,16 +438,16 @@ export async function enrollLeads(
             .eq('id', campaignId);
     }
 
-    log.info({ campaignId, enrolled, skipped }, 'Leads enrolled');
-    return { enrolled, skipped };
+    log.info({ campaignId, enrolled, skipped, invalid, roleAddresses: roleCount }, 'Leads enrolled');
+    return { enrolled, skipped, invalid };
 }
 
 // ── Scheduled Email Processing ─────────────────────────────────────────────
 
-export async function processScheduledEmails(): Promise<{ sent: number; failed: number; advanced: number }> {
+export async function processScheduledEmails(): Promise<{ sent: number; failed: number; advanced: number; skipped: number }> {
     // Drip emails go out via Nango (user's own Gmail/Outlook), not Resend.
     // If Nango is not configured, no tenant can have an active connection — skip the tick.
-    if (!process.env.NANGO_SECRET_KEY) return { sent: 0, failed: 0, advanced: 0 };
+    if (!process.env.NANGO_SECRET_KEY) return { sent: 0, failed: 0, advanced: 0, skipped: 0 };
 
     const { data: dueEnrollments, error } = await supabaseAdmin
         .from('campaign_enrollments')
@@ -436,13 +464,13 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
 
     if (error) {
         log.error({ err: error }, 'Failed to fetch due enrollments');
-        return { sent: 0, failed: 0, advanced: 0 };
+        return { sent: 0, failed: 0, advanced: 0, skipped: 0 };
     }
-    if (!dueEnrollments?.length) return { sent: 0, failed: 0, advanced: 0 };
+    if (!dueEnrollments?.length) return { sent: 0, failed: 0, advanced: 0, skipped: 0 };
 
     log.info({ count: dueEnrollments.length }, 'Processing due enrollments');
 
-    let sent = 0, failed = 0, advanced = 0;
+    let sent = 0, failed = 0, advanced = 0, skipped = 0;
 
     for (const enrollment of dueEnrollments) {
         try {
@@ -498,6 +526,21 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 if (!enrollment.contact_id || !enrollment.company_id) {
                     await markEnrollmentFailed(enrollment.id, 'Missing contact or company');
                     failed++; continue;
+                }
+
+                // ── Gönderim-anı liste doğrulama (task-4, ikinci savunma) ──────
+                // Ucuz tekrar kontrol: sözdizimi + cache'li MX + disposable. Kesin
+                // geçersizse GÖNDERME; kaydı 'skipped_invalid' yap, nedeni işaretle;
+                // tick'i PATLATMA (continue). Belirsiz (DNS) → fail-open, gönder.
+                // Enrollment-anı doğrulamayı atlamış eski kayıtları da yakalar.
+                const recheck = await validateEmail(enrollment.email);
+                if (recheck.validity === 'invalid') {
+                    await supabaseAdmin.from('campaign_enrollments')
+                        .update({ status: 'skipped_invalid', skip_reason: recheck.reason, next_scheduled_at: null })
+                        .eq('id', enrollment.id);
+                    skipped++;
+                    log.info({ enrollmentId: enrollment.id, email: enrollment.email, reason: recheck.reason }, 'Send skipped: invalid recipient');
+                    continue;
                 }
 
                 // ── Gönderim penceresi + günlük limit kapıları ──────────
@@ -763,10 +806,10 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
         }
     }
 
-    if (sent > 0 || failed > 0 || advanced > 0) {
-        log.info({ sent, failed, advanced }, 'Scheduler tick complete');
+    if (sent > 0 || failed > 0 || advanced > 0 || skipped > 0) {
+        log.info({ sent, failed, advanced, skipped }, 'Scheduler tick complete');
     }
-    return { sent, failed, advanced };
+    return { sent, failed, advanced, skipped };
 }
 
 async function completeEnrollment(enrollmentId: string): Promise<void> {
@@ -923,6 +966,7 @@ export interface CampaignStats {
     paused: number;
     bounced: number;
     unsubscribed: number;
+    skipped_invalid: number;
     emails_sent: number;
     opens: number;
     clicks: number;
@@ -1025,6 +1069,7 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
         paused: statusCounts['paused'] || 0,
         bounced: statusCounts['bounced'] || 0,
         unsubscribed: statusCounts['unsubscribed'] || 0,
+        skipped_invalid: statusCounts['skipped_invalid'] || 0,
         emails_sent: sentCount,
         opens, clicks, replies: replied,
         open_rate: sentCount > 0 ? opens / sentCount : 0,

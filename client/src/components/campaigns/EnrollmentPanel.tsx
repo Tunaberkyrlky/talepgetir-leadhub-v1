@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Stack, Group, Text, Badge, Button, Table, TextInput, MultiSelect, Paper, Loader, Center, Checkbox, Skeleton,
-    Menu, ActionIcon, Modal, Select, Pagination,
+    Menu, ActionIcon, Modal, Select, Pagination, Tooltip,
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import {
@@ -10,11 +10,12 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
-import { showSuccess, showErrorFromApi } from '../../lib/notifications';
+import { showSuccess, showInfo, showErrorFromApi } from '../../lib/notifications';
 import type { Enrollment, EnrollLeadPayload } from '../../types/campaign';
 
 const STATUS_COLORS: Record<string, string> = {
     active: 'blue', completed: 'green', replied: 'violet', paused: 'yellow', bounced: 'red', unsubscribed: 'gray',
+    skipped_invalid: 'orange',
 };
 
 interface Props { campaignId: string; campaignStatus: string; }
@@ -92,15 +93,20 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
                 .map((c) => ({ contact_id: c.contact_id, company_id: c.company_id, email: c.email }));
             return (await api.post(`/campaigns/${campaignId}/enroll`, { contacts: payload })).data;
         },
-        onSuccess: (d) => { showSuccess(t('campaign.audience.enrolledToast', { count: d.enrolled, defaultValue: '{{count}} enrolled' })); afterEnroll(); },
+        onSuccess: (d: { enrolled: number; invalid?: number }) => {
+            showSuccess(t('campaign.audience.enrolledToast', { count: d.enrolled, defaultValue: '{{count}} enrolled' }));
+            if (d.invalid && d.invalid > 0) showInfo(t('campaign.audience.invalidNote', { count: d.invalid, defaultValue: '{{count}} skipped as undeliverable' }));
+            afterEnroll();
+        },
         onError: (err) => showErrorFromApi(err),
     });
 
     // Eşleşen tümünü kaydet (sunucu tarafı filtre, 200 limiti yok).
     const enrollAllMut = useMutation({
         mutationFn: async () => (await api.post(`/campaigns/${campaignId}/enroll-filter`, filters)).data,
-        onSuccess: (d: { enrolled: number; capped: boolean }) => {
+        onSuccess: (d: { enrolled: number; invalid?: number; capped: boolean }) => {
             showSuccess(t('campaign.audience.enrolledToast', { count: d.enrolled, defaultValue: '{{count}} enrolled' }));
+            if (d.invalid && d.invalid > 0) showInfo(t('campaign.audience.invalidNote', { count: d.invalid, defaultValue: '{{count}} skipped as undeliverable' }));
             if (d.capped) showSuccess(t('campaign.audience.cappedNote', { max: 2000, defaultValue: 'First {{max}} enrolled.' }));
             afterEnroll();
         },
@@ -136,7 +142,7 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
 
     // ── Kayıtlı liste: arama + durum filtresi + sayfalama + toplu aksiyon ──
     const PAGE_SIZE = 25;
-    const ENROLL_STATUSES = ['active', 'paused', 'completed', 'replied', 'bounced', 'unsubscribed'];
+    const ENROLL_STATUSES = ['active', 'paused', 'completed', 'replied', 'bounced', 'unsubscribed', 'skipped_invalid'];
     const [enrollSearch, setEnrollSearch] = useState('');
     const [debEnrollSearch] = useDebouncedValue(enrollSearch, 300);
     const [enrollStatus, setEnrollStatus] = useState<string | null>(null);
@@ -145,6 +151,7 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
     const [bulkRemove, setBulkRemove] = useState(false);
 
     const statusLabel = (s: string) => t(`campaign.audience.status.${s}`, s);
+    const skipReasonLabel = (r?: string | null) => (r ? t(`campaign.audience.skipReason.${r}`, r) : '');
 
     const filteredEnrollments = (enrollments || []).filter((e) => {
         if (enrollStatus && e.status !== enrollStatus) return false;
@@ -320,7 +327,15 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
                                                 <Table.Td><Text size="xs">{e.company_name}</Text></Table.Td>
                                                 <Table.Td><Text size="xs">{e.current_step_order ? `${t('campaign.audience.colStep', 'Step')} ${e.current_step_order}` : '—'}</Text></Table.Td>
                                                 <Table.Td><Text size="xs" c="dimmed">{e.status === 'active' ? fmtNext(e.next_scheduled_at) : '—'}</Text></Table.Td>
-                                                <Table.Td><Badge size="xs" variant="light" color={STATUS_COLORS[e.status] || 'gray'}>{statusLabel(e.status)}</Badge></Table.Td>
+                                                <Table.Td>
+                                                    {e.status === 'skipped_invalid' && e.skip_reason ? (
+                                                        <Tooltip label={skipReasonLabel(e.skip_reason)} withArrow>
+                                                            <Badge size="xs" variant="light" color={STATUS_COLORS[e.status] || 'gray'}>{statusLabel(e.status)}</Badge>
+                                                        </Tooltip>
+                                                    ) : (
+                                                        <Badge size="xs" variant="light" color={STATUS_COLORS[e.status] || 'gray'}>{statusLabel(e.status)}</Badge>
+                                                    )}
+                                                </Table.Td>
                                                 <Table.Td>
                                                     <Menu position="bottom-end" withinPortal shadow="md" width={170}>
                                                         <Menu.Target>

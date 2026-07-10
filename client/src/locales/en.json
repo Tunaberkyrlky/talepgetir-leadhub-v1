@@ -1228,6 +1228,7 @@
             "enrollAll": "Enroll all ({{count}})",
             "enrolledToast": "{{count}} contacts enrolled",
             "cappedNote": "First {{max}} enrolled.",
+            "invalidNote": "{{count}} skipped as undeliverable",
             "noMatch": "No contacts match the filters.",
             "showingNote": "Showing {{shown}} of {{total}}. Use \"Enroll all\" for the rest.",
             "currentTitle": "Enrolled contacts",
@@ -1258,7 +1259,13 @@
                 "completed": "Completed",
                 "replied": "Replied",
                 "bounced": "Bounced",
-                "unsubscribed": "Unsubscribed"
+                "unsubscribed": "Unsubscribed",
+                "skipped_invalid": "Invalid"
+            },
+            "skipReason": {
+                "syntax": "Malformed email address",
+                "no_mx": "Domain can't receive mail (no MX)",
+                "disposable": "Disposable email address"
             }
         },
         "activation": {
@@ -1282,6 +1289,7 @@
             "segPaused": "{{count}} paused",
             "segBounced": "{{count}} bounced",
             "segUnsub": "{{count}} unsubscribed",
+            "segInvalid": "{{count}} invalid",
             "overTime": "Activity over time",
             "byInbox": "Sent per inbox",
             "byStep": "By step",

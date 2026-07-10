@@ -184,6 +184,82 @@ async function checkMx(resolver: Resolver, domain: string): Promise<{ check: Dom
 }
 
 // ---------------------------------------------------------------------------
+// Deliverability MX check — liste doğrulama (emailValidator.ts) için
+// ---------------------------------------------------------------------------
+//
+// Sağlık panelinin checkMx'inden ayrı, çünkü doğrulamanın ihtiyacı farklı:
+//   1. A/AAAA fallback (RFC 5321 örtük MX) — MX yoksa alan A kaydına teslim
+//      denenir; website-only alanlar "teslim edilebilir" sayılır.
+//   2. Hata sınıflandırması — ENODATA/ENOTFOUND (kesin yok) ile
+//      timeout/SERVFAIL/refused (geçici/belirsiz) ayrılır; belirsizde FAIL-OPEN.
+//   3. Ayrı, uzun ömürlü cache — gönderim-anı tekrar kontrolleri ucuz olsun.
+// makeResolver() paylaşılır (resolver ayarı tek yerde; kopya yok).
+
+export type MxDeliverability = 'has_mx' | 'no_mx' | 'unknown';
+
+// Bir DNS hata kodunun "kesin negatif" mi olduğunu ayırır. ENODATA = alan var ama
+// o tip kayıt yok; ENOTFOUND = NXDOMAIN (alan hiç yok). Diğer her şey
+// (ETIMEOUT, ESERVFAIL, EREFUSED, ...) belirsizdir → fail-open.
+function isDefinitiveDnsMiss(code: unknown): boolean {
+    return code === 'ENODATA' || code === 'ENOTFOUND';
+}
+
+interface MxDelivCacheEntry { result: MxDeliverability; expiresAt: number }
+const MX_DELIV_CACHE_TTL_MS = 30 * 60 * 1000; // 30 dk — MX kayıtları seyrek değişir
+const mxDelivCache = new Map<string, MxDelivCacheEntry>();
+
+// MX yoksa A/AAAA'ya düş (örtük MX). Kayıt varsa 'has_mx'; kesin-yoksa 'no_mx';
+// belirsiz hata → 'unknown' (fail-open).
+async function mxAOrAaaaFallback(resolver: Resolver, domain: string): Promise<MxDeliverability> {
+    try {
+        const a = await resolver.resolve4(domain);
+        if (a && a.length > 0) return 'has_mx';
+    } catch (err) {
+        if (!isDefinitiveDnsMiss((err as NodeJS.ErrnoException)?.code)) return 'unknown';
+    }
+    try {
+        const aaaa = await resolver.resolve6(domain);
+        if (aaaa && aaaa.length > 0) return 'has_mx';
+    } catch (err) {
+        if (!isDefinitiveDnsMiss((err as NodeJS.ErrnoException)?.code)) return 'unknown';
+    }
+    return 'no_mx';
+}
+
+/**
+ * Bir alanın mail teslim-edilebilirliğini döner (cache'li). emailValidator.ts
+ * bunu kullanır. 'no_mx' = kesin teslim edilemez (NXDOMAIN veya MX+A+AAAA yok);
+ * 'has_mx' = teslim edilebilir; 'unknown' = DNS belirsiz (timeout/servfail) →
+ * çağıran fail-open davranmalı (engelleme yok).
+ */
+export async function checkMxDeliverability(
+    domain: string,
+    opts: { refresh?: boolean } = {},
+): Promise<MxDeliverability> {
+    const normalized = domain.toLowerCase().trim();
+    if (!normalized) return 'no_mx';
+
+    if (!opts.refresh) {
+        const cached = mxDelivCache.get(normalized);
+        if (cached && cached.expiresAt > Date.now()) return cached.result;
+    }
+
+    const resolver = makeResolver();
+    let result: MxDeliverability;
+    try {
+        const mx = await resolver.resolveMx(normalized);
+        result = mx && mx.length > 0 ? 'has_mx' : await mxAOrAaaaFallback(resolver, normalized);
+    } catch (err) {
+        result = isDefinitiveDnsMiss((err as NodeJS.ErrnoException)?.code)
+            ? await mxAOrAaaaFallback(resolver, normalized)
+            : 'unknown'; // timeout/servfail/refused → fail-open
+    }
+
+    mxDelivCache.set(normalized, { result, expiresAt: Date.now() + MX_DELIV_CACHE_TTL_MS });
+    return result;
+}
+
+// ---------------------------------------------------------------------------
 // SPF check
 // ---------------------------------------------------------------------------
 

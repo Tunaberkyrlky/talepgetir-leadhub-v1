@@ -460,7 +460,7 @@ router.post('/:id/audience/preview', validateBody(audienceFilterSchema), async (
 router.post('/:id/enroll-filter', validateBody(audienceFilterSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { total, contacts } = await resolveAudience(req.tenantId!, req.body, MAX_FILTER_ENROLL);
-        if (!contacts.length) { res.json({ matched: 0, enrolled: 0, skipped: 0, capped: false }); return; }
+        if (!contacts.length) { res.json({ matched: 0, enrolled: 0, skipped: 0, invalid: 0, capped: false }); return; }
 
         const result = await enrollLeads((req.params.id as string), req.tenantId!, req.user!.id, contacts);
         posthog.capture({
@@ -468,7 +468,7 @@ router.post('/:id/enroll-filter', validateBody(audienceFilterSchema), async (req
             event: 'campaign_leads_enrolled',
             properties: { campaign_id: req.params.id, contacts_count: contacts.length, via: 'filter', tenant_id: req.tenantId! },
         });
-        res.json({ matched: total, enrolled: result.enrolled, skipped: result.skipped, capped: total > MAX_FILTER_ENROLL });
+        res.json({ matched: total, enrolled: result.enrolled, skipped: result.skipped, invalid: result.invalid, capped: total > MAX_FILTER_ENROLL });
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Enroll-filter error');
@@ -483,7 +483,7 @@ router.get('/:id/enrollments', async (req: Request, res: Response, next: NextFun
         const { data, error } = await supabaseAdmin
             .from('campaign_enrollments')
             .select(`
-                id, email, status, current_step_id, next_scheduled_at,
+                id, email, status, skip_reason, current_step_id, next_scheduled_at,
                 enrolled_at, completed_at,
                 contacts(first_name, last_name, email),
                 companies(name),
@@ -499,6 +499,7 @@ router.get('/:id/enrollments', async (req: Request, res: Response, next: NextFun
             id: e.id,
             email: e.email,
             status: e.status,
+            skip_reason: e.skip_reason || null,
             contact_name: [e.contacts?.first_name, e.contacts?.last_name].filter(Boolean).join(' '),
             company_name: e.companies?.name || '',
             current_step_order: e.campaign_steps?.step_order || null,
