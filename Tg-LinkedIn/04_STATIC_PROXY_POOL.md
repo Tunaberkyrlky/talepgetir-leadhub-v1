@@ -296,6 +296,13 @@ Verdict: **"not implementation-ready"** (ilk hali). 18 P1 + 8 P2. Hepsi doküman
 
 **Sonuç:** plan sertleşti; kritik yol RPC-tabanlı (mevcut `linkedin_try_consume_quota` fence deseniyle hizalı). İnşa P0'dan başlar ve her faz ilgili P1'leri uygular.
 
+## 11. CANLI KANIT (2026-07-10) — gerçek IPRoyal TR IP'siyle uçtan uca ✅
+
+- **Satın alma API ile YAPILDI** (IPRoyal reseller API'si çalışıyor; önceki "unauthenticated" curl header-quoting hatasıydı, `-H "X-Access-Token: $TOK"` doğru form). Katalog: **ISP Dedicated (product 9) / 30-gün (plan 22) / Türkiye (loc 147) = $4.00**, kart id 350281. Order **76592603** → confirmed → **IP `31.133.89.88:12323`** (user `14ac4d163e078`). Geo doğrulandı: TR/Bursa, Spdnet Telekom ISP; LinkedIn robots.txt proxy'den HTTP 200.
+- **Import** `POST /api/linkedin/proxies/import` → server-side SSRF-guard + 2-echo egress-verify (exit_ip=31.133.89.88, country=tr, hesabın geo'suyla eşleşti) → proxy havuza + hesaba atandı (proxy_id 510926a1, gen 1) → validate enqueue.
+- **Validate** static TR IP üzerinden **success** (classifier=success, `/voyager/api/me` kimlik döndürdü) → hesap `static_required`, `last_validated_proxy_(id,generation)` stamp'lendi (CAS).
+- **Send-gate kanıtı:** gerçek invite (dünkü hedefe) → `invalid_request`/**http 400** (dedup) — proxy-skip DEĞİL → fail-closed static gate AÇILDI ve istek **static TR proxy'den tünellendi** (static_required'da fallback yok; temiz 400 = proxy başarıyla kullanıldı). `LINKEDIN_PROXY_ENC_KEY` staging+worker'da; worker HEAD'de. **Pipeline uçtan uca canlı: buy→import→assign→validate(static)→send(static, gate-enforced).**
+
 ## 10. Codex review #2 (gpt-5.6-sol high, P0 BUILD, 2026-07-10) — bulgular + çözümler
 
 P0 kodu (mig 106/107 + seam) build sonrası codex `gpt-5.6-sol` **high** ile review edildi: **11 P1 + 4 P2**. Uygulananlar + P0 sınırı olarak kabul edilenler:
