@@ -163,6 +163,25 @@ export interface ManagedDomainResult {
 
 export type DomainHealthResponse = DomainHealthResult | ManagedDomainResult;
 
+// --- Mailbox health stats (task-9): per-mailbox delivery signals ---
+
+export interface MailboxWindowStats {
+    sent: number;                  // gönderim (bounce dahil = dispatched)
+    bounces: number;
+    bounceRate: number | null;     // null = veri yok (em-dash); 0-1 arası
+    replies: number;
+    replyRate: number | null;
+    unsubscribes: number;
+    unsubRate: number | null;
+}
+
+export interface MailboxHealthStats {
+    d7: MailboxWindowStats;
+    d30: MailboxWindowStats;
+    sendsToGmail: boolean;
+    hasHistory: boolean;
+}
+
 export interface EnrollLeadPayload {
     contact_id: string;
     company_id: string;

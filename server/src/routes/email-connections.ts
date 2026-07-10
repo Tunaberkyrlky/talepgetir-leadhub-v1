@@ -23,6 +23,7 @@ import { verifyImap } from '../lib/imapInbound.js';
 import { encrypt } from '../lib/encryption.js';
 import { assertPublicHost } from '../lib/ssrfGuard.js';
 import { domainFromEmail, isManagedConsumerDomain, getDomainHealth, getManagedDomainResult } from '../lib/domainHealth.js';
+import { getMailboxHealthStats } from '../lib/mailboxHealth.js';
 
 const log = createLogger('route:email-connections');
 const router = Router();
@@ -473,6 +474,31 @@ router.get('/:id/domain-health', async (req: Request, res: Response, next: NextF
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Domain health check error');
         res.status(500).json({ error: 'Failed to check domain health' });
+    }
+});
+
+// GET /api/email-connections/:id/health-stats — kutu teslim sağlığı (task-9)
+// Son 7g/30g: gönderim, hard bounce oranı, yanıt oranı, abonelikten çıkma oranı.
+router.get('/:id/health-stats', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const parsed = idParamSchema.safeParse(req.params);
+        if (!parsed.success) { res.status(400).json({ error: 'Invalid connection ID' }); return; }
+        const tenantId = req.tenantId!;
+        const { id } = parsed.data;
+
+        // Tenant izolasyonu: bağlantı bu tenant'a mı ait? (domain-health ile aynı desen)
+        const { data: conn } = await supabaseAdmin
+            .from('email_connections')
+            .select('id, email_address')
+            .eq('id', id).eq('tenant_id', tenantId).maybeSingle();
+        if (!conn) { res.status(404).json({ error: 'Connection not found' }); return; }
+
+        const stats = await getMailboxHealthStats(tenantId, (conn as { email_address: string }).email_address);
+        res.json(stats);
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Mailbox health stats error');
+        res.status(500).json({ error: 'Failed to compute mailbox health stats' });
     }
 });
 

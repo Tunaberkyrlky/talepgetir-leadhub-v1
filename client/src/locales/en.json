@@ -1074,6 +1074,21 @@
                 "dmarc_no_rua": "Your DMARC record has no reporting address (rua=); you can add one to receive reports."
             }
         },
+        "mailboxHealth": {
+            "window7": "7 days",
+            "window30": "30 days",
+            "sent": "sent",
+            "bounce": "bounce",
+            "reply": "reply",
+            "unsub": "unsub",
+            "sentTip": "Campaign emails sent from this mailbox (bounces included).",
+            "bounceTip": "Share of emails that permanently bounced (invalid address). Above 2% seriously risks your reputation; above 1% needs attention.",
+            "replyTip": "Share of unique recipients who replied.",
+            "unsubTip": "Share of unique recipients who unsubscribed. Above 1% points to a content or targeting problem.",
+            "postmasterNote": "You send to Gmail recipients. To monitor your sender reputation, add your domain to",
+            "postmasterLink": "Google Postmaster Tools",
+            "postmasterNoteEnd": "."
+        },
         "editor": {
             "back": "Back",
             "save": "Save",

@@ -14,6 +14,7 @@ import type { EmailConnectionStatus, EmailConnectionItem, ConnectionProvider } f
 import SmtpConnectionModal from './SmtpConnectionModal';
 import GmailConnectModal from './GmailConnectModal';
 import DomainHealthBadges from './DomainHealthBadges';
+import MailboxHealthRow from './MailboxHealthRow';
 
 function providerLabel(p: ConnectionProvider): string {
     if (p === 'google-mail') return 'Gmail';
@@ -117,6 +118,7 @@ export default function EmailConnectionPanel() {
                                                 </Text>
                                             )}
                                             <DomainHealthBadges connectionId={c.id} />
+                                            <MailboxHealthRow connectionId={c.id} />
                                         </div>
                                     </Group>
                                     <Group gap={4} wrap="nowrap">

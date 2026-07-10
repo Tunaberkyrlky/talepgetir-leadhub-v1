@@ -1074,6 +1074,21 @@
                 "dmarc_no_rua": "DMARC kaydınızda bir raporlama adresi (rua=) bulunmuyor, rapor almak için ekleyebilirsiniz."
             }
         },
+        "mailboxHealth": {
+            "window7": "7 gün",
+            "window30": "30 gün",
+            "sent": "gönderim",
+            "bounce": "bounce",
+            "reply": "yanıt",
+            "unsub": "çıkış",
+            "sentTip": "Bu kutudan gönderilen kampanya maili (geri dönenler dahil).",
+            "bounceTip": "Kalıcı olarak geri dönen (geçersiz adres) mail oranı. %2 üzeri kutu itibarını ciddi riske atar, %1 üzeri dikkat gerektirir.",
+            "replyTip": "Yanıt veren benzersiz alıcı oranı.",
+            "unsubTip": "Abonelikten çıkan benzersiz alıcı oranı. %1 üzeri içerik veya hedefleme sorununa işaret eder.",
+            "postmasterNote": "Gmail alıcılarına gönderiyorsunuz. Gönderen itibarınızı izlemek için alan adınızı",
+            "postmasterLink": "Google Postmaster Tools",
+            "postmasterNoteEnd": " aracına ekleyebilirsiniz."
+        },
         "editor": {
             "back": "Geri",
             "save": "Kaydet",
