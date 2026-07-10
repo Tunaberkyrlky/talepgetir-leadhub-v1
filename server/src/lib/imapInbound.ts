@@ -54,6 +54,9 @@ async function ingestMessage(conn: EmailConnection, uid: number, source: Buffer)
                 tenantId: conn.tenant_id,
                 email: bounce.recipient,
                 mailbox: conn.email_address,
+                // IMAP güvenilmez bir gelen-kutusu: yalnız o adrese gerçekten yazdıysak bastır
+                // (sahte mailer-daemon DSN'iyle rastgele adres bastırmayı engeller — task-5 review).
+                requireOutboundEvidence: true,
             }).catch((err) => log.warn({ err, account: conn.email_address, recipient: bounce.recipient }, 'markEmailBounced (IMAP) failed'));
             log.info({ account: conn.email_address, recipient: bounce.recipient }, 'Hard bounce detected & suppressed');
         } else {

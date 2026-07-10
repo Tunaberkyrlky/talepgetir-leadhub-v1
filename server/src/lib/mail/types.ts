@@ -119,6 +119,18 @@ export interface OutboundThreading {
     gmailThreadId?: string | null;  // Gmail native threadId (yalnız aynı Gmail kutusundan)
 }
 
+/**
+ * Yapısal SMTP gönderim-hatası sinyali (task-5). SMTP adapter, nodemailer'ın
+ * fırlattığı hataya bu bilgiyi (AppError üzerinde `smtp` alanı olarak) ekler; kampanya
+ * motoru gönderim-anı KALICI ALICI reddini (`code === 'EENVELOPE'`) gönderen kaynaklı
+ * hatalardan (EAUTH/ECONNECTION/EMESSAGE…) ayırt etmek için okur.
+ */
+export interface SmtpErrorInfo {
+    code: string | null;          // nodemailer hata kodu: EENVELOPE / EAUTH / ECONNECTION / EMESSAGE ...
+    responseCode: number | null;  // SMTP yanıt kodu (ör. 550, 535, 554)
+    rejected: string[] | null;    // sunucunun reddettiği alıcı adres(ler)i
+}
+
 export interface SendResult {
     provider: MailProviderName;
     providerMessageId: string;

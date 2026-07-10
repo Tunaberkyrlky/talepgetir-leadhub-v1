@@ -100,8 +100,16 @@ function isPermanent(raw: string): boolean {
 export function detectBounce(parsed: ParsedMail, source: Buffer): BounceResult {
     const raw = source.toString('utf8');
 
-    // Güçlü DSN sinyalleri.
-    const isReportDSN = /Content-Type:\s*multipart\/report[^\n]*report-type=["']?delivery-status/i.test(raw);
+    // Güçlü DSN sinyali — ÜST-DÜZEY başlığa demirlenir (task-5 review). Ham kaynakta
+    // aramak, bir bounce'u EK olarak taşıyan iletiyi (mesela bir prospect'in "mailin geri
+    // döndü" diye ilettiği mail: üst tip multipart/mixed, içteki parça multipart/report)
+    // yanlışlıkla bounce sanır ve gerçek insan yanıtını sessizce düşürürdü. mailparser'ın
+    // ayrıştırdığı üst Content-Type'ı okuyup yalnız iletinin KENDİSİ bir delivery-status
+    // raporuysa güçlü sinyal sayarız.
+    const topCT = parsed.headers?.get('content-type') as { value?: string; params?: Record<string, string> } | undefined;
+    const isReportDSN =
+        /multipart\/report/i.test(topCT?.value || '') &&
+        /delivery-status/i.test(topCT?.params?.['report-type'] || '');
     const hasDeliveryStatusPart = /Content-Type:\s*message\/delivery-status/i.test(raw);
     const hasFinalRecipient = /^Final-Recipient:/im.test(raw);
     const hasXFailed = /^X-Failed-Recipients:/im.test(raw);

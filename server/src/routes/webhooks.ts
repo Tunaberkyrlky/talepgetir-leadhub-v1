@@ -100,11 +100,16 @@ async function processPlusvibeInbound(req: Request, res: Response, tenantId: str
     // bilinmediği için (PlusVibe kendi havuzundan yollar) oto-duraklatma tetiklenmez.
     // Alan adları belirsizse dal HİÇ ateşlenmez (guard'lı) → zararsız.
     if (typeof webhook_event === 'string' && /bounce/i.test(webhook_event)) {
+        // Alan adları PlusVibe bounce payload'ında doğrulanana dek görünür kılınsın (task-5
+        // review): alanları logla ki gerçek bir bounce geldiğinde şemayı teyit edebilelim.
+        log.info({ event: webhook_event, fields: Object.keys(req.body || {}) }, 'PlusVibe bounce event received');
+        // Bounced alıcı YALNIZ lead/lead_email/to'dan alınır. from_email KASTEN dışlandı:
+        // bounce olayında PlusVibe bunu daemon'a veya tenant'ın KENDİ gönderen kutusuna
+        // set edebilir → yanlış adresin (hatta kendi kutumuzun) bastırılmasına yol açardı.
         const rcpt =
             (typeof req.body.lead === 'string' && req.body.lead) ||
             (typeof req.body.lead_email === 'string' && req.body.lead_email) ||
             (typeof req.body.to === 'string' && req.body.to) ||
-            (typeof from_email === 'string' && from_email) ||
             null;
         if (rcpt) {
             await markEmailBounced({ tenantId, email: rcpt, reason: 'hard_bounce' })

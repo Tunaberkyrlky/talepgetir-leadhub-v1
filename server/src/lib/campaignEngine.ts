@@ -13,7 +13,7 @@
 import { supabaseAdmin } from './supabase.js';
 import { API_BASE, createTrackingToken, injectTracking } from './mailTracking.js';
 import { sendMail } from './mail/router.js';
-import type { ListUnsubscribe } from './mail/types.js';
+import type { ListUnsubscribe, SmtpErrorInfo } from './mail/types.js';
 import { createLogger } from './logger.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { nextSendableTime, startOfLocalDay, startOfNextLocalDay, type SendingWindow } from './sendingWindow.js';
@@ -509,9 +509,20 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
             // yap (istatistikte görünür, zamanlayıcı bir daha almaz) ve bir sonrakine geç.
             // Lock next_scheduled_at'i null'ladı → status'u da terminal yaparak kaydı ilerletiriz.
             if (suppressedSet.has(`${enrollment.tenant_id}|${(enrollment.email || '').toLowerCase()}`)) {
-                await supabaseAdmin.from('campaign_enrollments')
+                const { error: skipErr } = await supabaseAdmin.from('campaign_enrollments')
                     .update({ status: 'skipped_suppressed', skip_reason: 'suppressed', next_scheduled_at: null })
                     .eq('id', enrollment.id);
+                if (skipErr) {
+                    // Lock zaten next_scheduled_at'i null'ladı; terminal işaret yazılamazsa
+                    // kayıt status='active' + next_scheduled_at=null ile scheduler'dan görünmez
+                    // (strand). +5dk sonraya ata → sonraki tick yeniden dener (satır 670-675 ile
+                    // aynı kurtarma; bastırma listesi kalıcı olduğundan yine burada yakalanır).
+                    log.warn({ err: skipErr, enrollmentId: enrollment.id }, 'skipped_suppressed update failed — rescheduling to avoid strand');
+                    await supabaseAdmin.from('campaign_enrollments')
+                        .update({ next_scheduled_at: new Date(Date.now() + 5 * 60_000).toISOString() })
+                        .eq('id', enrollment.id);
+                    continue;
+                }
                 skipped++;
                 log.info({ enrollmentId: enrollment.id, email: enrollment.email }, 'Send skipped: recipient suppressed');
                 continue;
@@ -773,7 +784,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                     // (Gmail/Outlook API'leri genelde kabul edip sonra DSN döndürür → o yol
                     // IMAP'te yakalanır). Kalıcıysa: activity'yi 'bounced' işaretle (kutu-başı
                     // sayım bunu okur), adresi bastır, TEKRAR DENEME. Geçici/ağ hatası → +5dk retry.
-                    const permanent = isPermanentSendFailure(msg);
+                    const permanent = isPermanentSendFailure(sendErr);
                     await supabaseAdmin
                         .from('activities')
                         .update({ outcome: permanent ? 'bounced' : `failed: ${msg.slice(0, 200)}` })
@@ -1005,15 +1016,49 @@ export async function cancelEnrollmentOnReply(senderEmail: string, tenantId: str
 
 // ── Bounce Handling & Suppression (task-5) ──────────────────────────────────
 
-// Senkron gönderim hatası KALICI (hard bounce) mı? Yalnız kesin kalıcı imzalarda
-// true → tekrar denemeyi bırakıp adresi bastırırız. Geçici kodlar (4xx / rate-limit)
-// ve genel ağ/timeout hataları AÇIKÇA dışlanır (bunlar tekrar denenmeli). Dar tutuldu:
-// iyi bir adresi yanlışlıkla bastırmaktansa bir bounce'u kaçırmak yeğdir.
-function isPermanentSendFailure(message: string): boolean {
+// Gönderim-anı hatası KALICI bir ALICI reddi (hard bounce) mı? İki katmanlı sınıflama:
+//
+//   (1) Yapısal nodemailer sinyali (SMTP adapter `err.smtp` olarak taşır). Yalnız
+//       alıcı-zarfı reddi (code === 'EENVELOPE') alıcı-geçersizliği OLABİLİR. Diğer tüm
+//       kodlar GÖNDEREN kaynaklıdır → asla bastırma: EAUTH (yanlış/expired app-password),
+//       ECONNECTION/ESOCKET/ETIMEDOUT/EDNS (ağ), EMESSAGE (mesaj/boyut). 4xx yanıt kodu
+//       geçicidir. Bu, en sık yanlış-yapılandırmanın (rotasyona uğramış app-password →
+//       535 5.7.8) iyi alıcıları terminal 'bounced' yapıp bastırma listesini zehirlemesini
+//       önler.
+//   (2) Metinsel imza (yapısal sinyal yoksa — Gmail/Outlook API yolu — VEYA EENVELOPE ise).
+//       Policy/relay/auth/size imzalarını (5.7.x, relay denied, 535, 552) KESİN eler; yalnız
+//       net alıcı-geçersizliğinde (5.1.x / user unknown …) true. Dar tutuldu: iyi bir adresi
+//       yanlışlıkla bastırmaktansa bir bounce'u kaçırmak yeğdir.
+function isPermanentSendFailure(err: unknown): boolean {
+    const smtp = (err as { smtp?: SmtpErrorInfo } | null | undefined)?.smtp;
+    if (smtp) {
+        // Alıcı-zarfı reddi dışındaki her yapısal hata gönderen kaynaklı → bastırma.
+        if (smtp.code && smtp.code !== 'EENVELOPE') return false;
+        // 5xx altı (4xx greylist/geçici) yanıt kodu → geçici, tekrar denenir.
+        if (smtp.responseCode !== null && smtp.responseCode < 500) return false;
+    }
+    const message = err instanceof Error ? err.message : String(err ?? '');
+    return isPermanentBounceMessage(message);
+}
+
+// Metinsel kalıcı-alıcı-reddi sınıflayıcı. GÖNDEREN kaynaklı imzaları (kimlik/politika/
+// relay/boyut) önce KESİN eler; iyi bir adresi bunlar yüzünden bastırmayız.
+function isPermanentBounceMessage(message: string): boolean {
     if (!message) return false;
+
+    // ── GÖNDEREN kaynaklı → asla hard bounce (task-5 review) ─────────────────────
+    // Kimlik: 530/535, "Invalid login", "authentication failed", "not accepted".
+    if (/\b(530|535)\b/.test(message)) return false;
+    if (/(invalid login|authentication (failed|required|unsuccessful)|auth.*(failed|required)|bad credentials|username and password not accepted)/i.test(message)) return false;
+    // Politika (SPF/DKIM/DMARC/relay/yetki reddi): gelişmiş 5.7.x kodları.
+    if (/\b5\.7\.\d+\b/.test(message)) return false;
+    if (/(relay(ing)?\s+(access\s+)?denied|not permitted to relay|unable to relay|relay not permitted)/i.test(message)) return false;
+    // Mesaj boyutu: 552 / 5.3.4 / "message too large".
+    if (/\b552\b/.test(message) || /\b5\.3\.4\b/.test(message) || /(message (size|too (large|big))|exceeds( maximum)? size|size limit exceeded)/i.test(message)) return false;
+
     // Geçici SMTP / gelişmiş 4.x.x kodları → kalıcı DEĞİL.
     if (/\b(421|450|451|452)\b/.test(message) || /\b4\.\d+\.\d+\b/.test(message)) return false;
-    // Kalıcı SMTP kodları / gelişmiş 5.x.x durum kodu.
+    // Kalıcı SMTP kodları / gelişmiş 5.x.x durum kodu (yukarıdaki gönderen-imzaları elendi).
     if (/\b(550|551|553|554)\b/.test(message) || /\b5\.\d+\.\d+\b/.test(message)) return true;
     // Dar metinsel kalıcı imzalar (kod dönmeyen sunucular).
     return /(user unknown|no such user|does not exist|recipient address rejected|mailbox unavailable|address rejected)/i.test(message);
@@ -1028,8 +1073,12 @@ function isPermanentSendFailure(message: string): boolean {
 async function markBounceActivity(tenantId: string, email: string, mailbox?: string | null): Promise<void> {
     const e = (email || '').trim().toLowerCase();
     if (!e) return;
+    // ILIKE joker karakterlerini kaçır (task-5 review): '_' ve '%' tek/çok karakter joker'idir;
+    // ham adresle eşleşme 'a_b@x.com' → 'axb@x.com' gibi YANLIŞ kontağı bulup onun aktivitesini
+    // 'bounced' işaretleyebilirdi (kutu-başı sayımı bozar). Kaçırınca birebir (case-insensitive) eşleşir.
+    const pattern = e.replace(/[%_\\]/g, '\\$&');
     const { data: contacts } = await supabaseAdmin
-        .from('contacts').select('id').eq('tenant_id', tenantId).ilike('email', e);
+        .from('contacts').select('id').eq('tenant_id', tenantId).ilike('email', pattern);
     const ids = (contacts || []).map((c) => c.id);
     if (ids.length === 0) return;
 
@@ -1114,6 +1163,28 @@ async function checkAndAutoPauseMailbox(tenantId: string, mailbox: string): Prom
     );
 }
 
+// O adrese GERÇEKTEN gönderim yaptığımıza dair kanıt var mı? Kanıt = bu tenant'ta o
+// adres için bir enrollment (herhangi durum) VEYA giden (OUT) yanıt kaydı. IMAP'ten gelen
+// güvenilmez DSN'lerde bastırmadan önce çağrılır — sahte mailer-daemon maili rastgele bir
+// adres için Final-Recipient taşısa bile, o adrese hiç yazmadıysak bastırma tetiklenmez.
+// (email_replies.sender_email ve enrollment.email kayıtta küçük harfe normalize edilir.)
+async function hasOutboundEvidence(tenantId: string, email: string): Promise<boolean> {
+    const { count: enrollCount } = await supabaseAdmin
+        .from('campaign_enrollments')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('email', email);
+    if ((enrollCount || 0) > 0) return true;
+
+    const { count: outCount } = await supabaseAdmin
+        .from('email_replies')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('direction', 'OUT')
+        .eq('sender_email', email);
+    return (outCount || 0) > 0;
+}
+
 // Bir adresi hard bounce (veya şikayet) olarak işler: (1) bastırma listesine yazar,
 // (2) o adrese ait aktif/duraklı enrollment'ları 'bounced' terminaline çeker,
 // (3) ilgili gönderimi 'bounced' işaretler (skipActivityFlip=false iken),
@@ -1126,10 +1197,23 @@ export async function markEmailBounced(params: {
     reason?: 'hard_bounce' | 'complaint';
     /** Çağıran gönderimi zaten 'bounced' işaretlediyse activity eşlemesini atla. */
     skipActivityFlip?: boolean;
+    /**
+     * GÜVENİLMEZ gelen-kutusu kaynağı (IMAP DSN) için: yalnız o adrese GERÇEKTEN gönderim
+     * yaptığımıza dair kanıt (bir enrollment ya da giden OUT yanıt kaydı) varsa bastır.
+     * Sahte mailer-daemon DSN'iyle rastgele/attacker-seçili adresleri bastırmayı önler.
+     * Gönderim-anı ve HMAC'li webhook yollarında set EDİLMEZ (kanıt zaten kesin/güvenli).
+     */
+    requireOutboundEvidence?: boolean;
 }): Promise<void> {
     const email = (params.email || '').trim().toLowerCase();
     if (!email || !params.tenantId) return;
     const reason = params.reason || 'hard_bounce';
+
+    // Sahte-DSN kapısı: kanıt istenen kaynakta (IMAP) o adrese gönderim izi yoksa çık.
+    if (params.requireOutboundEvidence && !(await hasOutboundEvidence(params.tenantId, email))) {
+        log.warn({ tenantId: params.tenantId, email }, 'Bounce yok sayıldı: alıcıya gönderim kanıtı yok (olası sahte DSN)');
+        return;
+    }
 
     // Kaynak kampanyayı bulmak için aktif/duraklı enrollment'ları çek.
     const { data: enrollments } = await supabaseAdmin
@@ -1144,10 +1228,23 @@ export async function markEmailBounced(params: {
     await addSuppression({ tenantId: params.tenantId, email, reason, sourceCampaignId });
 
     if (enrollments?.length) {
-        await supabaseAdmin
+        const ids = enrollments.map((e) => e.id);
+        const { error: bounceErr } = await supabaseAdmin
             .from('campaign_enrollments')
             .update({ status: 'bounced', next_scheduled_at: null })
-            .in('id', enrollments.map((e) => e.id));
+            .in('id', ids);
+        if (bounceErr) {
+            // 'bounced' terminaline çekilemedi. Gönderim-anı yolunda ilgili kayıt lock ile
+            // next_scheduled_at=null bırakılmış olabilir → strand riski. +5dk sonraya ata:
+            // bastırma zaten yazıldığından scheduler tekrar alınca gönderim-öncesi kapı
+            // (filterSuppressed) onu 'skipped_suppressed' yapar (güvenli kurtarma). paused
+            // kayıtlar status='active' olmadığı için scheduler'ca alınmaz → dokunuş inert.
+            log.warn({ err: bounceErr, tenantId: params.tenantId, email }, 'Enrollment bounce update failed — rescheduling to avoid strand');
+            await supabaseAdmin
+                .from('campaign_enrollments')
+                .update({ next_scheduled_at: new Date(Date.now() + 5 * 60_000).toISOString() })
+                .in('id', ids);
+        }
     }
 
     if (!params.skipActivityFlip) {

@@ -94,18 +94,15 @@ async function unsubscribeByToken(token: string): Promise<UnsubResult> {
             .single();
 
         if (!enrollment) return 'notfound';
-        if (enrollment.status !== 'active') return 'already'; // idempotent: tekrar çağrı no-op
-
-        await supabaseAdmin
-            .from('campaign_enrollments')
-            .update({ status: 'unsubscribed', next_scheduled_at: null })
-            .eq('id', enrollmentId);
 
         // Kalıcı bastırma (task-5): abonelikten çıkan adrese bir daha (bu ya da başka
-        // kampanyadan) gönderim yapılmaz. Fire-and-forget — abonelikten çıkma başarısını
-        // suppression yazımına bağlamayız (yasal olarak esas olan enrollment durumudur).
+        // kampanyadan) gönderim yapılmaz. Durum kapısından ÖNCE yaz — abonelikten çıkma en
+        // sık dizi BİTTİKTEN (status 'completed'/'replied') ya da 'paused' iken tıklanır; eski
+        // kod bastırmayı status==='active' geçişinin arkasına koyduğundan bu adresler HİÇ
+        // bastırılmadan 'başarılı' dönüyordu ve tekrar mail alınabiliyordu (RFC 8058/CAN-SPAM
+        // ihlali). Idempotent; başarısı enrollment güncellemesinden bağımsız.
         if (enrollment.tenant_id && enrollment.email) {
-            addSuppression({
+            await addSuppression({
                 tenantId: enrollment.tenant_id,
                 email: enrollment.email,
                 reason: 'unsubscribe',
@@ -113,8 +110,25 @@ async function unsubscribeByToken(token: string): Promise<UnsubResult> {
             }).catch((e) => log.warn({ err: e, enrollmentId }, 'Unsubscribe suppression insert failed'));
         }
 
-        log.info({ enrollmentId }, 'Unsubscribed');
-        return 'ok';
+        // Zaten kalıcı 'unsubscribed' → durum değişmez, idempotent no-op.
+        if (enrollment.status === 'unsubscribed') return 'already';
+
+        // 'active' VEYA 'paused' → 'unsubscribed'e çek. 'paused' özellikle önemli: kampanya
+        // yeniden başlatılınca resumePausedEnrollments onu tekrar 'active' yapıp gönderime
+        // döndürürdü — başarılı bir abonelikten-çıkmadan sonra gönderim sürmesi ihlaldir.
+        if (enrollment.status === 'active' || enrollment.status === 'paused') {
+            await supabaseAdmin
+                .from('campaign_enrollments')
+                .update({ status: 'unsubscribed', next_scheduled_at: null })
+                .eq('id', enrollmentId);
+            log.info({ enrollmentId, prevStatus: enrollment.status }, 'Unsubscribed');
+            return 'ok';
+        }
+
+        // Diğer terminal durumlar (completed/replied/bounced/skipped_*): scheduler'dan zaten
+        // düşmüş, resume kapsamı dışında → durum değişmez, ama bastırma yukarıda yazıldı.
+        log.info({ enrollmentId, status: enrollment.status }, 'Unsubscribe recorded on terminal enrollment (suppressed)');
+        return 'already';
     } catch (err) {
         log.error({ err, enrollmentId }, 'Unsubscribe error');
         return 'error';

@@ -11,7 +11,7 @@ import { getConnectionByEmail, type EmailConnection } from '../emailConnections.
 import { decrypt } from '../encryption.js';
 import { waitForRateLimit } from '../emailSender.js';
 import { resolvePublicHost } from '../ssrfGuard.js';
-import type { CanonicalSendRequest, SendResult, MailProvider } from './types.js';
+import type { CanonicalSendRequest, SendResult, MailProvider, SmtpErrorInfo } from './types.js';
 import { listUnsubscribeHeaders } from './types.js';
 import { htmlToPlainTextBody } from './plainText.js';
 
@@ -138,7 +138,18 @@ export const smtpProvider: MailProvider = {
             transporterCache.delete(`${conn.id}`);
             const message = err instanceof Error ? err.message : String(err);
             log.error({ err, to: req.to, account: conn.email_address }, 'SMTP send failed');
-            throw new AppError(`Email send failed: ${message}`, 502);
+            const appErr = new AppError(`Email send failed: ${message}`, 502);
+            // Yapısal nodemailer sinyallerini taşı (task-5 review): kampanya motoru
+            // gönderim-anı "hard bounce" sınıflamasında ALICI reddini (EENVELOPE) GÖNDEREN
+            // hatalarından (EAUTH kötü şifre, ECONNECTION/ESOCKET/ETIMEDOUT ağ, EMESSAGE
+            // boyut) ayırt edebilsin — yoksa bir yanlış app-password iyi alıcıları bastırırdı.
+            const e = err as { code?: unknown; responseCode?: unknown; rejected?: unknown };
+            (appErr as unknown as { smtp?: SmtpErrorInfo }).smtp = {
+                code: typeof e?.code === 'string' ? e.code : null,
+                responseCode: typeof e?.responseCode === 'number' ? e.responseCode : null,
+                rejected: Array.isArray(e?.rejected) ? (e.rejected as string[]) : null,
+            };
+            throw appErr;
         }
     },
 };
