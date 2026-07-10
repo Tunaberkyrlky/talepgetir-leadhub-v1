@@ -84,12 +84,18 @@ export function proxyAgentFor(proxySessionId: string, country?: string | null): 
     return agent;
 }
 
-/** Remove + close an account's cached agent (call on proxy rotation / account delete). */
-export function disposeProxyAgent(proxySessionId: string): void {
-    const a = agents.get(proxySessionId);
-    if (!a) return;
-    agents.delete(proxySessionId);
-    Promise.resolve(a.close()).catch(() => { /* best-effort */ });
+/** Remove + close an account's cached agent(s) (call on proxy rotation / account delete).
+ *  Accepts either an exact cache key (LRU eviction passes one) OR a bare proxySessionId —
+ *  in the latter case it also removes every geo-qualified `sessionId|cc` variant, so a
+ *  rotation/delete can't leave a stale agent (with old creds/IP) alive under a country key. */
+export function disposeProxyAgent(keyOrSessionId: string): void {
+    const prefix = `${keyOrSessionId}|`;
+    for (const key of [...agents.keys()]) {
+        if (key !== keyOrSessionId && !key.startsWith(prefix)) continue;
+        const a = agents.get(key);
+        agents.delete(key);
+        if (a) Promise.resolve(a.close()).catch(() => { /* best-effort */ });
+    }
 }
 
 /** Mint a new sticky session id for a freshly captured account. */
