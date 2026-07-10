@@ -123,6 +123,42 @@ export interface EmailConnectionStatus {
     connections?: EmailConnectionItem[];
 }
 
+// --- Domain health check (MX / SPF / DKIM / DMARC) ---
+
+export type DomainCheckStatus = 'pass' | 'warn' | 'fail' | 'unknown';
+
+export type DomainMxProvider = 'm365' | 'google' | 'yandex' | 'zoho' | 'other' | 'none';
+
+export interface DomainCheck {
+    status: DomainCheckStatus;
+    found: string[] | string | null;
+    suggested?: string;
+    portalUrl?: string;
+    notes: string[];
+}
+
+export interface DomainHealthResult {
+    domain: string;
+    managed: false;
+    provider: DomainMxProvider;
+    checkedAt: string;
+    checks: {
+        mx: DomainCheck;
+        spf: DomainCheck;
+        dkim: DomainCheck;
+        dmarc: DomainCheck;
+    };
+}
+
+export interface ManagedDomainResult {
+    domain: string;
+    managed: true;
+    provider: string;
+    checkedAt: string;
+}
+
+export type DomainHealthResponse = DomainHealthResult | ManagedDomainResult;
+
 export interface EnrollLeadPayload {
     contact_id: string;
     company_id: string;

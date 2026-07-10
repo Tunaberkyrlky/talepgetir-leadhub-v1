@@ -13,6 +13,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import type { EmailConnectionStatus, EmailConnectionItem, ConnectionProvider } from '../../types/campaign';
 import SmtpConnectionModal from './SmtpConnectionModal';
 import GmailConnectModal from './GmailConnectModal';
+import DomainHealthBadges from './DomainHealthBadges';
 
 function providerLabel(p: ConnectionProvider): string {
     if (p === 'google-mail') return 'Gmail';
@@ -110,6 +111,7 @@ export default function EmailConnectionPanel() {
                                                 {providerLabel(c.provider)}
                                                 {c.imap_host && ` · ${t('campaign.imapReading', 'Yanıt okuma açık')}`}
                                             </Text>
+                                            <DomainHealthBadges connectionId={c.id} />
                                         </div>
                                     </Group>
                                     <Group gap={4} wrap="nowrap">

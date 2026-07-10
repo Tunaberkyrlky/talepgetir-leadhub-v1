@@ -22,6 +22,7 @@ import { describeMailVerifyError } from '../lib/mail/verifyErrors.js';
 import { verifyImap } from '../lib/imapInbound.js';
 import { encrypt } from '../lib/encryption.js';
 import { assertPublicHost } from '../lib/ssrfGuard.js';
+import { domainFromEmail, isManagedConsumerDomain, getDomainHealth, getManagedDomainResult } from '../lib/domainHealth.js';
 
 const log = createLogger('route:email-connections');
 const router = Router();
@@ -38,6 +39,77 @@ async function ensureDefault(tenantId: string, id: string): Promise<void> {
         .maybeSingle();
     if (!existingDefault) {
         await supabaseAdmin.from('email_connections').update({ is_default: true }).eq('id', id);
+    }
+}
+
+// Microsoft's well-known tenant id for personal Microsoft Accounts (MSA) — Skype,
+// Xbox, and consumer outlook.com/hotmail.com/live.com logins all land here even when
+// the account's sign-in alias is a custom work email.
+const MSA_TENANT_ID = '9188040d-6c67-4c5b-b112-36a304b66dad';
+
+// Consumer-only Microsoft mail domains. A personal (MSA) account resolving to one of
+// these is a legitimate personal mailbox and must stay allowed.
+const CONSUMER_MICROSOFT_DOMAINS = new Set([
+    'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'passport.com',
+    'outlook.com.tr', 'outlook.co.uk', 'outlook.de', 'outlook.fr', 'outlook.es', 'outlook.it',
+    'outlook.jp', 'outlook.com.br', 'outlook.com.ar', 'outlook.co.id', 'outlook.com.au',
+    'hotmail.co.uk', 'hotmail.fr', 'hotmail.de', 'hotmail.it', 'hotmail.es', 'hotmail.com.tr',
+    'hotmail.co.jp', 'hotmail.ca', 'hotmail.com.br', 'hotmail.com.ar', 'hotmail.be', 'hotmail.nl',
+    'live.co.uk', 'live.de', 'live.fr', 'live.com.mx', 'live.com.ar', 'live.it', 'live.nl',
+]);
+
+function isConsumerMicrosoftDomain(email: string): boolean {
+    const domain = email.split('@')[1]?.toLowerCase().trim();
+    return !!domain && CONSUMER_MICROSOFT_DOMAINS.has(domain);
+}
+
+/** Best-effort decode of a JWT's `tid` claim. Not signature-verified — used only to
+ *  distinguish account type, never for authorization. Microsoft Graph access tokens
+ *  are usually (but not guaranteed to be) parseable JWTs. */
+function decodeJwtTenantId(token: string): string | null {
+    try {
+        const parts = token.split('.');
+        if (parts.length < 2) return null;
+        const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+        const payload = JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as { tid?: string };
+        return payload.tid || null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Determine whether a Microsoft Graph access token belongs to a personal Microsoft
+ * Account (MSA) rather than a work/school (Entra ID / M365) account.
+ *
+ * Primary signal: the JWT `tid` claim — MSA tokens carry the fixed MSA_TENANT_ID.
+ * Fallback (when the token isn't a parseable JWT): a work/school account can list
+ * its organization via Graph with just User.Read; an MSA cannot, so a non-200
+ * response or an empty `value` array is treated as MSA (fail closed toward
+ * flagging as personal, since that's the safer default for the spam-risk check
+ * this feeds into).
+ */
+async function isPersonalMicrosoftAccount(
+    accessToken: string,
+): Promise<{ isMsa: boolean; via: 'tid' | 'org-check'; detail: string }> {
+    const tid = decodeJwtTenantId(accessToken);
+    if (tid) {
+        return { isMsa: tid === MSA_TENANT_ID, via: 'tid', detail: tid };
+    }
+    try {
+        const orgRes = await fetch('https://graph.microsoft.com/v1.0/organization', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!orgRes.ok) {
+            return { isMsa: true, via: 'org-check', detail: `status=${orgRes.status}` };
+        }
+        const body = await orgRes.json() as { value?: unknown[] };
+        const isMsa = !Array.isArray(body.value) || body.value.length === 0;
+        return { isMsa, via: 'org-check', detail: `orgCount=${body.value?.length ?? 0}` };
+    } catch (orgErr) {
+        log.warn({ err: orgErr }, 'Microsoft organization check failed; treating as MSA (fail closed)');
+        return { isMsa: true, via: 'org-check', detail: 'fetch-failed' };
     }
 }
 
@@ -311,6 +383,29 @@ router.post('/callback', async (req: Request, res: Response, next: NextFunction)
             return;
         }
 
+        // Guard against personal Microsoft accounts (MSA) whose sign-in alias is a
+        // custom work domain. Their real transport mailbox is an auto-generated
+        // outlook_...@outlook.com address, so mail sent through them goes out via
+        // consumer outlook.com infra with Sender != From — no SPF/DKIM alignment
+        // with the custom domain, and recipients see "on behalf of" / land in spam.
+        // A genuine personal mailbox on a consumer Microsoft domain is unaffected
+        // and stays allowed.
+        if (provider === 'microsoft-outlook') {
+            const { isMsa, via, detail } = await isPersonalMicrosoftAccount(accessToken);
+            const isConsumerDomain = isConsumerMicrosoftDomain(emailAddress);
+            if (isMsa && !isConsumerDomain) {
+                log.warn(
+                    { tenantId, email: emailAddress, via, detail },
+                    'Rejected Microsoft connection: personal (MSA) account on a custom domain',
+                );
+                res.status(422).json({
+                    error: `${emailAddress} kişisel bir Microsoft hesabı olarak bağlandı. Kurumsal adresler kişisel hesapla bağlanırsa mailler 'outlook.com üzerinden / on behalf of' görünür ve spam klasörüne düşer. Lütfen tekrar bağlanın ve Microsoft giriş ekranında 'İş veya okul hesabı' seçeneğini seçin.`,
+                });
+                return;
+            }
+            log.info({ tenantId, email: emailAddress, isMsa, via, detail }, 'Microsoft account type check passed');
+        }
+
         const { data, error } = await supabaseAdmin
             .from('email_connections')
             .upsert({
@@ -337,6 +432,38 @@ router.post('/callback', async (req: Request, res: Response, next: NextFunction)
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Connection callback error');
         res.status(500).json({ error: 'Failed to connect email' });
+    }
+});
+
+// GET /api/email-connections/:id/domain-health — MX/SPF/DKIM/DMARC diagnostics
+router.get('/:id/domain-health', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const parsed = idParamSchema.safeParse(req.params);
+        if (!parsed.success) { res.status(400).json({ error: 'Invalid connection ID' }); return; }
+        const tenantId = req.tenantId!;
+        const { id } = parsed.data;
+
+        const { data: conn } = await supabaseAdmin
+            .from('email_connections')
+            .select('id, email_address')
+            .eq('id', id).eq('tenant_id', tenantId).maybeSingle();
+        if (!conn) { res.status(404).json({ error: 'Connection not found' }); return; }
+
+        const domain = domainFromEmail((conn as { email_address: string }).email_address);
+        if (!domain) { res.status(422).json({ error: 'Connection has no valid email domain' }); return; }
+
+        if (isManagedConsumerDomain(domain)) {
+            res.json(getManagedDomainResult(domain));
+            return;
+        }
+
+        const refresh = req.query.refresh === 'true';
+        const result = await getDomainHealth(domain, { refresh });
+        res.json(result);
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Domain health check error');
+        res.status(500).json({ error: 'Failed to check domain health' });
     }
 });
 

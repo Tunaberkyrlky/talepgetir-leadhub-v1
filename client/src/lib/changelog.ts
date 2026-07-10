@@ -25,6 +25,25 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.20.0',
+        date: '2026-07-10',
+        type: 'feature',
+        area: 'settings',
+        title: { tr: 'Alan Adı Sağlık Kontrolü', en: 'Domain Health Check' },
+        about: {
+            tr: 'Bağlı posta kutularınızın alan adı için MX, SPF, DKIM ve DMARC kayıtları otomatik kontrol edilir, eksikler kopyalanabilir çözüm önerileriyle gösterilir.',
+            en: 'MX, SPF, DKIM and DMARC records are checked automatically for your connected mailbox domains, and gaps are shown with copyable fix suggestions.',
+        },
+        usage: {
+            tr: 'Ayarlar sayfasında e-posta bağlantınızın altındaki renkli rozetlere tıklayarak detayları, önerilen kayıtları ve sağlayıcı panel bağlantısını görebilirsiniz.',
+            en: 'On the Settings page, click the colored badges under your email connection to see details, suggested records and a link to your provider portal.',
+        },
+        notes: {
+            tr: 'Kurumsal bir adresin kişisel Microsoft hesabıyla bağlanması artık spam riskine karşı engellenir, giriş ekranında iş veya okul hesabı seçmeniz istenir.',
+            en: 'Connecting a business address with a personal Microsoft account is now blocked to prevent spam issues, you are asked to choose a work or school account at sign in.',
+        },
+    },
+    {
         version: '1.19.4',
         date: '2026-07-07',
         type: 'fix',
