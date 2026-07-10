@@ -1168,7 +1168,25 @@
             "testSendTitle": "Send test email",
             "testTo": "Send to",
             "testNote": "Spintax and variables are filled with sample data (e.g. Ahmet, Acme).",
-            "testSent": "Test sent to {{to}}"
+            "testSent": "Test sent to {{to}}",
+            "lint": {
+                "title": "Deliverability check",
+                "description": "Advisory only — these signals never block saving or sending.",
+                "check": "Check",
+                "recheck": "Re-check",
+                "clean": "No spam signals found.",
+                "stale": "Content changed — re-check for fresh results.",
+                "error": "Could not run the check. Try again.",
+                "codes": {
+                    "too_many_links": "This email has {{count}} links. Keeping it to {{max}} or fewer helps you land in the inbox.",
+                    "url_shortener": "Shortened links ({{domains}}) often trip spam filters. Use full URLs instead.",
+                    "subject_all_caps": "The subject is {{ratioPct}}% uppercase — mostly-caps subjects read like spam.",
+                    "subject_exclamation": "The subject has {{count}} exclamation mark(s). One or none reads more natural.",
+                    "spam_words": "Possible spam-trigger words ({{count}}): {{words}}. Consider rephrasing.",
+                    "image_heavy": "Image-heavy with little text ({{images}} image(s), {{textLength}} characters). Add more plain text.",
+                    "attachment": "Attaching a file to a first cold email can hurt deliverability."
+                }
+            }
         },
         "settings": {
             "title": "Campaign Settings",

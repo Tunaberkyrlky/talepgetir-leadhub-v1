@@ -10,6 +10,7 @@ import { VariableSuggestion } from './variableSuggestion';
 import { Spintax } from './spintaxNode';
 import { spintaxTextToHtml, spintaxHtmlToText } from './spintaxSerialize';
 import SubjectEditor, { type SubjectEditorRef } from './SubjectEditor';
+import LintPanel from './LintPanel';
 import { IconMail, IconPencil, IconEye, IconSend, IconCode } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import type { CampaignStep } from '../../types/campaign';
@@ -275,6 +276,9 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                     <Text size="xs" c="dimmed" mt="sm">{t('campaign.editor.previewNote', 'Preview uses sample data (e.g. Ahmet, Acme A.Ş.).')}</Text>
                 </Paper>
             )}
+
+            {/* Gönderim-öncesi içerik denetimi — tavsiye amaçlı, engellemez. */}
+            <LintPanel subject={step.subject || ''} bodyHtml={step.body_html || ''} />
 
             <Modal opened={testOpen} onClose={() => setTestOpen(false)} radius="lg" centered size="sm"
                 title={t('campaign.editor.testSendTitle', 'Send test email')}

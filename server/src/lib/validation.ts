@@ -504,6 +504,13 @@ export const testSendSchema = z.object({
     body_html: z.string().max(50000).optional(),
 });
 
+// İçerik "spam sinyali" denetimi — tavsiye amaçlı, gövde/konuyu analiz eder.
+export const lintContentSchema = z.object({
+    subject: z.string().max(1000).optional().default(''),
+    body_html: z.string().max(50000).optional().default(''),
+    has_attachment: z.boolean().optional().default(false),
+});
+
 // Audience filtresi — Drip kampanyaya filtreyle kişi seçimi/kaydı.
 // stage/industry şirket seviyesi (companies join), country/seniority kişi seviyesi.
 export const audienceFilterSchema = z.object({

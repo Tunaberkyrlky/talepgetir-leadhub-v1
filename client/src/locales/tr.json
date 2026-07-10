@@ -1168,7 +1168,25 @@
             "testSendTitle": "Test maili gönder",
             "testTo": "Şu adrese gönder",
             "testNote": "Spintax ve değişkenler örnek verilerle doldurulur (ör. Ahmet, Acme).",
-            "testSent": "Test {{to}} adresine gönderildi"
+            "testSent": "Test {{to}} adresine gönderildi",
+            "lint": {
+                "title": "Teslim edilebilirlik denetimi",
+                "description": "Yalnızca tavsiye — bu sinyaller kaydetmeyi veya göndermeyi asla engellemez.",
+                "check": "Denetle",
+                "recheck": "Yeniden denetle",
+                "clean": "Spam sinyali bulunamadı.",
+                "stale": "İçerik değişti — güncel sonuç için yeniden denetleyin.",
+                "error": "Denetim yapılamadı. Tekrar deneyin.",
+                "codes": {
+                    "too_many_links": "Bu mailde {{count}} link var. {{max}} veya daha az tutmak gelen kutusuna düşmeyi kolaylaştırır.",
+                    "url_shortener": "Kısaltılmış linkler ({{domains}}) çoğu zaman spam filtresini tetikler. Bunun yerine tam URL kullanın.",
+                    "subject_all_caps": "Konu %{{ratioPct}} büyük harf — çoğunlukla büyük harf konular spam gibi görünür.",
+                    "subject_exclamation": "Konuda {{count}} ünlem var. Bir tane ya da hiç kullanmak daha doğal durur.",
+                    "spam_words": "Olası spam-tetikleyici kelimeler ({{count}}): {{words}}. Yeniden ifade etmeyi düşünün.",
+                    "image_heavy": "Görsel ağırlıklı, az metin ({{images}} görsel, {{textLength}} karakter). Daha fazla düz metin ekleyin.",
+                    "attachment": "İlk soğuk maile dosya iliştirmek teslim edilebilirliği düşürebilir."
+                }
+            }
         },
         "settings": {
             "title": "Kampanya Ayarları",

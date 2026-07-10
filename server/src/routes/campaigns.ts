@@ -8,8 +8,9 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole, requireTier } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
-import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, saveGraphSchema, enrollLeadsSchema, audienceFilterSchema, testSendSchema, bulkEnrollmentActionSchema } from '../lib/validation.js';
+import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, saveGraphSchema, enrollLeadsSchema, audienceFilterSchema, testSendSchema, bulkEnrollmentActionSchema, lintContentSchema } from '../lib/validation.js';
 import { enrollLeads, getCampaignStats, sendTestEmail, resumePausedEnrollments, pauseEnrollment, resumeEnrollment, bulkPauseEnrollments, bulkResumeEnrollments } from '../lib/campaignEngine.js';
+import { lintEmailContent } from '../lib/spamLint.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import posthog from '../lib/posthog.js';
 
@@ -138,6 +139,20 @@ router.post('/', validateBody(createCampaignSchema), async (req: Request, res: R
         log.error({ err }, 'Create campaign error');
         res.status(500).json({ error: 'Failed to create campaign' });
     }
+});
+
+// ── POST /api/campaigns/lint ───────────────────────────────────────────────
+// Gönderim-öncesi içerik "spam sinyali" denetimi — TAVSİYE amaçlı, engellemez.
+// Saf fonksiyon; DB'ye dokunmaz. Yalnızca KOD listesi döner (metin client i18n'de).
+// `/:id/*` rotalarından ÖNCE tanımlı — statik `/lint` segmenti çakışmaz.
+
+router.post('/lint', validateBody(lintContentSchema), async (req: Request, res: Response): Promise<void> => {
+    const findings = lintEmailContent({
+        subject: req.body.subject,
+        bodyHtml: req.body.body_html,
+        hasAttachment: req.body.has_attachment,
+    });
+    res.json({ findings });
 });
 
 // ── GET /api/campaigns/:id ─────────────────────────────────────────────────
