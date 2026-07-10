@@ -1,7 +1,7 @@
 export type CampaignStatus = 'draft' | 'active' | 'paused' | 'completed';
 // 'condition' ileriye dönük (Faz 2 — dallanma); UI henüz üretmiyor.
 export type StepType = 'email' | 'delay' | 'condition';
-export type EnrollmentStatus = 'active' | 'completed' | 'paused' | 'replied' | 'bounced' | 'unsubscribed' | 'skipped_invalid';
+export type EnrollmentStatus = 'active' | 'completed' | 'paused' | 'replied' | 'bounced' | 'unsubscribed' | 'skipped_invalid' | 'skipped_suppressed';
 
 // ── Kampanya ayarları (Ayarlar sekmesi) ────────────────────────────────────
 // Bugün backend yalnızca `daily_limit` + `timezone` kaydediyor. Diğer alanlar
@@ -91,6 +91,7 @@ export interface CampaignStats {
     bounced: number;
     unsubscribed: number;
     skipped_invalid: number;
+    skipped_suppressed: number;
     emails_sent: number;
     opens: number;
     clicks: number;

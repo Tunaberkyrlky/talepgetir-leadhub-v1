@@ -15,7 +15,7 @@ import type { Enrollment, EnrollLeadPayload } from '../../types/campaign';
 
 const STATUS_COLORS: Record<string, string> = {
     active: 'blue', completed: 'green', replied: 'violet', paused: 'yellow', bounced: 'red', unsubscribed: 'gray',
-    skipped_invalid: 'orange',
+    skipped_invalid: 'orange', skipped_suppressed: 'red',
 };
 
 interface Props { campaignId: string; campaignStatus: string; }
@@ -142,7 +142,7 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
 
     // ── Kayıtlı liste: arama + durum filtresi + sayfalama + toplu aksiyon ──
     const PAGE_SIZE = 25;
-    const ENROLL_STATUSES = ['active', 'paused', 'completed', 'replied', 'bounced', 'unsubscribed', 'skipped_invalid'];
+    const ENROLL_STATUSES = ['active', 'paused', 'completed', 'replied', 'bounced', 'unsubscribed', 'skipped_invalid', 'skipped_suppressed'];
     const [enrollSearch, setEnrollSearch] = useState('');
     const [debEnrollSearch] = useDebouncedValue(enrollSearch, 300);
     const [enrollStatus, setEnrollStatus] = useState<string | null>(null);
@@ -328,7 +328,7 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
                                                 <Table.Td><Text size="xs">{e.current_step_order ? `${t('campaign.audience.colStep', 'Step')} ${e.current_step_order}` : '—'}</Text></Table.Td>
                                                 <Table.Td><Text size="xs" c="dimmed">{e.status === 'active' ? fmtNext(e.next_scheduled_at) : '—'}</Text></Table.Td>
                                                 <Table.Td>
-                                                    {e.status === 'skipped_invalid' && e.skip_reason ? (
+                                                    {(e.status === 'skipped_invalid' || e.status === 'skipped_suppressed') && e.skip_reason ? (
                                                         <Tooltip label={skipReasonLabel(e.skip_reason)} withArrow>
                                                             <Badge size="xs" variant="light" color={STATUS_COLORS[e.status] || 'gray'}>{statusLabel(e.status)}</Badge>
                                                         </Tooltip>

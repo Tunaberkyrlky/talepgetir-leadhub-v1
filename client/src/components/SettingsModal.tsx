@@ -36,6 +36,7 @@ import {
     IconInfoCircle,
     IconReport,
     IconMail,
+    IconShieldOff,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
@@ -43,6 +44,7 @@ import PipelineSettingsEditor, { type PipelineSettingsEditorHandle } from './Pip
 import PlusVibeSetup from './plusvibe/PlusVibeSetup';
 import ReportsPanel from './settings/ReportsPanel';
 import DigestSettingsPanel from './settings/DigestSettingsPanel';
+import SuppressionsPanel from './settings/SuppressionsPanel';
 
 interface SettingsModalProps {
     opened: boolean;
@@ -117,6 +119,7 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
         { value: 'pipeline', label: t('settings.pipelineTab', 'Pipeline'), icon: <IconColumns size={18} /> },
         ...(isAdmin ? [{ value: 'reports', label: t('settings.reportsTab', 'Raporlar'), icon: <IconReport size={18} /> }] : []),
         ...(isAdmin ? [{ value: 'digest', label: t('settings.digestTab', 'Özet maili'), icon: <IconMail size={18} /> }] : []),
+        ...(isAdmin ? [{ value: 'suppressions', label: t('settings.suppressionsTab', 'Bastırma listesi'), icon: <IconShieldOff size={18} /> }] : []),
         ...(isAdmin ? [{ value: 'integrations', label: t('settings.integrationsTab', 'Entegrasyonlar'), icon: <IconWebhook size={18} /> }] : []),
     ];
 
@@ -250,6 +253,10 @@ export default function SettingsModal({ opened, onClose, defaultTab = 'general' 
 
                             {activeTab === 'digest' && isAdmin && (
                                 <DigestSettingsPanel />
+                            )}
+
+                            {activeTab === 'suppressions' && isAdmin && (
+                                <SuppressionsPanel />
                             )}
 
                             {activeTab === 'integrations' && isAdmin && (

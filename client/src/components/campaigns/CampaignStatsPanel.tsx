@@ -80,6 +80,7 @@ export default function CampaignStatsPanel({ campaignId }: { campaignId: string 
                     {stats.bounced > 0 && <Progress.Section value={seg(stats.bounced)} color="red"><Progress.Label>{t('campaign.stats.segBounced', { count: stats.bounced, defaultValue: '{{count}} bounced' })}</Progress.Label></Progress.Section>}
                     {stats.unsubscribed > 0 && <Progress.Section value={seg(stats.unsubscribed)} color="dark"><Progress.Label>{t('campaign.stats.segUnsub', { count: stats.unsubscribed, defaultValue: '{{count}} unsubscribed' })}</Progress.Label></Progress.Section>}
                     {stats.skipped_invalid > 0 && <Progress.Section value={seg(stats.skipped_invalid)} color="orange"><Progress.Label>{t('campaign.stats.segInvalid', { count: stats.skipped_invalid, defaultValue: '{{count}} invalid' })}</Progress.Label></Progress.Section>}
+                    {stats.skipped_suppressed > 0 && <Progress.Section value={seg(stats.skipped_suppressed)} color="pink"><Progress.Label>{t('campaign.stats.segSuppressed', { count: stats.skipped_suppressed, defaultValue: '{{count}} suppressed' })}</Progress.Label></Progress.Section>}
                 </Progress.Root>
             </Paper>
 

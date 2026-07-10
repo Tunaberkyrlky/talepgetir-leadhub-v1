@@ -242,6 +242,7 @@
         "error": "An error occurred",
         "retry": "Retry",
         "save": "Save",
+        "add": "Add",
         "cancel": "Cancel",
         "confirm": "Confirm",
         "actions": "Actions",
@@ -315,6 +316,7 @@
         "integrationsTab": "Integrations",
         "reportsTab": "Reports",
         "digestTab": "Summary email",
+        "suppressionsTab": "Suppression list",
         "digestTitle": "Summary Email",
         "digestDesc": "On the days you choose, a summary with important replies, added activities, pipeline status, and upcoming meetings is sent to your connected mailboxes.",
         "digestEnabled": "Enable summary email",
@@ -1260,12 +1262,14 @@
                 "replied": "Replied",
                 "bounced": "Bounced",
                 "unsubscribed": "Unsubscribed",
-                "skipped_invalid": "Invalid"
+                "skipped_invalid": "Invalid",
+                "skipped_suppressed": "Suppressed"
             },
             "skipReason": {
                 "syntax": "Malformed email address",
                 "no_mx": "Domain can't receive mail (no MX)",
-                "disposable": "Disposable email address"
+                "disposable": "Disposable email address",
+                "suppressed": "On suppression list"
             }
         },
         "activation": {
@@ -1290,11 +1294,32 @@
             "segBounced": "{{count}} bounced",
             "segUnsub": "{{count}} unsubscribed",
             "segInvalid": "{{count}} invalid",
+            "segSuppressed": "{{count}} suppressed",
             "overTime": "Activity over time",
             "byInbox": "Sent per inbox",
             "byStep": "By step",
             "stepN": "Step {{n}}",
             "trackingOff": "Open and click tracking is not configured, so these counts may stay at zero. Replies are still tracked."
+        }
+    },
+    "suppression": {
+        "title": "Suppression List",
+        "desc": "Campaigns never send to these addresses. Hard bounces, unsubscribes and complaints are added automatically; you can also add or remove them manually here.",
+        "addLabel": "Add address",
+        "added": "Address added to the suppression list",
+        "alreadyExists": "This address is already on the list",
+        "removed": "Address removed from the list",
+        "remove": "Remove",
+        "searchPlaceholder": "Search by address",
+        "empty": "The suppression list is empty.",
+        "colEmail": "Address",
+        "colReason": "Reason",
+        "colDate": "Added",
+        "reason": {
+            "hard_bounce": "Bounced",
+            "unsubscribe": "Unsubscribed",
+            "manual": "Manual",
+            "complaint": "Complaint"
         }
     },
     "feedback": {

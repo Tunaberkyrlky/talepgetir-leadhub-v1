@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { verifyTrackingToken } from '../lib/mailTracking.js';
+import { addSuppression } from '../lib/suppressions.js';
 import { createLogger } from '../lib/logger.js';
 
 const log = createLogger('tracking');
@@ -88,7 +89,7 @@ async function unsubscribeByToken(token: string): Promise<UnsubResult> {
     try {
         const { data: enrollment } = await supabaseAdmin
             .from('campaign_enrollments')
-            .select('id, status')
+            .select('id, status, tenant_id, email, campaign_id')
             .eq('id', enrollmentId)
             .single();
 
@@ -99,6 +100,18 @@ async function unsubscribeByToken(token: string): Promise<UnsubResult> {
             .from('campaign_enrollments')
             .update({ status: 'unsubscribed', next_scheduled_at: null })
             .eq('id', enrollmentId);
+
+        // Kalıcı bastırma (task-5): abonelikten çıkan adrese bir daha (bu ya da başka
+        // kampanyadan) gönderim yapılmaz. Fire-and-forget — abonelikten çıkma başarısını
+        // suppression yazımına bağlamayız (yasal olarak esas olan enrollment durumudur).
+        if (enrollment.tenant_id && enrollment.email) {
+            addSuppression({
+                tenantId: enrollment.tenant_id,
+                email: enrollment.email,
+                reason: 'unsubscribe',
+                sourceCampaignId: enrollment.campaign_id ?? null,
+            }).catch((e) => log.warn({ err: e, enrollmentId }, 'Unsubscribe suppression insert failed'));
+        }
 
         log.info({ enrollmentId }, 'Unsubscribed');
         return 'ok';

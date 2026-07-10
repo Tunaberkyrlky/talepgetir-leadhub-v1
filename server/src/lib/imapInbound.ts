@@ -14,8 +14,9 @@ import { createLogger } from './logger.js';
 import { decrypt } from './encryption.js';
 import { listPollableImapConnections, type EmailConnection } from './emailConnections.js';
 import { matchSenderEmail, advanceCompanyStageOnMatch } from './emailMatcher.js';
-import { cancelEnrollmentOnReply } from './campaignEngine.js';
+import { cancelEnrollmentOnReply, markEmailBounced } from './campaignEngine.js';
 import { parseImapInbound } from './mail/imapAdapter.js';
+import { detectBounce } from './mail/bounceDetector.js';
 import { canonicalToReplyRow, splitEmailBody } from './mail/types.js';
 import { resolvePublicHost } from './ssrfGuard.js';
 
@@ -39,6 +40,28 @@ async function updateConnState(id: string, lastSeenUid: number, uidValidity: num
 
 async function ingestMessage(conn: EmailConnection, uid: number, source: Buffer): Promise<boolean> {
     const parsed = await simpleParser(source);
+
+    // ── Bounce (DSN) tespiti (task-5) ─────────────────────────────────────────
+    // Bu mail bir teslim başarısızlığı bildirimi mi? DSN'ler mailer-daemon/postmaster'dan
+    // gelir ve normal eşleşmeye takılmadan düşerdi. KALICI (hard) bounce'ta başarısız
+    // alıcıyı bastırma listesine yazıp o adresin enrollment'larını 'bounced' yaparız.
+    // Gönderen kutusu = DSN'in düştüğü kutu (conn.email_address) → oto-duraklatma için mailbox.
+    // Bounce her hâlde reply olarak SAKLANMAZ (return false).
+    const bounce = detectBounce(parsed, source);
+    if (bounce.isBounce) {
+        if (bounce.hard && bounce.recipient) {
+            await markEmailBounced({
+                tenantId: conn.tenant_id,
+                email: bounce.recipient,
+                mailbox: conn.email_address,
+            }).catch((err) => log.warn({ err, account: conn.email_address, recipient: bounce.recipient }, 'markEmailBounced (IMAP) failed'));
+            log.info({ account: conn.email_address, recipient: bounce.recipient }, 'Hard bounce detected & suppressed');
+        } else {
+            log.info({ account: conn.email_address, recipient: bounce.recipient, hard: bounce.hard }, 'Bounce detected (soft/unresolved) — not suppressed');
+        }
+        return false;
+    }
+
     const canonical = parseImapInbound(parsed, conn.email_address, conn.tenant_id);
     canonical.providerMessageId = String(uid);
 

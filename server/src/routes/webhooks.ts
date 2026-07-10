@@ -6,7 +6,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { validateBody, webhookPayloadSchema } from '../lib/validation.js';
 import { matchSenderEmail, advanceCompanyStageOnMatch } from '../lib/emailMatcher.js';
 import { enrichCompanyFromWebhook, enrichContactFromWebhook } from '../lib/webhookEnricher.js';
-import { cancelEnrollmentOnReply } from '../lib/campaignEngine.js';
+import { cancelEnrollmentOnReply, markEmailBounced } from '../lib/campaignEngine.js';
 import { parseWebhookInbound } from '../lib/mail/plusvibeAdapter.js';
 import { canonicalToReplyRow, splitEmailBody } from '../lib/mail/types.js';
 import {
@@ -92,6 +92,30 @@ function sanitizePayload(body: Record<string, unknown>): unknown {
  */
 async function processPlusvibeInbound(req: Request, res: Response, tenantId: string): Promise<void> {
     const { from_email, step, webhook_event } = req.body;
+
+    // ── Bounce olayı (task-5, best-effort) ────────────────────────────────────
+    // PlusVibe reply DIŞI olaylar (SENT/OPENED/BOUNCED…) da bu URL'e düşer. Olay adı
+    // "bounce" içeriyorsa ve tanınır bir alıcı taşıyorsa adresi bastırırız. PlusVibe
+    // genelde yalnız KALICI (permanent) bounce'ı webhook'lar → hard varsayarız. Kutu
+    // bilinmediği için (PlusVibe kendi havuzundan yollar) oto-duraklatma tetiklenmez.
+    // Alan adları belirsizse dal HİÇ ateşlenmez (guard'lı) → zararsız.
+    if (typeof webhook_event === 'string' && /bounce/i.test(webhook_event)) {
+        const rcpt =
+            (typeof req.body.lead === 'string' && req.body.lead) ||
+            (typeof req.body.lead_email === 'string' && req.body.lead_email) ||
+            (typeof req.body.to === 'string' && req.body.to) ||
+            (typeof from_email === 'string' && from_email) ||
+            null;
+        if (rcpt) {
+            await markEmailBounced({ tenantId, email: rcpt, reason: 'hard_bounce' })
+                .catch((err) => log.warn({ err, event: webhook_event }, 'PlusVibe bounce suppression failed'));
+            log.info({ event: webhook_event, recipient: rcpt }, 'PlusVibe bounce event — recipient suppressed');
+        } else {
+            log.info({ event: webhook_event }, 'PlusVibe bounce event with no resolvable recipient — skipped');
+        }
+        res.status(200).json({ ok: true, bounce: true });
+        return;
+    }
 
     // We only ingest reply events — they carry the replying lead's from_email.
     // PlusVibe delivers other events (EMAIL_SENT/OPENED/CLICKED…) to the same URL;

@@ -18,8 +18,17 @@ import { createLogger } from './logger.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { nextSendableTime, startOfLocalDay, startOfNextLocalDay, type SendingWindow } from './sendingWindow.js';
 import { validateEmail, validateEmails } from './emailValidator.js';
+import { filterSuppressed, addSuppression } from './suppressions.js';
 
 const log = createLogger('campaignEngine');
+
+// ── Bounce → otomatik kutu duraklatma eşiği (task-5) ─────────────────────────
+// Bir gönderen kutusu son HARD_BOUNCE_WINDOW gönderiminin en az HARD_BOUNCE_THRESHOLD
+// kadarını KALICI (hard) bounce ile geri alıyorsa, o kutuyu kullanan aktif kampanyalar
+// otomatik duraklatılır. Yüksek hard-bounce oranı listenin bozuk olduğunun ve gönderen
+// itibarının yanmakta olduğunun en net sinyalidir; erken durmak kalıcı hasarı önler.
+const HARD_BOUNCE_THRESHOLD = 5;   // penceredeki hard bounce sayısı ≥ bu → duraklat
+const HARD_BOUNCE_WINDOW = 50;     // kutu-başı son kaç gönderime bakılır
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -470,6 +479,14 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
 
     log.info({ count: dueEnrollments.length }, 'Processing due enrollments');
 
+    // ── Bastırma kapısı (task-5) — tek batch sorgu ────────────────────────────
+    // Bu tick'teki tüm (tenant, alıcı) çiftlerini tek sorguda bastırma listesine
+    // sorar. Bastırılmış (hard bounce / abonelikten çıkmış / manuel) adreslere
+    // ENROLLMENT-başına ayrı sorgu atmadan gönderim engellenir.
+    const suppressedSet = await filterSuppressed(
+        dueEnrollments.map((e) => ({ tenantId: e.tenant_id, email: e.email })),
+    );
+
     let sent = 0, failed = 0, advanced = 0, skipped = 0;
 
     for (const enrollment of dueEnrollments) {
@@ -486,6 +503,19 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 .single();
 
             if (!locked) continue; // already claimed by another tick or status changed
+
+            // ── Bastırma kontrolü (task-5) ────────────────────────────────────
+            // Alıcı bastırma listesindeyse GÖNDERME; kaydı terminal 'skipped_suppressed'
+            // yap (istatistikte görünür, zamanlayıcı bir daha almaz) ve bir sonrakine geç.
+            // Lock next_scheduled_at'i null'ladı → status'u da terminal yaparak kaydı ilerletiriz.
+            if (suppressedSet.has(`${enrollment.tenant_id}|${(enrollment.email || '').toLowerCase()}`)) {
+                await supabaseAdmin.from('campaign_enrollments')
+                    .update({ status: 'skipped_suppressed', skip_reason: 'suppressed', next_scheduled_at: null })
+                    .eq('id', enrollment.id);
+                skipped++;
+                log.info({ enrollmentId: enrollment.id, email: enrollment.email }, 'Send skipped: recipient suppressed');
+                continue;
+            }
 
             // Fetch campaign status + tenant CC settings
             const [campaignRes, tenantRes] = await Promise.all([
@@ -738,11 +768,28 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                     log.info({ enrollmentId: enrollment.id, to: enrollment.email, activityId: activity.id }, 'Campaign email sent');
                 } catch (sendErr) {
                     const msg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+                    // ── Senkron kalıcı ret = hard bounce (task-5) ──────────────
+                    // SMTP relay geçersiz alıcıyı gönderim anında 5xx ile reddedebilir
+                    // (Gmail/Outlook API'leri genelde kabul edip sonra DSN döndürür → o yol
+                    // IMAP'te yakalanır). Kalıcıysa: activity'yi 'bounced' işaretle (kutu-başı
+                    // sayım bunu okur), adresi bastır, TEKRAR DENEME. Geçici/ağ hatası → +5dk retry.
+                    const permanent = isPermanentSendFailure(msg);
                     await supabaseAdmin
                         .from('activities')
-                        .update({ outcome: `failed: ${msg.slice(0, 200)}` })
+                        .update({ outcome: permanent ? 'bounced' : `failed: ${msg.slice(0, 200)}` })
                         .eq('id', activity.id);
                     failed++;
+                    if (permanent) {
+                        log.warn({ enrollmentId: enrollment.id, to: enrollment.email }, 'Kalıcı gönderim hatası → hard bounce olarak bastırıldı');
+                        // Activity zaten 'bounced' işaretlendi → skipActivityFlip.
+                        await markEmailBounced({
+                            tenantId: enrollment.tenant_id,
+                            email: enrollment.email,
+                            mailbox: accountEmail,
+                            skipActivityFlip: true,
+                        }).catch((e) => log.warn({ err: e, enrollmentId: enrollment.id }, 'markEmailBounced (send-time) failed'));
+                        continue;
+                    }
                     log.error({ err: sendErr, enrollmentId: enrollment.id }, 'Campaign email send failed');
                     // Keep enrollment on current step — retry on next scheduler tick
                     await supabaseAdmin.from('campaign_enrollments')
@@ -956,6 +1003,166 @@ export async function cancelEnrollmentOnReply(senderEmail: string, tenantId: str
     );
 }
 
+// ── Bounce Handling & Suppression (task-5) ──────────────────────────────────
+
+// Senkron gönderim hatası KALICI (hard bounce) mı? Yalnız kesin kalıcı imzalarda
+// true → tekrar denemeyi bırakıp adresi bastırırız. Geçici kodlar (4xx / rate-limit)
+// ve genel ağ/timeout hataları AÇIKÇA dışlanır (bunlar tekrar denenmeli). Dar tutuldu:
+// iyi bir adresi yanlışlıkla bastırmaktansa bir bounce'u kaçırmak yeğdir.
+function isPermanentSendFailure(message: string): boolean {
+    if (!message) return false;
+    // Geçici SMTP / gelişmiş 4.x.x kodları → kalıcı DEĞİL.
+    if (/\b(421|450|451|452)\b/.test(message) || /\b4\.\d+\.\d+\b/.test(message)) return false;
+    // Kalıcı SMTP kodları / gelişmiş 5.x.x durum kodu.
+    if (/\b(550|551|553|554)\b/.test(message) || /\b5\.\d+\.\d+\b/.test(message)) return true;
+    // Dar metinsel kalıcı imzalar (kod dönmeyen sunucular).
+    return /(user unknown|no such user|does not exist|recipient address rejected|mailbox unavailable|address rejected)/i.test(message);
+}
+
+// Bir alıcıya giden EN SON 'sent' kampanya mailini (activity) 'bounced' olarak
+// işaretler — kutu-başı bounce sayımı bunun üzerinden yürür. Alıcı e-postası →
+// tenant içindeki kontak(lar) → o kontağın en son campaign_email gönderimi eşlenir.
+// mailbox verilmişse yalnız o kutudan çıkan gönderim hedeflenir. Eşleşme bulunamazsa
+// sessizce geçer (bastırma yine de yazılmıştır; yalnız oto-duraklatma sayımı bu
+// bounce'u göremez — kabul edilebilir bozulma).
+async function markBounceActivity(tenantId: string, email: string, mailbox?: string | null): Promise<void> {
+    const e = (email || '').trim().toLowerCase();
+    if (!e) return;
+    const { data: contacts } = await supabaseAdmin
+        .from('contacts').select('id').eq('tenant_id', tenantId).ilike('email', e);
+    const ids = (contacts || []).map((c) => c.id);
+    if (ids.length === 0) return;
+
+    let q = supabaseAdmin
+        .from('activities')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('type', 'campaign_email')
+        .eq('outcome', 'sent')
+        .in('contact_id', ids)
+        .order('occurred_at', { ascending: false })
+        .limit(1);
+    if (mailbox) q = q.eq('sending_account', mailbox);
+
+    const { data: act } = await q.maybeSingle();
+    if (act?.id) {
+        await supabaseAdmin.from('activities').update({ outcome: 'bounced' }).eq('id', act.id);
+    }
+}
+
+// Bir gönderen kutusunun son penceresindeki hard-bounce'ları sayar; eşiği aşarsa o
+// kutuyu kullanan aktif kampanyaları duraklatır. "Kullanan": settings.sending_accounts
+// içinde bu kutu açıkça seçili VEYA hiç seçili değil (varsayılan rotasyon tüm aktif
+// kutuları kapsar → bu kutu da dâhil). Duraklatma kampanya route'undaki mekanizmayı
+// yansıtır: campaigns.status='paused' + aktif enrollment'lar 'paused'.
+async function checkAndAutoPauseMailbox(tenantId: string, mailbox: string): Promise<void> {
+    const box = (mailbox || '').trim();
+    if (!box) return;
+
+    const { data: recent } = await supabaseAdmin
+        .from('activities')
+        .select('outcome')
+        .eq('tenant_id', tenantId)
+        .eq('type', 'campaign_email')
+        .eq('sending_account', box)
+        .in('outcome', ['sent', 'bounced'])
+        .order('occurred_at', { ascending: false })
+        .limit(HARD_BOUNCE_WINDOW);
+
+    const bounces = (recent || []).filter((a) => a.outcome === 'bounced').length;
+    if (bounces < HARD_BOUNCE_THRESHOLD) return;
+
+    const { data: activeCamps } = await supabaseAdmin
+        .from('campaigns')
+        .select('id, settings')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'active');
+
+    const boxLower = box.toLowerCase();
+    const affected = (activeCamps || [])
+        .filter((c) => {
+            const accts = ((c.settings as any)?.sending_accounts as string[] | undefined) || [];
+            return accts.length === 0 || accts.some((a) => (a || '').toLowerCase() === boxLower);
+        })
+        .map((c) => c.id);
+
+    if (affected.length === 0) {
+        log.warn({ tenantId, mailbox: box, bounces, window: HARD_BOUNCE_WINDOW },
+            'Mailbox exceeded hard-bounce threshold but no active campaign uses it — no auto-pause');
+        return;
+    }
+
+    const { data: paused } = await supabaseAdmin
+        .from('campaigns')
+        .update({ status: 'paused' })
+        .in('id', affected)
+        .eq('status', 'active')
+        .select('id');
+    const pausedIds = (paused || []).map((c) => c.id);
+
+    if (pausedIds.length > 0) {
+        await supabaseAdmin
+            .from('campaign_enrollments')
+            .update({ status: 'paused', next_scheduled_at: null })
+            .in('campaign_id', pausedIds)
+            .eq('status', 'active');
+    }
+
+    log.warn(
+        { tenantId, mailbox: box, bounces, threshold: HARD_BOUNCE_THRESHOLD, window: HARD_BOUNCE_WINDOW, pausedCampaigns: pausedIds },
+        'AUTO-PAUSE: mailbox hard-bounce threshold exceeded — affected campaigns paused',
+    );
+}
+
+// Bir adresi hard bounce (veya şikayet) olarak işler: (1) bastırma listesine yazar,
+// (2) o adrese ait aktif/duraklı enrollment'ları 'bounced' terminaline çeker,
+// (3) ilgili gönderimi 'bounced' işaretler (skipActivityFlip=false iken),
+// (4) kutu-başı oto-duraklatmayı değerlendirir. Idempotent: tekrar çağrı zararsız.
+export async function markEmailBounced(params: {
+    tenantId: string;
+    email: string;
+    /** Bounce'un ilişkili olduğu gönderen kutusu (biliniyorsa) — oto-duraklatma için. */
+    mailbox?: string | null;
+    reason?: 'hard_bounce' | 'complaint';
+    /** Çağıran gönderimi zaten 'bounced' işaretlediyse activity eşlemesini atla. */
+    skipActivityFlip?: boolean;
+}): Promise<void> {
+    const email = (params.email || '').trim().toLowerCase();
+    if (!email || !params.tenantId) return;
+    const reason = params.reason || 'hard_bounce';
+
+    // Kaynak kampanyayı bulmak için aktif/duraklı enrollment'ları çek.
+    const { data: enrollments } = await supabaseAdmin
+        .from('campaign_enrollments')
+        .select('id, campaign_id')
+        .eq('tenant_id', params.tenantId)
+        .eq('email', email)
+        .in('status', ['active', 'paused']);
+
+    const sourceCampaignId = enrollments?.[0]?.campaign_id ?? null;
+
+    await addSuppression({ tenantId: params.tenantId, email, reason, sourceCampaignId });
+
+    if (enrollments?.length) {
+        await supabaseAdmin
+            .from('campaign_enrollments')
+            .update({ status: 'bounced', next_scheduled_at: null })
+            .in('id', enrollments.map((e) => e.id));
+    }
+
+    if (!params.skipActivityFlip) {
+        await markBounceActivity(params.tenantId, email, params.mailbox).catch((e) =>
+            log.warn({ err: e, tenantId: params.tenantId }, 'markBounceActivity failed'));
+    }
+
+    if (params.mailbox) {
+        await checkAndAutoPauseMailbox(params.tenantId, params.mailbox).catch((e) =>
+            log.warn({ err: e, tenantId: params.tenantId, mailbox: params.mailbox }, 'checkAndAutoPauseMailbox failed'));
+    }
+
+    log.info({ tenantId: params.tenantId, email, reason, enrollments: enrollments?.length || 0 }, 'Email marked as bounced');
+}
+
 // ── Campaign Stats ─────────────────────────────────────────────────────────
 
 export interface CampaignStats {
@@ -967,6 +1174,7 @@ export interface CampaignStats {
     bounced: number;
     unsubscribed: number;
     skipped_invalid: number;
+    skipped_suppressed: number;
     emails_sent: number;
     opens: number;
     clicks: number;
@@ -1070,6 +1278,7 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
         bounced: statusCounts['bounced'] || 0,
         unsubscribed: statusCounts['unsubscribed'] || 0,
         skipped_invalid: statusCounts['skipped_invalid'] || 0,
+        skipped_suppressed: statusCounts['skipped_suppressed'] || 0,
         emails_sent: sentCount,
         opens, clicks, replies: replied,
         open_rate: sentCount > 0 ? opens / sentCount : 0,

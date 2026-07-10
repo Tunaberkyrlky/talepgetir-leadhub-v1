@@ -242,6 +242,7 @@
         "error": "Hata oluştu",
         "retry": "Tekrar Dene",
         "save": "Kaydet",
+        "add": "Ekle",
         "cancel": "İptal",
         "confirm": "Onayla",
         "actions": "İşlemler",
@@ -315,6 +316,7 @@
         "integrationsTab": "Entegrasyonlar",
         "reportsTab": "Raporlar",
         "digestTab": "Özet maili",
+        "suppressionsTab": "Bastırma listesi",
         "digestTitle": "Özet Maili",
         "digestDesc": "Seçtiğiniz günlerde bağlı mail hesaplarınıza önemli yanıtlar, eklenen aktiviteler, pipeline durumu ve vadesi gelen toplantıları içeren bir özet gönderilir.",
         "digestEnabled": "Özet mailini aç",
@@ -1260,12 +1262,14 @@
                 "replied": "Yanıtladı",
                 "bounced": "Sekti",
                 "unsubscribed": "Çıktı",
-                "skipped_invalid": "Geçersiz"
+                "skipped_invalid": "Geçersiz",
+                "skipped_suppressed": "Bastırıldı"
             },
             "skipReason": {
                 "syntax": "E-posta biçimi hatalı",
                 "no_mx": "Alan adı mail alamıyor (MX yok)",
-                "disposable": "Tek kullanımlık e-posta adresi"
+                "disposable": "Tek kullanımlık e-posta adresi",
+                "suppressed": "Bastırma listesinde"
             }
         },
         "activation": {
@@ -1290,11 +1294,32 @@
             "segBounced": "{{count}} sekti",
             "segUnsub": "{{count}} çıktı",
             "segInvalid": "{{count}} geçersiz",
+            "segSuppressed": "{{count}} bastırıldı",
             "overTime": "Zamana göre etkinlik",
             "byInbox": "Kutu başına gönderim",
             "byStep": "Adıma göre",
             "stepN": "Adım {{n}}",
             "trackingOff": "Açılma ve tıklama takibi yapılandırılmadığı için bu sayılar sıfır kalabilir. Yanıtlar yine de izlenir."
+        }
+    },
+    "suppression": {
+        "title": "Bastırma Listesi",
+        "desc": "Bu adreslere kampanya gönderimi yapılmaz. Sert sekme (hard bounce), abonelikten çıkma ve şikayetler otomatik eklenir; buradan manuel de ekleyebilir veya kaldırabilirsiniz.",
+        "addLabel": "Adres ekle",
+        "added": "Adres bastırma listesine eklendi",
+        "alreadyExists": "Bu adres zaten listede",
+        "removed": "Adres listeden kaldırıldı",
+        "remove": "Kaldır",
+        "searchPlaceholder": "Adrese göre ara",
+        "empty": "Bastırma listesi boş.",
+        "colEmail": "Adres",
+        "colReason": "Neden",
+        "colDate": "Eklendi",
+        "reason": {
+            "hard_bounce": "Sekti",
+            "unsubscribe": "Abonelikten çıktı",
+            "manual": "Manuel",
+            "complaint": "Şikayet"
         }
     },
     "feedback": {

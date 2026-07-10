@@ -4,6 +4,7 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { logAuditAction } from './admin.js';
+import { addSuppression } from '../lib/suppressions.js';
 
 const log = createLogger('route:settings');
 const router = Router();
@@ -884,6 +885,89 @@ router.put('/digest', async (req: Request, res: Response, next: NextFunction): P
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Update digest settings error');
         res.status(500).json({ error: 'Failed to update digest settings' });
+    }
+});
+
+// ── Suppression list (task-5) ──────────────────────────────────────────────
+// Kalıcı bastırma listesi: hard bounce / abonelikten çıkma / manuel / şikayet.
+// Bu adreslere kampanya motoru bir daha gönderim yapmaz. Yönetim görünürlüğü:
+// listele + manuel ekle + kaldır. Hepsi tenant-scoped ve admin-only.
+
+// GET /settings/suppressions — tenant'ın bastırma listesi (opsiyonel ?search=).
+router.get('/suppressions', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Admin role required' });
+            return;
+        }
+        const search = (req.query.search as string | undefined)?.trim().toLowerCase();
+        let q = supabaseAdmin
+            .from('email_suppressions')
+            .select('id, email, reason, source_campaign_id, created_at')
+            .eq('tenant_id', req.tenantId!)
+            .order('created_at', { ascending: false })
+            .limit(500);
+        if (search) q = q.ilike('email', `%${search}%`);
+        const { data, error } = await q;
+        if (error) throw new AppError('Failed to fetch suppressions', 500);
+        res.json({ data: data || [] });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Get suppressions error');
+        res.status(500).json({ error: 'Failed to fetch suppressions' });
+    }
+});
+
+const addSuppressionSchema = z.object({
+    email: z.string().email('Invalid email'),
+    reason: z.enum(['hard_bounce', 'unsubscribe', 'manual', 'complaint']).optional(),
+});
+
+// POST /settings/suppressions — manuel adres ekle (varsayılan reason 'manual').
+router.post('/suppressions', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Admin role required' });
+            return;
+        }
+        const result = addSuppressionSchema.safeParse(req.body);
+        if (!result.success) {
+            res.status(400).json({ error: result.error.issues[0]?.message || 'Invalid input' });
+            return;
+        }
+        const added = await addSuppression({
+            tenantId: req.tenantId!,
+            email: result.data.email,
+            reason: result.data.reason || 'manual',
+        });
+        res.json({ data: { added } });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Add suppression error');
+        res.status(500).json({ error: 'Failed to add suppression' });
+    }
+});
+
+// DELETE /settings/suppressions/:id — listeden kaldır (tenant-scoped).
+router.delete('/suppressions/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Admin role required' });
+            return;
+        }
+        const { data, error } = await supabaseAdmin
+            .from('email_suppressions')
+            .delete()
+            .eq('id', req.params.id as string)
+            .eq('tenant_id', req.tenantId!)
+            .select('id');
+        if (error) throw new AppError('Failed to remove suppression', 500);
+        if (!data?.length) { res.status(404).json({ error: 'Suppression not found' }); return; }
+        res.json({ data: { removed: true } });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Delete suppression error');
+        res.status(500).json({ error: 'Failed to remove suppression' });
     }
 });
 
