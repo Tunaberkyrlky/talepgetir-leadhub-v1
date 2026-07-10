@@ -190,6 +190,54 @@ export async function resolveDispatcher(
     return { ok: true, dispatcher, staticGeneration: asg.endpoint_generation, staticProxyId: asg.proxy_id };
 }
 
+export type SendLease =
+    | { ok: true; leaseToken: string; assignmentId: string; proxyId: string; generation: number; host: string; port: number; expiresAt: string }
+    | { ok: false; reason: string };
+
+/**
+ * Acquire an assignment-scoped send-lease immediately before the real network send (109,
+ * codex §10 P1.4 follow-up). This REPLACES trusting resolveDispatcher's earlier snapshot for
+ * `static_required` accounts: the RPC re-derives proxy_mode + validated pointers fresh, re-locks
+ * the proxy row (the SAME lock `linkedin_burn_proxy` takes), and only grants the lease if the
+ * assignment is still active, clean, healthy, non-burned, and generation-matched. A burn that
+ * lands while this lease is live is refused by the DB (`lease_active`) until the short TTL
+ * lapses — see mig 109's header for the honest boundary (the lock only spans the RPC itself;
+ * the lease ROW is what protects the send that follows it).
+ *
+ * Never returns credentials — only the host/port/generation/assignment_id projection the caller
+ * needs to sanity-check against the dispatcher it already built. Callers MUST release (or let
+ * expire) the lease after classification; never leave one held longer than the send itself.
+ */
+export async function acquireSendLease(
+    tenantId: string, accountId: string, jobId?: string | null, ttlSeconds = 45,
+): Promise<SendLease> {
+    const { data, error } = await researchSupabaseAdmin.rpc('linkedin_acquire_send_lease', {
+        p_tenant: tenantId, p_account: accountId, p_job_id: jobId ?? null, p_ttl_seconds: ttlSeconds,
+    });
+    if (error) throw error;
+    const r = data as Record<string, unknown>;
+    if (!r?.ok) return { ok: false, reason: (r?.error as string) ?? 'lease_denied' };
+    return {
+        ok: true,
+        leaseToken: r.lease_token as string,
+        assignmentId: r.assignment_id as string,
+        proxyId: r.proxy_id as string,
+        generation: r.generation as number,
+        host: r.host as string,
+        port: r.port as number,
+        expiresAt: r.expires_at as string,
+    };
+}
+
+/** Best-effort early release of a held send-lease (non-fatal — an unreleased lease simply
+ *  self-expires; matches releaseQuota's failure-tolerance). */
+export async function releaseSendLease(tenantId: string, accountId: string, leaseToken: string): Promise<void> {
+    const { error } = await researchSupabaseAdmin.rpc('linkedin_release_send_lease', {
+        p_tenant: tenantId, p_account: accountId, p_lease_token: leaseToken,
+    });
+    if (error) log.warn({ err: error, accountId }, 'linkedin send-lease release failed (non-fatal)');
+}
+
 /** Current same-day count for a counter key (0 after a rollover we haven't written yet). */
 export function currentCount(account: LinkedInAccountRow, counterKey: string): number {
     const c = account.daily_counters ?? {};

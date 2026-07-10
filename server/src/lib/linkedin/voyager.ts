@@ -8,6 +8,17 @@
  */
 import { randomBytes, randomUUID } from 'crypto';
 
+/**
+ * GraphQL persisted-query id for the Messenger conversations-list finder
+ * (`messengerConversationsByCategory*`). HOT-UPDATE, HIGHEST volatility constant
+ * in this file: LinkedIn ships a new hash on practically every web deploy (two
+ * independent capture dates already disagree — see the comment on
+ * VOYAGER.conversationsPath). RE-VERIFY LIVE before trusting a poll result.
+ * Source (2026-04-25 capture, claimed live-verified): vicnaum/linkedin-toolkit
+ * references/endpoints.md §5 / lnx/api/endpoints.py CONVERSATION_QUERY_ID.
+ */
+export const CONVERSATIONS_QUERY_ID = 'messengerConversations.9501074288a12f3ae9e3c7ea243bccbf';
+
 export const VOYAGER = {
     base: 'https://www.linkedin.com',
 
@@ -32,25 +43,104 @@ export const VOYAGER = {
     profileByIdentityPath: (publicId: string) =>
         `/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=${encodeURIComponent(publicId)}`,
 
-    // ── Pending-invite withdrawal (Faz 3, §2 "davet hijyeni") — HOT-SURFACE, RE-VERIFY LIVE. ──
-    // List the account's OUTGOING pending invitations, then withdraw the stale ones. These
-    // paths rotate like every voyager write; both are marked for live re-verification (this
-    // module has no live account yet, so the withdraw handler is DRY-RUN-default until proven).
+    // ── Pending-invite withdrawal (Faz 3, §2 "davet hijyeni") — HOT-SURFACE. ──
+    // LIVE-CONFIRMED STALE 2026-07-10 on staging: a real dry-run withdraw got
+    // `{"skipped":"list_unavailable","http_status":400}` from the OLD path below
+    // (`sentInvitationViewsV2?count=&start=`, no `q=` finder key). RE-VERIFY LIVE
+    // before trusting withdraw again — see the confidence notes per path.
+    //
+    // List the account's OUTGOING pending invitations (list, GET). FIX (best-guess,
+    // STRONGLY corroborated — not yet proven against OUR live account): the bare
+    // collection GET 400s because LinkedIn's Rest.li resource requires an explicit
+    // finder key (`q=`) — three independent, currently-maintained (2025-2026)
+    // reverse-engineering repos agree on `q=invitationType&invitationType=CONNECTION`
+    // for this exact collection:
+    //   - https://github.com/eilonmore/linkedin-private-api/blob/master/src/requests/invitation.request.ts
+    //     (getSentInvitations: q:'invitationType', invitationType:'CONNECTION')
+    //   - https://github.com/stanvanrooy/linkauto/blob/master/linkauto/api/mixins/relationship.py
+    //     (relationship_invitation_get SENT branch: same q/invitationType pair)
+    //   - https://github.com/bcharleson/linkedincli/blob/main/src/commands/connections/connections.ts
+    //     (connections_sent handler: identical start/count/invitationType/q)
+    // RE-VERIFY LIVE: confirm this specific 400 is gone and a genuinely-pending
+    // invite round-trips through the parser (see parseSentInvitations below).
     sentInvitationsPath: (start = 0, count = 100) =>
-        `/voyager/api/relationships/sentInvitationViewsV2?count=${count}&start=${start}`,
-    // Withdraw one invitation by its numeric id (action=withdraw on the same collection).
+        `/voyager/api/relationships/sentInvitationViewsV2` +
+        `?count=${count}&start=${start}&q=invitationType&invitationType=CONNECTION`,
+    // Withdraw one invitation by its numeric id. BEST-GUESS, LOWER confidence than
+    // the list fix above: the OLD resource (`sentInvitationViewsV2/{id}?action=withdraw`)
+    // appears in ZERO of the ~15 current repos/catalogs surveyed for this task — it is
+    // almost certainly just as stale as the list endpoint was. Moved to the LEGACY
+    // `relationships/invitations` collection + `action=withdraw`, which IS an exact
+    // route-constant match in a decompiled-Android-APK catalog (single source, but
+    // real decompiled route constants, not a guess):
+    //   - https://github.com/eisbaw/linkedin-rs/blob/main/re/api_endpoint_catalog.md
+    //     (`RELATIONSHIPS_INVITATIONS/{id}?action=withdraw`, POST, no body documented)
+    //   - corroborating action-enum context (same repo, re/invitations.md):
+    //     `InvitationActionManager.ActionType` includes WITHDRAW alongside ACCEPT/IGNORE
+    // ALTERNATE CANDIDATE seen live in a maintained 2026 CLI (flag for the live pass):
+    //   - https://github.com/bcharleson/linkedincli/blob/main/src/commands/connections/connections.ts
+    //     uses `DELETE relationships/invitations/{id}` (no `?action=withdraw`, no body,
+    //     different HTTP verb) for the SAME resource — if the POST+action=withdraw below
+    //     404s/400s live, try DELETE on the same path before reaching for a new resource.
+    // RE-VERIFY LIVE (mandatory, single-source-only fix): withdraw ONE known-stale
+    // pending invite on the bound static IP and confirm a 2xx+no-error-envelope.
     withdrawInvitationPath: (invitationId: string) =>
-        `/voyager/api/relationships/sentInvitationViewsV2/${encodeURIComponent(invitationId)}?action=withdraw`,
+        `/voyager/api/relationships/invitations/${encodeURIComponent(invitationId)}?action=withdraw`,
 
     // ── Poll detection (Faz 4, §2/§5) — HOT-SURFACE, RE-VERIFY LIVE (unproven, like withdraw). ──
     // 1st-degree connections (invite ACCEPT detection): a lead's profile urn appearing here
     // means the invite was accepted → the sequence can advance to the message step.
+    // FIX (best-guess, single toolkit source but with an explicit "verified live 2026-04-25"
+    // claim + a full worked response fixture, and consistent with the Dash-resource-naming
+    // convention THIS file already proved live for invite/message): moved off the stale
+    // `relationships/connectionsV2` collection to the Dash finder:
+    //   - https://github.com/vicnaum/linkedin-toolkit/blob/main/references/endpoints.md
+    //     (§4 "GET /voyager/api/relationships/dash/connections", full request+response fixture)
+    //   - https://github.com/vicnaum/linkedin-toolkit/blob/main/lnx/api/endpoints.py
+    //     (`connections_url()` — identical q=search/decorationId/sortType, same repo but
+    //     self-consistent across its own docs+code)
+    // ALTERNATE CANDIDATE (unverified, no `V2`/`dash`, from a different repo's client.rs
+    // whose own task notes say live validation is still pending): `relationships/connections`
+    // (no decorationId) — https://github.com/eisbaw/linkedin-rs backlog/tasks/task-0030.md.
+    // RE-VERIFY LIVE: confirm a 2xx+JSON and that at least one known 1st-degree connection's
+    // fsd_profile urn round-trips through parseConnectionUrns below.
     connectionsPath: (start = 0, count = 100) =>
-        `/voyager/api/relationships/connectionsV2?count=${count}&start=${start}`,
+        `/voyager/api/relationships/dash/connections` +
+        `?count=${count}&start=${start}&q=search&sortType=RECENTLY_ADDED` +
+        `&decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16`,
     // Conversations (REPLY detection): a conversation whose latest message is INCOMING (not
     // from our mailbox) means the lead replied → global stop + suppress (§5).
-    conversationsPath: (count = 40) =>
-        `/voyager/api/messaging/conversations?count=${count}`,
+    // FIX (best-guess, structure well-corroborated / exact queryId NOT — queryIds rotate on
+    // nearly every LinkedIn deploy by design, see the two DIFFERENT hashes cited below from
+    // two different capture dates): the plain REST `messaging/conversations` collection is
+    // reported to hard-500 on the current international build and has been replaced by the
+    // Messenger GraphQL host (a DIFFERENT base path from /voyager/api/graphql):
+    //   - https://github.com/eisbaw/linkedin-rs/blob/main/linkedin/linkedin-api/src/client.rs
+    //     (get_conversations(): "the REST endpoint messaging/conversations returns HTTP 500
+    //     (deprecated server-side)"; uses queryId messengerConversations.7dc50d3efc3953190125aca9c05f0af6)
+    //   - https://github.com/vicnaum/linkedin-toolkit/blob/main/references/endpoints.md (§5,
+    //     claims "verified live 2026-04-25"; queryId messengerConversations.9501074288a12f3ae9e3c7ea243bccbf,
+    //     same repo's lnx/api/endpoints.py CONVERSATION_QUERY_ID matches self-consistently)
+    // We use vicnaum's hash as the shipped default (most detailed worked fixture), but BOTH
+    // sources agree the STRUCTURE is: host `/voyager/api/voyagerMessagingGraphQL/graphql`,
+    // a REST.li "variables=(...)" structural literal (NOT JSON — the `( ) : ,` structural
+    // characters must stay LITERAL in the query string; only the mailboxUrn VALUE itself is
+    // percent-encoded, encoding the structure itself yields a 400 per
+    // https://github.com/devag7/linkedin-mcp/blob/main/src/browser/endpoints.ts graphqlPath() doc),
+    // requiring mailboxUrn (our own fsd_profile urn — already threaded through
+    // listConversations(), see client.ts) as a mandatory variable.
+    // RE-VERIFY LIVE (highest-uncertainty surface of the four): the queryId WILL likely need
+    // a fresh live capture (DevTools → Network → filter `graphql` while opening the inbox)
+    // before this can be trusted; treat `conversationsQueryId` as HOT-UPDATE, same as the
+    // invite/message decorationIds above.
+    conversationsPath: (mailboxUrn: string, count = 40) => {
+        const encodedUrn = encodeURIComponent(mailboxUrn);
+        const variables =
+            `(query:(predicateUnions:List((conversationCategoryPredicate:(category:INBOX)))),` +
+            `count:${count},mailboxUrn:${encodedUrn})`;
+        return `/voyager/api/voyagerMessagingGraphQL/graphql` +
+            `?queryId=${CONVERSATIONS_QUERY_ID}&variables=${variables}`;
+    },
 
     restliProtocolVersion: '2.0.0',
     accept: 'application/vnd.linkedin.normalized+json+2.1',
@@ -252,14 +342,25 @@ export interface SentInvitation {
  * HOT-SURFACE (voyager rotates the shape): scan BOTH the top-level `elements` and the
  * normalized `included` array for invitation entities (urn:li:fs_invitation:<id> or the
  * dash fsd_invitation variant), pulling the numeric id and a sent timestamp when present.
- * Deduplicates by id. A miss returns [] — the caller withdraws nothing rather than guessing.
+ * Deduplicates by id.
+ *
+ * Returns `null` (NOT []) when the envelope carries NEITHER an `elements` NOR an
+ * `included` array at all — i.e. this isn't a shape we recognize (LinkedIn rotated it
+ * again). The caller (listSentInvitations, client.ts) must treat `null` as a FAILED
+ * read (ok:false / list_unavailable), never as "confirmed zero pending invitations" —
+ * this is the exact fail-closed behavior that just protected us from the live 2026-07-10
+ * 400 (§4.4: never trust an unrecognized 2xx body). A recognized-but-genuinely-empty
+ * envelope (arrays present, zero invitation entities inside) still returns [].
  */
-export function parseSentInvitations(body: unknown): SentInvitation[] {
-    if (!body || typeof body !== 'object') return [];
+export function parseSentInvitations(body: unknown): SentInvitation[] | null {
+    if (!body || typeof body !== 'object') return null;
     const b = body as { elements?: unknown[]; included?: unknown[] };
+    const hasElements = Array.isArray(b.elements);
+    const hasIncluded = Array.isArray(b.included);
+    if (!hasElements && !hasIncluded) return null;
     const pools: unknown[] = [
-        ...(Array.isArray(b.elements) ? b.elements : []),
-        ...(Array.isArray(b.included) ? b.included : []),
+        ...(hasElements ? (b.elements as unknown[]) : []),
+        ...(hasIncluded ? (b.included as unknown[]) : []),
     ];
     const byId = new Map<string, SentInvitation>();
 
@@ -287,25 +388,40 @@ export function parseSentInvitations(body: unknown): SentInvitation[] {
 }
 
 /**
- * Extract the set of 1st-degree connection profile urns from a connectionsV2 response (§5
- * accept detection). HOT-SURFACE: scan elements + included for fsd_profile urns. A miss
- * returns an empty set — the caller then simply detects no new accepts (never a false accept).
+ * Extract the set of 1st-degree connection profile urns from a
+ * relationships/dash/connections response (§5 accept detection). HOT-SURFACE: scan
+ * `elements` (legacy/fallback flat shape), `included` (the Dash finder's normalized
+ * entity pool — where the actual Connection + Profile records live), AND `data`
+ * (the Dash finder nests its urn-ref list under `data['*elements']`, see the source
+ * cited on VOYAGER.connectionsPath) for fsd_profile urns, by simple regex over each
+ * pool's JSON text rather than modeling exact nested fields — resilient to LinkedIn
+ * moving a field one level without changing the profile-urn format itself.
+ *
+ * Returns `null` when NONE of `elements` / `included` / `data` are present at all —
+ * an envelope we don't recognize, which the caller (listConnections, client.ts) must
+ * treat as a FAILED read (ok:false), never as "confirmed zero connections" (§4.4
+ * fail-closed, same invariant as parseSentInvitations above). A recognized-but-empty
+ * envelope still returns an empty Set.
  */
-export function parseConnectionUrns(body: unknown): Set<string> {
+export function parseConnectionUrns(body: unknown): Set<string> | null {
+    if (!body || typeof body !== 'object') return null;
+    const b = body as { elements?: unknown[]; included?: unknown[]; data?: unknown };
+    const hasElements = Array.isArray(b.elements);
+    const hasIncluded = Array.isArray(b.included);
+    const hasData = b.data != null && typeof b.data === 'object';
+    if (!hasElements && !hasIncluded && !hasData) return null;
+
     const out = new Set<string>();
-    if (!body || typeof body !== 'object') return out;
-    const b = body as { elements?: unknown[]; included?: unknown[] };
-    const scan = (arr: unknown[] | undefined) => {
-        if (!Array.isArray(arr)) return;
-        for (const el of arr) {
-            const s = JSON.stringify(el);
-            const re = /urn:li:fsd_profile:[A-Za-z0-9_-]+/g;
-            let m: RegExpExecArray | null;
-            while ((m = re.exec(s)) !== null) out.add(m[0]);
-        }
+    const re = /urn:li:fsd_profile:[A-Za-z0-9_-]+/g;
+    const scanValue = (val: unknown) => {
+        if (val == null) return;
+        const s = JSON.stringify(val);
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(s)) !== null) out.add(m[0]);
     };
-    scan(b.elements);
-    scan(b.included);
+    if (hasElements) for (const el of b.elements as unknown[]) scanValue(el);
+    if (hasIncluded) for (const el of b.included as unknown[]) scanValue(el);
+    if (hasData) scanValue(b.data);
     return out;
 }
 
@@ -317,31 +433,97 @@ export interface ConversationSummary {
 }
 
 /**
- * Extract conversation summaries from a messaging/conversations response (§5 reply detection).
- * HOT-SURFACE + BEST-EFFORT: normalized messaging shapes vary, so we read each element's
- * participant urns and a direction hint (unread count, or a lastMessage/events sender that
- * differs from our mailbox). `myMailboxUrn` lets the caller's incoming test exclude self-sends.
- * A miss yields []. Reply detection is UNVERIFIED against a live account — treat conservatively.
+ * Extract conversation summaries from a Messenger GraphQL conversations response (§5 reply
+ * detection). HOT-SURFACE + BEST-EFFORT, and the MOST UNCERTAIN of the four surfaces in this
+ * file (see VOYAGER.conversationsPath for sources — queryId rotates on nearly every deploy).
+ *
+ * Handles TWO shapes:
+ *  1) The GraphQL envelope: double-wrapped under `data.data.<rootKey>['*elements']` where
+ *     `rootKey` fluctuates (`...ByCategoryQuery` / `...ByCategory` / `...BySyncToken` — all
+ *     three reported in the wild). Each element is a bare conversation-urn STRING; we resolve
+ *     it to its normalized entity via `included[]` (keyed by entityUrn) before reading fields.
+ *  2) A flatter/legacy fallback: `elements` directly at the top level, already inline objects
+ *     (kept so a future partial-rollback or a REST-shaped response degrades gracefully instead
+ *     of returning nothing).
+ * If NEITHER shape's ref list is found AND `included` is empty, the caller cannot trust
+ * anything in the body → returns `null` (an unrecognized envelope), which listConversations
+ * (client.ts) MUST treat as a FAILED read (ok:false), never as "confirmed empty inbox" (§4.4
+ * fail-closed, same invariant as the other two parsers above).
+ *
+ * Per-conversation extraction is still best-effort regex-over-JSON (not exact field modeling):
+ * we don't have a live-confirmed shape for WHERE participant profile urns live relative to a
+ * Conversation entity in the normalized graph, so we JSON.stringify whatever entity we resolved
+ * and scan broadly. This is intentionally the SAFE failure direction: if a real reply's
+ * participant urn isn't reachable in one hop, we simply MISS the conversation (no `incoming`
+ * flag fires, no participant urns returned) — an under-detect, not a false-positive. Because a
+ * detected `incoming` is what triggers the global stop+suppress (§5), under-detection costs at
+ * most one extra poll cycle, never a wrong stop. `myMailboxUrn` lets the caller's incoming test
+ * exclude self-sends; a `null` myMailboxUrn or a resolution miss still runs (self may then leak
+ * into `participantUrns`, which the caller already tolerates per the original contract).
  */
-export function parseConversations(body: unknown, myMailboxUrn: string | null): ConversationSummary[] {
-    if (!body || typeof body !== 'object') return [];
-    const b = body as { elements?: unknown[] };
-    if (!Array.isArray(b.elements)) return [];
-    const out: ConversationSummary[] = [];
+export function parseConversations(body: unknown, myMailboxUrn: string | null): ConversationSummary[] | null {
+    if (!body || typeof body !== 'object') return null;
+    const root = body as Record<string, unknown>;
+
+    // §Q-FLUCTUATING-ROOT-KEY / §Q-DATA-DOUBLE-WRAP (see VOYAGER.conversationsPath sources).
+    const ROOT_KEYS = [
+        'messengerConversationsByCategoryQuery',
+        'messengerConversationsByCategory',
+        'messengerConversationsBySyncToken',
+    ] as const;
+    const layer1 = root.data && typeof root.data === 'object' ? (root.data as Record<string, unknown>) : null;
+    const layer2 = layer1?.data && typeof layer1.data === 'object' ? (layer1.data as Record<string, unknown>) : null;
+
+    let elementsRefs: unknown[] | null = null;
+    for (const key of ROOT_KEYS) {
+        const node = (layer2?.[key] ?? layer1?.[key]) as Record<string, unknown> | undefined;
+        const refs = node?.['*elements'];
+        if (Array.isArray(refs)) { elementsRefs = refs; break; }
+    }
+    // Fallback: a flatter/legacy shape with elements directly at top level.
+    if (elementsRefs == null) {
+        const flat = (root as { elements?: unknown }).elements;
+        if (Array.isArray(flat)) elementsRefs = flat;
+    }
+
+    // A recognized ref list is REQUIRED (a GraphQL `*elements` array or a legacy top-level
+    // `elements` array). Without one the envelope is unrecognized — voyager rotated the shape
+    // again — which is NOT an empty inbox and NOT a licence to treat arbitrary `included`
+    // entities as conversations: an unrelated entity that happens to carry a lead's fsd_profile
+    // urn plus an unread flag would otherwise read as a false INCOMING reply and wrongly trigger
+    // the §5 global stop+suppress (codex P1). Fail closed instead (→ ok:false / list_unavailable).
+    if (elementsRefs == null) return null;
+    const included = Array.isArray(root.included) ? (root.included as unknown[]) : [];
+
+    const includedByUrn = new Map<string, unknown>();
+    for (const el of included) {
+        const urn = el && typeof el === 'object' ? (el as Record<string, unknown>).entityUrn : undefined;
+        if (typeof urn === 'string') includedByUrn.set(urn, el);
+    }
+
+    // Only the recognized ref list is processed — never a blind sweep of every `included`
+    // entity (see the fail-closed guard above; codex P1).
+    const refs: unknown[] = elementsRefs;
     const profileRe = /urn:li:fsd_profile:[A-Za-z0-9_-]+/g;
-    for (const el of b.elements) {
-        if (!el || typeof el !== 'object') continue;
-        const o = el as Record<string, unknown>;
+    const out: ConversationSummary[] = [];
+    for (const ref of refs) {
+        // New shape: ref is a bare conversation-urn STRING, resolve via included[].
+        // Legacy fallback shape: ref may already BE the inline conversation object.
+        const entity = typeof ref === 'string' ? includedByUrn.get(ref) : ref;
+        if (!entity || typeof entity !== 'object') continue;
+        const o = entity as Record<string, unknown>;
         const s = JSON.stringify(o);
         const urns = new Set<string>();
         let m: RegExpExecArray | null;
         while ((m = profileRe.exec(s)) !== null) urns.add(m[0]);
         const others = [...urns].filter((u) => u !== myMailboxUrn);
         if (others.length === 0) continue;
-        // Direction hint: an unread count > 0 is the most portable "there is something incoming".
+        // Direction hint: an unread count > 0 / read===false is the most portable "something
+        // incoming" signal (see VOYAGER.conversationsPath source for the `read`/`unreadCount`
+        // fields on the normalized Conversation entity).
         const unread = typeof o.unreadCount === 'number' ? o.unreadCount
             : typeof o.unreadMessageCount === 'number' ? o.unreadMessageCount : 0;
-        out.push({ participantUrns: others, incoming: unread > 0 });
+        out.push({ participantUrns: others, incoming: unread > 0 || o.read === false });
     }
     return out;
 }

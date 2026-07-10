@@ -217,8 +217,13 @@ export async function processEnrollment(enr: EnrollmentRow, jobId: string): Prom
 
     // Not sent. A rate/cap skip is temporary → reschedule the SAME step. An
     // already-connected invite means we can proceed to messaging. Anything else is a hard fail.
+    // A `lease_*` skip (109 send-lease gate: lease_held / lease_error / lease_mismatch /
+    // lease_<acquire-reason>) is ALSO temporary — an in-flight lease self-clears within the short
+    // TTL, a transient DB error retries, and a proxy-health/revalidation denial self-corrects once
+    // the proxy is revalidated or replaced (same fail-SAFE reschedule as account_* / caps). Hard-
+    // failing the enrollment here would lose the lead over a self-clearing condition.
     const skip = outcome.skipped ?? outcome.classifier;
-    if (skip === 'daily_cap' || skip === 'weekly_cap' || skip.startsWith('account_')) {
+    if (skip === 'daily_cap' || skip === 'weekly_cap' || skip.startsWith('account_') || skip.startsWith('lease_')) {
         await updateEnrollment(enr.id, { next_action_at: new Date(now + CAP_RETRY_MS).toISOString(), last_error: skip }, g);
         return skip;
     }

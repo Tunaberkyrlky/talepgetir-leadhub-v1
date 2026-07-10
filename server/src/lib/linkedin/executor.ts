@@ -10,6 +10,9 @@
  * Both `performInvite` and `performMessage`:
  *   - reserve a daily+weekly slot (095 RPC; ACTIVE-gated under the row lock),
  *   - decrypt creds + get the sticky dispatcher (a failure here is transport-class → THROWS),
+ *   - for a `static_required` account, acquire an assignment-scoped send-lease (109) immediately
+ *     before the real send — an atomic last-instant re-check that REPLACES trusting the earlier
+ *     resolveDispatcher snapshot, closing the gate<->network TOCTOU window (codex §10 P1.4),
  *   - send through the seam, classify §4.4 (never HTTP status alone),
  *   - refund the slot if the write did not land (isNotSent),
  *   - apply the health transition (403→RESTRICTED / 999→CHALLENGED / 401→NEEDS_REAUTH; §6
@@ -27,7 +30,8 @@ import { sendInvite, sendMessage, resolveProfileUrn, isNotSent } from './client.
 import { INVITE_NOTE_MAX } from './voyager.js';
 import {
     credsFor, resolveDispatcher, consumeQuota, releaseQuota, applyWriteHealth, classifierForResolve,
-    auditAction, dailyCapFor, weeklyCapFor, COUNTER_KEY, type LinkedInAccountRow,
+    auditAction, dailyCapFor, weeklyCapFor, COUNTER_KEY, acquireSendLease, releaseSendLease,
+    type LinkedInAccountRow, type SendLease,
 } from './actions.js';
 
 const log = createLogger('linkedin:executor');
@@ -46,6 +50,43 @@ export interface SendOutcome {
 
 function errMsg(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Immediately before the real network send, re-validate a `static_required` account's egress
+ * via an atomic assignment-scoped lease (mig 109, codex §10 P1.4 follow-up) instead of trusting
+ * resolveDispatcher's earlier snapshot — a burn/health-apply/replacement landing in the gap
+ * between the gate check and the actual outbound HTTP call would otherwise tunnel a send
+ * through an IP the caller only THOUGHT was still validated. `legacy_rotating` accounts
+ * (gate.staticProxyId === null) need no lease at all and pass straight through. Denial —
+ * including a proxy/generation mismatch against the dispatcher resolveDispatcher already built
+ * (the assignment moved in the tiny window between the two reads) — is fail-closed: the caller
+ * SKIPs (never throws, never falls back to rotating), exactly like a resolveDispatcher gate miss.
+ */
+async function acquireStaticLease(
+    tenantId: string, accountId: string, jobId: string,
+    gate: { staticProxyId: string | null; staticGeneration: number | null },
+): Promise<{ ok: true; token: string | null } | { ok: false; classifier: string }> {
+    if (gate.staticProxyId === null) return { ok: true, token: null }; // legacy_rotating — no lease needed
+    // A transient DB/schema error while ACQUIRING the lease must degrade to the SAME fail-closed
+    // skip as an explicit denial — never throw through to the caller (that would bypass the quota
+    // refund + audit path below and burn the maxAttempts=1 attempt while leaking the reservation;
+    // codex P2). The network send has not happened, so this stays closed either way.
+    let lease: SendLease;
+    try {
+        lease = await acquireSendLease(tenantId, accountId, jobId);
+    } catch {
+        return { ok: false, classifier: 'lease_error' };
+    }
+    if (!lease.ok) return { ok: false, classifier: `lease_${lease.reason}` };
+    if (lease.proxyId !== gate.staticProxyId || lease.generation !== gate.staticGeneration) {
+        // The assignment changed between resolveDispatcher's read and this one — the dispatcher
+        // already built is for the STALE pointer. Release the just-granted (but now-useless)
+        // lease and skip rather than send through a mismatched agent.
+        await releaseSendLease(tenantId, accountId, lease.leaseToken);
+        return { ok: false, classifier: 'lease_mismatch' };
+    }
+    return { ok: true, token: lease.leaseToken };
 }
 
 /**
@@ -121,14 +162,25 @@ export async function performInvite(
         return { sent: false, classifier: 'no_target', accountStatus: account.status, skipped: 'no_target' };
     }
 
+    // Last-instant atomic re-check, immediately before the real send (109 send-lease) — REPLACES
+    // trusting the gate snapshot taken above for static_required accounts.
+    const lease = await acquireStaticLease(tenantId, accountId, jobId, gate);
+    if (!lease.ok) {
+        await releaseQuota(tenantId, accountId, COUNTER);
+        await auditAction({ tenantId, accountId, type: 'invite', status: 'skipped', classifier: lease.classifier, jobId });
+        return { sent: false, classifier: lease.classifier, accountStatus: account.status, skipped: lease.classifier };
+    }
+
     let result;
     try {
         result = await sendInvite(creds, dispatcher, targetUrn, note || undefined);
     } catch (err) {
+        if (lease.token) await releaseSendLease(tenantId, accountId, lease.token);
         await releaseQuota(tenantId, accountId, COUNTER);
         await auditAction({ tenantId, accountId, type: 'invite', status: 'error', classifier: 'transport_error', error: errMsg(err), jobId });
         throw new Error(`linkedin invite transport error: ${errMsg(err)}`);
     }
+    if (lease.token) await releaseSendLease(tenantId, accountId, lease.token);
 
     if (isNotSent(result.classifier)) await releaseQuota(tenantId, accountId, COUNTER);
     const finalStatus = await applyWriteHealth(tenantId, account, result.classifier);
@@ -184,14 +236,25 @@ export async function performMessage(
     }
     dispatcher = gate.dispatcher;
 
+    // Last-instant atomic re-check, immediately before the real send (109 send-lease) — REPLACES
+    // trusting the gate snapshot taken above for static_required accounts.
+    const lease = await acquireStaticLease(tenantId, accountId, jobId, gate);
+    if (!lease.ok) {
+        await releaseQuota(tenantId, accountId, COUNTER);
+        await auditAction({ tenantId, accountId, type: 'message', status: 'skipped', classifier: lease.classifier, jobId });
+        return { sent: false, classifier: lease.classifier, accountStatus: account.status, skipped: lease.classifier };
+    }
+
     let result;
     try {
         result = await sendMessage(creds, dispatcher, { mailboxUrn: account.member_urn, recipientUrn: target.recipientUrn, text: target.text });
     } catch (err) {
+        if (lease.token) await releaseSendLease(tenantId, accountId, lease.token);
         await releaseQuota(tenantId, accountId, COUNTER);
         await auditAction({ tenantId, accountId, type: 'message', status: 'error', classifier: 'transport_error', error: errMsg(err), jobId });
         throw new Error(`linkedin message transport error: ${errMsg(err)}`);
     }
+    if (lease.token) await releaseSendLease(tenantId, accountId, lease.token);
 
     if (isNotSent(result.classifier)) await releaseQuota(tenantId, accountId, COUNTER);
     const finalStatus = await applyWriteHealth(tenantId, account, result.classifier);

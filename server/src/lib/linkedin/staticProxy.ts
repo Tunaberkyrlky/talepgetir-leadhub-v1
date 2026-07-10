@@ -206,3 +206,74 @@ export async function importAndAssignProxy(input: ImportProxyInput): Promise<Imp
         exitIp: verify.exitIp, country: verify.country,
     };
 }
+
+export interface PoolImportInput {
+    tenantId: string;
+    host: string;
+    port: number;
+    username: string;
+    password: string;
+    provider?: string;
+    extId?: string | null;
+    planId?: string | null;
+}
+
+/**
+ * P1 pool import — seed a dedicated IP into `linkedin_proxies` WITHOUT binding it to an account.
+ *
+ * Shares the exact P0 safety path (SSRF-guard + 2-echo egress verify via `verifyProxyEgress`);
+ * the ONLY difference from importAndAssignProxy is that there is no account here — so:
+ *   * the country is the ECHO-OBSERVED egress geo (not any request field, not an account geo),
+ *   * we refuse a proxy whose exit country can't be determined (it could never be claimed —
+ *     claim requires an exact ISO-2 country match, so a country-less pool row is dead stock),
+ *   * no account is flipped to static_required and no validated pointers move (that happens at
+ *     claim time). The RPC does the burned/foreign-owner/generation-bump work atomically.
+ */
+export async function importProxyToPool(input: PoolImportInput): Promise<ImportProxyResult> {
+    const provider = input.provider ?? 'iproyal';
+
+    // Same P0 constraint: host must be an IP literal (IPRoyal hands out IPs) → the vetted
+    // address IS what undici dials, eliminating the DNS-rebinding surface (codex P1.9).
+    if (!net.isIP(input.host)) return { ok: false, error: 'host_not_ip' };
+
+    let verify: ProxyVerify;
+    try {
+        verify = await verifyProxyEgress(input.host, input.port, input.username, input.password);
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : 'verify_failed';
+        log.warn({ err: msg, host: input.host }, 'pool proxy egress verify failed');
+        return { ok: false, error: msg };
+    }
+
+    // Pool country comes from the observed egress; if the best-effort geo lookup couldn't resolve
+    // it, refuse rather than store an unclaimable proxy.
+    if (!verify.country || !/^[a-z]{2}$/.test(verify.country)) {
+        return { ok: false, error: 'geo_unknown', exitIp: verify.exitIp, country: verify.country };
+    }
+
+    // Identity is the OBSERVED physical exit IP (canonical), NOT host:port (codex P1.7).
+    const extId = input.extId ?? `manual:${verify.exitIp}`;
+    const { data, error } = await researchSupabaseAdmin.rpc('linkedin_import_proxy_to_pool', {
+        p_tenant: input.tenantId,
+        p_provider: provider,
+        p_ext_id: extId,
+        p_proxy_address: input.host,
+        p_exit_ip: verify.exitIp,
+        p_host: input.host,
+        p_port: input.port,
+        p_username_enc: encryptProxySecret(input.username),
+        p_password_enc: encryptProxySecret(input.password),
+        p_country: verify.country,
+        p_plan_id: input.planId ?? null,
+    });
+    if (error) {
+        log.error({ err: error.message }, 'import_proxy_to_pool rpc failed');
+        return { ok: false, error: 'rpc_failed' };
+    }
+    const r = data as { ok: boolean; error?: string; proxy_id?: string; endpoint_generation?: number };
+    if (!r.ok) return { ok: false, error: r.error, exitIp: verify.exitIp, country: verify.country };
+    return {
+        ok: true, proxyId: r.proxy_id, endpointGeneration: r.endpoint_generation,
+        exitIp: verify.exitIp, country: verify.country,
+    };
+}

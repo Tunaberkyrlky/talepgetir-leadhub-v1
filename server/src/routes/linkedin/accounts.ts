@@ -24,6 +24,8 @@ import { ensureRetentionLoop } from '../../lib/research/worker/handlers/linkedin
 const log = createLogger('route:linkedin:accounts');
 const router = Router();
 const requireWriter = requireRole('superadmin', 'ops_agent', 'client_admin');
+// Proxy-pool binding handles raw provider inventory — internal-only, same guard as /proxies.
+const requireInternal = requireRole('superadmin', 'ops_agent');
 
 // Never selects li_at_enc / jsessionid_enc — encrypted cookies never leave the server.
 const SAFE_COLUMNS =
@@ -326,6 +328,64 @@ router.post('/:id/validate', requireWriter, async (req: Request, res: Response, 
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'enqueue validate error');
         next(new AppError('Failed to enqueue validation', 500));
+    }
+});
+
+// ── POST /accounts/:id/claim-proxy — bind a pooled static IP + kick a revalidate ──
+// Internal-only. Atomically claims one clean/healthy/unassigned proxy in the account's own
+// country (linkedin_claim_proxy derives it from account.geo, fail-closed) and — on a fresh
+// bind — enqueues a linkedin:validate so the send-gate can open on the new IP. The response is
+// sanitized (proxy_id / exit_ip / country / generation only — decrypted credentials NEVER leave
+// the server; the RPC doesn't return them either).
+router.post('/:id/claim-proxy', requireInternal, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const id = req.params.id;
+        if (!uuidField().safeParse(id).success) { res.status(400).json({ error: 'Invalid id' }); return; }
+
+        const { data, error } = await researchSupabaseAdmin.rpc('linkedin_claim_proxy', {
+            p_tenant: tenantId, p_account: id,
+        });
+        if (error) { log.error({ err: error.message, id }, 'claim_proxy rpc failed'); throw new AppError('Failed to claim proxy', 500); }
+        const r = data as {
+            ok: boolean; error?: string; idempotent?: boolean; proxy_id?: string;
+            endpoint_generation?: number; exit_ip?: string | null; country?: string | null;
+        };
+        if (!r.ok) {
+            // account_not_found → 404; everything else (no_proxy / account_no_geo) is an
+            // actionable 422 for the operator. Fail-closed: no rotating fallback is attempted.
+            const status = r.error === 'account_not_found' ? 404 : 422;
+            res.status(status).json({ error: r.error ?? 'claim_failed', country: r.country ?? null });
+            return;
+        }
+
+        // Only a FRESH bind needs a revalidate (idempotent re-claim already has its validated
+        // pointers or is pending one from the original claim).
+        let validateJobId: string | null = null;
+        if (!r.idempotent) {
+            const job = await enqueueJob({
+                tenantId,
+                type: RESEARCH_JOB_TYPES.LINKEDIN_VALIDATE,
+                payload: { account_id: id },
+                maxAttempts: 1,             // non-idempotent network probe; operator re-runs on failure
+                createdBy: req.user?.id ?? null,
+            });
+            validateJobId = (job as { id?: string }).id ?? null;
+        }
+
+        res.status(r.idempotent ? 200 : 201).json({
+            ok: true,
+            idempotent: r.idempotent ?? false,
+            proxy_id: r.proxy_id,
+            endpoint_generation: r.endpoint_generation,
+            exit_ip: r.exit_ip ?? null,
+            country: r.country ?? null,
+            validate_job_id: validateJobId,
+        });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'claim-proxy error');
+        next(new AppError('Failed to claim proxy', 500));
     }
 });
 

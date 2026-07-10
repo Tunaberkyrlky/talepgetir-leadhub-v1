@@ -298,7 +298,13 @@ export async function listSentInvitations(
     try { parsed = JSON.parse(raw); } catch { parsed = null; }
     // A 2xx that isn't JSON is a dead/challenged session masquerading as 200 — not an empty list.
     if (parsed == null) return { invitations: [], httpStatus: res.statusCode, ok: false };
-    return { invitations: parseSentInvitations(parsed), httpStatus: res.statusCode, ok: true };
+    // §4.4 fail-closed: a JSON body in a shape parseSentInvitations doesn't recognize (voyager
+    // rotated the envelope again) returns `null` from the parser — that is ALSO not a confirmed
+    // empty list, so it must NOT read as ok:true (would let the caller wrongly conclude "nothing
+    // pending" instead of "read failed").
+    const invitations = parseSentInvitations(parsed);
+    if (invitations == null) return { invitations: [], httpStatus: res.statusCode, ok: false };
+    return { invitations, httpStatus: res.statusCode, ok: true };
 }
 
 /** Withdraw one pending invitation by id. Throws only on TRANSPORT failure; classified §4.4. */
@@ -344,19 +350,29 @@ async function getJson(creds: VoyagerCreds, dispatcher: Dispatcher, path: string
 export interface ConnectionsResult { urns: Set<string>; httpStatus: number; ok: boolean }
 
 /** List the account's 1st-degree connection profile urns (§5 accept detection). ok=false on a
- *  non-2xx / non-JSON so the caller doesn't read an empty set as "no connections". */
+ *  non-2xx / non-JSON, OR when parseConnectionUrns returns `null` (an envelope shape it doesn't
+ *  recognize — §4.4 fail-closed) so the caller never reads that as "no connections". */
 export async function listConnections(creds: VoyagerCreds, dispatcher: Dispatcher): Promise<ConnectionsResult> {
     const { status, body } = await getJson(creds, dispatcher, VOYAGER.connectionsPath());
     if (body == null) return { urns: new Set(), httpStatus: status, ok: false };
-    return { urns: parseConnectionUrns(body), httpStatus: status, ok: true };
+    const urns = parseConnectionUrns(body);
+    if (urns == null) return { urns: new Set(), httpStatus: status, ok: false };
+    return { urns, httpStatus: status, ok: true };
 }
 
 export interface ConversationsResult { conversations: ConversationSummary[]; httpStatus: number; ok: boolean }
 
 /** List recent conversations with a direction hint (§5 reply detection). ok=false on a
- *  non-2xx / non-JSON. UNVERIFIED hot-surface — the caller treats replies conservatively. */
+ *  non-2xx / non-JSON / unrecognized envelope (parseConversations returns `null`, §4.4
+ *  fail-closed). UNVERIFIED hot-surface — the caller treats replies conservatively.
+ *  The Messenger GraphQL conversations query REQUIRES the account's own mailboxUrn (see
+ *  VOYAGER.conversationsPath) — without one the request cannot be built at all, so a null
+ *  `myMailboxUrn` short-circuits to ok:false rather than firing a request guaranteed to fail. */
 export async function listConversations(creds: VoyagerCreds, dispatcher: Dispatcher, myMailboxUrn: string | null): Promise<ConversationsResult> {
-    const { status, body } = await getJson(creds, dispatcher, VOYAGER.conversationsPath());
+    if (!myMailboxUrn) return { conversations: [], httpStatus: 0, ok: false };
+    const { status, body } = await getJson(creds, dispatcher, VOYAGER.conversationsPath(myMailboxUrn));
     if (body == null) return { conversations: [], httpStatus: status, ok: false };
-    return { conversations: parseConversations(body, myMailboxUrn), httpStatus: status, ok: true };
+    const conversations = parseConversations(body, myMailboxUrn);
+    if (conversations == null) return { conversations: [], httpStatus: status, ok: false };
+    return { conversations, httpStatus: status, ok: true };
 }

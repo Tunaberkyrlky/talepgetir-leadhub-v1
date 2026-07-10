@@ -15,7 +15,7 @@ import { createLogger } from '../../lib/logger.js';
 import { validateBody, uuidField } from '../../lib/validation.js';
 import { enqueueJob } from '../../lib/research/queue.js';
 import { RESEARCH_JOB_TYPES } from '../../lib/research/jobTypes.js';
-import { importAndAssignProxy } from '../../lib/linkedin/staticProxy.js';
+import { importAndAssignProxy, importProxyToPool } from '../../lib/linkedin/staticProxy.js';
 
 const log = createLogger('route:linkedin:proxies');
 const router = Router();
@@ -25,6 +25,18 @@ const requireInternal = requireRole('superadmin', 'ops_agent');
 
 const importSchema = z.object({
     account_id: uuidField('Invalid account_id'),
+    host: z.string().min(1).max(253),
+    port: z.number().int().min(1).max(65535),
+    username: z.string().min(1).max(400),
+    password: z.string().min(1).max(400),
+    provider: z.string().min(1).max(40).optional(),
+    ext_id: z.string().min(1).max(200).optional(),
+    plan_id: z.string().min(1).max(200).optional(),
+});
+
+// Pool import — same verified host:port:user:pass, but WITHOUT an account (P1). The country is
+// derived server-side from the echo-observed egress, so there is no account_id and no geo field.
+const poolImportSchema = z.object({
     host: z.string().min(1).max(253),
     port: z.number().int().min(1).max(65535),
     username: z.string().min(1).max(400),
@@ -84,6 +96,48 @@ router.post('/import', requireInternal, validateBody(importSchema), async (req: 
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'proxy import error');
         next(new AppError('Proxy import failed', 500));
+    }
+});
+
+// ── POST /proxies/pool — verify + import one static proxy into the POOL (no account) ──
+// Seeds a dedicated IP into the pool for a later linkedin_claim_proxy. Identical SSRF +
+// echo-verify path to /import; it just never binds an account (so no revalidate is kicked).
+router.post('/pool', requireInternal, validateBody(poolImportSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const b = req.body as z.infer<typeof poolImportSchema>;
+
+        const result = await importProxyToPool({
+            tenantId,
+            host: b.host,
+            port: b.port,
+            username: b.username,
+            password: b.password,
+            provider: b.provider,
+            extId: b.ext_id ?? null,
+            planId: b.plan_id ?? null,
+        });
+
+        if (!result.ok) {
+            res.status(422).json({
+                error: result.error ?? 'import_failed',
+                exit_ip: result.exitIp ?? null,
+                country: result.country ?? null,
+            });
+            return;
+        }
+
+        res.status(201).json({
+            ok: true,
+            proxy_id: result.proxyId,
+            endpoint_generation: result.endpointGeneration,
+            exit_ip: result.exitIp,
+            country: result.country,
+        });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'proxy pool import error');
+        next(new AppError('Proxy pool import failed', 500));
     }
 });
 
