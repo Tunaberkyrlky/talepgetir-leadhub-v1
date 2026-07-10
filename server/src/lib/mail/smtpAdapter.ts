@@ -12,6 +12,7 @@ import { decrypt } from '../encryption.js';
 import { waitForRateLimit } from '../emailSender.js';
 import { resolvePublicHost } from '../ssrfGuard.js';
 import type { CanonicalSendRequest, SendResult, MailProvider } from './types.js';
+import { listUnsubscribeHeaders } from './types.js';
 
 const log = createLogger('mail:smtp');
 
@@ -102,6 +103,7 @@ export const smtpProvider: MailProvider = {
                 ...(req.cc?.length && { cc: req.cc }),
                 ...(req.bcc?.length && { bcc: req.bcc }),
                 ...(req.replyTo && { replyTo: req.replyTo }),
+                ...(req.listUnsubscribe && { headers: listUnsubscribeHeaders(req.listUnsubscribe) }),
                 subject: req.subject,
                 html: req.bodyHtml,
                 ...(req.files?.length && {

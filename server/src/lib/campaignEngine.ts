@@ -13,6 +13,7 @@
 import { supabaseAdmin } from './supabase.js';
 import { API_BASE, createTrackingToken, injectTracking } from './mailTracking.js';
 import { sendMail } from './mail/router.js';
+import type { ListUnsubscribe } from './mail/types.js';
 import { createLogger } from './logger.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { nextSendableTime, startOfLocalDay, startOfNextLocalDay, type SendingWindow } from './sendingWindow.js';
@@ -180,6 +181,19 @@ function buildUnsubscribeFooter(enrollmentId: string): string {
     return `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #eee;text-align:center;">
         <a href="${API_BASE}/api/unsubscribe/${token}" style="color:#999;font-size:11px;text-decoration:underline;">Unsubscribe</a>
     </div>`;
+}
+
+// RFC 8058 tek-tık abonelikten-çıkma header'ları için değerleri üretir. Footer ile
+// AYNI token'ı kullanır (deterministik). https ucu tarayıcı GET + tek-tık POST'u
+// karşılar; mailto yedeği gönderen kutuya token'lı bir konuyla düşer (manuel işleme).
+function buildListUnsubscribe(enrollmentId: string, accountEmail?: string | null): ListUnsubscribe | undefined {
+    if (!API_BASE) return undefined;
+    const token = createTrackingToken(enrollmentId);
+    const httpsUrl = `${API_BASE}/api/unsubscribe/${token}`;
+    const mailto = accountEmail
+        ? `mailto:${accountEmail}?subject=${encodeURIComponent(`Unsubscribe ${token}`)}`
+        : undefined;
+    return { httpsUrl, mailto };
 }
 
 // ── Step Navigation ────────────────────────────────────────────────────────
@@ -587,6 +601,8 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         cc: ccAddresses.length > 0 ? ccAddresses : undefined,
                         accountEmail,
                         campaignId: enrollment.campaign_id,
+                        // RFC 8058: footer ile aynı token; https tek-tık + mailto yedeği.
+                        listUnsubscribe: buildListUnsubscribe(enrollment.id, accountEmail),
                     });
                     if (!result.success) throw new Error('Send failed');
 

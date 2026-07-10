@@ -68,6 +68,46 @@ router.get('/c/:token', async (req: Request<{ token: string }>, res: Response): 
     res.redirect(302, targetUrl);
 });
 
+// ── Unsubscribe (HMAC token'lı, idempotent) ────────────────────────────────
+// GET  = tarayıcıdan gelen manuel abonelikten-çıkma (HTML döner).
+// POST = RFC 8058 tek-tık (mail istemcisi List-Unsubscribe-Post ile tetikler).
+// İkisi de aynı token şemasını doğrular; forge'a karşı HMAC korur.
+
+type UnsubResult = 'ok' | 'already' | 'invalid' | 'notfound' | 'error';
+
+async function unsubscribeByToken(token: string): Promise<UnsubResult> {
+    let target: ReturnType<typeof verifyTrackingToken>;
+    try {
+        target = verifyTrackingToken(token);
+    } catch {
+        return 'invalid';
+    }
+    if (!target || target.kind === 'reply') return 'invalid';
+    const enrollmentId = target.id;
+
+    try {
+        const { data: enrollment } = await supabaseAdmin
+            .from('campaign_enrollments')
+            .select('id, status')
+            .eq('id', enrollmentId)
+            .single();
+
+        if (!enrollment) return 'notfound';
+        if (enrollment.status !== 'active') return 'already'; // idempotent: tekrar çağrı no-op
+
+        await supabaseAdmin
+            .from('campaign_enrollments')
+            .update({ status: 'unsubscribed', next_scheduled_at: null })
+            .eq('id', enrollmentId);
+
+        log.info({ enrollmentId }, 'Unsubscribed');
+        return 'ok';
+    } catch (err) {
+        log.error({ err, enrollmentId }, 'Unsubscribe error');
+        return 'error';
+    }
+}
+
 // ── GET /api/unsubscribe/:token ────────────────────────────────────────────
 
 router.get('/:token', async (req: Request<{ token: string }>, res: Response): Promise<void> => {
@@ -77,33 +117,25 @@ router.get('/:token', async (req: Request<{ token: string }>, res: Response): Pr
 <div style="text-align:center;padding:40px;background:white;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.1);max-width:400px;">
 <p style="font-size:16px;color:#334155;">${msg}</p></div></body></html>`;
 
-    try {
-        const target = verifyTrackingToken(req.params.token);
-        if (!target || target.kind === 'reply') { res.status(400).send(html('Invalid or expired link.')); return; }
-        const enrollmentId = target.id;
+    switch (await unsubscribeByToken(req.params.token)) {
+        case 'invalid': res.status(400).send(html('Invalid or expired link.')); return;
+        case 'notfound': res.status(404).send(html('Subscription not found.')); return;
+        case 'already': res.send(html('You are already unsubscribed.')); return;
+        case 'ok': res.send(html('You have been unsubscribed successfully.')); return;
+        default: res.status(500).send(html('Something went wrong.')); return;
+    }
+});
 
-        const { data: enrollment } = await supabaseAdmin
-            .from('campaign_enrollments')
-            .select('id, status')
-            .eq('id', enrollmentId)
-            .single();
+// ── POST /api/unsubscribe/:token — RFC 8058 tek-tık ────────────────────────
+// Mail istemcisi `List-Unsubscribe=One-Click` gövdesiyle POST atar. Auth yok;
+// güvenlik HMAC token doğrulamasından gelir. Gövdeyi okumaya gerek yok (token yeter).
 
-        if (!enrollment) { res.status(404).send(html('Subscription not found.')); return; }
-
-        if (enrollment.status !== 'active') {
-            res.send(html('You are already unsubscribed.')); return;
-        }
-
-        await supabaseAdmin
-            .from('campaign_enrollments')
-            .update({ status: 'unsubscribed', next_scheduled_at: null })
-            .eq('id', enrollmentId);
-
-        log.info({ enrollmentId }, 'Unsubscribed');
-        res.send(html('You have been unsubscribed successfully.'));
-    } catch (err) {
-        log.error({ err }, 'Unsubscribe error');
-        res.status(500).send(html('Something went wrong.'));
+router.post('/:token', async (req: Request<{ token: string }>, res: Response): Promise<void> => {
+    switch (await unsubscribeByToken(req.params.token)) {
+        case 'invalid': res.status(400).json({ unsubscribed: false, error: 'invalid' }); return;
+        case 'error': res.status(500).json({ unsubscribed: false, error: 'error' }); return;
+        // ok / already / notfound → idempotent başarı
+        default: res.status(200).json({ unsubscribed: true }); return;
     }
 });
 

@@ -18,7 +18,8 @@ import { createLogger } from './logger.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { getConnectionByEmail, getDefaultConnection } from './emailConnections.js';
 import type { ConnectionProvider, EmailConnection } from './emailConnections.js';
-import type { ResolvedAttachment } from './mail/types.js';
+import type { ResolvedAttachment, ListUnsubscribe } from './mail/types.js';
+import { listUnsubscribeHeaders } from './mail/types.js';
 
 const log = createLogger('emailSender');
 
@@ -138,6 +139,9 @@ function buildRfc2822(params: {
     cc?: string[];
     replyTo?: string;
     attachments?: ResolvedAttachment[];
+    // Ekstra RFC 2822 header'ları (ör. List-Unsubscribe). Header adı/değeri tek satır
+    // olmalı; çağıran zaten kontrollü değerler geçirir (CRLF injection riski yok).
+    extraHeaders?: Record<string, string>;
 }): string {
     const headers: string[] = [];
     headers.push(`From: ${params.from}`);
@@ -145,6 +149,9 @@ function buildRfc2822(params: {
     if (params.cc?.length) headers.push(`Cc: ${params.cc.join(', ')}`);
     if (params.replyTo) headers.push(`Reply-To: ${params.replyTo}`);
     headers.push(`Subject: ${encodeSubject(params.subject)}`);
+    for (const [name, value] of Object.entries(params.extraHeaders || {})) {
+        headers.push(`${name}: ${value}`);
+    }
     headers.push('MIME-Version: 1.0');
 
     // No attachments → simple single-part text/html (unchanged behavior).
@@ -189,6 +196,7 @@ interface SendParams {
     replyTo?: string;
     fromName?: string;
     attachments?: ResolvedAttachment[];
+    listUnsubscribe?: ListUnsubscribe;  // kampanya sendleri: RFC 8058 header çifti
 }
 
 async function sendViaGmail(connection: EmailConnection, params: SendParams): Promise<string> {
@@ -204,6 +212,7 @@ async function sendViaGmail(connection: EmailConnection, params: SendParams): Pr
         cc: params.cc,
         replyTo: params.replyTo,
         attachments: params.attachments,
+        extraHeaders: params.listUnsubscribe ? listUnsubscribeHeaders(params.listUnsubscribe) : undefined,
     });
 
     const nango = await getNango();
@@ -226,7 +235,27 @@ async function sendViaGmail(connection: EmailConnection, params: SendParams): Pr
 // multi-file TOTAL and fails fast with a clear message instead of an opaque Graph 4xx.
 const OUTLOOK_MAX_TOTAL_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
-async function sendViaOutlook(connection: EmailConnection, params: SendParams): Promise<string> {
+/** Toplam ek boyutu Graph tavanını aşarsa net bir 413 fırlat (JSON + MIME ortak). */
+function assertOutlookAttachmentSize(attachments?: ResolvedAttachment[]): void {
+    if (!attachments?.length) return;
+    const totalBytes = attachments.reduce((sum, a) => sum + a.content.length, 0);
+    if (totalBytes > OUTLOOK_MAX_TOTAL_ATTACHMENT_BYTES) {
+        const mb = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`;
+        throw new AppError(
+            `Outlook allows at most ${mb(OUTLOOK_MAX_TOTAL_ATTACHMENT_BYTES)} of attachments per email; the selected files total ${mb(totalBytes)}. Please send fewer or smaller files, or share them as a download link.`,
+            413,
+        );
+    }
+}
+
+/** Graph /sendMail 202 döner, gövde yok → messageId response header'ından gelir. */
+function outlookMessageId(response: { headers?: unknown }): string {
+    const headers = (response.headers || {}) as Record<string, string>;
+    return headers['x-ms-request-id'] || headers['request-id'] || `outlook_${Date.now()}`;
+}
+
+/** JSON gövdeli klasik gönderim. Custom (X- dışı) header EKLEYEMEZ → List-Unsubscribe taşımaz. */
+async function sendViaOutlookJson(connection: EmailConnection, params: SendParams): Promise<string> {
     const message: Record<string, unknown> = {
         subject: params.subject,
         body: { contentType: 'HTML', content: params.htmlBody },
@@ -239,14 +268,7 @@ async function sendViaOutlook(connection: EmailConnection, params: SendParams): 
         message.replyTo = [{ emailAddress: { address: params.replyTo } }];
     }
     if (params.attachments?.length) {
-        const totalBytes = params.attachments.reduce((sum, a) => sum + a.content.length, 0);
-        if (totalBytes > OUTLOOK_MAX_TOTAL_ATTACHMENT_BYTES) {
-            const mb = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`;
-            throw new AppError(
-                `Outlook allows at most ${mb(OUTLOOK_MAX_TOTAL_ATTACHMENT_BYTES)} of attachments per email; the selected files total ${mb(totalBytes)}. Please send fewer or smaller files, or share them as a download link.`,
-                413,
-            );
-        }
+        assertOutlookAttachmentSize(params.attachments);
         message.attachments = params.attachments.map((a) => ({
             '@odata.type': '#microsoft.graph.fileAttachment',
             name: a.filename,
@@ -256,7 +278,6 @@ async function sendViaOutlook(connection: EmailConnection, params: SendParams): 
     }
 
     const nango = await getNango();
-    // Microsoft Graph /sendMail returns 202 with no body, so messageId comes from the response headers
     const response = await nango.proxy({
         method: 'POST',
         baseUrlOverride: 'https://graph.microsoft.com',
@@ -266,8 +287,59 @@ async function sendViaOutlook(connection: EmailConnection, params: SendParams): 
         data: { message, saveToSentItems: true },
     });
 
-    const headers = (response.headers || {}) as Record<string, string>;
-    return headers['x-ms-request-id'] || headers['request-id'] || `outlook_${Date.now()}`;
+    return outlookMessageId(response);
+}
+
+// Graph /sendMail MIME modu: Content-Type text/plain, gövde = base64 kodlu RFC 2822 MIME.
+// Sadece bu modda List-Unsubscribe gibi standart header'lar taşınabilir. Microsoft dokümanı:
+// MIME gönderiminde mesaj Sent Items'a otomatik kaydedilir (saveToSentItems parametresi yok).
+async function sendViaOutlookMime(connection: EmailConnection, params: SendParams): Promise<string> {
+    assertOutlookAttachmentSize(params.attachments);
+    const fromHeader = params.fromName
+        ? `${params.fromName} <${connection.email_address}>`
+        : connection.email_address;
+
+    const rawMessage = buildRfc2822({
+        from: fromHeader,
+        to: params.to,
+        subject: params.subject,
+        htmlBody: params.htmlBody,
+        cc: params.cc,
+        replyTo: params.replyTo,
+        attachments: params.attachments,
+        extraHeaders: params.listUnsubscribe ? listUnsubscribeHeaders(params.listUnsubscribe) : undefined,
+    });
+
+    const nango = await getNango();
+    const response = await nango.proxy({
+        method: 'POST',
+        baseUrlOverride: 'https://graph.microsoft.com',
+        endpoint: '/v1.0/me/sendMail',
+        providerConfigKey: 'microsoft-outlook',
+        connectionId: connection.connection_id ?? '',
+        headers: { 'Content-Type': 'text/plain' },
+        data: Buffer.from(rawMessage, 'utf-8').toString('base64'),
+    });
+
+    return outlookMessageId(response);
+}
+
+async function sendViaOutlook(connection: EmailConnection, params: SendParams): Promise<string> {
+    // Kampanya sendleri (List-Unsubscribe taşıyan) MIME moduna geçer; standart header
+    // JSON modda taşınamaz. MIME beklenmedik şekilde patlarsa JSON'a düşülür (header
+    // düşer ama mail yine gider). Kasıtlı hatalar (ör. 413 boyut) fallback'e girmez.
+    if (params.listUnsubscribe) {
+        try {
+            return await sendViaOutlookMime(connection, params);
+        } catch (err) {
+            if (err instanceof AppError) throw err;
+            log.warn(
+                { err, to: params.to },
+                'Outlook MIME send failed; falling back to JSON (List-Unsubscribe header dropped)',
+            );
+        }
+    }
+    return sendViaOutlookJson(connection, params);
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -289,6 +361,7 @@ export async function sendEmail(
         replyTo?: string;
         accountEmail?: string;   // which connected mailbox to send from; default if omitted
         attachments?: ResolvedAttachment[];  // real file attachments (Gmail multipart / Graph)
+        listUnsubscribe?: ListUnsubscribe;   // RFC 8058 header çifti (yalnız kampanya)
     },
 ): Promise<SendResult> {
     const connection: EmailConnection = options?.accountEmail

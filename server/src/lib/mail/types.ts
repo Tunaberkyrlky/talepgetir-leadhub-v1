@@ -69,11 +69,38 @@ export interface CanonicalSendRequest {
     // provider passthrough (e.g. attachment ids already resolved by the caller)
     meta?: Record<string, unknown>;
 
+    // RFC 8058 tek-tık abonelikten çıkma. YALNIZ kampanya gönderimlerinde set edilir
+    // (footer'ı taşıyan mailler). Header set edebilen adapter'lar (Gmail MIME, SMTP,
+    // Outlook MIME) buradan List-Unsubscribe + List-Unsubscribe-Post üretir. Sadece-JSON
+    // sağlayıcılar (Outlook JSON fallback, Resend) bu alanı yok sayar.
+    listUnsubscribe?: ListUnsubscribe;
+
     // Real-attachment candidates (caller already appended any link-card ones to
     // bodyHtml). The router loads their bytes into `files` before dispatch.
     attachments?: CanonicalAttachment[];
     // Bytes-loaded attachments — set by the router (sendMail), consumed by adapters.
     files?: ResolvedAttachment[];
+}
+
+/**
+ * RFC 8058 List-Unsubscribe verisi. `httpsUrl` hem tarayıcı GET'ini hem de
+ * tek-tık POST'unu karşılar; `mailto` insan/manuel işleme için yedektir.
+ */
+export interface ListUnsubscribe {
+    httpsUrl: string;   // https abonelikten-çıkma ucu (tarayıcı GET + tek-tık POST)
+    mailto?: string;    // "mailto:kutu@x.com?subject=..." yedeği (olmayabilir)
+}
+
+/**
+ * RFC 8058 / RFC 2369 List-Unsubscribe header çiftini üretir. mailto varsa önce
+ * o, sonra https gelir; tek-tık için https + List-Unsubscribe-Post zorunludur.
+ */
+export function listUnsubscribeHeaders(u: ListUnsubscribe): Record<string, string> {
+    const targets = [u.mailto && `<${u.mailto}>`, `<${u.httpsUrl}>`].filter(Boolean);
+    return {
+        'List-Unsubscribe': targets.join(', '),
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    };
 }
 
 export interface SendResult {
