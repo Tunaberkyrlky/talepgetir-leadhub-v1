@@ -177,11 +177,30 @@ else:                                       # FALLBACK — DataImpulse gateway
 
 ---
 
-## 6. Maliyet modeli (karar girdisi)
+## 6. Maliyet modeli + sağlayıcı seçimi (KARAR)
 
-- Static residential = **IP başına aylık** (IPRoyal'de ISP fiyatı IP+lokasyon+lease'e göre; `calculate-pricing` ile canlı çekilir).
-- Toplam = (aktif LinkedIn hesabı sayısı) × (IP/ay). Rotating (DataImpulse) bandwidth bazlıydı → düşük hacimde ucuz ama zayıf.
-- **Öneri:** değerli/warmup'lı hesaplar static'e; deneme/tek-seferlik hesaplar fallback gateway'de → hibrit maliyeti optimize eder.
+### 6a. Neden shared DEĞİL (LinkedIn'e özel, kritik)
+Birden çok bağımsız kaynak (2026): **LinkedIn IP'ye göre hesap korelasyonunu çok agresif yapar — "aynı IP'de 2 hesap bile günler içinde soruşturma tetikler."** Shared/private IP'de kimlerin çıktığını KONTROL EDEMEZSİN; başka bir müşterinin hesabı/davranışı senin IP'nin itibarını yakar → senin LinkedIn hesabın da düşer. Static residential 3 katman gelir: **premium (shared)** · **private (≤2 kullanıcı)** · **dedicated (tek kullanıcı)**. Hesap barındırmak için **yalnız dedicated** uygundur. Gördüğün "astronomik fiyat farkı" tam olarak shared↔dedicated ayrımıdır ve LinkedIn'de ödemen GEREKEN şey budur. (Bonus: mobile IP'ler ~%85 hesap-sağkalımı vs residential ~%50 — en değerli hesaplar için premium seçenek.)
+
+### 6b. Sağlayıcı karşılaştırması (dedicated static residential/ISP, IP/ay)
+| Sağlayıcı | Shared (kullanma) | **Dedicated (tek kullanıcı)** | API | Not |
+|---|---|---|---|---|
+| **Webshare** | $0.30 (premium/shared) · $0.53 (private ≤2) | **$1.47/IP** ✅ en ucuz gerçek dedicated | ✅ tam (country/type/protocol filtre, dynamic list) | TR ISP daha kıt/pahalı (~$3) |
+| **IPRoyal** | $0.27 (shared) | **$2.70/IP** | ✅ reseller API (§2) | §2-3'te entegrasyonu yazıldı; sağlam |
+| **Decodo (Smartproxy)** | $0.27 (shared) · $1.30/GB | **$2.50–3.33/IP** (hacme göre) | ✅ | "keep IPs forever"; pahalı uç |
+
+- Toplam = (aktif hesap) × (dedicated IP/ay). Düşük hacimde (5–20 hesap) mutlak fark küçük: Webshare $7–30 / IPRoyal $13–54.
+- **Coğrafya asıl kısıt:** IP, hesap-sahibinin normalde giriş yaptığı ÜLKEYE uymalı (TR hesap → TR IP). TR dedicated ISP her sağlayıcıda daha kıt/pahalı (~$3). Fiyattan önce **hedef ülkelerde dedicated stok** var mı bak.
+
+### 6c. Öneri
+1. **Shared/private ELE — LinkedIn hesabı için kullanma** (co-tenant ban bulaşması).
+2. **Dedicated static residential/ISP, hesap başına 1 IP, hesabın ülkesine geo-match.**
+3. **Değer seçimi: Webshare Dedicated Static Residential ($1.47/IP)** — gerçek tek-kullanıcı + temiz API; IPRoyal'in ~yarısı. Hedef ülkelerde (özellikle TR) dedicated stok yeterliyse birincil.
+4. **Yedek: IPRoyal ($2.70)** — API entegrasyonu bu dokümanda zaten yazılı; TR/stok Webshare'de zayıfsa buraya geç.
+5. **Premium katman (ops.):** en değerli hesaplara **mobile** IP (en yüksek sağkalım). Seam provider-agnostik (`linkedin_proxies`) olduğu için havuzda karıştırılabilir: çoğu hesap Webshare-dedicated, kritikler mobile.
+6. Düşük hacimde per-IP farkı önemsiz → sırala: **(1) dedicated tek-kullanıcı → (2) hedef-ülke stoğu → (3) temiz API**, per-IP fiyatı en son.
+
+**Not — mevcut fallback:** bugün sertleştirdiğim DataImpulse rotating (sessid+sessttl.120+cr) yalnız **fallback/ucuz katman** olarak kalır; hesap barındırmanın birincil yolu dedicated static'tir.
 
 ---
 
@@ -201,7 +220,7 @@ else:                                       # FALLBACK — DataImpulse gateway
 
 ## 8. Açık kararlar (senin onayına)
 
-1. **Provider:** IPRoyal ISP kesinleşsin mi? (alternatif: Bright Data ISP, Oxylabs ISP — API benzer, seam aynı.)
+1. **Provider:** §6 önerisi = **Webshare Dedicated Static Residential ($1.47/IP)** birincil, **IPRoyal ($2.70)** yedek — hedef ülke stoğuna göre. Onaylıyor musun? (shared seçenekler LinkedIn için ELENDİ.)
 2. **Lease planı:** 30 / 60 / 90 gün? `auto_extend` açık mı? (uzun lease = az yönetim, aynı IP daha uzun.)
 3. **Havuz kapsamı:** global paylaşımlı mı, tenant başına ayrılmış mı? (çoklu-tenant izolasyonu istiyorsan tenant'a ayrılmış.)
 4. **Şifreleme anahtarı:** cookie ile aynı mı, ayrı `LINKEDIN_PROXY_ENC_KEY` mi? (öneri: ayrı.)
