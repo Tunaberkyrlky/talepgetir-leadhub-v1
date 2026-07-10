@@ -375,6 +375,7 @@
         "companies": "Companies",
         "people": "People",
         "pipeline": "Pipeline",
+        "tasks": "My Work",
         "activities": "Activities",
         "emailReplies": "Email Replies",
         "research": "Research",
@@ -758,7 +759,12 @@
             "score": "Score",
             "status": "Status",
             "evidence": "Evidence",
-            "empty": "No companies yet for this ICP — run a harvest above to find leads."
+            "empty": "No companies yet for this ICP — run a harvest above to find leads.",
+            "suppress": "Don't want this",
+            "suppressHint": "Hide this company — you'll never see it again",
+            "suppressedToast": "Hidden — you won't see this company again.",
+            "suppressConfirmTitle": "Don't want this company?",
+            "suppressConfirmBody": "{{name}} will be hidden permanently — you will never see it again in any research for this workspace. This cannot be undone."
         },
         "credits": {
             "available": "Available",
@@ -1087,6 +1093,183 @@
             "confidence": "Confidence",
             "crmNote": "When you send matches to the CRM, these contacts travel with the company automatically.",
             "promoteHint": "Click to move up"
+        },
+        "wizard": {
+            "stepOf": "Step {{step}} / {{total}}",
+            "back": "Back",
+            "next": "Next",
+            "skip": "Skip",
+            "finish": "Finish",
+            "loadFailed": "Could not load project data",
+            "cardOf": "{{current}} / {{total}}",
+            "step1": {
+                "title": "Let's get to know you",
+                "subtitle": "One form, four fields — nothing else to fill in yet.",
+                "contactName": "Your name",
+                "companyName": "Company name",
+                "website": "Website",
+                "socialLinks": "Social media links",
+                "socialLinksPlaceholder": "LinkedIn, Instagram, other — paste and press Enter",
+                "companyNameRequired": "Company name is required to continue",
+                "websiteRequired": "Website is required to continue"
+            },
+            "step2": {
+                "title": "We're researching your company",
+                "failed": "The research job failed.",
+                "draftFetchFailed": "The research finished, but we could not load the result.",
+                "inputChanged": "Your details changed — researching again…",
+                "alreadyResearched": "We already researched your company.",
+                "researchAgain": "Research again",
+                "retry": "Try again",
+                "stage": {
+                    "crawling_website": "Reading your website…",
+                    "crawling_social": "Scanning your social accounts…",
+                    "summarizing": "Summarizing your company…",
+                    "default": "Getting ready…"
+                }
+            },
+            "step3": {
+                "title": "Did we get you right?",
+                "subtitle": "Edit the summary if needed, and confirm your company's home country.",
+                "summary": "Company summary",
+                "country": "Your company's country"
+            },
+            "step4": {
+                "title": "Your products and services",
+                "subtitle": "We listed what we found on your site — add, remove, or fix as needed.",
+                "products": "Products / services"
+            },
+            "step5": {
+                "title": "What sets you apart?",
+                "subtitle": "Optional but encouraged — this becomes the raw material for message angles later.",
+                "moq": "Minimum order quantity (MOQ)",
+                "leadTime": "Lead / delivery time",
+                "certifications": "Certifications",
+                "capacity": "Production capacity",
+                "references": "Reference customers",
+                "languages": "Languages spoken"
+            },
+            "step6": {
+                "title": "A few more hints",
+                "subtitle": "All optional — feel free to skip.",
+                "lookalikeCustomers": "Your best current customers",
+                "targetMarkets": "Target markets",
+                "exclusions": "Types you'd never want as a customer"
+            },
+            "step7": {
+                "title": "Building your ICP profiles",
+                "failed": "ICP generation failed.",
+                "stage": {
+                    "loading": "Loading your company profile…",
+                    "generating": "Drafting sub-ICP profiles…",
+                    "persisting": "Saving your ICP profiles…",
+                    "default": "Working on it…"
+                }
+            },
+            "step8": {
+                "title": "Review your sub-ICP profiles",
+                "countries": "Target countries",
+                "noCountries": "No countries added yet.",
+                "addCountry": "Add country",
+                "reusedExisting": "This country was already added and analyzed."
+            },
+            "step9": {
+                "title": "Adapting to each country",
+                "failed": "Country analysis could not start.",
+                "starting": "Starting analysis…",
+                "progress": "{{done}} / {{total}} countries analyzed"
+            },
+            "step10": {
+                "title": "Review each country",
+                "noCells": "No countries to review yet."
+            },
+            "step11": {
+                "title": "We're finding your first target companies"
+            },
+            "step12": {
+                "title": "Rate the sampled companies",
+                "noCompanies": "No sampled companies to rate — go back and try sampling again.",
+                "resample": "Resample",
+                "rateAtLeastOne": "Rate at least one company to continue."
+            },
+            "step13": {
+                "title": "Review the proposed changes"
+            },
+            "step14": {
+                "title": "Re-approve and finish",
+                "restart": "Sample again"
+            },
+            "step15": {
+                "title": "Drafting your message angles",
+                "failed": "Angle generation failed.",
+                "stage": {
+                    "loading": "Loading your ICP and evidence…",
+                    "generating": "Drafting outreach angles…",
+                    "default": "Working on it…"
+                }
+            },
+            "step16": {
+                "title": "Review your message angles",
+                "empty": "No angles to review yet."
+            },
+            "step17": {
+                "title": "How many companies should we find?",
+                "subtitle": "Credits are only spent for companies that turn out to be a good fit.",
+                "estimate": "Estimated pool",
+                "available": "Available credits",
+                "target": "Target number of companies",
+                "unlimited": "No target — run until fully covered",
+                "hint": "This uses at most {{count}} credits — one per company found to be a good fit."
+            },
+            "step18": {
+                "title": "Deep research is running",
+                "channels": "Channels",
+                "failed": "Deep research could not start.",
+                "noCredits": "You do not have research credits — top up before deep research.",
+                "alreadyRunning": "Deep research for this country is already running — resuming it.",
+                "noCellTitle": "Add a country first",
+                "noCellBody": "Deep research needs at least one approved country — add one from the advanced view.",
+                "summary": "{{matches}} matching companies found.",
+                "stage": {
+                    "deciding": "Deciding what to research next…",
+                    "discovering_channels": "Discovering associations, directories and fairs…",
+                    "harvesting_channel": "Reading member lists…",
+                    "harvesting_web": "Searching the open web…",
+                    "default": "Working on it…"
+                },
+                "stopped": {
+                    "credits_exhausted": "Deep research paused — you're out of research credits.",
+                    "scale_target_reached": "Deep research finished — your target was reached.",
+                    "fully_covered": "Deep research finished — this country is fully covered.",
+                    "time_budget": "Deep research paused after a long run — you can continue it again.",
+                    "iteration_cap": "Deep research paused after a long run — you can continue it again.",
+                    "child_failed": "Deep research stopped after an error — you can try again.",
+                    "unknown": "Deep research finished."
+                }
+            },
+            "step19": {
+                "title": "Your results",
+                "subtitle": "Review the companies we found — hide any you don't want, they'll never come back."
+            },
+            "step20": {
+                "title": "Find decision-makers",
+                "subtitle": "Pick companies and priority titles — contacts arrive per company."
+            },
+            "step21": {
+                "title": "You're set up",
+                "subtitle": "Come back any time — pick up wherever you like.",
+                "body": "Send your matches to the CRM from the results screen when you're ready — outreach then runs from there.",
+                "addCountry": "Add another country",
+                "recalibrate": "Recalibrate the logic",
+                "deepen": "Find more companies",
+                "moreContacts": "Find more contacts",
+                "advancedView": "Switch to advanced view"
+            },
+            "stepCalib": {
+                "noIcp": "Nothing to calibrate yet",
+                "noIcpBody": "No approved ICP was found to calibrate. You can approve one from the advanced view.",
+                "advancedView": "Switch to advanced view"
+            }
         }
     },
     "people": {
@@ -1312,6 +1495,69 @@
         "invalidDate": "Invalid date format, please select again",
         "tierRequired": "Activity timeline is available on the Pro plan"
     },
+    "tasks": {
+        "title": "Task",
+        "titlePlaceholder": "Example: Follow up about the proposal",
+        "detail": "Details",
+        "detailPlaceholder": "Context or instructions for this task",
+        "dueAt": "Due date",
+        "dueRequired": "Select a valid date and time",
+        "priority": "Priority",
+        "priorities": {
+            "low": "Low",
+            "normal": "Normal",
+            "high": "High"
+        },
+        "add": "Add task",
+        "edit": "Edit task",
+        "complete": "Complete",
+        "cancel": "Cancel task",
+        "created": "Task created",
+        "updated": "Task updated",
+        "completed": "Task completed",
+        "cancelled": "Task cancelled",
+        "overdue": "Overdue",
+        "today": "Today",
+        "nextActions": "Next actions",
+        "nextActionsDescription": "Upcoming work for this company",
+        "emptyTitle": "No next action is scheduled",
+        "emptyDescription": "Add a dated task so this company does not fall through the cracks.",
+        "legacyNextStep": "Previous next step: {{value}}",
+        "loadError": "Tasks could not be loaded",
+        "pageTitle": "My Work",
+        "create": "Create task",
+        "tabsOverdue": "Overdue",
+        "tabsToday": "Today",
+        "tabsUpcoming": "Upcoming",
+        "tabsCompleted": "Completed",
+        "assigneeMe": "Assigned to me",
+        "assigneeCreated": "Created by me",
+        "assigneeAll": "All",
+        "filterCompany": "By company",
+        "clearCompanyFilter": "Clear company filter",
+        "filterPriority": "Priority",
+        "searchCompanyPlaceholder": "Search company...",
+        "searchCompanyHint": "Start typing to search",
+        "company": "Company",
+        "selectCompany": "Select company",
+        "companyRequired": "Select a company",
+        "snooze": "Snooze",
+        "snoozeTomorrow": "Snooze to tomorrow",
+        "snoozeNextWeek": "Snooze to next week",
+        "snoozed": "Task snoozed",
+        "reopen": "Reopen",
+        "reopened": "Task reopened",
+        "completedBadge": "Completed",
+        "cancelledBadge": "Cancelled",
+        "emptyOverdueTitle": "No overdue tasks",
+        "emptyOverdueDescription": "Great, nothing has slipped past its due date.",
+        "emptyTodayTitle": "No tasks due today",
+        "emptyTodayDescription": "Pick a company and add a dated task to plan your day.",
+        "emptyUpcomingTitle": "No upcoming tasks",
+        "emptyUpcomingDescription": "Add a dated task to a company to schedule future follow-ups.",
+        "emptyCompletedTitle": "No completed tasks",
+        "emptyCompletedDescription": "You have not completed any tasks in the last 30 days."
+    },
     "activities": {
         "pageTitle": "Activities",
         "dateRange": "Select date range",
@@ -1323,7 +1569,8 @@
         "types": {
             "not": "Note",
             "meeting": "Meeting",
-            "follow_up": "Follow-up"
+            "follow_up": "Follow-up",
+            "call": "Phone call"
         },
         "groupByNone": "Flat List",
         "groupByDate": "By Date",

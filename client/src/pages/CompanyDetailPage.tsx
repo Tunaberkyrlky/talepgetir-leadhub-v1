@@ -69,6 +69,7 @@ import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import CallButton from '../components/coldcall/CallButton';
 import type { ClosingOutcome } from '../types/activity';
 import type { EmailReply } from '../types/emailReply';
+import NextActionPanel from '../components/tasks/NextActionPanel';
 
 interface Contact {
     id: string;
@@ -235,7 +236,7 @@ export default function CompanyDetailPage() {
     const navigate = useNavigate();
     const goBack = useNavigateBack();
     const { user } = useAuth();
-    const { getStageColor, getStageLabel, allStages } = useStages();
+    const { getStageColor, getStageLabel, allStages, terminalStageSlugs } = useStages();
     const queryClient = useQueryClient();
     const [opened, { open, close }] = useDisclosure(false);
     const [editCompanyOpened, { open: openEditCompany, close: closeEditCompany }] = useDisclosure(false);
@@ -504,6 +505,15 @@ export default function CompanyDetailPage() {
                                                 </Badge>
                                             }
                                             onClick={() => {
+                                                if (s.slug === company.stage) return;
+                                                if (terminalStageSlugs.includes(s.slug)) {
+                                                    setClosingReportTarget({
+                                                        companyId: company.id,
+                                                        companyName: company.name,
+                                                        targetStage: s.slug,
+                                                    });
+                                                    return;
+                                                }
                                                 api.patch(`/companies/${company.id}/stage`, { stage: s.slug }).then(() => {
                                                     queryClient.invalidateQueries({ queryKey: ['company', id] });
                                                     queryClient.invalidateQueries({ queryKey: ['companies'] });
@@ -711,6 +721,13 @@ export default function CompanyDetailPage() {
                     )}
                 </SimpleGrid>
             </Paper>
+
+            <NextActionPanel
+                companyId={company.id}
+                contacts={company.contacts}
+                canEdit={canEdit}
+                legacyNextStep={company.next_step}
+            />
 
             {/* Activities & Contacts Tabs */}
             <Paper shadow="sm" radius="lg" p="xl" withBorder>

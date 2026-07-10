@@ -229,6 +229,39 @@ export const closingReportSchema = z.object({
     occurred_at: z.string().datetime({ message: 'occurred_at must be a valid ISO datetime' }).optional(),
 });
 
+// ── CRM task schemas ──
+
+export const TASK_STATUSES = ['pending', 'completed', 'cancelled'] as const;
+export const TASK_PRIORITIES = ['low', 'normal', 'high'] as const;
+
+export const createTaskSchema = z.object({
+    company_id: uuidField('Invalid company_id'),
+    contact_id: uuidField('Invalid contact_id').optional().nullable(),
+    title: z.string().trim().min(1, 'Title is required').max(1000),
+    detail: z.string().max(5000).optional().nullable(),
+    priority: z.enum(TASK_PRIORITIES).optional().default('normal'),
+    due_at: z.string().datetime({ message: 'due_at must be a valid ISO datetime' }),
+    assigned_to: uuidField('Invalid assigned_to').optional().nullable(),
+});
+
+export const updateTaskSchema = z.object({
+    contact_id: uuidField('Invalid contact_id').optional().nullable(),
+    title: z.string().trim().min(1).max(1000).optional(),
+    detail: z.string().max(5000).optional().nullable(),
+    priority: z.enum(TASK_PRIORITIES).optional(),
+    due_at: z.string().datetime({ message: 'due_at must be a valid ISO datetime' }).optional(),
+    assigned_to: uuidField('Invalid assigned_to').optional().nullable(),
+}).refine((d) => Object.keys(d).length > 0, { message: 'At least one field must be provided' });
+
+export const completeTaskSchema = z.object({
+    create_activity: z.boolean().optional().default(false),
+    result_summary: z.string().min(1).max(1000).trim().optional(),
+    result_detail: z.string().max(5000).optional().nullable(),
+}).refine(
+    (d) => !d.create_activity || !!d.result_summary,
+    { message: 'result_summary is required when create_activity is true' },
+);
+
 // ── Email Reply query filter schema ──
 
 // Optional parseable date string (shared by reply-list + tracking-stats filters).

@@ -375,6 +375,7 @@
         "companies": "Şirketler",
         "people": "Kişiler",
         "pipeline": "Pipeline",
+        "tasks": "İşlerim",
         "activities": "Aktiviteler",
         "emailReplies": "Email Yanıtları",
         "research": "Araştırma",
@@ -758,7 +759,12 @@
             "score": "Puan",
             "status": "Durum",
             "evidence": "Kanıt",
-            "empty": "Bu ICP için henüz firma yok, yukarıdan bir tarama başlatabilirsiniz."
+            "empty": "Bu ICP için henüz firma yok, yukarıdan bir tarama başlatabilirsiniz.",
+            "suppress": "İstemiyorum",
+            "suppressHint": "Bu firmayı gizle — bir daha karşınıza çıkmaz",
+            "suppressedToast": "Gizlendi — bu firmayı bir daha görmeyeceksiniz.",
+            "suppressConfirmTitle": "Bu firmayı istemiyor musunuz?",
+            "suppressConfirmBody": "{{name}} kalıcı olarak gizlenecek — bu çalışma alanı için yapılan hiçbir araştırmada bir daha karşınıza çıkmayacak. Bu işlem geri alınamaz."
         },
         "credits": {
             "available": "Kullanılabilir",
@@ -1087,6 +1093,183 @@
             "confidence": "Güven",
             "crmNote": "Firmaları CRM'e gönderdiğinizde bu kişiler firmayla birlikte otomatik aktarılır.",
             "promoteHint": "Yukarı taşımak için tıklayın"
+        },
+        "wizard": {
+            "stepOf": "Adım {{step}} / {{total}}",
+            "back": "Geri",
+            "next": "İleri",
+            "skip": "Atla",
+            "finish": "Bitir",
+            "loadFailed": "Proje verileri yüklenemedi",
+            "cardOf": "{{current}} / {{total}}",
+            "step1": {
+                "title": "Sizi tanıyalım",
+                "subtitle": "Tek form, dört alan — şimdilik doldurmanız gereken başka bir şey yok.",
+                "contactName": "Adınız",
+                "companyName": "Firma adı",
+                "website": "Web sitesi",
+                "socialLinks": "Sosyal medya bağlantıları",
+                "socialLinksPlaceholder": "LinkedIn, Instagram, diğer — yapıştırın ve Enter'a basın",
+                "companyNameRequired": "Devam etmek için firma adı gereklidir",
+                "websiteRequired": "Devam etmek için web sitesi gereklidir"
+            },
+            "step2": {
+                "title": "Firmanızı araştırıyoruz",
+                "failed": "Araştırma işlemi başarısız oldu.",
+                "draftFetchFailed": "Araştırma tamamlandı ancak sonucu yükleyemedik.",
+                "inputChanged": "Bilgileriniz değişti — yeniden araştırılıyor…",
+                "alreadyResearched": "Firmanızı zaten araştırdık.",
+                "researchAgain": "Yeniden araştır",
+                "retry": "Tekrar deneyin",
+                "stage": {
+                    "crawling_website": "Web siteniz inceleniyor…",
+                    "crawling_social": "Sosyal medya hesaplarınız taranıyor…",
+                    "summarizing": "Firmanız özetleniyor…",
+                    "default": "Hazırlanıyor…"
+                }
+            },
+            "step3": {
+                "title": "Sizi doğru anladık mı?",
+                "subtitle": "Gerekirse özeti düzenleyebilir ve firmanızın bulunduğu ülkeyi onaylayabilirsiniz.",
+                "summary": "Firma özeti",
+                "country": "Firmanızın ülkesi"
+            },
+            "step4": {
+                "title": "Ürün ve hizmetleriniz",
+                "subtitle": "Sitenizde bulduklarımızı listeledik; gerekirse ekleyebilir, kaldırabilir veya düzeltebilirsiniz.",
+                "products": "Ürünler / hizmetler"
+            },
+            "step5": {
+                "title": "Sizi farklı kılan nedir?",
+                "subtitle": "İsteğe bağlıdır ancak önerilir; bu bilgiler ileride mesaj açıları için ham malzeme olacaktır.",
+                "moq": "Minimum sipariş miktarı (MOQ)",
+                "leadTime": "Teslim / teslimat süresi",
+                "certifications": "Sertifikalar",
+                "capacity": "Üretim kapasitesi",
+                "references": "Referans müşteriler",
+                "languages": "Konuşulan diller"
+            },
+            "step6": {
+                "title": "Birkaç ipucu daha",
+                "subtitle": "Tümü isteğe bağlıdır — dilerseniz atlayabilirsiniz.",
+                "lookalikeCustomers": "En iyi mevcut müşterileriniz",
+                "targetMarkets": "Hedef pazarlar",
+                "exclusions": "Müşteriniz olmasını asla istemeyeceğiniz türler"
+            },
+            "step7": {
+                "title": "ICP profilleriniz oluşturuluyor",
+                "failed": "ICP oluşturma başarısız oldu.",
+                "stage": {
+                    "loading": "Firma profiliniz yükleniyor…",
+                    "generating": "Alt-ICP profilleri hazırlanıyor…",
+                    "persisting": "ICP profilleriniz kaydediliyor…",
+                    "default": "Üzerinde çalışıyoruz…"
+                }
+            },
+            "step8": {
+                "title": "Alt-ICP profillerinizi gözden geçirin",
+                "countries": "Hedef ülkeler",
+                "noCountries": "Henüz ülke eklenmedi.",
+                "addCountry": "Ülke ekle",
+                "reusedExisting": "Bu ülke zaten eklenmiş ve analiz edilmiş."
+            },
+            "step9": {
+                "title": "Her ülkeye uyarlanıyor",
+                "failed": "Ülke analizi başlatılamadı.",
+                "starting": "Analiz başlatılıyor…",
+                "progress": "{{done}} / {{total}} ülke analiz edildi"
+            },
+            "step10": {
+                "title": "Her ülkeyi gözden geçirin",
+                "noCells": "Henüz gözden geçirilecek ülke yok."
+            },
+            "step11": {
+                "title": "İlk hedef firmalarınızı buluyoruz"
+            },
+            "step12": {
+                "title": "Örneklenen firmaları puanlayın",
+                "noCompanies": "Puanlanacak örneklenen firma yok — geri dönüp tekrar örneklemeyi deneyin.",
+                "resample": "Tekrar örnekle",
+                "rateAtLeastOne": "Devam etmek için en az bir firmayı puanlayın."
+            },
+            "step13": {
+                "title": "Önerilen değişiklikleri gözden geçirin"
+            },
+            "step14": {
+                "title": "Yeniden onaylayın ve bitirin",
+                "restart": "Tekrar örnekle"
+            },
+            "step15": {
+                "title": "Mesaj açılarınız hazırlanıyor",
+                "failed": "Açı üretimi başarısız oldu.",
+                "stage": {
+                    "loading": "ICP ve kanıtlarınız yükleniyor…",
+                    "generating": "Satış açıları hazırlanıyor…",
+                    "default": "Üzerinde çalışılıyor…"
+                }
+            },
+            "step16": {
+                "title": "Mesaj açılarınızı gözden geçirin",
+                "empty": "Henüz gözden geçirilecek açı yok."
+            },
+            "step17": {
+                "title": "Kaç firma bulalım?",
+                "subtitle": "Kredi yalnızca uygun bulunan firmalar için harcanır.",
+                "estimate": "Tahmini havuz",
+                "available": "Kullanılabilir kredi",
+                "target": "Hedef firma sayısı",
+                "unlimited": "Hedef yok — tamamen kapsanana kadar sürsün",
+                "hint": "Bu en fazla {{count}} kredi harcar — uygun bulunan her firma için bir kredi."
+            },
+            "step18": {
+                "title": "Derin araştırma çalışıyor",
+                "channels": "Kanallar",
+                "failed": "Derin araştırma başlatılamadı.",
+                "noCredits": "Araştırma krediniz yok — derin araştırmadan önce kredi yükleyin.",
+                "alreadyRunning": "Bu ülke için derin araştırma zaten çalışıyor — devam ediliyor.",
+                "noCellTitle": "Önce bir ülke ekleyin",
+                "noCellBody": "Derin araştırma için en az bir onaylı ülke gerekir — gelişmiş görünümden bir tane ekleyin.",
+                "summary": "{{matches}} uygun firma bulundu.",
+                "stage": {
+                    "deciding": "Sırada ne var karar veriliyor…",
+                    "discovering_channels": "Dernek, dizin ve fuarlar keşfediliyor…",
+                    "harvesting_channel": "Üye listeleri okunuyor…",
+                    "harvesting_web": "Açık web taranıyor…",
+                    "default": "Üzerinde çalışılıyor…"
+                },
+                "stopped": {
+                    "credits_exhausted": "Derin araştırma duraklatıldı — araştırma krediniz bitti.",
+                    "scale_target_reached": "Derin araştırma tamamlandı — hedefinize ulaştınız.",
+                    "fully_covered": "Derin araştırma tamamlandı — bu ülke tamamen kapsandı.",
+                    "time_budget": "Uzun bir koşudan sonra duraklatıldı — tekrar devam ettirebilirsiniz.",
+                    "iteration_cap": "Uzun bir koşudan sonra duraklatıldı — tekrar devam ettirebilirsiniz.",
+                    "child_failed": "Bir hata sonrası durduruldu — tekrar deneyebilirsiniz.",
+                    "unknown": "Derin araştırma tamamlandı."
+                }
+            },
+            "step19": {
+                "title": "Sonuçlarınız",
+                "subtitle": "Bulunan firmaları gözden geçirin — istemediklerinizi gizleyin, bir daha karşınıza çıkmazlar."
+            },
+            "step20": {
+                "title": "Karar vericileri bulun",
+                "subtitle": "Firmaları ve öncelikli unvanları seçin — kişiler firma başına gelir."
+            },
+            "step21": {
+                "title": "Kurulumunuz tamam",
+                "subtitle": "İstediğiniz zaman geri dönün — kaldığınız yerden devam edin.",
+                "body": "Hazır olduğunuzda uygun firmalarınızı sonuçlar ekranından CRM'e gönderin — iletişim oradan devam eder.",
+                "addCountry": "Başka bir ülke ekle",
+                "recalibrate": "Mantığı yeniden kalibre et",
+                "deepen": "Daha fazla firma bul",
+                "moreContacts": "Daha fazla kişi bul",
+                "advancedView": "Gelişmiş görünüme geç"
+            },
+            "stepCalib": {
+                "noIcp": "Henüz kalibre edilecek bir şey yok",
+                "noIcpBody": "Kalibre edilecek onaylanmış bir ICP bulunamadı. Gelişmiş görünümden birini onaylayabilirsiniz.",
+                "advancedView": "Gelişmiş görünüme geç"
+            }
         }
     },
     "people": {
@@ -1312,6 +1495,69 @@
         "invalidDate": "Geçersiz tarih formatı, lütfen tekrar seçin",
         "tierRequired": "Aktivite zaman çizelgesi Pro planda kullanılabilir"
     },
+    "tasks": {
+        "title": "Yapılacak iş",
+        "titlePlaceholder": "Örn. Teklif hakkında takip araması yap",
+        "detail": "Detay",
+        "detailPlaceholder": "Görüşme bağlamı veya yapılması gerekenler",
+        "dueAt": "Son tarih",
+        "dueRequired": "Geçerli bir tarih ve saat seçin",
+        "priority": "Öncelik",
+        "priorities": {
+            "low": "Düşük",
+            "normal": "Normal",
+            "high": "Yüksek"
+        },
+        "add": "Görev ekle",
+        "edit": "Görevi düzenle",
+        "complete": "Tamamla",
+        "cancel": "İptal et",
+        "created": "Görev oluşturuldu",
+        "updated": "Görev güncellendi",
+        "completed": "Görev tamamlandı",
+        "cancelled": "Görev iptal edildi",
+        "overdue": "Gecikmiş",
+        "today": "Bugün",
+        "nextActions": "Sonraki aksiyonlar",
+        "nextActionsDescription": "Bu firmada yapılacak sıradaki işler",
+        "emptyTitle": "Planlanmış bir sonraki aksiyon yok",
+        "emptyDescription": "Bu firmanın takipten düşmemesi için tarihli bir görev ekleyin.",
+        "legacyNextStep": "Eski next step: {{value}}",
+        "loadError": "Görevler yüklenemedi",
+        "pageTitle": "İşlerim",
+        "create": "Görev oluştur",
+        "tabsOverdue": "Gecikmiş",
+        "tabsToday": "Bugün",
+        "tabsUpcoming": "Yaklaşan",
+        "tabsCompleted": "Tamamlanan",
+        "assigneeMe": "Bana atanan",
+        "assigneeCreated": "Oluşturduğum",
+        "assigneeAll": "Tümü",
+        "filterCompany": "Firmaya göre",
+        "clearCompanyFilter": "Firma filtresini temizle",
+        "filterPriority": "Öncelik",
+        "searchCompanyPlaceholder": "Firma ara...",
+        "searchCompanyHint": "Aramaya başlayın",
+        "company": "Firma",
+        "selectCompany": "Firma seçin",
+        "companyRequired": "Firma seçin",
+        "snooze": "Ertele",
+        "snoozeTomorrow": "Yarına ertele",
+        "snoozeNextWeek": "Gelecek haftaya ertele",
+        "snoozed": "Görev ertelendi",
+        "reopen": "Yeniden aç",
+        "reopened": "Görev yeniden açıldı",
+        "completedBadge": "Tamamlandı",
+        "cancelledBadge": "İptal edildi",
+        "emptyOverdueTitle": "Gecikmiş görev yok",
+        "emptyOverdueDescription": "Harika, geride kalan bir işiniz yok.",
+        "emptyTodayTitle": "Bugün için görev yok",
+        "emptyTodayDescription": "Bir firma seçip tarihli görev ekleyerek gününüzü planlayın.",
+        "emptyUpcomingTitle": "Yaklaşan görev yok",
+        "emptyUpcomingDescription": "İleriye dönük takipler için bir firmaya tarihli görev ekleyin.",
+        "emptyCompletedTitle": "Tamamlanan görev yok",
+        "emptyCompletedDescription": "Son 30 günde tamamladığınız bir görev bulunmuyor."
+    },
     "activities": {
         "pageTitle": "Aktiviteler",
         "dateRange": "Tarih aralığı seçin",
@@ -1323,7 +1569,8 @@
         "types": {
             "not": "Not",
             "meeting": "Toplantı",
-            "follow_up": "Takip"
+            "follow_up": "Takip",
+            "call": "Telefon araması"
         },
         "groupByNone": "Düz Liste",
         "groupByDate": "Güne Göre",
