@@ -49,6 +49,7 @@ interface AccountRow {
     geo: string | null;
     proxy_mode: string;
     last_validated_proxy_generation: number | null;
+    session_epoch: number;
 }
 
 /** Mark this row a duplicate identity (RESTRICTED, no member_urn) + audit. Shared by the
@@ -79,7 +80,7 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
 
     const { data, error: loadErr } = await researchSupabaseAdmin
         .from('linkedin_accounts')
-        .select('id, status, proxy_session_id, user_agent, accept_language, warmup_started_at, li_at_enc, jsessionid_enc, geo, proxy_mode, last_validated_proxy_generation')
+        .select('id, status, proxy_session_id, user_agent, accept_language, warmup_started_at, li_at_enc, jsessionid_enc, geo, proxy_mode, last_validated_proxy_generation, session_epoch')
         .eq('id', accountId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
@@ -163,6 +164,12 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
     let q = researchSupabaseAdmin
         .from('linkedin_accounts').update(patch).eq('id', accountId).eq('tenant_id', tenantId);
     if (patch.status) q = q.neq('status', 'PAUSED');
+    // Session-epoch fence (mig 112): a NEEDS_REAUTH downgrade is cookie-derived, so it must only land
+    // while the account is still on the epoch this probe's creds came from. A re-auth that landed
+    // DURING the multi-second probe atomically bumps session_epoch → this matches 0 rows → the no-op
+    // branch below leaves the freshly re-authed session untouched. A SUCCESS probe stamps ACTIVE
+    // regardless of epoch (a fresh success is valid on any epoch); only NEEDS_REAUTH is guarded.
+    if (patch.status === 'NEEDS_REAUTH') q = q.eq('session_epoch', account.session_epoch);
     const { data: updRow, error: updErr } = await q.select('id').maybeSingle();
 
     if (updErr) {
@@ -176,16 +183,23 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
         }
         throw updErr;
     }
-    // No row matched a status-setting update → a PAUSE landed concurrently and won. Record the
-    // probe classifier but do NOT auto-pause (the operator already stopped it) or claim ACTIVE.
+    // No row matched a status-setting update → either a PAUSE landed concurrently and won, OR (for a
+    // NEEDS_REAUTH write only) the session epoch advanced under us — a re-auth landed during the probe
+    // so this 401 came from now-superseded cookies (mig 112 fence). Both are no-ops: record the probe
+    // classifier but do NOT auto-pause (queue-cancel is skipped) or claim the downgrade. Re-read the
+    // true current status so we report it honestly (ACTIVE after a re-auth, PAUSED after an operator PAUSE).
     if (patch.status && !updRow) {
+        const { data: cur } = await researchSupabaseAdmin.from('linkedin_accounts')
+            .select('status').eq('id', accountId).eq('tenant_id', tenantId).maybeSingle();
+        const trueStatus = (cur as { status: string } | null)?.status ?? account.status;
         const { error: auditErr } = await researchSupabaseAdmin.from('linkedin_actions').insert({
             tenant_id: tenantId, account_id: accountId, type: 'validate', status: 'ok',
             classifier: result.classifier, http_status: result.httpStatus, job_id: job.id,
         });
-        if (auditErr) log.warn({ err: auditErr, accountId }, 'validate (paused) audit insert failed (non-fatal)');
-        log.info({ jobId: job.id, accountId, classifier: result.classifier }, 'linkedin:validate: PAUSE won concurrently — status unchanged');
-        return { account_id: accountId, status: 'PAUSED', classifier: result.classifier };
+        if (auditErr) log.warn({ err: auditErr, accountId }, 'validate (no-op) audit insert failed (non-fatal)');
+        log.info({ jobId: job.id, accountId, classifier: result.classifier, trueStatus },
+            'linkedin:validate: status write no-op (PAUSE won or epoch stale) — status unchanged');
+        return { account_id: accountId, status: trueStatus, classifier: result.classifier };
     }
 
     const { error: auditErr } = await researchSupabaseAdmin.from('linkedin_actions').insert({

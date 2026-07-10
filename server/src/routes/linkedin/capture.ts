@@ -62,26 +62,27 @@ router.post('/', validateBody(captureSchema), async (req: Request, res: Response
 
         let accountId: string;
         if (existingAccountId) {
-            // Re-auth an existing account (keep its sticky proxy_session_id). Read current
-            // status first: confirms existence+ownership (P1-2 rowcount guard) AND lets us
-            // preserve a hard state — a mere cookie re-upload optimistically clears a soft
-            // NEEDS_REAUTH but must NEVER lift RESTRICTED/CHALLENGED/PAUSED (the enqueued
-            // validate re-classifies).
-            const { data: existing, error: readErr } = await researchSupabaseAdmin.from('linkedin_accounts')
-                .select('id, status').eq('id', existingAccountId).eq('tenant_id', tenantId).maybeSingle();
-            if (readErr) throw new AppError('Capture failed', 500);
-            if (!existing) { res.status(404).json({ error: 'Account no longer exists' }); return; }
-            const prev = (existing as { status: string }).status;
-            const nextStatus = (prev === 'NEEDS_REAUTH' || prev === 'ACTIVE') ? 'ACTIVE' : prev;
-            const { error } = await researchSupabaseAdmin.from('linkedin_accounts')
-                .update({
-                    li_at_enc, jsessionid_enc, user_agent: body.user_agent,
-                    geo: body.geo ?? null, timezone: body.timezone ?? null,
-                    accept_language: body.accept_language ?? null,
-                    status: nextStatus,
-                })
-                .eq('id', existingAccountId).eq('tenant_id', tenantId);
+            // Re-auth an existing account (keep its sticky proxy_session_id) through the atomic RPC
+            // (mig 112). It does the whole thing under the account row lock: confirms existence+
+            // ownership (P1-2 rowcount guard), PRESERVES a hard state — a mere cookie re-upload
+            // optimistically clears a soft NEEDS_REAUTH but must NEVER lift RESTRICTED/CHALLENGED/
+            // PAUSED (the enqueued validate re-classifies) — and bumps session_epoch = session_epoch
+            // + 1 in the SAME UPDATE that writes the new cookies. The atomic epoch bump is what closes
+            // the stale-401 residual: any in-flight job holding the OLD epoch can no longer flip this
+            // freshly-valid account to NEEDS_REAUTH (server/src/lib/linkedin/actions.ts).
+            const { data: reauth, error } = await researchSupabaseAdmin.rpc('linkedin_capture_reauth', {
+                p_tenant: tenantId, p_account: existingAccountId,
+                p_li_at_enc: li_at_enc, p_jsessionid_enc: jsessionid_enc,
+                p_user_agent: body.user_agent,
+                p_geo: body.geo ?? null, p_timezone: body.timezone ?? null,
+                p_accept_language: body.accept_language ?? null,
+            });
             if (error) throw new AppError('Capture failed', 500);
+            const r = (reauth ?? {}) as Record<string, unknown>;
+            if (r.ok !== true) {
+                if (r.error === 'account_not_found') { res.status(404).json({ error: 'Account no longer exists' }); return; }
+                throw new AppError('Capture failed', 500);
+            }
             accountId = existingAccountId;
         } else {
             const { data: inserted, error } = await researchSupabaseAdmin.from('linkedin_accounts')

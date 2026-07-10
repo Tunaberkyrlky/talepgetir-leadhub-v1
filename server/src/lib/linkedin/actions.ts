@@ -50,13 +50,16 @@ export interface LinkedInAccountRow {
     proxy_mode: string;
     last_validated_proxy_generation: number | null;
     last_validated_proxy_id: string | null;
+    /** Monotonic session generation (mig 112). Bumped on every cookie write; the epoch these creds
+     *  came from. A 401 carrying a now-superseded epoch must NOT flip a freshly re-authed account. */
+    session_epoch: number;
     created_at: string;
 }
 
 const ACCOUNT_COLUMNS =
     'id, status, proxy_session_id, user_agent, accept_language, li_at_enc, jsessionid_enc, ' +
     'member_urn, daily_counters, warmup_started_at, working_hours, timezone, geo, ' +
-    'proxy_mode, last_validated_proxy_generation, last_validated_proxy_id, created_at';
+    'proxy_mode, last_validated_proxy_generation, last_validated_proxy_id, session_epoch, created_at';
 
 /** The warmup-derived DAILY cap for this account+action (limits.ts §1 ramp). */
 export function dailyCapFor(account: LinkedInAccountRow, type: ActionType, now: number = Date.now()): number {
@@ -469,11 +472,13 @@ export function classifierForResolve(httpStatus: number): WriteClassifier | null
  * the IP for sending if that probe SUCCEEDS. The proxy is simply not proactively quarantined; it is
  * never silently trusted for a send while the account stays hard-classified.
  *
- * KNOWN RESIDUAL (codex P3, accepted): the guard is PAUSE-only, so a late 401 from a send that
- * began with now-superseded cookies can still flip a freshly RE-AUTHED ACTIVE account to
- * NEEDS_REAUTH (and auto-cancel its recovery validate). This needs a per-session epoch/version
- * to detect "these creds are stale" — deferred to Faz 4/5; the window is the narrow overlap of
- * an in-flight send with a concurrent re-auth, and the operator can simply re-connect again.
+ * SESSION-EPOCH FENCE (mig 112, closes the former codex-P3 residual): a NEEDS_REAUTH transition is a
+ * COOKIE-level signal, so it carries account.session_epoch — the epoch this handler's creds came from.
+ * If a concurrent re-auth landed (capture bumps session_epoch atomically), the DB refuses the stale
+ * transition: the static RPC returns epoch_stale and the TS fallback's UPDATE matches 0 rows (the extra
+ * .eq('session_epoch', …) on the NEEDS_REAUTH path). Either way a late 401 from now-superseded cookies
+ * can no longer flip — or cancel the recovery validate of — a freshly re-authed ACTIVE account.
+ * RESTRICTED/CHALLENGED are account-level (not cookie-level) signals and apply regardless of epoch.
  */
 export async function applyWriteHealth(
     tenantId: string, account: LinkedInAccountRow, classifier: WriteClassifier,
@@ -491,6 +496,12 @@ export async function applyWriteHealth(
                 // proxy-lifecycle block (status + job-cancel still land) and returns
                 // proxy_skipped:'assignment_changed' — so a stale 403 can't quarantine a fresh proxy.
                 p_expected_proxy: account.last_validated_proxy_id ?? null,
+                // Session-epoch fence (mig 112): a NEEDS_REAUTH transition is cookie-derived, so it
+                // carries the epoch this handler's creds came from. If the account has since re-authed
+                // (epoch advanced), the RPC skips the ENTIRE transition (epoch_stale) — a late 401 from
+                // superseded cookies can't kill a fresh session. RESTRICTED/CHALLENGED are account-level
+                // (not cookie-level) so we pass null and they apply regardless of epoch.
+                p_expected_epoch: next === 'NEEDS_REAUTH' ? account.session_epoch : null,
             });
             if (error) throw error;
             const r = (data ?? {}) as Record<string, unknown>;
@@ -514,13 +525,29 @@ export async function applyWriteHealth(
 async function applyWriteHealthTs(
     tenantId: string, account: LinkedInAccountRow, next: string, classifier: WriteClassifier,
 ): Promise<string> {
-    const { data, error } = await researchSupabaseAdmin
+    let q = researchSupabaseAdmin
         .from('linkedin_accounts').update({ status: next })
         .eq('id', account.id).eq('tenant_id', tenantId)
-        .neq('status', 'PAUSED') // DB guard: a concurrent PAUSE wins over this health downgrade
-        .select('status').maybeSingle();
+        .neq('status', 'PAUSED'); // DB guard: a concurrent PAUSE wins over this health downgrade
+    // Session-epoch fence (mig 112): a NEEDS_REAUTH downgrade is cookie-derived — apply it only while
+    // the account is still on the epoch these creds came from. A concurrent re-auth (which atomically
+    // bumps session_epoch) makes this match 0 rows → a no-op below, so a stale 401 can't kill a fresh
+    // session. RESTRICTED/CHALLENGED are account-level (not cookie-level) and are NOT epoch-gated.
+    if (next === 'NEEDS_REAUTH') q = q.eq('session_epoch', account.session_epoch);
+    const { data, error } = await q.select('status').maybeSingle();
     if (error) { log.warn({ err: error, accountId: account.id }, 'write health update failed (non-fatal)'); return account.status; }
-    if (!data) return 'PAUSED'; // no row matched → it was PAUSED concurrently; report the PAUSE
+    if (!data) {
+        // No row matched. For RESTRICTED/CHALLENGED that can only mean a concurrent PAUSE won. For a
+        // NEEDS_REAUTH write it is EITHER a concurrent PAUSE or a stale epoch (a re-auth landed) —
+        // both are PAUSE-won-style no-ops: don't cancel the account's jobs, don't claim the downgrade.
+        // Re-read the true current status so we report it honestly instead of assuming PAUSED.
+        if (next === 'NEEDS_REAUTH') {
+            const { data: cur } = await researchSupabaseAdmin.from('linkedin_accounts')
+                .select('status').eq('id', account.id).eq('tenant_id', tenantId).maybeSingle();
+            return (cur as { status: string } | null)?.status ?? account.status;
+        }
+        return 'PAUSED'; // no epoch guard on this path → the only no-match cause is a concurrent PAUSE
+    }
     // §6 auto-pause: on entering a hard state, drain the account's queued jobs so it stops
     // attempting. The transition actually landed (data matched), so this fires once per downgrade.
     if (HARD_STATES.has(next)) await cancelPendingAccountJobs(tenantId, account.id, `health:${classifier}`);
