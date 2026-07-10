@@ -14,6 +14,7 @@ import {
     InputBase,
     Loader,
     Menu,
+    Modal,
     Paper,
     SegmentedControl,
     Select,
@@ -37,6 +38,7 @@ import {
     IconPencil,
     IconPlus,
     IconRotateClockwise,
+    IconUser,
     IconX,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
@@ -45,6 +47,7 @@ import { canWrite } from '../lib/permissions';
 import api from '../lib/api';
 import { showErrorFromApi, showSuccess } from '../lib/notifications';
 import TaskForm from '../components/tasks/TaskForm';
+import OwnerSelect from '../components/OwnerSelect';
 import type { CrmTask, TasksResponse } from '../types/task';
 
 type TaskTab = 'overdue' | 'today' | 'upcoming' | 'completed';
@@ -136,6 +139,10 @@ export default function TasksPage() {
     const [formOpened, setFormOpened] = useState(false);
     const [editingTask, setEditingTask] = useState<CrmTask | null>(null);
 
+    // Reassign state (owner picker modal)
+    const [reassignTask, setReassignTask] = useState<CrmTask | null>(null);
+    const [reassignValue, setReassignValue] = useState<string | null>(null);
+
     // Şirket filtresi — ActivitiesPage ile aynı async Combobox deseni.
     const [companySearch, setCompanySearch] = useState('');
     const [debouncedCompanySearch] = useDebouncedValue(companySearch, 250);
@@ -209,6 +216,22 @@ export default function TasksPage() {
         onSuccess: () => { refresh(); showSuccess(t('tasks.snoozed', 'Görev ertelendi')); },
         onError: (error) => showErrorFromApi(error),
     });
+
+    const reassignMutation = useMutation({
+        mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string | null }) =>
+            api.put(`/tasks/${id}`, { assigned_to }),
+        onSuccess: () => {
+            refresh();
+            setReassignTask(null);
+            showSuccess(t('owner.taskReassigned'));
+        },
+        onError: (error) => showErrorFromApi(error),
+    });
+
+    const openReassign = (task: CrmTask) => {
+        setReassignTask(task);
+        setReassignValue(task.assigned_to ?? null);
+    };
 
     const tasks = data?.data || [];
     const total = data?.pagination?.total ?? 0;
@@ -367,6 +390,9 @@ export default function TasksPage() {
                                     <>
                                         <Menu.Item leftSection={<IconPencil size={14} />} onClick={() => openEdit(task)}>
                                             {t('tasks.edit', 'Görevi düzenle')}
+                                        </Menu.Item>
+                                        <Menu.Item leftSection={<IconUser size={14} />} onClick={() => openReassign(task)}>
+                                            {t('owner.reassign')}
                                         </Menu.Item>
                                         <Menu.Label>{t('tasks.snooze', 'Ertele')}</Menu.Label>
                                         <Menu.Item
@@ -603,6 +629,38 @@ export default function TasksPage() {
                 enableCompanyPicker
                 task={editingTask}
             />
+
+            <Modal
+                opened={!!reassignTask}
+                onClose={() => setReassignTask(null)}
+                title={t('owner.reassign')}
+                size="sm"
+                radius="lg"
+                centered
+                overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}
+                styles={{ title: { fontWeight: 700 } }}
+            >
+                <Stack gap="md">
+                    <OwnerSelect
+                        label={t('owner.assignee')}
+                        value={reassignValue}
+                        onChange={setReassignValue}
+                    />
+                    <Group justify="flex-end">
+                        <Button variant="default" radius="md" onClick={() => setReassignTask(null)}>
+                            {t('common.cancel')}
+                        </Button>
+                        <Button
+                            color="violet"
+                            radius="md"
+                            loading={reassignMutation.isPending}
+                            onClick={() => reassignTask && reassignMutation.mutate({ id: reassignTask.id, assigned_to: reassignValue })}
+                        >
+                            {t('common.save')}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
         </Container>
     );
 }

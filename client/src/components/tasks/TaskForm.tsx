@@ -20,6 +20,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showErrorFromApi, showSuccess } from '../../lib/notifications';
+import { useAuth } from '../../contexts/AuthContext';
+import OwnerSelect from '../OwnerSelect';
 import type { CrmTask, TaskPriority } from '../../types/task';
 
 interface TaskContact {
@@ -57,6 +59,7 @@ export default function TaskForm({
     onSuccess,
 }: TaskFormProps) {
     const { t } = useTranslation();
+    const { user } = useAuth();
     const queryClient = useQueryClient();
     const isMobile = useMediaQuery('(max-width: 48em)') ?? false;
     const isEdit = !!task;
@@ -97,6 +100,7 @@ export default function TaskForm({
             priority: 'normal' as TaskPriority,
             contact_id: '',
             company_id: '',
+            assigned_to: null as string | null,
         },
         validate: {
             title: (value) => value.trim()
@@ -122,6 +126,7 @@ export default function TaskForm({
                 priority: task.priority,
                 contact_id: task.contact_id || '',
                 company_id: task.company_id || '',
+                assigned_to: task.assigned_to || null,
             });
             setSelectedCompanyName(task.company_name || '');
         } else {
@@ -132,6 +137,7 @@ export default function TaskForm({
                 priority: 'normal',
                 contact_id: '',
                 company_id: '',
+                assigned_to: user?.id ?? null,
             });
             setSelectedCompanyName('');
         }
@@ -140,15 +146,30 @@ export default function TaskForm({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [opened, task]);
 
+    // If the auth user arrives after the create form opened, backfill the default owner —
+    // but only while the field is still pristine so a manual pick is never clobbered.
+    useEffect(() => {
+        if (opened && !task && user?.id && !form.isDirty('assigned_to')) {
+            form.setFieldValue('assigned_to', user.id);
+            form.resetDirty();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.id, opened, task]);
+
     const mutation = useMutation({
         mutationFn: async (values: typeof form.values) => {
-            const payload = {
+            const payload: Record<string, unknown> = {
                 title: values.title.trim(),
                 detail: values.detail.trim() || null,
                 due_at: new Date(values.due_at).toISOString(),
                 priority: values.priority,
                 contact_id: values.contact_id || null,
             };
+            // Only send assigned_to when it actually changed (or on create) — sending an
+            // unchanged owner would needlessly re-validate a possibly-deactivated current owner.
+            if (!task || (values.assigned_to || null) !== (task.assigned_to || null)) {
+                payload.assigned_to = values.assigned_to || null;
+            }
             if (task) return (await api.put(`/tasks/${task.id}`, payload)).data;
             return (await api.post('/tasks', {
                 ...payload,
@@ -289,6 +310,12 @@ export default function TaskForm({
                             {...form.getInputProps('contact_id')}
                         />
                     </Group>
+
+                    <OwnerSelect
+                        label={t('owner.assignee')}
+                        value={form.values.assigned_to}
+                        onChange={(val) => form.setFieldValue('assigned_to', val)}
+                    />
 
                     <Textarea
                         label={t('tasks.detail', 'Detay')}

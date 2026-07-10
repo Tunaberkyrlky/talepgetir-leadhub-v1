@@ -21,6 +21,7 @@ import api from '../lib/api';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { useStages } from '../contexts/StagesContext';
 import EmailStatusIcon from './EmailStatusIcon';
+import OwnerSelect from './OwnerSelect';
 import { useAuth } from '../contexts/AuthContext';
 
 /** Strip junk email placeholders (matches server-side sanitizeEmail) */
@@ -52,6 +53,7 @@ interface Company {
     custom_field_1: string | null;
     custom_field_2: string | null;
     custom_field_3: string | null;
+    assigned_to: string | null;
 }
 
 interface CompanyFormProps {
@@ -89,6 +91,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
             custom_field_1: '',
             custom_field_2: '',
             custom_field_3: '',
+            assigned_to: null as string | null,
             // Contact fields (only used on create)
             contact_first_name: '',
             contact_title: '',
@@ -122,6 +125,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                 custom_field_1: company.custom_field_1 || '',
                 custom_field_2: company.custom_field_2 || '',
                 custom_field_3: company.custom_field_3 || '',
+                assigned_to: company.assigned_to ?? null,
                 contact_first_name: '',
                 contact_title: '',
                 contact_email: '',
@@ -129,13 +133,23 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
             });
         } else {
             form.reset();
+            // Create: show the current user as the default owner, but keep the field pristine
+            // so the payload omits assigned_to unless the user changes it (the server then
+            // defaults to the creator). Clearing to empty becomes a deliberate "unassigned".
+            form.setFieldValue('assigned_to', user?.id ?? null);
         }
+        form.resetDirty();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [company, opened]);
 
     const createMutation = useMutation({
         mutationFn: async (values: typeof form.values) => {
-            const res = await api.post('/companies', values);
+            const payload: Record<string, unknown> = { ...values };
+            // Owner contract: omit assigned_to when the user never touched the picker so the
+            // server assigns the creator; send an explicit value (member id, or null for the
+            // unassigned queue) only when the user changed it.
+            if (!form.isDirty('assigned_to')) delete payload.assigned_to;
+            const res = await api.post('/companies', payload);
             return res.data;
         },
         onSuccess: () => {
@@ -314,6 +328,17 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                             placeholder="Istanbul"
                             radius="md"
                             {...form.getInputProps('location')}
+                        />
+                    </SimpleGrid>
+
+                    {/* Owner (assigned_to) */}
+                    <SimpleGrid cols={2}>
+                        <OwnerSelect
+                            label={t('owner.label')}
+                            placeholder={isEdit ? t('owner.select') : t('owner.defaultsToYou')}
+                            clearable
+                            value={form.values.assigned_to}
+                            onChange={(val) => form.setFieldValue('assigned_to', val)}
                         />
                     </SimpleGrid>
 

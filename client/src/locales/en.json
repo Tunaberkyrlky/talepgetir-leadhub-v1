@@ -1333,6 +1333,27 @@
         "moveTo": "Stage:",
         "terminalNotBulk": "Outcome stages cannot be changed in bulk. Each company requires an individual closing report."
     },
+    "owner": {
+        "label": "Owner",
+        "select": "Select owner",
+        "assignee": "Assignee",
+        "defaultsToYou": "Defaults to you",
+        "unassigned": "Unassigned",
+        "myLeads": "My leads",
+        "filterPlaceholder": "Owner",
+        "filterDisabledWhileSearching": "Owner filter does not apply while searching",
+        "updated": "Owner updated",
+        "loadError": "Members could not be loaded",
+        "noMembers": "No members found",
+        "assignOwner": "Assign owner",
+        "assignToMe": "Assign to me",
+        "setUnassigned": "Set as unassigned",
+        "bulkAffected": "{{count}} companies will be updated",
+        "bulkAssigned": "Owner assignment",
+        "bulkAssignedCount": "Owner assigned to {{count}} companies",
+        "reassign": "Reassign",
+        "taskReassigned": "Task reassigned"
+    },
     "pipeline": {
         "search": "Search pipeline...",
         "noData": "No active deals in pipeline",

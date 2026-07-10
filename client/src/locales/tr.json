@@ -1333,6 +1333,27 @@
         "moveTo": "Aşama:",
         "terminalNotBulk": "Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir."
     },
+    "owner": {
+        "label": "Sahip",
+        "select": "Sahip seçin",
+        "assignee": "Atanan kişi",
+        "defaultsToYou": "Varsayılan olarak siz",
+        "unassigned": "Sahipsiz",
+        "myLeads": "Benim leadlerim",
+        "filterPlaceholder": "Sahip",
+        "filterDisabledWhileSearching": "Arama sırasında sahip filtresi uygulanmaz",
+        "updated": "Sahip güncellendi",
+        "loadError": "Üyeler yüklenemedi",
+        "noMembers": "Üye bulunamadı",
+        "assignOwner": "Sahip ata",
+        "assignToMe": "Bana ata",
+        "setUnassigned": "Sahipsiz yap",
+        "bulkAffected": "{{count}} şirket güncellenecek",
+        "bulkAssigned": "Sahip ataması",
+        "bulkAssignedCount": "{{count}} şirkete sahip atandı",
+        "reassign": "Yeniden ata",
+        "taskReassigned": "Görev yeniden atandı"
+    },
     "pipeline": {
         "search": "Pipeline'da ara...",
         "noData": "Pipeline'da aktif anlaşma yok",

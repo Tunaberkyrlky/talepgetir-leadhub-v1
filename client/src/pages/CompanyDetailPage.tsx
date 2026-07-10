@@ -29,6 +29,7 @@ import {
     Popover,
     Checkbox,
     Tabs,
+    UnstyledButton,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
@@ -61,6 +62,7 @@ import { canWrite } from '../lib/permissions';
 import { safeUrl } from '../lib/url';
 import TranslatableField from '../components/TranslatableField';
 import EmailStatusIcon from '../components/EmailStatusIcon';
+import OwnerSelect from '../components/OwnerSelect';
 import CompanyForm from '../components/CompanyForm';
 import ClosingReportModal from '../components/ClosingReportModal';
 import ActivityTimeline from '../components/ActivityTimeline';
@@ -104,6 +106,8 @@ interface Company {
     custom_field_1: string | null;
     custom_field_2: string | null;
     custom_field_3: string | null;
+    assigned_to: string | null;
+    assigned_user: { id: string; name: string | null; email: string } | null;
     contacts: Contact[];
     translations: Record<string, string> | null;
     created_at: string;
@@ -285,6 +289,19 @@ export default function CompanyDetailPage() {
         onError: () => {
             showError(t('translate.error'));
         },
+    });
+
+    const [ownerModalOpen, setOwnerModalOpen] = useState(false);
+    const [ownerValue, setOwnerValue] = useState<string | null>(null);
+    const ownerMutation = useMutation({
+        mutationFn: async (assigned_to: string | null) => (await api.put(`/companies/${id}`, { assigned_to })).data,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['company', id] });
+            queryClient.invalidateQueries({ queryKey: ['companies'] });
+            setOwnerModalOpen(false);
+            showSuccess(t('owner.updated'));
+        },
+        onError: (err) => showErrorFromApi(err),
     });
 
     const { data: company, isLoading } = useQuery<Company>({
@@ -537,6 +554,29 @@ export default function CompanyDetailPage() {
                                 </Group>
                             )}
                             {company.location && <Text size="sm" c="dimmed">📍 {company.location}</Text>}
+                            {(() => {
+                                const ownerName = company.assigned_user?.name || company.assigned_user?.email || null;
+                                const ownerBadge = (
+                                    <Badge
+                                        variant="light"
+                                        color={ownerName ? 'violet' : 'gray'}
+                                        size="lg"
+                                        leftSection={<IconUser size={13} />}
+                                        rightSection={canEdit ? <IconChevronDown size={13} /> : undefined}
+                                        style={{ cursor: canEdit ? 'pointer' : 'default', paddingRight: canEdit ? 6 : undefined }}
+                                    >
+                                        {ownerName || t('owner.unassigned')}
+                                    </Badge>
+                                );
+                                if (!canEdit) return ownerBadge;
+                                return (
+                                    <UnstyledButton
+                                        onClick={() => { setOwnerValue(company.assigned_to); setOwnerModalOpen(true); }}
+                                    >
+                                        {ownerBadge}
+                                    </UnstyledButton>
+                                );
+                            })()}
                         </Group>
                     </div>
 
@@ -892,6 +932,40 @@ export default function CompanyDetailPage() {
                     setClosingReportTarget({ companyId: cId, companyName: cName, targetStage: stage as ClosingOutcome });
                 }}
             />
+
+            {/* Owner Reassignment Modal */}
+            <Modal
+                opened={ownerModalOpen}
+                onClose={() => setOwnerModalOpen(false)}
+                title={t('owner.label')}
+                size="sm"
+                radius="lg"
+                centered
+                overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}
+                styles={{ title: { fontWeight: 700 } }}
+            >
+                <Stack gap="md">
+                    <OwnerSelect
+                        label={t('owner.label')}
+                        clearable
+                        value={ownerValue}
+                        onChange={setOwnerValue}
+                    />
+                    <Group justify="flex-end">
+                        <Button variant="default" radius="md" onClick={() => setOwnerModalOpen(false)}>
+                            {t('common.cancel')}
+                        </Button>
+                        <Button
+                            color="violet"
+                            radius="md"
+                            loading={ownerMutation.isPending}
+                            onClick={() => ownerMutation.mutate(ownerValue)}
+                        >
+                            {t('common.save')}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
 
             {/* Contact Form Modal */}
             <Modal

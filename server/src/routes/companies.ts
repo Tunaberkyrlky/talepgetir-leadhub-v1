@@ -5,7 +5,8 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
-import { validateBody, createCompanySchema, updateCompanySchema, sanitizeEmail } from '../lib/validation.js';
+import { validateBody, createCompanySchema, updateCompanySchema, bulkOwnerSchema, sanitizeEmail } from '../lib/validation.js';
+import { resolveUsers, ownerDisplayName } from '../lib/userResolver.js';
 import { parseList } from '../lib/parseList.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
@@ -50,6 +51,73 @@ const SORT_COLUMNS: Record<string, string> = {
     created_at: 'created_at',
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Ensures an owner is an active member of the tenant before we assign a company to them.
+// Self-assignment (creator keeping/taking their own lead) is always allowed — an internal
+// role operating cross-tenant may not itself be a member of the target tenant, which mirrors
+// the existing create-company behaviour of defaulting assigned_to to the acting user.
+async function assertAssignableOwner(tenantId: string, userId: string | null | undefined, currentUserId: string) {
+    if (!userId || userId === currentUserId) return;
+    const { data, error } = await supabaseAdmin
+        .from('memberships')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .maybeSingle();
+    if (error) throw new AppError('Failed to validate owner', 500);
+    if (!data) throw new AppError('Owner is not an active member of this workspace', 422);
+}
+
+// Records an owner change on each company's timeline as a system `status_change` activity
+// (the type is intentionally reused — no new activity type). Names are resolved so the entry
+// reads "Sahip değişikliği: Ali → Ayşe"; a null owner reads as the unassigned queue. Internal
+// visibility keeps it as an ops audit line. Best-effort: a failure here must not undo the
+// owner update itself, so the caller ignores the result.
+const OWNER_UNASSIGNED_LABEL = 'Sahipsiz';
+async function recordOwnerChanges(
+    tenantId: string,
+    actorId: string,
+    changes: Array<{ companyId: string; oldOwner: string | null; newOwner: string | null }>,
+): Promise<void> {
+    if (changes.length === 0) return;
+    try {
+        const users = await resolveUsers(changes.flatMap((c) => [c.oldOwner || '', c.newOwner || '']).filter(Boolean));
+        const label = (id: string | null) => {
+            if (!id) return OWNER_UNASSIGNED_LABEL;
+            return ownerDisplayName(users.get(id) || null) || OWNER_UNASSIGNED_LABEL;
+        };
+        const now = new Date().toISOString();
+        const rows = changes.map((c) => ({
+            tenant_id: tenantId,
+            company_id: c.companyId,
+            type: 'status_change',
+            summary: `Sahip değişikliği: ${label(c.oldOwner)} → ${label(c.newOwner)}`,
+            visibility: 'internal',
+            occurred_at: now,
+            created_by: actorId,
+        }));
+        const { error } = await supabaseAdmin.from('activities').insert(rows);
+        if (error) log.warn({ err: error }, 'Record owner change activity failed');
+    } catch (err) {
+        log.warn({ err }, 'Record owner change activity failed');
+    }
+}
+
+// Attaches a resolved { id, name, email } owner to each row so the client never receives a
+// bare assigned_to UUID. resolveUsers batches + caches the auth lookups. Mutates in place.
+async function enrichOwners(rows: Array<Record<string, unknown>>): Promise<void> {
+    const users = await resolveUsers(rows.map((r) => (r.assigned_to as string) || '').filter(Boolean));
+    for (const row of rows) {
+        const ownerId = row.assigned_to as string | null;
+        const resolved = ownerId ? users.get(ownerId) || null : null;
+        row.assigned_user = resolved
+            ? { id: resolved.id, name: ownerDisplayName(resolved), email: resolved.email }
+            : null;
+    }
+}
+
 // GET /api/companies — List with pagination, search, filter, sort
 router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -65,6 +133,20 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const locations = (req.query.locations as string || '').split(',').filter(Boolean);
         const countries = (req.query.country as string || '').split(',').map(c => c.trim()).filter(Boolean);
         const products = (req.query.products as string || '').split(',').filter(Boolean);
+
+        // Owner filter: 'me' (current user), 'unassigned' (assigned_to IS NULL), or a member UUID.
+        // Resolved to a concrete predicate once, then applied to the no-search path below.
+        const ownerParam = (req.query.owner as string || '').trim();
+        let ownerFilter: { mode: 'me' | 'unassigned' | 'uuid'; id?: string } | null = null;
+        if (ownerParam === 'me') ownerFilter = { mode: 'me', id: req.user!.id };
+        else if (ownerParam === 'unassigned') ownerFilter = { mode: 'unassigned' };
+        else if (ownerParam) {
+            if (!UUID_RE.test(ownerParam)) {
+                res.status(400).json({ error: 'Invalid owner filter' });
+                return;
+            }
+            ownerFilter = { mode: 'uuid', id: ownerParam };
+        }
 
         const dateFrom = req.query.dateFrom as string | undefined;
         const dateTo = req.query.dateTo as string | undefined;
@@ -123,6 +205,11 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             const total = list.length > 0 ? Number(list[0].total_count) : 0;
             const data = list.map(({ total_count: _ignore, ...rest }) => rest);
             const totalPages = Math.ceil(total / limit);
+
+            // Owner filter is intentionally NOT applied in the ranked-search path (the
+            // search_companies RPC has no owner parameter); still enrich so the owner NAME
+            // shows and no raw UUID leaks while a text search is active.
+            await enrichOwners(data);
 
             res.json({
                 data,
@@ -204,6 +291,17 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             dataQuery = dataQuery.overlaps('product_services', products);
         }
 
+        // Apply owner filter (me / unassigned / specific member)
+        if (ownerFilter) {
+            if (ownerFilter.mode === 'unassigned') {
+                countQuery = countQuery.is('assigned_to', null);
+                dataQuery = dataQuery.is('assigned_to', null);
+            } else {
+                countQuery = countQuery.eq('assigned_to', ownerFilter.id!);
+                dataQuery = dataQuery.eq('assigned_to', ownerFilter.id!);
+            }
+        }
+
         // Apply date filters
         if (dateFrom) {
             countQuery = countQuery.gte('created_at', dateFrom);
@@ -235,8 +333,11 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         const totalPages = Math.ceil((count || 0) / limit);
 
+        const rows = (data || []) as Array<Record<string, unknown>>;
+        await enrichOwners(rows);
+
         res.json({
-            data: data || [],
+            data: rows,
             pagination: {
                 page,
                 limit,
@@ -390,7 +491,9 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
             .order('is_primary', { ascending: false })
             .order('created_at', { ascending: true });
 
-        res.json({ data: { ...data, contacts: contacts || [] } });
+        const enriched = { ...data } as Record<string, unknown>;
+        await enrichOwners([enriched]);
+        res.json({ data: { ...enriched, contacts: contacts || [] } });
     } catch (err) {
         log.error({ err }, 'Get company error');
         res.status(500).json({ error: 'Failed to fetch company' });
@@ -409,7 +512,7 @@ router.post(
                 name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone,
                 company_email: rawCompanyEmail, email_status,
                 stage, company_summary, internal_notes, next_step, custom_fields,
-                fit_score, custom_field_1, custom_field_2, custom_field_3,
+                fit_score, custom_field_1, custom_field_2, custom_field_3, assigned_to,
                 contact_first_name, contact_last_name, contact_title, contact_email: rawContactEmail, contact_phone_e164
             } = req.body;
 
@@ -448,6 +551,11 @@ router.post(
                 return;
             }
 
+            // Owner contract: omit assigned_to (undefined) -> default to the creator; an explicit
+            // null -> unassigned (queue); an explicit uuid must be an active member of the tenant.
+            const ownerId = assigned_to === undefined ? req.user!.id : assigned_to;
+            await assertAssignableOwner(tenantId, ownerId, req.user!.id);
+
             // 1. Build payload
             const companyPayload: Record<string, unknown> = {
                 tenant_id: tenantId,
@@ -471,7 +579,7 @@ router.post(
                 custom_field_1: custom_field_1 || null,
                 custom_field_2: custom_field_2 || null,
                 custom_field_3: custom_field_3 || null,
-                assigned_to: req.user!.id,
+                assigned_to: ownerId,
             };
 
             const { data: company, error: companyError } = await supabaseAdmin
@@ -553,10 +661,10 @@ router.put(
             const tenantId = req.tenantId!;
             const { id } = req.params;
 
-            // Verify company belongs to tenant (also fetch fields needed for auto-geocoding)
+            // Verify company belongs to tenant (also fetch fields needed for auto-geocoding + owner change)
             const { data: existing } = await supabaseAdmin
                 .from('companies')
-                .select('id, location, latitude')
+                .select('id, location, latitude, assigned_to')
                 .eq('id', id)
                 .eq('tenant_id', tenantId)
                 .single();
@@ -566,7 +674,7 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email: rawCompanyEmail, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3 } = req.body;
+            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email: rawCompanyEmail, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3, assigned_to } = req.body;
 
             const company_email = sanitizeEmail(rawCompanyEmail);
 
@@ -617,6 +725,13 @@ router.put(
             if (next_step !== undefined) updateData.next_step = next_step;
             if (custom_fields !== undefined) updateData.custom_fields = custom_fields;
 
+            // Owner (re)assignment — null clears the owner (unassigned queue).
+            const ownerChanged = assigned_to !== undefined && (assigned_to || null) !== (existing.assigned_to || null);
+            if (ownerChanged) {
+                await assertAssignableOwner(tenantId, assigned_to, req.user!.id);
+                updateData.assigned_to = assigned_to || null;
+            }
+
             // Re-geocode when location field is explicitly changed
             if (location !== undefined) {
                 const coords = location ? lookupCoordinates(location) : null;
@@ -660,7 +775,18 @@ router.put(
                 invalidatePipelineStatsCache(tenantId);
             }
 
-            res.json({ data });
+            // Owner change → timeline audit line (best-effort, does not block the response)
+            if (ownerChanged) {
+                await recordOwnerChanges(tenantId, req.user!.id, [{
+                    companyId: id as string,
+                    oldOwner: existing.assigned_to || null,
+                    newOwner: assigned_to || null,
+                }]);
+            }
+
+            const enriched = { ...(data as Record<string, unknown>) };
+            await enrichOwners([enriched]);
+            res.json({ data: enriched });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Update company error');
@@ -832,7 +958,6 @@ router.patch(
                 return;
             }
 
-            const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
             if (!ids.every((id: unknown) => typeof id === 'string' && UUID_RE.test(id))) {
                 res.status(400).json({ error: 'Some selected companies are not valid. Please refresh and try again.' });
                 return;
@@ -878,6 +1003,63 @@ router.patch(
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Bulk stage update error');
             res.status(500).json({ error: 'Failed to bulk update stages' });
+        }
+    }
+);
+
+// PATCH /api/companies/bulk-owner — Bulk (re)assign owner for multiple companies
+router.patch(
+    '/bulk-owner',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    validateBody(bulkOwnerSchema),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { ids, assigned_to } = req.body as { ids: string[]; assigned_to: string | null };
+
+            await assertAssignableOwner(tenantId, assigned_to, req.user!.id);
+
+            // Snapshot current owners (tenant-scoped) so we can record precise per-company
+            // timeline entries and skip companies that already have this owner.
+            const { data: before, error: beforeError } = await supabaseAdmin
+                .from('companies')
+                .select('id, assigned_to')
+                .in('id', ids)
+                .eq('tenant_id', tenantId);
+
+            if (beforeError) throw new AppError('Failed to load companies', 500);
+
+            const changes = (before || [])
+                .filter((c) => (c.assigned_to || null) !== (assigned_to || null))
+                .map((c) => ({ companyId: c.id as string, oldOwner: (c.assigned_to as string) || null, newOwner: assigned_to }));
+
+            const { data, error } = await supabaseAdmin
+                .from('companies')
+                .update({ assigned_to, updated_at: new Date().toISOString() })
+                .in('id', ids)
+                .eq('tenant_id', tenantId)
+                .select('id');
+
+            if (error) throw new AppError('Failed to bulk assign owner', 500);
+
+            await recordOwnerChanges(tenantId, req.user!.id, changes);
+
+            invalidateOverviewCache(tenantId);
+            invalidatePipelineStatsCache(tenantId);
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'company_bulk_owner_assigned',
+                properties: {
+                    unassigned: assigned_to === null,
+                    count: data?.length || 0,
+                    tenant_id: tenantId,
+                },
+            });
+            res.json({ updated: data?.length || 0 });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Bulk owner assign error');
+            res.status(500).json({ error: 'Failed to bulk assign owner' });
         }
     }
 );

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
+import { resolveUsers } from '../lib/userResolver.js';
 import {
     validateBody,
     createTaskSchema,
@@ -23,35 +24,6 @@ interface TaskRelations {
     contacts?: { first_name?: string; last_name?: string | null } | null;
     assigned_to?: string | null;
     [key: string]: unknown;
-}
-
-const userCache = new Map<string, { value: { id: string; email: string; name: string | null }; expiresAt: number }>();
-
-async function resolveUsers(ids: string[]): Promise<Map<string, { id: string; email: string; name: string | null }>> {
-    const result = new Map<string, { id: string; email: string; name: string | null }>();
-    const uniqueIds = [...new Set(ids.filter(Boolean))];
-    const now = Date.now();
-    const missing: string[] = [];
-
-    for (const id of uniqueIds) {
-        const cached = userCache.get(id);
-        if (cached && cached.expiresAt > now) result.set(id, cached.value);
-        else missing.push(id);
-    }
-
-    await Promise.all(missing.map(async (id) => {
-        const { data, error } = await supabaseAdmin.auth.admin.getUserById(id);
-        if (error || !data.user) return;
-        const value = {
-            id,
-            email: data.user.email || id,
-            name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || null,
-        };
-        userCache.set(id, { value, expiresAt: now + 5 * 60_000 });
-        result.set(id, value);
-    }));
-
-    return result;
 }
 
 async function mapTaskRelations(rows: TaskRelations[]) {

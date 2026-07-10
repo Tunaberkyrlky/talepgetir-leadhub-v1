@@ -120,6 +120,8 @@ export const createCompanySchema = z.object({
     custom_field_2: z.string().max(2000).optional().nullable(),
     custom_field_3: z.string().max(2000).optional().nullable(),
     custom_fields: z.record(z.string(), z.unknown()).optional().nullable(),
+    // Owner (assigned_to). Omitted on create -> defaults to the creator; null -> unassigned queue.
+    assigned_to: uuidField('Invalid assigned_to').optional().nullable(),
     // Inline contact creation (used when creating company + contact in one call)
     contact_first_name: z.string().max(255).optional().nullable(),
     contact_last_name: z.string().max(255).optional().nullable(),
@@ -131,6 +133,12 @@ export const createCompanySchema = z.object({
 export const updateCompanySchema = createCompanySchema
     .omit({ contact_first_name: true, contact_last_name: true, contact_title: true, contact_email: true, contact_phone_e164: true })
     .partial();
+
+// Bulk owner (re)assignment. assigned_to null = move the selected companies to the unassigned queue.
+export const bulkOwnerSchema = z.object({
+    ids: z.array(uuidField('Invalid company id')).min(1, 'Select at least one company').max(500),
+    assigned_to: uuidField('Invalid assigned_to').nullable(),
+});
 
 
 // ── Admin schemas ──

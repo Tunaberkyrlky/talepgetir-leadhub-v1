@@ -1,7 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { requireRole } from '../middleware/auth.js';
 import { createLogger } from '../lib/logger.js';
+import { resolveUsers, ownerDisplayName } from '../lib/userResolver.js';
 
 const log = createLogger('route:tenants');
 const router = Router();
@@ -12,6 +14,44 @@ interface TenantInfo {
     slug: string;
     role?: string;
 }
+
+// GET /api/tenants/members — Active members of the current tenant (owner picker source).
+// Tenant scope is automatic: authMiddleware resolves req.tenantId (internal roles target
+// the X-Tenant-Id header). Only names/emails are returned — never a raw UUID as a label.
+// Gated to writer roles: client_viewer must not enumerate member emails.
+router.get('/members', requireRole('superadmin', 'ops_agent', 'client_admin'), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+
+        const { data: memberships, error } = await supabaseAdmin
+            .from('memberships')
+            .select('user_id, role')
+            .eq('tenant_id', tenantId)
+            .eq('is_active', true);
+
+        if (error) {
+            log.error({ err: error }, 'List tenant members error');
+            throw new AppError('Failed to fetch members', 500);
+        }
+
+        const users = await resolveUsers((memberships || []).map((m) => m.user_id));
+        const members = (memberships || []).map((m) => {
+            const resolved = users.get(m.user_id) || null;
+            return {
+                id: m.user_id,
+                name: ownerDisplayName(resolved) || (resolved?.email ?? ''),
+                email: resolved?.email ?? '',
+                role: m.role,
+            };
+        }).sort((a, b) => a.name.localeCompare(b.name));
+
+        res.json({ members });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'List tenant members error');
+        res.status(500).json({ error: 'Failed to list members' });
+    }
+});
 
 // GET /api/tenants — List tenants accessible by the current user
 router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {

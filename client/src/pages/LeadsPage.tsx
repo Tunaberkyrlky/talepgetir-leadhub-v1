@@ -19,6 +19,7 @@ import {
     Box,
     TextInput,
     MultiSelect,
+    Select,
     UnstyledButton,
     Menu,
     Popover,
@@ -27,6 +28,7 @@ import {
     Modal,
     Alert,
     SegmentedControl,
+    ScrollArea,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure, useHotkeys } from '@mantine/hooks';
 import { showSuccess, showInfo, showErrorFromApi } from '../lib/notifications';
@@ -43,6 +45,7 @@ import {
     IconSelector,
     IconX,
     IconUsers,
+    IconUser,
     IconDotsVertical,
     IconAdjustments,
     IconGripVertical,
@@ -84,6 +87,7 @@ import ClosingReportModal from '../components/ClosingReportModal';
 import TruncatedText from '../components/TruncatedText';
 import EmailStatusIcon from '../components/EmailStatusIcon';
 import { useUndoStack } from '../hooks/useUndoStack';
+import { useMembers } from '../lib/useMembers';
 import type { ClosingOutcome } from '../types/activity';
 
 interface Company {
@@ -107,6 +111,7 @@ interface Company {
     custom_field_2: string | null;
     custom_field_3: string | null;
     assigned_to: string | null;
+    assigned_user: { id: string; name: string | null; email: string } | null;
     created_at: string;
     updated_at: string;
     latitude: number | null;
@@ -161,6 +166,7 @@ interface LeadsTableState {
     selectedLocations: string[];
     selectedCountries: string[];
     selectedProducts: string[];
+    owner: string;
     periodType: PeriodType;
     periodAnchor: string;
     customRange: [string | null, string | null];
@@ -366,6 +372,9 @@ export default function LeadsPage() {
     });
     const [locationSearchValue, setLocationSearchValue] = useState('');
     const [selectedProducts, setSelectedProducts] = useState<string[]>(() => savedState?.selectedProducts ?? []);
+    // Owner filter: '' (all), 'me', 'unassigned', or a member UUID.
+    const [ownerFilter, setOwnerFilter] = useState<string>(() => savedState?.owner ?? '');
+    const { data: membersData } = useMembers();
     const [periodType, setPeriodType] = useState<PeriodType>(() => savedState?.periodType ?? 'all');
     const [periodAnchor, setPeriodAnchor] = useState<Date>(() =>
         savedState?.periodAnchor ? new Date(savedState.periodAnchor) : new Date()
@@ -426,6 +435,7 @@ export default function LeadsPage() {
             selectedLocations,
             selectedCountries,
             selectedProducts,
+            owner: ownerFilter,
             periodType,
             periodAnchor: periodAnchor.toISOString(),
             customRange: [
@@ -436,7 +446,7 @@ export default function LeadsPage() {
             sortOrder,
         } satisfies LeadsTableState));
         navigate(`/companies/${id}`);
-    }, [page, search, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, periodType, periodAnchor, customRange, sortBy, sortOrder, navigate]);
+    }, [page, search, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, periodType, periodAnchor, customRange, sortBy, sortOrder, navigate]);
 
     // Build query params (moved up so useQuery can be before handleRowSelect)
     const buildQueryParams = useCallback(() => {
@@ -451,14 +461,15 @@ export default function LeadsPage() {
         if (selectedLocations.length) params.set('locations', selectedLocations.join(','));
         if (selectedCountries.length) params.set('country', selectedCountries.join(','));
         if (selectedProducts.length) params.set('products', selectedProducts.join(','));
+        if (ownerFilter) params.set('owner', ownerFilter);
         if (dateParams?.dateFrom) params.set('dateFrom', dateParams.dateFrom);
         if (dateParams?.dateTo) params.set('dateTo', dateParams.dateTo);
         return params.toString();
-    }, [page, sortBy, sortOrder, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, dateParams]);
+    }, [page, sortBy, sortOrder, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, dateParams]);
 
     // Fetch companies (moved up so data is available for handleRowSelect and useHotkeys)
     const { data, isLoading, error } = useQuery<PaginatedResponse>({
-        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, sortBy, sortOrder, dateParams],
+        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, sortBy, sortOrder, dateParams],
         queryFn: async () => {
             const res = await api.get(`/companies?${buildQueryParams()}`);
             return res.data;
@@ -519,7 +530,7 @@ export default function LeadsPage() {
     // Clear selection when page/filters change
     useEffect(() => {
         setSelectedIds(new Set());
-    }, [page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts]);
+    }, [page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter]);
 
     // Bulk stage update mutation with undo support
     const columnLabels: Record<ColumnKey, string> = {
@@ -585,7 +596,7 @@ export default function LeadsPage() {
     // Reset page when filters change
     useEffect(() => {
         setPage(1);
-    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts]);
+    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter]);
 
     useEffect(() => {
         setPage(1);
@@ -631,6 +642,43 @@ export default function LeadsPage() {
         setDeleteModalCompany(company);
     };
 
+    // Bulk owner (re)assignment for the current selection, with an undo that restores each
+    // company's previous owner. assigned_to null moves them to the unassigned queue.
+    const bulkAssignOwner = (assigned_to: string | null) => {
+        const ids = Array.from(selectedIds);
+        if (ids.length === 0) return;
+        const oldOwners: Record<string, string | null> = {};
+        for (const id of ids) {
+            const c = data?.data.find((co) => co.id === id);
+            if (c) oldOwners[id] = c.assigned_to;
+        }
+        api.patch('/companies/bulk-owner', { ids, assigned_to }).then((res) => {
+            queryClient.invalidateQueries({ queryKey: ['companies'] });
+            queryClient.invalidateQueries({ queryKey: ['statistics'] });
+            // Refresh each affected company's detail cache so an open detail view never shows a stale owner.
+            ids.forEach((id) => queryClient.invalidateQueries({ queryKey: ['company', id] }));
+            undoStack.push({
+                description: t('owner.bulkAssigned'),
+                undo: async () => {
+                    const grouped = new Map<string | null, string[]>();
+                    for (const id of ids) {
+                        const old = oldOwners[id] ?? null;
+                        if (!grouped.has(old)) grouped.set(old, []);
+                        grouped.get(old)!.push(id);
+                    }
+                    for (const [owner, ownerIds] of grouped) {
+                        await api.patch('/companies/bulk-owner', { ids: ownerIds, assigned_to: owner });
+                    }
+                    queryClient.invalidateQueries({ queryKey: ['companies'] });
+                    queryClient.invalidateQueries({ queryKey: ['statistics'] });
+                    ids.forEach((id) => queryClient.invalidateQueries({ queryKey: ['company', id] }));
+                },
+            });
+            setSelectedIds(new Set());
+            showSuccess(t('owner.bulkAssignedCount', { count: res.data?.updated ?? ids.length }));
+        }).catch((err) => showErrorFromApi(err));
+    };
+
     const handleSort = (key: SortKey) => {
         if (sortBy === key) {
             setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -653,7 +701,11 @@ export default function LeadsPage() {
         });
     };
 
-    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedCountries.length || selectedProducts.length);
+    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedCountries.length || selectedProducts.length || ownerFilter);
+    // Text search runs through a server RPC that does not apply the owner filter, so while a
+    // search term is present the owner control is disabled (its state is kept and re-applies
+    // once the search clears) to avoid implying a filter that isn't actually taking effect.
+    const searchActive = search.trim().length > 0;
 
     const clearAllFilters = () => {
         setSearch('');
@@ -662,6 +714,7 @@ export default function LeadsPage() {
         setSelectedLocations([]);
         setSelectedCountries([]);
         setSelectedProducts([]);
+        setOwnerFilter('');
         setPeriodType('all');
         setPeriodAnchor(new Date());
         setCustomRange([null, null]);
@@ -910,7 +963,13 @@ export default function LeadsPage() {
                     </Table.Td>
                 );
             case 'assigned_to':
-                return <Table.Td key="assigned_to"><TruncatedText size="sm">{company.assigned_to}</TruncatedText></Table.Td>;
+                return (
+                    <Table.Td key="assigned_to">
+                        <TruncatedText size="sm">
+                            {company.assigned_user?.name || company.assigned_user?.email || null}
+                        </TruncatedText>
+                    </Table.Td>
+                );
             case 'contact_count':
                 return (
                     <Table.Td key="contact_count">
@@ -1158,6 +1217,22 @@ export default function LeadsPage() {
                         radius="md"
                         maxDropdownHeight={200}
                     />
+                    <Select
+                        placeholder={t('owner.filterPlaceholder')}
+                        data={[
+                            { value: 'me', label: t('owner.myLeads') },
+                            { value: 'unassigned', label: t('owner.unassigned') },
+                            ...(membersData?.members ?? []).map((m) => ({ value: m.id, label: m.name || m.email })),
+                        ]}
+                        value={ownerFilter || null}
+                        onChange={(v) => setOwnerFilter(v || '')}
+                        clearable
+                        searchable
+                        radius="md"
+                        maxDropdownHeight={240}
+                        disabled={searchActive}
+                        description={searchActive ? t('owner.filterDisabledWhileSearching') : undefined}
+                    />
                 </Group>
                 <Group mt="xs" gap="xs" wrap="nowrap" justify="flex-end">
                     <SegmentedControl
@@ -1256,6 +1331,40 @@ export default function LeadsPage() {
                                 {t('bulk.clearSelection')}
                             </Button>
                         </Group>
+                        {canEdit && (
+                            <Menu withinPortal position="bottom-end" shadow="md" width={240}>
+                                <Menu.Target>
+                                    <Button
+                                        variant="light"
+                                        color="violet"
+                                        size="xs"
+                                        leftSection={<IconUser size={14} />}
+                                        rightSection={<IconChevronDown size={14} />}
+                                    >
+                                        {t('owner.assignOwner')}
+                                    </Button>
+                                </Menu.Target>
+                                <Menu.Dropdown>
+                                    <Menu.Label>
+                                        {t('owner.bulkAffected', { count: selectedIds.size })}
+                                    </Menu.Label>
+                                    <Menu.Item onClick={() => bulkAssignOwner(user?.id ?? null)}>
+                                        {t('owner.assignToMe')}
+                                    </Menu.Item>
+                                    <Menu.Item onClick={() => bulkAssignOwner(null)}>
+                                        {t('owner.setUnassigned')}
+                                    </Menu.Item>
+                                    {(membersData?.members ?? []).length > 0 && <Menu.Divider />}
+                                    <ScrollArea.Autosize mah={220}>
+                                        {(membersData?.members ?? []).map((m) => (
+                                            <Menu.Item key={m.id} onClick={() => bulkAssignOwner(m.id)}>
+                                                {m.name || m.email}
+                                            </Menu.Item>
+                                        ))}
+                                    </ScrollArea.Autosize>
+                                </Menu.Dropdown>
+                            </Menu>
+                        )}
                     </Group>
                 </Paper>
             )}
