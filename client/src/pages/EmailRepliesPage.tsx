@@ -32,6 +32,7 @@ import type { CampaignsResponse } from '../types/plusvibe';
 import { useStages } from '../contexts/StagesContext';
 import { useAuth } from '../contexts/AuthContext';
 import EmailConnectionPanel from '../components/settings/EmailConnectionPanel';
+import TrackingDomainPanel from '../components/settings/TrackingDomainPanel';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -1325,7 +1326,11 @@ export default function EmailRepliesPage() {
                 radius="lg"
                 withCloseButton
             >
-                <EmailConnectionPanel />
+                <Stack gap="lg">
+                    <EmailConnectionPanel />
+                    {/* Özel takip alanı (task-7) — link itibarını tenant'a izole eder. */}
+                    <TrackingDomainPanel />
+                </Stack>
             </Modal>
 
             {/* Attachment Library Modal */}

@@ -187,6 +187,14 @@ app.use('/api/auth/refresh', authLimiter);
 app.use('/api/auth', authRoutes);
 
 // Tracking routes — public (email open pixel, click redirect, unsubscribe)
+// Host-agnostic: bu router herhangi bir Host header'ında servis edilir. Tenant'a
+// özel takip alanları (task-7) — ör. https://track.musteri.com/api/t/o/... — bizim
+// host'umuza CNAME'lendiği için istekler bu app'e düşer ve burada karşılanır
+// (token HMAC ile global doğrulanır, Host'a bağlı değildir). Helmet CSP kapalı,
+// CORS yalnız XHR/fetch'i etkiler; pixel/redirect/unsubscribe düz gezinme/img
+// istekleridir → Host bazlı bir engel YOK. NOT (operatör): özel alanın isteklerinin
+// buraya ulaşması için Railway'de custom domain olarak da eklenmesi gerekir (TLS
+// sertifikasını Railway üretir).
 app.use('/api/t', trackingLimiter, trackingRoutes);
 app.use('/api/unsubscribe', trackingLimiter, trackingRoutes);
 

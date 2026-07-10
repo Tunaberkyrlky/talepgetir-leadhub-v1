@@ -1,0 +1,31 @@
+-- ============================================================================
+-- 064: Tenant'a özel takip alanı (custom tracking domain) — deliverability (task-7)
+--
+-- BELGE AMAÇLI / ŞEMA DEĞİŞİKLİĞİ YOK. Ayar, mevcut `tenants.settings` JSONB
+-- kolonunda saklanır (cc_addresses / sender_names / digest ile AYNI desen); yeni
+-- kolon veya tablo GEREKMEZ. Bu dosya yalnız veri şeklini kayıt altına alır ve
+-- migration numarası sürekliliğini korur; uygulanınca hiçbir şey değiştirmez.
+--
+-- Şekil — tenants.settings.tracking_domain:
+--   {
+--     "domain":     "track.musteri.com",  -- normalize (küçük harf, şemasız) host; yoksa alan hiç olmaz
+--     "verified":   true,                  -- SADECE sunucu DNS CNAME kontrolüyle atanır (kullanıcı yazamaz)
+--     "checked_at": "2026-07-11T10:00:00Z" -- son doğrulama denemesi (ISO); null olabilir
+--   }
+--
+-- Kullanım (server/src/lib/mailTracking.ts resolveTrackingBase):
+--   verified=true ise pixel/click/unsubscribe linkleri `https://<domain>` tabanını,
+--   aksi halde global API_BASE'i kullanır. Doğrulanmamış alan gönderimde ASLA
+--   kullanılmaz (fail-closed) → link itibarı tenant'a izole edilirken yanlış
+--   yapılandırılmış bir alan yüzünden takip kırılmaz.
+--
+-- Doğrulama (server/src/routes/settings.ts + lib/domainHealth.ts verifyTrackingCname):
+--   Beklenen CNAME hedefi API_BASE host'undan türetilir; alanın CNAME'i bu hedefe
+--   işaret ediyorsa verified=true yazılır. Yalnız DNS'e bakılır (HTTP yok).
+--
+-- OPERATÖR NOTU: DNS doğrulansa bile isteklerin sunucuya ulaşması için özel alanın
+-- Railway/proxy tarafında custom domain olarak da eklenmesi gerekir (TLS sertifikası
+-- Railway tarafından üretilir; burada TLS otomasyonu yoktur).
+-- ============================================================================
+
+-- No-op: ayar JSONB içinde tutulduğu için DDL yoktur.

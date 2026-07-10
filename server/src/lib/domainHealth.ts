@@ -145,6 +145,38 @@ async function safeResolve<T>(fn: () => Promise<T>): Promise<T | null> {
 }
 
 // ---------------------------------------------------------------------------
+// Özel takip alanı (custom tracking domain) doğrulaması — task-7
+// ---------------------------------------------------------------------------
+
+export interface TrackingCnameResult {
+    /** CNAME zinciri beklenen hedefe işaret ediyor mu? */
+    ok: boolean;
+    /** resolveCname sonucu (normalize; boşsa CNAME yok ya da DNS başarısız). */
+    found: string[];
+    /** Beklenen hedef host (API_BASE host'u, normalize). */
+    expected: string;
+}
+
+function normalizeHostname(host: string): string {
+    return host.trim().toLowerCase().replace(/\.$/, '');
+}
+
+/**
+ * Verilen takip alanının (ör. `track.musteri.com`) CNAME kaydının beklenen
+ * hedefe (bizim genel host'umuz, API_BASE'ten türetilir) işaret edip etmediğini
+ * kontrol eder. Sağlık paneliyle aynı `makeResolver`/`safeResolve`'ü kullanır;
+ * yalnız DNS'e bakar (HTTP isteği yok → SSRF yüzeyi yok). DNS başarısızsa
+ * `ok:false` döner (fail-closed: doğrulanmamış alan gönderimde KULLANILMAZ).
+ */
+export async function verifyTrackingCname(domain: string, expectedTarget: string): Promise<TrackingCnameResult> {
+    const resolver = makeResolver();
+    const expected = normalizeHostname(expectedTarget);
+    const cnames = (await safeResolve(() => resolver.resolveCname(normalizeHostname(domain)))) || [];
+    const found = cnames.map(normalizeHostname);
+    return { ok: expected.length > 0 && found.includes(expected), found, expected };
+}
+
+// ---------------------------------------------------------------------------
 // MX check
 // ---------------------------------------------------------------------------
 

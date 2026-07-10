@@ -5,6 +5,8 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { logAuditAction } from './admin.js';
 import { addSuppression } from '../lib/suppressions.js';
+import { API_BASE, type TrackingDomainConfig } from '../lib/mailTracking.js';
+import { verifyTrackingCname } from '../lib/domainHealth.js';
 
 const log = createLogger('route:settings');
 const router = Router();
@@ -968,6 +970,169 @@ router.delete('/suppressions/:id', async (req: Request, res: Response, next: Nex
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Delete suppression error');
         res.status(500).json({ error: 'Failed to remove suppression' });
+    }
+});
+
+// ── Özel takip alanı (custom tracking domain) — task-7 ─────────────────────
+// tenants.settings.tracking_domain: { domain, verified, checked_at }. Doğrulanmış
+// bir alan varsa kampanya motoru pixel/click/unsubscribe linklerini bu alandan
+// üretir (link itibarını tenant'a izole eder); yoksa global API_BASE kullanılır.
+//
+// Doğrulama akışı: kullanıcı alanı kaydeder → CNAME kaydını ekler (bizim host'a) →
+// "Doğrula" ile DNS kontrolü yapılır. verified=true SADECE bu DNS kontrolüyle
+// atanır; kullanıcı doğrudan yazamaz (aksi halde itibar izolasyonu delinirdi).
+//
+// NOT (operatör): DNS doğrulanmış olsa bile, isteklerin sunucumuza ulaşması için
+// özel alanın Railway/proxy tarafında da custom domain olarak eklenmesi ZORUNLUDUR;
+// TLS sertifikasını Railway üretir (burada TLS otomasyonu yoktur).
+
+// API_BASE host'undan beklenen CNAME hedefini türetir (ör. app.tgcore.com).
+function trackingExpectedTarget(): string | null {
+    if (!API_BASE) return null;
+    try { return new URL(API_BASE).host.toLowerCase(); } catch { return null; }
+}
+
+// Kullanıcı girişini çıplak host'a indirger: şema, yol ve baştaki/sondaki nokta atılır.
+function normalizeTrackingDomain(input: string): string {
+    return input.trim().toLowerCase()
+        .replace(/^https?:\/\//, '')
+        .replace(/\/.*$/, '')
+        .replace(/\.$/, '');
+}
+
+// Geçerli bir alan adı mı? (etiketler, TLD ≥ 2 harf; toplam ≤ 253)
+const HOSTNAME_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
+
+// GET /settings/tracking-domain — mevcut ayar + beklenen CNAME hedefi.
+router.get('/tracking-domain', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { data: tenant, error } = await supabaseAdmin
+            .from('tenants').select('settings').eq('id', req.tenantId!).single();
+        if (error) throw new AppError('Failed to fetch tracking domain', 500);
+        const td = (tenant?.settings?.tracking_domain || {}) as TrackingDomainConfig;
+        res.json({
+            data: {
+                domain: td.domain || null,
+                verified: !!td.verified,
+                checked_at: td.checked_at || null,
+                // UI'da gösterilecek gerekli CNAME hedefi (kopyalanabilir).
+                expected_target: trackingExpectedTarget(),
+            },
+        });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Get tracking domain error');
+        res.status(500).json({ error: 'Failed to fetch tracking domain' });
+    }
+});
+
+const trackingDomainSchema = z.object({
+    domain: z.string().max(253).nullable().optional(),
+});
+
+// PUT /settings/tracking-domain — alanı kaydet/temizle. Alan değişince verified
+// sıfırlanır (yeniden doğrulama gerekir). verified BURADAN atanamaz.
+router.put('/tracking-domain', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Admin role required' });
+            return;
+        }
+        const result = trackingDomainSchema.safeParse(req.body);
+        if (!result.success) {
+            res.status(400).json({ error: result.error.issues[0]?.message || 'Invalid input' });
+            return;
+        }
+
+        const raw = (result.data.domain || '').trim();
+        let nextTd: TrackingDomainConfig | null;
+        if (!raw) {
+            nextTd = null; // temizle → global API_BASE'e dön.
+        } else {
+            const domain = normalizeTrackingDomain(raw);
+            if (!HOSTNAME_RE.test(domain)) {
+                res.status(400).json({ error: 'Invalid domain' });
+                return;
+            }
+            // Bizim host'umuzun kendisi kabul edilmez (CNAME döngüsü/anlamsız).
+            if (domain === trackingExpectedTarget()) {
+                res.status(400).json({ error: 'Domain cannot be the app host itself' });
+                return;
+            }
+            nextTd = { domain, verified: false, checked_at: null };
+        }
+
+        const { data: tenant, error: fetchErr } = await supabaseAdmin
+            .from('tenants').select('settings').eq('id', req.tenantId!).single();
+        if (fetchErr) throw new AppError('Failed to fetch tenant', 500);
+        const settings = { ...(tenant?.settings || {}) };
+        if (nextTd) settings.tracking_domain = nextTd;
+        else delete settings.tracking_domain;
+
+        const { error: updateErr } = await supabaseAdmin
+            .from('tenants').update({ settings, updated_at: new Date().toISOString() }).eq('id', req.tenantId!);
+        if (updateErr) throw new AppError('Failed to save tracking domain', 500);
+
+        res.json({
+            data: {
+                domain: nextTd?.domain || null,
+                verified: false,
+                checked_at: null,
+                expected_target: trackingExpectedTarget(),
+            },
+        });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Update tracking domain error');
+        res.status(500).json({ error: 'Failed to save tracking domain' });
+    }
+});
+
+// POST /settings/tracking-domain/verify — kayıtlı alanın CNAME'ini DNS'te kontrol
+// eder; geçtiyse verified=true yazar. Yalnız DNS'e bakar (HTTP yok).
+router.post('/tracking-domain/verify', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        if (!isAdmin(req.user!.role)) {
+            res.status(403).json({ error: 'Admin role required' });
+            return;
+        }
+        const expected = trackingExpectedTarget();
+        if (!expected) {
+            res.status(400).json({ error: 'Server tracking base (API_BASE_URL) is not configured' });
+            return;
+        }
+
+        const { data: tenant, error: fetchErr } = await supabaseAdmin
+            .from('tenants').select('settings').eq('id', req.tenantId!).single();
+        if (fetchErr) throw new AppError('Failed to fetch tenant', 500);
+        const td = (tenant?.settings?.tracking_domain || {}) as TrackingDomainConfig;
+        if (!td.domain) {
+            res.status(400).json({ error: 'No tracking domain set' });
+            return;
+        }
+
+        const check = await verifyTrackingCname(td.domain, expected);
+        const checkedAt = new Date().toISOString();
+        const settings = { ...(tenant?.settings || {}) };
+        settings.tracking_domain = { domain: td.domain, verified: check.ok, checked_at: checkedAt };
+
+        const { error: updateErr } = await supabaseAdmin
+            .from('tenants').update({ settings, updated_at: new Date().toISOString() }).eq('id', req.tenantId!);
+        if (updateErr) throw new AppError('Failed to save verification result', 500);
+
+        res.json({
+            data: {
+                domain: td.domain,
+                verified: check.ok,
+                checked_at: checkedAt,
+                expected_target: check.expected,
+                found: check.found,
+            },
+        });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Verify tracking domain error');
+        res.status(500).json({ error: 'Failed to verify tracking domain' });
     }
 });
 

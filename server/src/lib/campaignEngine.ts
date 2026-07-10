@@ -11,7 +11,7 @@
  */
 
 import { supabaseAdmin } from './supabase.js';
-import { API_BASE, createTrackingToken, injectTracking } from './mailTracking.js';
+import { API_BASE, createTrackingToken, injectTracking, resolveTrackingBase } from './mailTracking.js';
 import { sendMail } from './mail/router.js';
 import type { ListUnsubscribe, SmtpErrorInfo } from './mail/types.js';
 import { createLogger } from './logger.js';
@@ -194,21 +194,23 @@ export async function sendTestEmail(
 // ── Tracking ───────────────────────────────────────────────────────────────
 // Token üretimi/doğrulama ve injectTracking lib/mailTracking.ts'e taşındı.
 
-function buildUnsubscribeFooter(enrollmentId: string): string {
-    if (!API_BASE) return '';
+// base (task-7): tenant'ın doğrulanmış özel takip alanı ya da global API_BASE.
+function buildUnsubscribeFooter(enrollmentId: string, base: string): string {
+    if (!base) return '';
     const token = createTrackingToken(enrollmentId);
     return `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #eee;text-align:center;">
-        <a href="${API_BASE}/api/unsubscribe/${token}" style="color:#999;font-size:11px;text-decoration:underline;">Unsubscribe</a>
+        <a href="${base}/api/unsubscribe/${token}" style="color:#999;font-size:11px;text-decoration:underline;">Unsubscribe</a>
     </div>`;
 }
 
 // RFC 8058 tek-tık abonelikten-çıkma header'ları için değerleri üretir. Footer ile
 // AYNI token'ı kullanır (deterministik). https ucu tarayıcı GET + tek-tık POST'u
 // karşılar; mailto yedeği gönderen kutuya token'lı bir konuyla düşer (manuel işleme).
-function buildListUnsubscribe(enrollmentId: string, accountEmail?: string | null): ListUnsubscribe | undefined {
-    if (!API_BASE) return undefined;
+// base (task-7): tenant'ın doğrulanmış özel takip alanı ya da global API_BASE.
+function buildListUnsubscribe(enrollmentId: string, accountEmail: string | null | undefined, base: string): ListUnsubscribe | undefined {
+    if (!base) return undefined;
     const token = createTrackingToken(enrollmentId);
-    const httpsUrl = `${API_BASE}/api/unsubscribe/${token}`;
+    const httpsUrl = `${base}/api/unsubscribe/${token}`;
     const mailto = accountEmail
         ? `mailto:${accountEmail}?subject=${encodeURIComponent(`Unsubscribe ${token}`)}`
         : undefined;
@@ -538,6 +540,10 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
             ]);
             const campaign = campaignRes.data;
             const tenantSettings = tenantRes.data?.settings || {};
+            // Takip linklerinin taban URL'i (task-7): doğrulanmış özel takip alanı
+            // varsa onu, yoksa global API_BASE'i kullanır. Pixel/click/unsubscribe
+            // linklerinin tümü aynı tabanı paylaşır.
+            const trackingBase = resolveTrackingBase(tenantSettings.tracking_domain);
 
             if (!campaign || campaign.status !== 'active') {
                 // Campaign no longer active — pause enrollment
@@ -703,8 +709,9 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 bodyHtml = injectTracking(bodyHtml, activity.id, 'activity', {
                     open: trk?.open !== false,
                     click: trk?.click !== false,
+                    baseUrl: trackingBase,
                 });
-                bodyHtml += buildUnsubscribeFooter(enrollment.id);
+                bodyHtml += buildUnsubscribeFooter(enrollment.id, trackingBase);
 
                 try {
                     // CC: campaign-level override > tenant-level default
@@ -726,7 +733,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         accountEmail,
                         campaignId: enrollment.campaign_id,
                         // RFC 8058: footer ile aynı token; https tek-tık + mailto yedeği.
-                        listUnsubscribe: buildListUnsubscribe(enrollment.id, accountEmail),
+                        listUnsubscribe: buildListUnsubscribe(enrollment.id, accountEmail, trackingBase),
                         // Thread'leme: takip mailleri ilk mailin konuşmasında (kökte undefined).
                         threading,
                     });
