@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.7',
+        date: '2026-07-10',
+        type: 'fix',
+        title: { tr: 'Yandex Mail Gönderim Düzeltmesi', en: 'Yandex Mail Sending Fix' },
+        about: {
+            tr: 'Yandex posta kutusu bağlı hesaplarda mail gönderme ve alma sorunu giderildi.',
+            en: 'Fixed a sending and receiving issue for accounts connected to a Yandex mailbox.',
+        },
+    },
+    {
         version: '1.19.6',
         date: '2026-07-09',
         type: 'improvement',

@@ -5,12 +5,14 @@
  * AES-256-GCM encrypted at rest and decrypted only here, in memory.
  */
 import nodemailer, { type Transporter } from 'nodemailer';
+import * as socks from 'socks';
 import { createLogger } from '../logger.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { getConnectionByEmail, type EmailConnection } from '../emailConnections.js';
 import { decrypt } from '../encryption.js';
 import { waitForRateLimit } from '../emailSender.js';
 import { resolvePublicHost } from '../ssrfGuard.js';
+import { proxyUrlForHost } from './mailProxy.js';
 import type { CanonicalSendRequest, SendResult, MailProvider } from './types.js';
 
 const log = createLogger('mail:smtp');
@@ -30,6 +32,7 @@ async function buildTransporter(conn: EmailConnection): Promise<Transporter> {
     // hostname), so a tenant can't DNS-rebind smtp_host to an internal address
     // between save and send. servername keeps TLS cert validation on the hostname.
     const pinned = await resolvePublicHost(conn.smtp_host);
+    const proxy = proxyUrlForHost(conn.smtp_host);
     const transporter = nodemailer.createTransport({
         host: pinned.address,
         port: conn.smtp_port,
@@ -42,7 +45,10 @@ async function buildTransporter(conn: EmailConnection): Promise<Transporter> {
             // hostname/CA validation — same as mail clients' "trust this certificate".
             ...(conn.allow_invalid_cert && { rejectUnauthorized: false }),
         },
+        ...(proxy && { proxy }),
     });
+    // Yandex blocks datacenter IPs — route it through the configured SOCKS5 proxy.
+    if (proxy) transporter.set('proxy_socks_module', socks);
     transporterCache.set(cacheKey, transporter);
     return transporter;
 }
@@ -53,6 +59,7 @@ export async function verifySmtp(params: {
     allowInvalidCert?: boolean;
 }): Promise<void> {
     const pinned = await resolvePublicHost(params.host);
+    const proxy = proxyUrlForHost(params.host);
     const transporter = nodemailer.createTransport({
         host: pinned.address,
         port: params.port,
@@ -64,7 +71,9 @@ export async function verifySmtp(params: {
             servername: pinned.servername,
             ...(params.allowInvalidCert && { rejectUnauthorized: false }),
         },
+        ...(proxy && { proxy }),
     });
+    if (proxy) transporter.set('proxy_socks_module', socks);
     try {
         await transporter.verify();
     } finally {

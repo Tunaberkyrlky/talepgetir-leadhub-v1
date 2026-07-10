@@ -18,6 +18,7 @@ import { cancelEnrollmentOnReply } from './campaignEngine.js';
 import { parseImapInbound } from './mail/imapAdapter.js';
 import { canonicalToReplyRow, splitEmailBody } from './mail/types.js';
 import { resolvePublicHost } from './ssrfGuard.js';
+import { proxyUrlForHost } from './mail/mailProxy.js';
 
 const log = createLogger('imapInbound');
 
@@ -102,6 +103,7 @@ async function pollConnection(conn: EmailConnection): Promise<PollResult> {
     // hostname), so a tenant can't DNS-rebind imap_host to an internal address
     // between save and poll. servername keeps TLS cert validation on the hostname.
     const pinned = await resolvePublicHost(conn.imap_host);
+    const proxy = proxyUrlForHost(conn.imap_host);
     const client = new ImapFlow({
         host: pinned.address,
         port: conn.imap_port,
@@ -116,6 +118,8 @@ async function pollConnection(conn: EmailConnection): Promise<PollResult> {
         socketTimeout: 20_000,
         greetingTimeout: 10_000,
         connectionTimeout: 10_000,
+        // Yandex blocks datacenter IPs — route it through the configured SOCKS5 proxy.
+        ...(proxy && { proxy }),
     });
 
     // ImapFlow is an EventEmitter: an async transport failure (e.g. a socket
@@ -219,6 +223,7 @@ export async function verifyImap(opts: {
     allowInvalidCert?: boolean;
 }): Promise<void> {
     const pinned = await resolvePublicHost(opts.host);
+    const proxy = proxyUrlForHost(opts.host);
     const client = new ImapFlow({
         host: pinned.address,
         port: opts.port,
@@ -232,6 +237,7 @@ export async function verifyImap(opts: {
         socketTimeout: 20_000,
         greetingTimeout: 10_000,
         connectionTimeout: 10_000,
+        ...(proxy && { proxy }),
     });
     // Swallow async 'error' events (see pollConnection); the connect()/lock
     // promise rejection is what we surface to the caller.
