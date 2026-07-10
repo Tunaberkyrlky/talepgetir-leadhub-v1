@@ -1083,7 +1083,7 @@
             "unsub": "çıkış",
             "sentTip": "Bu kutudan gönderilen kampanya maili (geri dönenler dahil).",
             "bounceTip": "Kalıcı olarak geri dönen (geçersiz adres) mail oranı. %2 üzeri kutu itibarını ciddi riske atar, %1 üzeri dikkat gerektirir.",
-            "replyTip": "Yanıt veren benzersiz alıcı oranı.",
+            "replyTip": "Bu kutuya yanıt veren benzersiz kişilerin gönderime oranı (otomatik yanıtlar dahil olabilir).",
             "unsubTip": "Abonelikten çıkan benzersiz alıcı oranı. %1 üzeri içerik veya hedefleme sorununa işaret eder.",
             "postmasterNote": "Gmail alıcılarına gönderiyorsunuz. Gönderen itibarınızı izlemek için alan adınızı",
             "postmasterLink": "Google Postmaster Tools",

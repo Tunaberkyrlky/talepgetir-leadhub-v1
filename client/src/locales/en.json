@@ -1083,7 +1083,7 @@
             "unsub": "unsub",
             "sentTip": "Campaign emails sent from this mailbox (bounces included).",
             "bounceTip": "Share of emails that permanently bounced (invalid address). Above 2% seriously risks your reputation; above 1% needs attention.",
-            "replyTip": "Share of unique recipients who replied.",
+            "replyTip": "Unique inbound responders to this mailbox as a share of sends (may include auto-replies).",
             "unsubTip": "Share of unique recipients who unsubscribed. Above 1% points to a content or targeting problem.",
             "postmasterNote": "You send to Gmail recipients. To monitor your sender reputation, add your domain to",
             "postmasterLink": "Google Postmaster Tools",

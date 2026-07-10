@@ -22,22 +22,26 @@
  *       nadirdir ve bu panel tavsiye niteliğindedir).
  *
  * "Veri yok" ile "sıfır" ayrımı (task-9): pencerede hiç gönderim yoksa (dispatched=0)
- * oran hesaplanamaz → null döner (UI em-dash gösterir). Gönderim varken olayın olmaması
- * gerçek %0'dır. task-5 (bastırma/bounce) bu daldan önce YOKtu; ≤30 günlük pencerede
- * gönderim varsa bounce/çıkış takibi zaten aktifti, dolayısıyla dispatched>0 iken oranlar
- * gerçektir.
+ * oran hesaplanamaz → null döner (UI em-dash gösterir). Ayrıca bounce/çıkış takibi task-5
+ * ile DOĞDU (BOUNCE_TRACKING_SINCE_MS); pencere o tarihten öncesine uzanıyor ve sayı 0 ise
+ * bu "gerçek %0" değil "veri yok"tur → yine null. Böylece takip yayına girmeden önceki
+ * gönderimlerde sahte-sağlıklı %0 gösterilmez. Sayı >0 ise gerçek (olası düşük tahminli)
+ * oran gösterilir; pozitif bounce/çıkış sinyali gizlenmez. ~30 gün sonra pencere artık
+ * takip tarihinden sonra başlar ve bu özel durum kendiliğinden kalkar.
  */
 import { supabaseAdmin } from './supabase.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('mailboxHealth');
 
-// Gmail alıcı alan adları (kişisel). Google Workspace kurumsal alanları MX bakışı
-// gerektirdiği için (pahalı) burada kapsanmaz — Postmaster Tools önerisi için bu
-// ucuz, kesin sinyal yeterlidir.
-const GMAIL_DOMAINS = new Set(['gmail.com', 'googlemail.com']);
-
 const DAY_MS = 86_400_000;
+
+// Bounce takibi (outcome='bounced' çevrimi) ve email_suppressions bu dalda task-5 ile
+// geldi (commit 3d56247, 2026-07-10 20:40 UTC). Bu andan ÖNCEKİ gönderimlerin bounce/çıkışı
+// hiç kaydedilemezdi; o dönemi kapsayan pencerede sayı 0 ise "veri yok"tur, "gerçek %0"
+// değil (task-9 em-dash kuralı). Sabit tarih, takip yayına girmeden önceki hiçbir gönderim
+// için sahte-sağlıklı %0 gösterilmemesini garanti eder ve ~30 gün sonra etkisiz kalır.
+const BOUNCE_TRACKING_SINCE_MS = Date.parse('2026-07-10T20:40:34Z');
 
 export interface MailboxWindowStats {
     /** Gönderilen kampanya maili (bounce dahil = dispatched). */
@@ -69,13 +73,74 @@ function rate(num: number, denom: number): number | null {
     return denom > 0 ? num / denom : null;
 }
 
+/** Yanıt oranını [0,1]'e kısar: yanıt kaynağı (email_replies) gönderimden fazla olabilir
+ *  (otomatik yanıt / manuel konuşma iş parçacığı), oran >%100 görünmesin. */
+function clampRate(r: number | null): number | null {
+    return r == null ? null : Math.min(1, r);
+}
+
+/**
+ * bounce/çıkış oranı, "veri yok" ayrımıyla. denom=0 → null (hiç gönderim). Ayrıca sayı 0
+ * ve pencere task-5 (bounce/çıkış takibi) öncesine uzanıyorsa → null: o dönemin olayları
+ * kaydedilemezdi, 0 sahte-sağlıklı %0 olmasın (em-dash). Sayı >0 ise gerçek oranı göster.
+ */
+function trackedRate(num: number, denom: number, windowStartMs: number): number | null {
+    if (denom <= 0) return null;
+    if (num === 0 && windowStartMs < BOUNCE_TRACKING_SINCE_MS) return null;
+    return num / denom;
+}
+
 function emptyWindow(): MailboxWindowStats {
     return { sent: 0, bounces: 0, bounceRate: null, replies: 0, replyRate: null, unsubscribes: 0, unsubRate: null };
 }
 
-function gmailFromEmail(email: string | null | undefined): boolean {
-    const domain = (email || '').split('@')[1]?.toLowerCase().trim();
-    return !!domain && GMAIL_DOMAINS.has(domain);
+/**
+ * Bir kutunun activities sayımı — head-count (satır ÇEKMEZ). PostgREST yanıtı 1000 satırda
+ * kesildiği için satır çekmek yüksek hacimli (ramp 50/gün → 30g'de 1500) kutularda sayıyı
+ * sessizce keserdi; count/head bu sınırdan etkilenmez. bouncedOnly=false → dispatched
+ * (sent+bounced), true → yalnız bounced.
+ */
+async function countActivities(
+    tenantId: string,
+    box: string,
+    sinceIso: string,
+    bouncedOnly: boolean,
+): Promise<number> {
+    let q = supabaseAdmin
+        .from('activities')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('type', 'campaign_email')
+        .eq('sending_account', box)
+        .gte('occurred_at', sinceIso);
+    q = bouncedOnly ? q.eq('outcome', 'bounced') : q.in('outcome', ['sent', 'bounced']);
+    const { count, error } = await q;
+    if (error) {
+        log.warn({ err: error, tenantId, box, sinceIso, bouncedOnly }, 'Mailbox health activity count failed');
+        return 0;
+    }
+    return count ?? 0;
+}
+
+/**
+ * Bu kutu Gmail (gmail.com/googlemail.com) alıcılarına konuşma başlatmış mı? Postmaster
+ * Tools önerisi için ucuz, sınırlı varlık sorgusu (limit 1). thread_account_email = ilk
+ * maili atan kutu → yanıt/çıkış atfıyla tutarlı. Pencere-bağımsız: gönderen itibarı alan
+ * adı düzeyinde kalıcıdır, kutu Gmail'e geçmişte yazmışsa öneri anlamını korur.
+ */
+async function detectGmailRecipient(tenantId: string, box: string): Promise<boolean> {
+    const { data, error } = await supabaseAdmin
+        .from('campaign_enrollments')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('thread_account_email', box)
+        .or('email.ilike.%@gmail.com,email.ilike.%@googlemail.com')
+        .limit(1);
+    if (error) {
+        log.warn({ err: error, tenantId, box }, 'Mailbox health gmail-recipient probe failed');
+        return false;
+    }
+    return (data?.length ?? 0) > 0;
 }
 
 /**
@@ -97,62 +162,25 @@ export async function getMailboxHealthStats(
     const d7Iso = new Date(nowMs - 7 * DAY_MS).toISOString();
     const d30Iso = new Date(nowMs - 30 * DAY_MS).toISOString();
     const d7Ms = nowMs - 7 * DAY_MS;
+    const d30Ms = nowMs - 30 * DAY_MS;
 
-    // ── 1) Gönderim + bounce + Gmail tespiti (activities) ─────────────────────
-    // enrollment.email embed'i yalnız Gmail alıcı tespiti için; her satır PK join'i
-    // (ucuz). outcome IN (sent,bounced) → dispatched. occurred_at ile pencere ayrımı.
-    // Embed başarısız olursa (beklenmeyen), çekirdek gönderim/bounce sayımı KAYBOLMASIN
-    // diye embed'siz yeniden çekeriz — yalnız Gmail önerisi düşer, sağlık satırı kalır.
-    const baseSelect = 'outcome, occurred_at';
-    let acts: Array<{
-        outcome: string | null;
-        occurred_at: string | null;
-        campaign_enrollments?: { email?: string | null } | { email?: string | null }[] | null;
-    }> = [];
-    const embedRes = await supabaseAdmin
-        .from('activities')
-        .select(`${baseSelect}, campaign_enrollments!enrollment_id(email)`)
-        .eq('tenant_id', tenantId)
-        .eq('type', 'campaign_email')
-        .eq('sending_account', box)
-        .in('outcome', ['sent', 'bounced'])
-        .gte('occurred_at', d30Iso);
-    if (embedRes.error) {
-        log.warn({ err: embedRes.error, tenantId, box }, 'Mailbox health activities embed query failed; retrying without embed');
-        const plainRes = await supabaseAdmin
-            .from('activities')
-            .select(baseSelect)
-            .eq('tenant_id', tenantId)
-            .eq('type', 'campaign_email')
-            .eq('sending_account', box)
-            .in('outcome', ['sent', 'bounced'])
-            .gte('occurred_at', d30Iso);
-        if (plainRes.error) {
-            // Fail-soft: sağlık paneli tavsiye niteliğinde; sorgu patlarsa boş döneriz.
-            log.warn({ err: plainRes.error, tenantId, box }, 'Mailbox health activities query failed');
-        }
-        acts = (plainRes.data || []) as typeof acts;
-    } else {
-        acts = (embedRes.data || []) as typeof acts;
-    }
-
-    for (const a of acts) {
-        const ts = a.occurred_at ? Date.parse(a.occurred_at) : NaN;
-        if (!Number.isFinite(ts)) continue;
-        const isBounced = a.outcome === 'bounced';
-        d30.sent++;
-        if (isBounced) d30.bounces++;
-        if (ts >= d7Ms) {
-            d7.sent++;
-            if (isBounced) d7.bounces++;
-        }
-        // Gmail tespiti (30g penceresi): alıcı adresi gmail.com/googlemail.com mı?
-        if (!result.sendsToGmail) {
-            const enr = a.campaign_enrollments;
-            const email = Array.isArray(enr) ? enr[0]?.email : enr?.email;
-            if (gmailFromEmail(email)) result.sendsToGmail = true;
-        }
-    }
+    // ── 1) Gönderim + bounce + Gmail tespiti ──────────────────────────────────
+    // Satır ÇEKMEK yerine head-count: PostgREST yanıtı 1000 satırda kesilir (kod tabanı
+    // başka yerde bunun için sayfalar) ve ramp tavanı 50/gün → 30 günde 1500 satır bu
+    // sınırı aşar; ORDER BY'sız kesilen alt küme rastgele olurdu. 4 sayı (dispatched/
+    // bounced × 7g/30g) + Gmail varlık sorgusu paralel koşar (N+1 yok).
+    const [d30Sent, d30Bounces, d7Sent, d7Bounces, sendsToGmail] = await Promise.all([
+        countActivities(tenantId, box, d30Iso, false),
+        countActivities(tenantId, box, d30Iso, true),
+        countActivities(tenantId, box, d7Iso, false),
+        countActivities(tenantId, box, d7Iso, true),
+        detectGmailRecipient(tenantId, box),
+    ]);
+    d30.sent = d30Sent;
+    d30.bounces = d30Bounces;
+    d7.sent = d7Sent;
+    d7.bounces = d7Bounces;
+    result.sendsToGmail = sendsToGmail;
 
     // ── 2) Yanıt (email_replies) — benzersiz yanıtlayan ───────────────────────
     const { data: replies, error: repErr } = await supabaseAdmin
@@ -240,12 +268,15 @@ export async function getMailboxHealthStats(
     }
 
     // ── Oranlar (dispatched paydası) ──────────────────────────────────────────
-    d7.bounceRate = rate(d7.bounces, d7.sent);
-    d7.replyRate = rate(d7.replies, d7.sent);
-    d7.unsubRate = rate(d7.unsubscribes, d7.sent);
-    d30.bounceRate = rate(d30.bounces, d30.sent);
-    d30.replyRate = rate(d30.replies, d30.sent);
-    d30.unsubRate = rate(d30.unsubscribes, d30.sent);
+    // bounce/çıkış: takip-öncesi pencerede sayı 0 ise em-dash (trackedRate). yanıt:
+    // email_replies task-5'ten eski → watermark yok, ama gönderimden fazla olabileceği
+    // için [0,1]'e kısılır (clampRate).
+    d7.bounceRate = trackedRate(d7.bounces, d7.sent, d7Ms);
+    d7.replyRate = clampRate(rate(d7.replies, d7.sent));
+    d7.unsubRate = trackedRate(d7.unsubscribes, d7.sent, d7Ms);
+    d30.bounceRate = trackedRate(d30.bounces, d30.sent, d30Ms);
+    d30.replyRate = clampRate(rate(d30.replies, d30.sent));
+    d30.unsubRate = trackedRate(d30.unsubscribes, d30.sent, d30Ms);
 
     result.hasHistory = d30.sent > 0;
     return result;
