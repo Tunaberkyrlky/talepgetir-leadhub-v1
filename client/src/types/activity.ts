@@ -4,7 +4,7 @@
  * System-generated only: 'sonlandirma_raporu' (closing-report endpoint), 'status_change' (aşama geçişi)
  * Client 5 tipin tamamını bilmeli — server'ın yarattığı timeline kayıtlarını doğru render etmek için.
  */
-export type ActivityType = 'not' | 'meeting' | 'follow_up' | 'sonlandirma_raporu' | 'status_change' | 'campaign_email';
+export type ActivityType = 'not' | 'meeting' | 'follow_up' | 'sonlandirma_raporu' | 'status_change' | 'campaign_email' | 'call';
 export type ActivityVisibility = 'internal' | 'client';
 /** Terminal stage slug — per-tenant (e.g. won, lost, plus any tenant-defined terminal). */
 export type ClosingOutcome = string;

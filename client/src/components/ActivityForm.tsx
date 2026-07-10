@@ -5,7 +5,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Modal,
     Select,
-    TextInput,
     Textarea,
     Button,
     Stack,
@@ -251,10 +250,13 @@ export default function ActivityForm({ opened, onClose, onSuccess, companyId, co
                     />
                 )}
 
-                <TextInput
+                <Textarea
                     label={t('activity.detail')}
                     size="sm"
                     radius="md"
+                    autosize
+                    minRows={2}
+                    maxRows={8}
                     {...form.getInputProps('detail')}
                 />
 

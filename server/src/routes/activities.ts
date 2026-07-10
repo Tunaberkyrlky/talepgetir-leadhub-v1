@@ -13,7 +13,7 @@ const log = createLogger('route:activities');
 
 const router = Router();
 
-const VALID_ACTIVITY_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change', 'campaign_email'];
+const VALID_ACTIVITY_TYPES = ['not', 'meeting', 'follow_up', 'sonlandirma_raporu', 'status_change', 'campaign_email', 'call'];
 
 // User lookup cache (5 min TTL) — avoids N+1 auth API calls in /users endpoint
 const userLookupCache = new Map<string, { data: { email: string; name?: string }; ts: number }>();
@@ -304,6 +304,7 @@ router.get('/stats', async (req: Request, res: Response, next: NextFunction): Pr
             meeting: counts['meeting'] || 0,
             not: counts['not'] || 0,
             follow_up: counts['follow_up'] || 0,
+            call: counts['call'] || 0,
             sonlandirma_raporu: counts['sonlandirma_raporu'] || 0,
             total: total - statusChangeCount,
         });

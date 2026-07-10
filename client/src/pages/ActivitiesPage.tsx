@@ -9,7 +9,7 @@ import {
 import { DatePickerInput } from '@mantine/dates';
 import { useDebouncedValue } from '@mantine/hooks';
 import {
-    IconNotes, IconCalendar, IconClock,
+    IconNotes, IconCalendar, IconClock, IconPhone,
     IconUser, IconChevronLeft, IconChevronRight,
     IconDotsVertical, IconPencil, IconTrash, IconWifiOff, IconRefresh,
 } from '@tabler/icons-react';
@@ -43,9 +43,23 @@ interface ActivityStats {
     meeting: number;
     not: number;
     follow_up: number;
+    call: number;
     sonlandirma_raporu: number;
     total: number;
 }
+
+// Cold-call aktiviteleri outcome alanında disposition değeri taşır; activity.outcomes.* değil
+// coldcall.disp* anahtarlarıyla çevrilir.
+const CALL_DISPOSITION_LABEL_KEYS: Record<string, string> = {
+    connected: 'coldcall.dispConnected',
+    interested: 'coldcall.dispInterested',
+    not_interested: 'coldcall.dispNotInterested',
+    callback: 'coldcall.dispCallback',
+    voicemail: 'coldcall.dispVoicemail',
+    no_answer: 'coldcall.dispNoAnswer',
+    busy: 'coldcall.dispBusy',
+    wrong_number: 'coldcall.dispWrongNumber',
+};
 
 interface ActivityUser {
     id: string;
@@ -206,7 +220,9 @@ function ActivityCard({ activity, navigate, t, locale, canEdit, canDeleteItem, o
                         </Badge>
                         {activity.outcome && (
                             <Badge size="sm" variant="filled" color={outcomeColor}>
-                                {t(`activity.outcomes.${activity.outcome}`, activity.outcome)}
+                                {activity.type === 'call' && CALL_DISPOSITION_LABEL_KEYS[activity.outcome]
+                                    ? t(CALL_DISPOSITION_LABEL_KEYS[activity.outcome])
+                                    : t(`activity.outcomes.${activity.outcome}`, activity.outcome)}
                             </Badge>
                         )}
                         {activity.visibility === 'internal' && (
@@ -489,9 +505,16 @@ export default function ActivitiesPage() {
         if (groupBy === 'none') return null;
         if (allActivities.length === 0) return [];
 
+        // Planlanmış iş = yalnız meeting + legacy follow_up (v2 §Phase 0: notlar/sistem
+        // kayıtları ajandaya girmez) — date ve agenda dalları aynı tanımı kullanır.
+        const isPlanned = (activity: Activity) =>
+            activity.type === 'meeting' || activity.type === 'follow_up';
+
         if (groupBy === 'date') {
             const map = new Map<string, Activity[]>();
-            for (const a of allActivities) {
+            const plannedActivities = allActivities.filter(isPlanned);
+
+            for (const a of plannedActivities) {
                 const key = toLocalDateStr(new Date(a.occurred_at));
                 if (!map.has(key)) map.set(key, []);
                 map.get(key)!.push(a);
@@ -536,7 +559,7 @@ export default function ActivitiesPage() {
             const dayMap = new Map<string, Activity[]>();
             const overdueItems: Activity[] = [];
 
-            for (const a of allActivities) {
+            for (const a of allActivities.filter(isPlanned)) {
                 const dateKey = toLocalDateStr(new Date(a.occurred_at));
                 if (dateKey < todayStr) {
                     overdueItems.push(a);
@@ -671,10 +694,11 @@ export default function ActivitiesPage() {
                 )}
             </Group>
 
-            {/* Row 2: Stat cards — eşit 4 sütun */}
-            <SimpleGrid cols={{ base: 2, sm: 4 }} mb="md">
+            {/* Row 2: Activity type summary and filters */}
+            <SimpleGrid cols={{ base: 2, sm: 5 }} mb="md">
                 {statsLoading ? (
                     <>
+                        <Skeleton height={86} radius="lg" />
                         <Skeleton height={86} radius="lg" />
                         <Skeleton height={86} radius="lg" />
                         <Skeleton height={86} radius="lg" />
@@ -717,6 +741,15 @@ export default function ActivitiesPage() {
                             compact
                             selected={typeFilter === 'follow_up'}
                             onClick={() => { setTypeFilter('follow_up'); setPage(1); }}
+                        />
+                        <StatCard
+                            title={t('activities.types.call', 'Telefon araması')}
+                            value={stats?.call ?? 0}
+                            icon={<IconPhone size={20} />}
+                            color="cyan"
+                            compact
+                            selected={typeFilter === 'call'}
+                            onClick={() => { setTypeFilter('call'); setPage(1); }}
                         />
                     </>
                 )}

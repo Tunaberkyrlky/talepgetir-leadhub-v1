@@ -8,6 +8,7 @@ import {
     IconXboxX,
     IconBan,
     IconMailForward,
+    IconPhoneCall,
 } from '@tabler/icons-react';
 import { createElement } from 'react';
 import type { ActivityType } from '../types/activity';
@@ -19,6 +20,7 @@ export const ACTIVITY_ICONS: Record<ActivityType, React.ReactNode> = {
     sonlandirma_raporu: createElement(IconFileReport, { size: 16 }),
     status_change: createElement(IconArrowsExchange, { size: 16 }),
     campaign_email: createElement(IconMailForward, { size: 16 }),
+    call: createElement(IconPhoneCall, { size: 16 }),
 };
 
 export const ACTIVITY_COLORS: Record<ActivityType, string> = {
@@ -28,6 +30,7 @@ export const ACTIVITY_COLORS: Record<ActivityType, string> = {
     sonlandirma_raporu: 'green',
     status_change: 'gray',
     campaign_email: 'indigo',
+    call: 'cyan',
 };
 
 export const OUTCOME_COLORS: Record<string, string> = {

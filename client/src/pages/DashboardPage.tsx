@@ -455,7 +455,7 @@ function UpcomingAgendaWidget() {
 
     // Only future + overdue, exclude system types
     const relevant = activities.filter(a =>
-        ['not', 'meeting', 'follow_up'].includes(a.type)
+        ['meeting', 'follow_up'].includes(a.type)
     );
 
     // Group by day — skip overdue on dashboard
