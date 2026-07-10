@@ -13,6 +13,7 @@ import { waitForRateLimit } from '../emailSender.js';
 import { resolvePublicHost } from '../ssrfGuard.js';
 import type { CanonicalSendRequest, SendResult, MailProvider } from './types.js';
 import { listUnsubscribeHeaders } from './types.js';
+import { htmlToPlainTextBody } from './plainText.js';
 
 const log = createLogger('mail:smtp');
 
@@ -105,6 +106,9 @@ export const smtpProvider: MailProvider = {
                 ...(req.replyTo && { replyTo: req.replyTo }),
                 ...(req.listUnsubscribe && { headers: listUnsubscribeHeaders(req.listUnsubscribe) }),
                 subject: req.subject,
+                // Deliverability: düz-metin alternatifini HTML'den türet; nodemailer
+                // text+html verildiğinde multipart/alternative'i kendisi kurar.
+                text: htmlToPlainTextBody(req.bodyHtml),
                 html: req.bodyHtml,
                 ...(req.files?.length && {
                     attachments: req.files.map((f) => ({

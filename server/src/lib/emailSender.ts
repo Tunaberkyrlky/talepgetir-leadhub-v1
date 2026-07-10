@@ -20,6 +20,7 @@ import { getConnectionByEmail, getDefaultConnection } from './emailConnections.j
 import type { ConnectionProvider, EmailConnection } from './emailConnections.js';
 import type { ResolvedAttachment, ListUnsubscribe } from './mail/types.js';
 import { listUnsubscribeHeaders } from './mail/types.js';
+import { htmlToPlainTextBody } from './mail/plainText.js';
 
 const log = createLogger('emailSender');
 
@@ -154,22 +155,44 @@ function buildRfc2822(params: {
     }
     headers.push('MIME-Version: 1.0');
 
-    // No attachments → simple single-part text/html (unchanged behavior).
+    // Deliverability: her mail multipart/alternative taşır — önce text/plain, sonra
+    // text/html. Düz metin HTML'den türetilir (tracking pixel <img> metin üretmez →
+    // yalnız HTML part'ta kalır; footer'ın abonelikten-çıkma linki düz metne URL olarak düşer).
+    const altBoundary = `=_alt_${randomUUID()}`;
+    const altPart: string[] = [
+        `--${altBoundary}`,
+        'Content-Type: text/plain; charset=UTF-8',
+        'Content-Transfer-Encoding: 8bit',
+        '',
+        htmlToPlainTextBody(params.htmlBody),
+        `--${altBoundary}`,
+        'Content-Type: text/html; charset=UTF-8',
+        'Content-Transfer-Encoding: 8bit',
+        '',
+        params.htmlBody,
+        `--${altBoundary}--`,
+    ];
+
+    // Ek yoksa → mesajın kendisi multipart/alternative.
     if (!params.attachments?.length) {
-        return [...headers, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: 8bit', '', params.htmlBody].join('\r\n');
+        return [
+            ...headers,
+            `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+            '',
+            ...altPart,
+        ].join('\r\n');
     }
 
-    // Attachments → multipart/mixed: html part first, then one base64 part each.
+    // Ek varsa → multipart/mixed: önce multipart/alternative (metin+html), sonra her ek base64 part.
     const boundary = `=_part_${randomUUID()}`;
     const parts: string[] = [
         ...headers,
         `Content-Type: multipart/mixed; boundary="${boundary}"`,
         '',
         `--${boundary}`,
-        'Content-Type: text/html; charset=UTF-8',
-        'Content-Transfer-Encoding: 8bit',
+        `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
         '',
-        params.htmlBody,
+        ...altPart,
     ];
     for (const a of params.attachments) {
         const b64 = a.content.toString('base64').replace(/(.{76})/g, '$1\r\n'); // RFC 2045 line length
@@ -254,7 +277,11 @@ function outlookMessageId(response: { headers?: unknown }): string {
     return headers['x-ms-request-id'] || headers['request-id'] || `outlook_${Date.now()}`;
 }
 
-/** JSON gövdeli klasik gönderim. Custom (X- dışı) header EKLEYEMEZ → List-Unsubscribe taşımaz. */
+/**
+ * JSON gövdeli klasik gönderim. Custom (X- dışı) header EKLEYEMEZ → List-Unsubscribe taşımaz.
+ * Ayrıca Graph `body` tek bir contentType (HTML) alır → text/plain ALTERNATİF taşınamaz;
+ * düz-metin alternatifi yalnız MIME modunda (sendViaOutlookMime → buildRfc2822) gider.
+ */
 async function sendViaOutlookJson(connection: EmailConnection, params: SendParams): Promise<string> {
     const message: Record<string, unknown> = {
         subject: params.subject,
