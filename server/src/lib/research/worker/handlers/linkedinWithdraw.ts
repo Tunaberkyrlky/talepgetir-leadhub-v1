@@ -15,7 +15,7 @@ import type { JobHandler } from '../types.js';
 import { createLogger } from '../../../logger.js';
 import { listSentInvitations, withdrawInvitation, type SentInvitationsResult } from '../../../linkedin/client.js';
 import {
-    loadAccount, credsFor, dispatcherFor, applyWriteHealth, classifierForHttp, auditAction,
+    loadAccount, credsFor, resolveDispatcher, applyWriteHealth, classifierForHttp, auditAction,
 } from '../../../linkedin/actions.js';
 
 const log = createLogger('research:handler:linkedin-withdraw');
@@ -54,11 +54,18 @@ export const linkedinWithdrawHandler: JobHandler = async ({ job, heartbeat }) =>
     let creds, dispatcher;
     try {
         creds = credsFor(account);
-        dispatcher = dispatcherFor(account);
     } catch (err) {
         if (!dryRun) await auditAction({ tenantId, accountId, type: 'withdraw', status: 'error', classifier: 'transport_error', error: errMsg(err), jobId: job.id });
         throw err;
     }
+    // Fail-closed egress: a static_required account must withdraw through its OWN dedicated IP,
+    // never the rotating gateway (codex P1.1) — else it presents a second IP to LinkedIn.
+    const gate = await resolveDispatcher(tenantId, account, 'send');
+    if (!gate.ok) {
+        if (!dryRun) await auditAction({ tenantId, accountId, type: 'withdraw', status: 'skipped', classifier: gate.reason, jobId: job.id });
+        return { account_id: accountId, type: 'withdraw', withdrawn: 0, skipped: gate.reason };
+    }
+    dispatcher = gate.dispatcher;
 
     // List outgoing pending invitations through the sticky proxy.
     let listed: SentInvitationsResult;

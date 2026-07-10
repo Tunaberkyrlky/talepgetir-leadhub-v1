@@ -296,6 +296,30 @@ Verdict: **"not implementation-ready"** (ilk hali). 18 P1 + 8 P2. Hepsi doküman
 
 **Sonuç:** plan sertleşti; kritik yol RPC-tabanlı (mevcut `linkedin_try_consume_quota` fence deseniyle hizalı). İnşa P0'dan başlar ve her faz ilgili P1'leri uygular.
 
+## 10. Codex review #2 (gpt-5.6-sol high, P0 BUILD, 2026-07-10) — bulgular + çözümler
+
+P0 kodu (mig 106/107 + seam) build sonrası codex `gpt-5.6-sol` **high** ile review edildi: **11 P1 + 4 P2**. Uygulananlar + P0 sınırı olarak kabul edilenler:
+
+| # | Bulgu | Durum |
+|---|---|---|
+| P1.1 | `static_required` hesap `dispatcherFor` üzerinden rotating IP'ye sızabiliyordu (withdraw/poll) | ✅ `dispatcherFor` KALDIRILDI; invite/message/validate/withdraw/poll hepsi `resolveDispatcher`'dan geçiyor |
+| P1.2 | Send gate caller snapshot'ına güveniyordu (import/replace kaçabilir) | ✅ `resolveDispatcher` proxy_mode + validated pointer'ları **taze DB'den** okur |
+| P1.3 | Generation ABA (A/gen1 burn→B/gen1, stale validate B'yi açar) | ✅ hesap `last_validated_proxy_id` de tutar; gate `(proxy_id,generation)` karşılaştırır; validate **CAS** `linkedin_stamp_validated_proxy` (assignment hâlâ aynıysa yazar) |
+| P1.5 | 1:1 proxy_id'deydi, fiziksel IP'de değil | ✅ non-burned `exit_ip` partial-unique index |
+| P1.6 | import RPC holder/burned check'ten ÖNCE mutasyon yapıyordu (ok:false'ta bile canlı satır bozuluyordu) | ✅ RPC **checks-before-mutation** yeniden sıralandı; smoke H2 canlı-satır-bozulmuyor doğruladı |
+| P1.7 | ext_id `host:port`'tan → aynı gateway'de 2 IP çakışır | ✅ ext_id **gözlenen exit_ip**'ten türetilir |
+| P1.8 | Yabancı-tenant satırı sessizce ele geçirilebiliyordu | ✅ `proxy_foreign_owner` reddi |
+| P1.9 | SSRF DNS-rebinding (lookup sonrası ProxyAgent yeniden çözer) | ✅ P0 host **IP-literal şart** (IPRoyal IP verir) → rebinding yüzeyi yok |
+| P1.11 | `unknown` provider_health send'e izin veriyordu | ✅ `provider_health='healthy'` şartı |
+| P2.12 | Yasak-IP sınıflandırıcı eksik (198.18/15, TEST-NET, vb.) | ✅ aralıklar genişletildi |
+| P2.15 | country request'ten alınıyordu (operatör 'tr' uydurabilir) | ✅ country **hesabın `geo`'sundan** (server-side) türetilir |
+| **P1.4** | Gate↔network TOCTOU (resolve sonrası concurrent burn) | ⚠️ **P0 KABUL SINIRI:** burn operatör-tetikli/nadir; tam çözüm = assignment-scoped send-lease/advisory-lock (P1 follow-up). Generation-gate pencereyi daraltır. |
+| **P1.10** | generation, validate/send anındaki fiziksel çıkış-IP'yi kanıtlamıyor (import'ta echo var) | ⚠️ **P0 KABUL SINIRI:** import-anı echo + generation-gate mevcut; her-send egress-echo pahalı → follow-up (validate-anı echo eklenebilir). |
+| **P2.13** | Randomize şifreleme → re-import her seferinde gen bump (değişmese de) | ⚠️ kabul: fail-safe yön (fazladan revalidation), zarar yok; keyed fingerprint follow-up |
+| **P2.14** | GCM AAD-bağlaması yok (cred alanları takas edilebilir) | ⚠️ follow-up: versiyonlu AAD (tenant+proxy+field); P0'da cred yalnız çift olarak kullanılır (takas fail-safe kırar) |
+
+**Doğrulama:** mig 106 smoke P1-P6 + mig 107 hardening smoke **H1-H6 ALL_PASS** (izole DB, gerçek hesap dokunulmadı); server tsc temiz.
+
 ## Kaynaklar
 **Webshare (birincil):**
 - API genel: https://apidocs.webshare.io/ · Proxy listele: https://apidocs.webshare.io/proxy-list/list · İndir: https://apidocs.webshare.io/proxy-list/download

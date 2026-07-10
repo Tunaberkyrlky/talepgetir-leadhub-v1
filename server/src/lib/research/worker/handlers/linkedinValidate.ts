@@ -95,11 +95,13 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
     let result: Awaited<ReturnType<typeof validateSession>> | null = null;
     let transportError: string | null = null;
     let staticGeneration: number | null = null;
+    let staticProxyId: string | null = null;
     try {
         if (!account.li_at_enc || !account.jsessionid_enc) throw new Error('account has no stored session cookies');
         const gate = await resolveDispatcher(tenantId, account, 'validate');
         if (!gate.ok) throw new Error(`proxy gate: ${gate.reason}`);
         staticGeneration = gate.staticGeneration;
+        staticProxyId = gate.staticProxyId;
         const creds = {
             liAt: decryptCookie(account.li_at_enc),
             jsessionid: decryptCookie(account.jsessionid_enc),
@@ -151,10 +153,6 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
     // Start the warmup clock the FIRST time an account validates alive (§1 ramp origin). Only
     // set it once; it's persisted so a re-validate can never reset the ramp progress.
     if (result.classifier === 'success' && !account.warmup_started_at) patch.warmup_started_at = now;
-    // Static IP proven alive → record the generation the send-time gate compares against.
-    if (result.classifier === 'success' && account.proxy_mode === 'static_required' && staticGeneration !== null) {
-        patch.last_validated_proxy_generation = staticGeneration;
-    }
 
     // DB-level PAUSE guard (codex P1): the in-memory `account.status !== 'PAUSED'` check above
     // was loaded BEFORE the multi-second proxied probe, so an operator PAUSE that landed during
@@ -195,6 +193,16 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
         classifier: result.classifier, http_status: result.httpStatus, job_id: job.id,
     });
     if (auditErr) log.warn({ err: auditErr, accountId }, 'validate audit insert failed (non-fatal)');
+
+    // Static IP proven alive → CAS-stamp the validated (proxy_id, generation) the send-time gate
+    // compares against. The RPC no-ops if the assignment changed since we resolved it (a replaced
+    // proxy is never marked validated on the strength of a stale probe; codex P1.3).
+    if (result.classifier === 'success' && staticProxyId !== null && staticGeneration !== null) {
+        const { error: stampErr } = await researchSupabaseAdmin.rpc('linkedin_stamp_validated_proxy', {
+            p_tenant: tenantId, p_account: accountId, p_proxy: staticProxyId, p_generation: staticGeneration,
+        });
+        if (stampErr) log.warn({ err: stampErr.message, accountId }, 'validate proxy-generation stamp failed (non-fatal)');
+    }
 
     const finalStatus = (patch.status as string | undefined) ?? account.status;
     // §6 auto-pause: a probe that lands the account in a hard state cancels its queued jobs so

@@ -21,7 +21,7 @@ import { researchSupabaseAdmin } from '../../supabase.js';
 import { createLogger } from '../../../logger.js';
 import { enqueueJob } from '../../queue.js';
 import { RESEARCH_JOB_TYPES } from '../../jobTypes.js';
-import { loadAccount, credsFor, dispatcherFor, classifierForHttp, applyWriteHealth, auditAction } from '../../../linkedin/actions.js';
+import { loadAccount, credsFor, resolveDispatcher, classifierForHttp, applyWriteHealth, auditAction } from '../../../linkedin/actions.js';
 import { listConnections, listConversations } from '../../../linkedin/client.js';
 import { markReplied, type LeadRow } from '../../../linkedin/sequences/engine.js';
 
@@ -84,11 +84,18 @@ export const linkedinPollHandler: JobHandler = async ({ job, heartbeat }) => {
     let creds, dispatcher;
     try {
         creds = credsFor(account);
-        dispatcher = dispatcherFor(account);
     } catch (err) {
         await auditAction({ tenantId, accountId, type: 'poll', status: 'error', classifier: 'transport_error', error: err instanceof Error ? err.message : String(err), jobId: job.id });
         throw err;
     }
+    // Fail-closed egress: poll through the account's OWN dedicated IP, never the rotating gateway
+    // (codex P1.1) — a poll from a second IP is itself an account-correlation signal.
+    const gate = await resolveDispatcher(tenantId, account, 'send');
+    if (!gate.ok) {
+        const rescheduled = await reschedulePoll(); // keep the loop alive for recovery
+        return { account_id: accountId, skipped: gate.reason, rescheduled };
+    }
+    dispatcher = gate.dispatcher;
 
     let accepted = 0, replied = 0;
 

@@ -28,14 +28,19 @@ function isForbiddenIp(ip: string): boolean {
     const v = net.isIP(ip);
     if (v === 4) {
         const p = ip.split('.').map(Number);
-        if (p.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
-        const [a, b] = p;
+        if (p.length !== 4 || p.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
+        const [a, b, c] = p;
         if (a === 10 || a === 127 || a === 0) return true;                 // private / loopback / this-host
         if (a === 169 && b === 254) return true;                           // link-local + cloud metadata 169.254.169.254
         if (a === 172 && b >= 16 && b <= 31) return true;                  // private
         if (a === 192 && b === 168) return true;                           // private
         if (a === 100 && b >= 64 && b <= 127) return true;                 // CGNAT
-        if (a >= 224) return true;                                         // multicast / reserved
+        if (a === 192 && b === 0 && c === 0) return true;                  // IETF protocol assignments
+        if (a === 192 && b === 0 && c === 2) return true;                  // TEST-NET-1
+        if (a === 198 && (b === 18 || b === 19)) return true;             // benchmarking 198.18.0.0/15
+        if (a === 198 && b === 51 && c === 100) return true;              // TEST-NET-2
+        if (a === 203 && b === 0 && c === 113) return true;              // TEST-NET-3
+        if (a >= 224) return true;                                         // multicast / reserved / 240/4
         return false;
     }
     if (v === 6) {
@@ -127,7 +132,6 @@ export interface ImportProxyInput {
     port: number;
     username: string;
     password: string;
-    expectedCountry: string;      // ISO-2 the operator asserts (e.g. 'tr')
     provider?: string;
     extId?: string | null;
     planId?: string | null;
@@ -146,8 +150,18 @@ export interface ImportProxyResult {
 /** SSRF-guard + echo-verify + burned-check + encrypt + atomic import/assign via RPC. */
 export async function importAndAssignProxy(input: ImportProxyInput): Promise<ImportProxyResult> {
     const provider = input.provider ?? 'iproyal';
-    const expected = input.expectedCountry.trim().toLowerCase();
-    if (!/^[a-z]{2}$/.test(expected)) return { ok: false, error: 'bad_country' };
+
+    // P0 requires an IP literal for the host (IPRoyal hands out IPs), which eliminates the
+    // DNS-rebinding surface entirely — the vetted address IS what undici dials (codex P1.9).
+    if (!net.isIP(input.host)) return { ok: false, error: 'host_not_ip' };
+
+    // The expected country is the ACCOUNT's own geo (server-side), never a request field — an
+    // operator can't assert 'tr' for a US exit or a US account (codex P2.15).
+    const { data: acct, error: acctErr } = await researchSupabaseAdmin
+        .from('linkedin_accounts').select('geo').eq('id', input.accountId).eq('tenant_id', input.tenantId).maybeSingle();
+    if (acctErr) return { ok: false, error: 'account_load_failed' };
+    const expected = ((acct as { geo?: string | null } | null)?.geo ?? '').trim().toLowerCase();
+    if (!/^[a-z]{2}$/.test(expected)) return { ok: false, error: 'account_no_geo' };
 
     let verify: ProxyVerify;
     try {
@@ -164,7 +178,9 @@ export async function importAndAssignProxy(input: ImportProxyInput): Promise<Imp
         return { ok: false, error: 'country_mismatch', exitIp: verify.exitIp, country: verify.country, countryMismatch: true };
     }
 
-    const extId = input.extId ?? `manual:${input.host}:${input.port}`;
+    // Identity is the OBSERVED physical exit IP (canonical), NOT host:port — two different IPs
+    // behind one gateway host:port would otherwise collide on ext_id (codex P1.7).
+    const extId = input.extId ?? `manual:${verify.exitIp}`;
     const { data, error } = await researchSupabaseAdmin.rpc('linkedin_import_and_assign_proxy', {
         p_tenant: input.tenantId,
         p_account: input.accountId,

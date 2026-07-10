@@ -49,13 +49,14 @@ export interface LinkedInAccountRow {
     geo: string | null;
     proxy_mode: string;
     last_validated_proxy_generation: number | null;
+    last_validated_proxy_id: string | null;
     created_at: string;
 }
 
 const ACCOUNT_COLUMNS =
     'id, status, proxy_session_id, user_agent, accept_language, li_at_enc, jsessionid_enc, ' +
     'member_urn, daily_counters, warmup_started_at, working_hours, timezone, geo, ' +
-    'proxy_mode, last_validated_proxy_generation, created_at';
+    'proxy_mode, last_validated_proxy_generation, last_validated_proxy_id, created_at';
 
 /** The warmup-derived DAILY cap for this account+action (limits.ts §1 ramp). */
 export function dailyCapFor(account: LinkedInAccountRow, type: ActionType, now: number = Date.now()): number {
@@ -90,10 +91,8 @@ export function credsFor(account: LinkedInAccountRow): VoyagerCreds {
     };
 }
 
-export function dispatcherFor(account: LinkedInAccountRow) {
-    if (!account.proxy_session_id) throw new Error('account has no proxy_session_id');
-    return proxyAgentFor(account.proxy_session_id, account.geo);
-}
+// (dispatcherFor removed — every LinkedIn request now routes through resolveDispatcher so the
+// fail-closed static-proxy invariants can't be bypassed; codex P1.1.)
 
 interface ProxyAssignmentRow {
     proxy_id: string;
@@ -139,7 +138,7 @@ export async function loadProxyAssignment(
 }
 
 export type DispatcherGate =
-    | { ok: true; dispatcher: Dispatcher; staticGeneration: number | null }
+    | { ok: true; dispatcher: Dispatcher; staticGeneration: number | null; staticProxyId: string | null }
     | { ok: false; reason: string };
 
 /** Minimal account shape resolveDispatcher needs (both the send + validate rows satisfy it). */
@@ -147,37 +146,48 @@ export interface ProxyResolvable {
     id: string;
     proxy_session_id: string | null;
     geo: string | null;
-    proxy_mode: string;
-    last_validated_proxy_generation: number | null;
 }
 
 /**
  * Resolve the egress dispatcher for an account, enforcing the fail-closed static invariants
  * (codex §9). `static_required` accounts MUST use their assigned dedicated IP and never fall
- * back to the rotating gateway; a send additionally requires the account's validated
- * generation to match the proxy's current endpoint (validate!=send-same-IP, P1.12). Returns
- * a skip reason (never throws for a gate failure) so the caller can audit + refund cleanly.
+ * back to the rotating gateway; a SEND additionally requires the account's validated
+ * (proxy_id, generation) to match the CURRENT assignment (validate==send same IP, no ABA).
+ *
+ * The mode + validation pointers are re-read from the DB here — NEVER trusted from the
+ * caller's account snapshot (codex P1.2): an import that flipped the account to static, or a
+ * replacement that cleared its validation, must not be missed by a stale in-memory row.
+ * Returns a skip reason (never throws for a gate failure) so the caller can audit + refund.
  */
 export async function resolveDispatcher(
     tenantId: string, account: ProxyResolvable, purpose: 'send' | 'validate',
 ): Promise<DispatcherGate> {
-    if (account.proxy_mode !== 'static_required') {
+    const { data: fresh, error: freshErr } = await researchSupabaseAdmin
+        .from('linkedin_accounts')
+        .select('proxy_mode, last_validated_proxy_id, last_validated_proxy_generation')
+        .eq('id', account.id).eq('tenant_id', tenantId).maybeSingle();
+    if (freshErr) throw freshErr;
+    if (!fresh) return { ok: false, reason: 'account_gone' };
+    const f = fresh as { proxy_mode: string; last_validated_proxy_id: string | null; last_validated_proxy_generation: number | null };
+
+    if (f.proxy_mode !== 'static_required') {
         if (!account.proxy_session_id) return { ok: false, reason: 'no_proxy_session' };
-        return { ok: true, dispatcher: proxyAgentFor(account.proxy_session_id, account.geo), staticGeneration: null };
+        return { ok: true, dispatcher: proxyAgentFor(account.proxy_session_id, account.geo), staticGeneration: null, staticProxyId: null };
     }
     const asg = await loadProxyAssignment(tenantId, account.id);
     if (!asg) return { ok: false, reason: 'no_static_proxy' };
-    if (asg.reputation_state !== 'clean' || asg.provider_health === 'unhealthy') {
+    if (asg.reputation_state !== 'clean' || asg.provider_health !== 'healthy') {
         return { ok: false, reason: 'proxy_unhealthy' };
     }
-    if (purpose === 'send' && account.last_validated_proxy_generation !== asg.endpoint_generation) {
+    if (purpose === 'send'
+        && (f.last_validated_proxy_id !== asg.proxy_id || f.last_validated_proxy_generation !== asg.endpoint_generation)) {
         return { ok: false, reason: 'proxy_revalidation_required' };
     }
     const dispatcher = proxyAgentForStatic(
         `${asg.proxy_id}:${asg.endpoint_generation}`, asg.host, asg.port,
         decryptProxySecret(asg.username_enc), decryptProxySecret(asg.password_enc),
     );
-    return { ok: true, dispatcher, staticGeneration: asg.endpoint_generation };
+    return { ok: true, dispatcher, staticGeneration: asg.endpoint_generation, staticProxyId: asg.proxy_id };
 }
 
 /** Current same-day count for a counter key (0 after a rollover we haven't written yet). */
