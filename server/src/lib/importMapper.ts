@@ -58,17 +58,12 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
     'companies.product_services': {
         table: 'companies',
         field: 'product_services',
+        // product_portfolio was merged into product_services — its aliases live here now,
+        // so a "portfolio"/"katalog" column auto-maps into the single product list.
         aliases: [
             'product_services', 'products', 'services', 'product/service', 'products and services',
             'ürün hizmet', 'urun hizmet', 'ürünler', 'urunler', 'hizmetler',
             'ürün ve hizmetler', 'urun ve hizmetler', 'specialties', 'uzmanlık alanı',
-        ],
-        required: false,
-    },
-    'companies.product_portfolio': {
-        table: 'companies',
-        field: 'product_portfolio',
-        aliases: [
             'product_portfolio', 'product portfolio', 'portfolio', 'ürün portföyü', 'urun portfoyu',
             'portföy', 'portfoy', 'ürün kataloğu', 'urun katalogu', 'product catalog',
             'product catalogue', 'katalog', 'ürün yelpazesi',

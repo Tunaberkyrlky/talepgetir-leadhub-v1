@@ -25,6 +25,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.6',
+        date: '2026-07-09',
+        type: 'improvement',
+        title: { tr: 'Ürün / Hizmetler Tek Alanda', en: 'Products / Services in One Field' },
+        about: {
+            tr: 'Ürün portföyü ile ürün / hizmetler alanları tek "Ürün / Hizmetler" listesinde birleştirildi ve kategoriler tek tek etiketler olarak ayrı tutuluyor.',
+            en: 'Product portfolio and products / services are combined into a single "Products / Services" list, with categories kept separately as individual tags.',
+        },
+        usage: {
+            tr: 'Şirket formundaki tek "Ürün / Hizmetler" kutusuna kategorileri virgülle ekleyebilir, filtrede bunlara göre arayabilirsiniz.',
+            en: 'You can add categories to the single "Products / Services" box in the company form separated by commas, and filter by them.',
+        },
+        notes: {
+            tr: 'Önceki ürün portföyü değerleriniz bu listeye taşındı, ayrıca birleşik kayıtlar tek tek kategorilere bölündü.',
+            en: 'Your previous product portfolio values were moved into this list, and combined entries were split into individual categories.',
+        },
+    },
+    {
         version: '1.19.5',
         date: '2026-07-08',
         type: 'improvement',

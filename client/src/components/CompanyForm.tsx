@@ -40,7 +40,6 @@ interface Company {
     industry: string | null;
     employee_size: string | null;
     product_services: string[] | null;
-    product_portfolio: string[] | null;
     linkedin: string | null;
     company_phone: string | null;
     company_email: string | null;
@@ -77,7 +76,6 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
             industry: '',
             employee_size: '',
             product_services: [] as string[],
-            product_portfolio: [] as string[],
             linkedin: '',
             company_phone: '',
             company_email: '',
@@ -110,7 +108,6 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                 industry: company.industry || '',
                 employee_size: company.employee_size || '',
                 product_services: company.product_services ?? [],
-                product_portfolio: company.product_portfolio ?? [],
                 linkedin: company.linkedin || '',
                 company_phone: company.company_phone || '',
                 company_email: sanitizeEmail(company.company_email),
@@ -317,7 +314,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                         />
                     </SimpleGrid>
 
-                    {/* Product / Services — list of categories (chips) */}
+                    {/* Product / Services — list of categories (chips); product_portfolio merged in here */}
                     <TagsInput
                         label={t('company.productServices')}
                         placeholder="CRM, ERP, ..."
@@ -325,16 +322,6 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                         clearable
                         radius="md"
                         {...form.getInputProps('product_services')}
-                    />
-
-                    {/* Product Portfolio — list of categories (chips) */}
-                    <TagsInput
-                        label={t('company.productPortfolio')}
-                        placeholder={t('company.productPortfolio')}
-                        splitChars={[',', ';', '|']}
-                        clearable
-                        radius="md"
-                        {...form.getInputProps('product_portfolio')}
                     />
 
                     {/* Company Summary */}

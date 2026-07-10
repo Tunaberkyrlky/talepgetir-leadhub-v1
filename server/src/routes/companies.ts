@@ -147,7 +147,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         let dataQuery = db
             .from('companies')
-            .select('id, name, website, location, latitude, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at')
+            .select('id, name, website, location, latitude, industry, employee_size, product_services, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at')
             .eq('tenant_id', tenantId);
 
         // (search handled via RPC in the ranked path above — no ILIKE here)
@@ -406,7 +406,7 @@ router.post(
         try {
             const tenantId = req.tenantId!;
             const {
-                name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone,
+                name, website, location, industry, employee_size, product_services, linkedin, company_phone,
                 company_email: rawCompanyEmail, email_status,
                 stage, company_summary, internal_notes, next_step, custom_fields,
                 fit_score, custom_field_1, custom_field_2, custom_field_3,
@@ -457,7 +457,6 @@ router.post(
                 industry: industry ? industry.charAt(0).toUpperCase() + industry.slice(1) : null,
                 employee_size: employee_size || null,
                 product_services: parseList(product_services),
-                product_portfolio: parseList(product_portfolio),
                 linkedin: linkedin || null,
                 company_phone: company_phone || null,
                 company_email: company_email || null,
@@ -566,7 +565,7 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email: rawCompanyEmail, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3 } = req.body;
+            const { name, website, location, industry, employee_size, product_services, linkedin, company_phone, company_email: rawCompanyEmail, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3 } = req.body;
 
             const company_email = sanitizeEmail(rawCompanyEmail);
 
@@ -599,7 +598,6 @@ router.put(
             if (industry !== undefined) updateData.industry = industry ? industry.charAt(0).toUpperCase() + industry.slice(1) : industry;
             if (employee_size !== undefined) updateData.employee_size = employee_size;
             if (product_services !== undefined) updateData.product_services = parseList(product_services);
-            if (product_portfolio !== undefined) updateData.product_portfolio = parseList(product_portfolio);
             if (linkedin !== undefined) updateData.linkedin = linkedin;
             if (company_phone !== undefined) updateData.company_phone = company_phone;
             if (company_email !== undefined) updateData.company_email = company_email;
