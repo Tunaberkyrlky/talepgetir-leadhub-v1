@@ -16,7 +16,7 @@ import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { validateBody, smtpConnectionSchema, uuidField } from '../lib/validation.js';
-import { listConnections, PUBLIC_COLUMNS } from '../lib/emailConnections.js';
+import { listConnections, PUBLIC_COLUMNS, computeRampCap } from '../lib/emailConnections.js';
 import { verifySmtp } from '../lib/mail/smtpAdapter.js';
 import { describeMailVerifyError } from '../lib/mail/verifyErrors.js';
 import { verifyImap } from '../lib/imapInbound.js';
@@ -139,11 +139,15 @@ router.get('/status', async (req: Request, res: Response): Promise<void> => {
             .order('is_default', { ascending: false })
             .order('connected_at', { ascending: true });
 
-        const connections = (data as unknown as Array<{
+        const rows = (data as unknown as Array<{
             id: string; provider: string; email_address: string; is_default: boolean;
             smtp_host: string | null; imap_host: string | null; last_polled_at: string | null;
             connected_at: string;
         }> | null) ?? [];
+
+        // ramp_cap: kutunun bugünkü otomatik gönderim tavanı (task-6). Bağlantı yaşından
+        // türetilir; kaynak formül tek yerde (computeRampCap) tutulur, UI yalnız gösterir.
+        const connections = rows.map((c) => ({ ...c, ramp_cap: computeRampCap(c.connected_at) }));
 
         const primary = connections.find((c) => c.is_default) ?? connections[0];
 
@@ -221,7 +225,10 @@ router.post('/smtp', validateBody(smtpConnectionSchema), async (req: Request, re
                 email_address: b.email_address,
                 connection_id: null,
                 is_active: true,
-                connected_at: new Date().toISOString(),
+                // connected_at bilerek yazılmıyor: yeni satırda DB default'u (now()) dolar,
+                // yeniden bağlanmada (upsert conflict) mevcut değeri KORUNUR. Böylece ramp-up
+                // (task-6) yaşı sıfırlanmaz — reconnect kutuyu 20/gün'e geri düşürmez. Ramp
+                // ancak satır tamamen silinip yeniden eklenirse baştan başlar.
                 smtp_host: b.smtp_host,
                 smtp_port: b.smtp_port,
                 smtp_secure: b.smtp_secure,
@@ -414,7 +421,9 @@ router.post('/callback', async (req: Request, res: Response, next: NextFunction)
                 email_address: emailAddress,
                 connection_id: connectionId,
                 is_active: true,
-                connected_at: new Date().toISOString(),
+                // connected_at bilerek yazılmıyor: yeni satırda DB default'u (now()) dolar,
+                // yeniden bağlanmada (upsert conflict) mevcut değeri KORUNUR → ramp-up
+                // (task-6) yaşı reconnect'te sıfırlanmaz.
             }, { onConflict: 'tenant_id,email_address' })
             .select('id')
             .single();

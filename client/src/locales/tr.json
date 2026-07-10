@@ -1009,6 +1009,7 @@
         "makeDefault": "Varsayılan yap",
         "defaultSet": "Varsayılan hesap güncellendi",
         "noConnectionHint": "Henüz bağlı hesap yok. Kampanya ve mail gönderimi için en az bir hesap bağlayın.",
+        "rampCapHint": "Bugünkü otomatik limit: {{cap}}/gün",
         "noActiveTenant": "Aktif tenant seçili değil",
         "domainHealth": {
             "title": "Alan Adı Sağlık Durumu",

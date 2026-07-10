@@ -45,6 +45,53 @@ const PUBLIC_COLUMNS =
     'id, provider, email_address, is_active, is_default, connected_at, ' +
     'smtp_host, smtp_port, imap_host, imap_port, username, last_polled_at';
 
+// ── Otomatik ramp-up (task-6) ────────────────────────────────────────────────
+// Kutu-başı otomatik gönderim rampası: yeni bağlanan bir kutu 20/gün ile başlar,
+// bağlantıdan (connected_at) itibaren geçen her 3 günde tavan +5 artar ve 50/gün
+// normal tavanında durur. Bu bir ÜRÜN güvenlik limitidir (sağlayıcı limiti değil);
+// amaç yeni bir kutunun itibarını erken yüksek hacimle yakmamaktır. Politika:
+// 05-mailbox-onboarding-and-safety-policy.md ("Conservative initial sending
+// profiles") ve 00-EYLEM-PLANI-SPAM-COZUMU.md §4.
+export const RAMP_START_CAP = 20; // yeni kutunun ilk günlük otomatik tavanı
+export const RAMP_STEP = 5;       // her adımdaki artış
+export const RAMP_STEP_DAYS = 3;  // kaç günde bir artar
+export const RAMP_MAX_CAP = 50;   // normal tavan
+
+/**
+ * Bağlantı yaşına göre kutu-başı otomatik günlük tavanı hesaplar (saf fonksiyon).
+ * connected_at bilinmiyorsa (null/geçersiz) kutu "oturmuş" kabul edilir ve tam tavan
+ * (RAMP_MAX_CAP) döner — bu sayede bu özellik ÖNCESİ bağlanmış eski kutular anında
+ * 50/gün olur, sıfırdan rampa girmez.
+ */
+export function computeRampCap(
+    connectedAt: string | Date | null | undefined,
+    nowMs: number = Date.now(),
+): number {
+    if (!connectedAt) return RAMP_MAX_CAP;
+    const connectedMs = connectedAt instanceof Date ? connectedAt.getTime() : Date.parse(connectedAt);
+    if (!Number.isFinite(connectedMs)) return RAMP_MAX_CAP;
+    const elapsedDays = Math.floor((nowMs - connectedMs) / 86_400_000);
+    // Gelecek tarihli/negatif yaş (saat kayması) → 0 adım, en düşük tavan (savunmacı).
+    const steps = Math.max(0, Math.floor(elapsedDays / RAMP_STEP_DAYS));
+    return Math.min(RAMP_MAX_CAP, RAMP_START_CAP + RAMP_STEP * steps);
+}
+
+/**
+ * Belirli bir gönderen adresi için güncel ramp tavanı (connected_at'i okur).
+ * Aktif bağlantı bulunamazsa (yarış/silinme) RAMP_MAX_CAP döner: ramp fazladan bir
+ * kısıt eklemez, gönderim zaten kendi bağlantı kapısında düşer.
+ */
+export async function getRampCapForAccount(tenantId: string, accountEmail: string): Promise<number> {
+    const { data } = await supabaseAdmin
+        .from('email_connections')
+        .select('connected_at')
+        .eq('tenant_id', tenantId)
+        .eq('email_address', accountEmail)
+        .eq('is_active', true)
+        .maybeSingle();
+    return computeRampCap((data as { connected_at?: string | null } | null)?.connected_at ?? null);
+}
+
 /** Resolve a specific connection by its sender address. */
 export async function getConnectionByEmail(
     tenantId: string,

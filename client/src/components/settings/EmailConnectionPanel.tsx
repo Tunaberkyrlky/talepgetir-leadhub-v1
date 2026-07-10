@@ -111,6 +111,11 @@ export default function EmailConnectionPanel() {
                                                 {providerLabel(c.provider)}
                                                 {c.imap_host && ` · ${t('campaign.imapReading', 'Yanıt okuma açık')}`}
                                             </Text>
+                                            {typeof c.ramp_cap === 'number' && (
+                                                <Text size="xs" c="dimmed">
+                                                    {t('campaign.rampCapHint', 'Bugünkü otomatik limit: {{cap}}/gün', { cap: c.ramp_cap })}
+                                                </Text>
+                                            )}
                                             <DomainHealthBadges connectionId={c.id} />
                                         </div>
                                     </Group>

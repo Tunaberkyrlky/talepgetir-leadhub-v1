@@ -116,6 +116,7 @@ export interface EmailConnectionItem {
     imap_host?: string | null;
     last_polled_at?: string | null;
     connected_at?: string;
+    ramp_cap?: number; // kutunun bugünkü otomatik gönderim tavanı (task-6, backend hesaplar)
 }
 
 export interface EmailConnectionStatus {

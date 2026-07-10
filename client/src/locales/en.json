@@ -1009,6 +1009,7 @@
         "makeDefault": "Make default",
         "defaultSet": "Default account updated",
         "noConnectionHint": "No connected account yet. Connect at least one account to send campaigns and emails.",
+        "rampCapHint": "Today's automated limit: {{cap}}/day",
         "noActiveTenant": "No active tenant selected",
         "domainHealth": {
             "title": "Domain Health Check",

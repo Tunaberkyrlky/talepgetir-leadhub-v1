@@ -19,6 +19,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { nextSendableTime, startOfLocalDay, startOfNextLocalDay, type SendingWindow } from './sendingWindow.js';
 import { validateEmail, validateEmails } from './emailValidator.js';
 import { filterSuppressed, addSuppression } from './suppressions.js';
+import { getRampCapForAccount } from './emailConnections.js';
 
 const log = createLogger('campaignEngine');
 
@@ -616,11 +617,21 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 // aynı kutuyu kullansın diye burada bir kez çözülür.
                 const accountEmail = await resolveAccountEmail(enrollment.tenant_id, campaign.settings, enrollment.id);
 
-                // Kutu-başı günlük limit: seçilen kutu bugünkü tavanını doldurduysa bu
-                // kişiyi ertesi günün açılışına ertele (kutu itibarını korur, tenant geneli sayar).
-                if (accountEmail && settings.per_inbox_limit && settings.per_inbox_limit > 0) {
+                // Kutu-başı günlük limit + otomatik ramp-up (task-6): seçilen kutu
+                // bugünkü ETKİN tavanını doldurduysa bu kişiyi ertesi günün açılışına
+                // ertele (kutu itibarını korur, tenant geneli sayar).
+                //   etkin tavan = min( statik per_inbox_limit (varsa), bağlantı-yaşı ramp tavanı )
+                // Ramp bir ürün güvenlik limitidir: statik limit AYARLANMASA da her zaman
+                // uygulanır (yeni kutu 20/gün → her 3 günde +5 → 50/gün). getRampCapForAccount
+                // bu özellik öncesi eski kutular için 50 döner (sıfırdan rampaya sokmaz).
+                if (accountEmail) {
+                    const rampCap = await getRampCapForAccount(enrollment.tenant_id, accountEmail);
+                    const staticCap = settings.per_inbox_limit && settings.per_inbox_limit > 0
+                        ? settings.per_inbox_limit
+                        : Number.POSITIVE_INFINITY;
+                    const effectiveCap = Math.min(staticCap, rampCap);
                     const accountSentToday = await countSentTodayForAccount(enrollment.tenant_id, accountEmail, tz);
-                    if (accountSentToday >= settings.per_inbox_limit) {
+                    if (accountSentToday >= effectiveCap) {
                         const nextOpen = scheduleMs(startOfNextLocalDay(nowMs, tz), settings);
                         await supabaseAdmin.from('campaign_enrollments')
                             .update({ next_scheduled_at: new Date(nextOpen).toISOString() })
