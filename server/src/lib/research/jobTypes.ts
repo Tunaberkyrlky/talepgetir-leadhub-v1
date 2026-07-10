@@ -51,6 +51,8 @@ export const RESEARCH_JOB_TYPES = {
     LINKEDIN_POLL: 'linkedin:poll',
     /** LinkedIn: daily PII retention purge (old audit rows + stale-lead anonymize, §6). Faz 5. */
     LINKEDIN_RETENTION: 'linkedin:retention',
+    /** LinkedIn: daily staged reconcile of the static-proxy inventory vs the provider (Proxy P2, §4a). */
+    LINKEDIN_PROXY_SYNC: 'linkedin:proxy-sync',
     // RESERVED — do NOT add as constants until each ships a REGISTERED handler.
     // Adding them here would widen isKnownJobType, so the internal POST /api/research/jobs
     // could enqueue a type with no handler → worker fails "No handler registered" and

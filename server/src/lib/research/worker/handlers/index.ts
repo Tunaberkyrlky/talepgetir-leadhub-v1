@@ -24,6 +24,7 @@ import { linkedinWithdrawHandler } from './linkedinWithdraw.js';
 import { linkedinSequenceTickHandler } from './linkedinSequenceTick.js';
 import { linkedinPollHandler } from './linkedinPoll.js';
 import { linkedinRetentionHandler } from './linkedinRetention.js';
+import { linkedinProxySyncHandler } from './linkedinProxySync.js';
 
 const handlers: Record<string, JobHandler> = {
     [RESEARCH_JOB_TYPES.PING]: pingHandler,
@@ -46,6 +47,7 @@ const handlers: Record<string, JobHandler> = {
     [RESEARCH_JOB_TYPES.LINKEDIN_SEQUENCE_TICK]: linkedinSequenceTickHandler,
     [RESEARCH_JOB_TYPES.LINKEDIN_POLL]: linkedinPollHandler,
     [RESEARCH_JOB_TYPES.LINKEDIN_RETENTION]: linkedinRetentionHandler,
+    [RESEARCH_JOB_TYPES.LINKEDIN_PROXY_SYNC]: linkedinProxySyncHandler,
 };
 
 export function getHandler(type: string): JobHandler | undefined {

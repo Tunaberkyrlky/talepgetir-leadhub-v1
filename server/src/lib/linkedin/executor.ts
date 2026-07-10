@@ -57,17 +57,23 @@ function errMsg(err: unknown): string {
  * via an atomic assignment-scoped lease (mig 109, codex §10 P1.4 follow-up) instead of trusting
  * resolveDispatcher's earlier snapshot — a burn/health-apply/replacement landing in the gap
  * between the gate check and the actual outbound HTTP call would otherwise tunnel a send
- * through an IP the caller only THOUGHT was still validated. `legacy_rotating` accounts
- * (gate.staticProxyId === null) need no lease at all and pass straight through. Denial —
- * including a proxy/generation mismatch against the dispatcher resolveDispatcher already built
- * (the assignment moved in the tiny window between the two reads) — is fail-closed: the caller
+ * through an IP the caller only THOUGHT was still validated. A `legacy_rotating` account
+ * (gate.staticProxyId === null) still ROUND-TRIPS the RPC (C5): only a fresh 'not_static_required'
+ * refusal confirms it is genuinely legacy and may proceed unleased — a GRANTED lease there means it
+ * flipped to static after resolveDispatcher (mode-transition TOCTOU) and is fail-closed skipped.
+ * Denial — including a proxy/generation mismatch against the dispatcher resolveDispatcher already
+ * built (the assignment moved in the tiny window between the two reads) — is fail-closed: the caller
  * SKIPs (never throws, never falls back to rotating), exactly like a resolveDispatcher gate miss.
  */
 async function acquireStaticLease(
     tenantId: string, accountId: string, jobId: string,
     gate: { staticProxyId: string | null; staticGeneration: number | null },
 ): Promise<{ ok: true; token: string | null } | { ok: false; classifier: string }> {
-    if (gate.staticProxyId === null) return { ok: true, token: null }; // legacy_rotating — no lease needed
+    // C5 (codex P1.5): close the legacy→static mode-transition TOCTOU. We must NOT early-return on
+    // gate.staticProxyId===null and send unleased — the account could have flipped legacy_rotating →
+    // static_required between resolveDispatcher's read and here (a proxy import/claim landed), which
+    // would tunnel a send through a rotating IP an admin already replaced with a dedicated one. So we
+    // ALWAYS call the RPC, which re-derives proxy_mode FRESH, and interpret against the gate snapshot.
     // A transient DB/schema error while ACQUIRING the lease must degrade to the SAME fail-closed
     // skip as an explicit denial — never throw through to the caller (that would bypass the quota
     // refund + audit path below and burn the maxAttempts=1 attempt while leaking the reservation;
@@ -78,7 +84,34 @@ async function acquireStaticLease(
     } catch {
         return { ok: false, classifier: 'lease_error' };
     }
-    if (!lease.ok) return { ok: false, classifier: `lease_${lease.reason}` };
+    if (!lease.ok) {
+        // The account is genuinely still legacy_rotating: the RPC re-read proxy_mode <> 'static_required'
+        // and refused with 'not_static_required' (mig 109). With the gate ALSO saying legacy
+        // (staticProxyId===null) the two agree → no lease is needed, proceed unleased. ANY other refusal
+        // reason (or a not_static refusal while the gate thought static) is fail-closed skip.
+        //
+        // ACCEPTED BOUNDARY (post-C5 residual): this 'not_static_required' read is fresh AS OF the RPC
+        // call, but `fn()` (the actual network send) doesn't start until a few ms later — a mode flip
+        // (proxy import/claim landing) in that gap can still let THIS ONE call ride the rotating
+        // dispatcher `withStaticLease` already captured, even though the account is now static_required.
+        // We deliberately do not close this last sliver: the import/claim RPC path (mig 111) nulls the
+        // account's validated proxy pointers on flip, so every SUBSEQUENT send is gated (this call was
+        // already in flight, authorized under legacy mode when it was resolved, and the window is
+        // milliseconds). Fully closing it would need a legacy-mode lease honored by
+        // import/claim too — not built, since the risk window is this small and self-healing on the
+        // very next call.
+        if (gate.staticProxyId === null && lease.reason === 'not_static_required') {
+            return { ok: true, token: null }; // legacy confirmed fresh — no lease needed
+        }
+        return { ok: false, classifier: `lease_${lease.reason}` };
+    }
+    // A lease was GRANTED. If the gate still thought this was a legacy account, the account flipped to
+    // static_required AFTER resolveDispatcher — the dispatcher already built is the STALE rotating one.
+    // Release the just-granted lease and fail-closed skip rather than send through the wrong egress.
+    if (gate.staticProxyId === null) {
+        await releaseSendLease(tenantId, accountId, lease.leaseToken);
+        return { ok: false, classifier: 'lease_mode_transition' };
+    }
     if (lease.proxyId !== gate.staticProxyId || lease.generation !== gate.staticGeneration) {
         // The assignment changed between resolveDispatcher's read and this one — the dispatcher
         // already built is for the STALE pointer. Release the just-granted (but now-useless)
@@ -87,6 +120,49 @@ async function acquireStaticLease(
         return { ok: false, classifier: 'lease_mismatch' };
     }
     return { ok: true, token: lease.leaseToken };
+}
+
+/** Gate shape `withStaticLease` needs — the `ok:true` branch of `DispatcherGate` satisfies this
+ *  structurally, so callers can pass their already-narrowed `resolveDispatcher` result straight
+ *  through. */
+export interface StaticLeaseGate {
+    staticProxyId: string | null;
+    staticGeneration: number | null;
+}
+
+/**
+ * Run ONE network call that tunnels through `gate`'s dispatcher inside a freshly acquired
+ * assignment-scoped send-lease (109), released immediately after `fn` settles — on success OR
+ * on throw (try/finally, so a caller can never forget to release). Built to extend the same
+ * gate<->network TOCTOU close that `performInvite`/`performMessage` apply to their sends onto
+ * OTHER proxy-tunneled paths (withdraw's list+withdraw calls, poll's connections/conversations
+ * reads) that don't fit the single-send shape those two functions assume.
+ *
+ * Deliberately ONE lease per network call, not one lease held across a whole multi-call run: the
+ * lease TTL is short (default 45s, hard-clamped to <=120s in the RPC) while a multi-call caller
+ * (e.g. withdraw's up-to-10-withdrawal loop) can run for minutes given client.ts's own 30s
+ * per-call TOTAL_DEADLINE_MS — a single lease acquired once up front could lapse mid-loop and
+ * silently stop protecting the later calls. Re-acquiring immediately before every individual
+ * network call keeps each one inside a freshly fresh-DB-verified, still-live lease window, at the
+ * cost of one extra RPC round trip per call (cheap relative to the LinkedIn HTTP call itself).
+ *
+ * `legacy_rotating` accounts (`gate.staticProxyId === null`) need no lease at all and `fn` runs
+ * unprotected, same as `acquireStaticLease` above. Lease denial (`lease_held` / `lease_error` /
+ * `lease_mismatch` / any RPC-reported reason) never throws — the caller gets a tagged skip result
+ * and decides its own conservative skip/reschedule semantics; the network call is simply never
+ * attempted in that case.
+ */
+export async function withStaticLease<T>(
+    tenantId: string, accountId: string, jobId: string, gate: StaticLeaseGate, fn: () => Promise<T>,
+): Promise<{ ok: true; result: T } | { ok: false; classifier: string }> {
+    const lease = await acquireStaticLease(tenantId, accountId, jobId, gate);
+    if (!lease.ok) return { ok: false, classifier: lease.classifier };
+    try {
+        const result = await fn();
+        return { ok: true, result };
+    } finally {
+        if (lease.token) await releaseSendLease(tenantId, accountId, lease.token);
+    }
 }
 
 /**

@@ -15,7 +15,9 @@ import { createLogger } from '../../lib/logger.js';
 import { validateBody, uuidField } from '../../lib/validation.js';
 import { enqueueJob } from '../../lib/research/queue.js';
 import { RESEARCH_JOB_TYPES } from '../../lib/research/jobTypes.js';
+import { researchSupabaseAdmin } from '../../lib/research/supabase.js';
 import { importAndAssignProxy, importProxyToPool } from '../../lib/linkedin/staticProxy.js';
+import { hasAdapter } from '../../lib/research/worker/handlers/linkedinProxySync.js';
 
 const log = createLogger('route:linkedin:proxies');
 const router = Router();
@@ -96,6 +98,81 @@ router.post('/import', requireInternal, validateBody(importSchema), async (req: 
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'proxy import error');
         next(new AppError('Proxy import failed', 500));
+    }
+});
+
+// Proxy-sync trigger — internal seed/run of the daily staged reconcile loop (Proxy P2, §4a).
+const syncSchema = z.object({
+    provider: z.string().min(1).max(40).optional(),
+});
+
+// ── POST /proxies/sync — enqueue an immediate staged provider-inventory reconcile ──
+// Seeds/kicks the self-rescheduling linkedin:proxy-sync loop. The job itself is fail-closed:
+// any provider fetch error records an 'incomplete' run and changes nothing (§4a P1.8).
+router.post('/sync', requireInternal, validateBody(syncSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const b = req.body as z.infer<typeof syncSchema>;
+        const provider = b.provider ?? 'iproyal';
+        // Reject an unknown provider up front (400) — otherwise it would enqueue a job that can only
+        // ever record a fail-closed 'no_adapter' incomplete run, wasting a loop cycle.
+        if (!hasAdapter(provider)) {
+            throw new AppError(`Unknown proxy provider: ${provider}`, 400);
+        }
+        // Dedup: a concurrent double-trigger must not double-enqueue. Queued-ONLY (C6, matching
+        // ensureProxySyncLoop): a RUNNING job must not block a fresh manual trigger, and the mig-110
+        // partial unique index (at most one queued proxy-sync per tenant) is the atomic backstop for
+        // the read→insert race — a lost race surfaces as a 23505 we treat as already-queued.
+        const { data: existing } = await researchSupabaseAdmin
+            .from('research_jobs').select('id, scheduled_at')
+            .eq('tenant_id', tenantId).eq('type', RESEARCH_JOB_TYPES.LINKEDIN_PROXY_SYNC)
+            .eq('status', 'queued').limit(1);
+        if (existing && existing.length > 0) {
+            const existingJob = existing[0] as { id: string; scheduled_at: string | null };
+            // A queued successor already exists — a bare "already_queued" leaves an operator's manual
+            // kick doing nothing until the loop's own 24h schedule comes around. Advance it to run now,
+            // but ONLY when it's still scheduled in the future and still 'queued' (the .eq('status',
+            // 'queued') guard prevents touching a row the worker has since claimed — an update matching
+            // 0 rows just means we lost that race, which is handled below by falling through).
+            const isFuture = existingJob.scheduled_at ? new Date(existingJob.scheduled_at).getTime() > Date.now() : false;
+            if (isFuture) {
+                const { data: advanced } = await researchSupabaseAdmin
+                    .from('research_jobs')
+                    .update({ scheduled_at: new Date().toISOString() })
+                    .eq('id', existingJob.id).eq('status', 'queued')
+                    .select('id');
+                if (advanced && advanced.length > 0) {
+                    res.status(202).json({ ok: true, provider, advanced: true, sync_job_id: existingJob.id });
+                    return;
+                }
+                // Raced (job was claimed between the read and the update) — fall through to the normal
+                // enqueue attempt below, which is tolerant of a concurrent successor via 23505.
+            } else {
+                res.status(202).json({ ok: true, provider, already_queued: true, sync_job_id: existingJob.id });
+                return;
+            }
+        }
+        let job: { id?: string };
+        try {
+            job = await enqueueJob({
+                tenantId,
+                type: RESEARCH_JOB_TYPES.LINKEDIN_PROXY_SYNC,
+                payload: { provider },
+                maxAttempts: 1,
+                createdBy: req.user?.id ?? null,
+            });
+        } catch (enqErr) {
+            if ((enqErr as { code?: string })?.code === '23505') {
+                res.status(202).json({ ok: true, provider, already_queued: true, sync_job_id: null });
+                return;
+            }
+            throw enqErr;
+        }
+        res.status(202).json({ ok: true, provider, sync_job_id: job.id ?? null });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'proxy sync trigger error');
+        next(new AppError('Proxy sync trigger failed', 500));
     }
 });
 

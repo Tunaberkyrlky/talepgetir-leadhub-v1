@@ -10,6 +10,16 @@
  * live-verified. NOTE: the sent-invitations + withdraw voyager paths are a HOT-SURFACE that
  * this module has not yet proven against a live account (voyager.ts) — a real run must
  * re-verify the shape. maxAttempts=1 upstream (each withdrawal is a non-idempotent-ish write).
+ *
+ * Every network call that tunnels through the account's dispatcher (the LIST — including in
+ * DRY-RUN, since a list still egresses through the proxy even though it mutates nothing — and
+ * EACH individual withdraw POST) is wrapped in `withStaticLease` (109 extension, closes the same
+ * gate<->network TOCTOU `performInvite`/`performMessage` already close for sends). One lease per
+ * network call, not one held across the whole run — see `withStaticLease`'s doc comment for why.
+ * A lease denial mid-run is a conservative SKIP, never a throw (this job is maxAttempts=1: a
+ * throw here would burn the only attempt with no automatic retry, unlike invite/message where the
+ * operator can just re-fire — see codex P2 in `acquireStaticLease`'s own doc comment for the
+ * identical reasoning applied there).
  */
 import type { JobHandler } from '../types.js';
 import { createLogger } from '../../../logger.js';
@@ -17,6 +27,7 @@ import { listSentInvitations, withdrawInvitation, type SentInvitationsResult } f
 import {
     loadAccount, credsFor, resolveDispatcher, applyWriteHealth, classifierForHttp, auditAction,
 } from '../../../linkedin/actions.js';
+import { withStaticLease } from '../../../linkedin/executor.js';
 
 const log = createLogger('research:handler:linkedin-withdraw');
 
@@ -67,10 +78,19 @@ export const linkedinWithdrawHandler: JobHandler = async ({ job, heartbeat }) =>
     }
     dispatcher = gate.dispatcher;
 
-    // List outgoing pending invitations through the sticky proxy.
+    // List outgoing pending invitations through the sticky proxy — lease-protected (109
+    // extension) even in DRY-RUN, because the LIST call itself still egresses through the
+    // static proxy; only the DOWNSTREAM audit/mutation is what dry-run skips.
     let listed: SentInvitationsResult;
     try {
-        listed = await listSentInvitations(creds, dispatcher);
+        const leased = await withStaticLease(tenantId, accountId, job.id, gate, () => listSentInvitations(creds, dispatcher));
+        if (!leased.ok) {
+            // Lease contention/denial: conservative skip, not a throw (maxAttempts=1 — see file
+            // header). Mirrors the `!gate.ok` skip immediately above.
+            if (!dryRun) await auditAction({ tenantId, accountId, type: 'withdraw', status: 'skipped', classifier: leased.classifier, jobId: job.id });
+            return { account_id: accountId, type: 'withdraw', withdrawn: 0, skipped: leased.classifier, dry_run: dryRun };
+        }
+        listed = leased.result;
     } catch (err) {
         if (!dryRun) await auditAction({ tenantId, accountId, type: 'withdraw', status: 'error', classifier: 'transport_error', error: errMsg(err), jobId: job.id });
         throw new Error(`linkedin:withdraw list transport error: ${errMsg(err)}`);
@@ -111,11 +131,24 @@ export const linkedinWithdrawHandler: JobHandler = async ({ job, heartbeat }) =>
     }
 
     // ── Real withdrawal: up to the per-run cap, stopping on a hard health signal ───
-    let withdrawn = 0, failed = 0, consecutiveFails = 0, accountStatus = account.status;
+    let withdrawn = 0, failed = 0, consecutiveFails = 0, accountStatus = account.status, leaseSkipped = 0;
     for (const inv of stale.slice(0, maxWithdrawals)) {
         let result;
         try {
-            result = await withdrawInvitation(creds, dispatcher, inv.invitationId);
+            // Fresh lease PER withdrawal (109 extension) — the same `gate` snapshot is reused
+            // across the loop (its dispatcher/creds don't change), but the lease RPC re-verifies
+            // fresh against the DB on every single call, so a reassignment/burn landing between
+            // iterations is caught immediately rather than only at loop start.
+            const leased = await withStaticLease(tenantId, accountId, job.id, gate, () => withdrawInvitation(creds, dispatcher, inv.invitationId));
+            if (!leased.ok) {
+                // Conservative: stop the loop rather than keep hammering an account whose egress
+                // just failed its last-instant gate (mirrors the STOP_CLASSIFIERS break below).
+                // Not a throw — maxAttempts=1 (see file header) — and not counted as `failed`
+                // since the withdrawal was never attempted.
+                leaseSkipped++;
+                break;
+            }
+            result = leased.result;
         } catch (err) {
             // Transport failure mid-loop: audit and stop (the proxy/session is unhealthy).
             await auditAction({ tenantId, accountId, type: 'withdraw', status: 'error', classifier: 'transport_error', error: errMsg(err), jobId: job.id });
@@ -138,10 +171,11 @@ export const linkedinWithdrawHandler: JobHandler = async ({ job, heartbeat }) =>
         if (consecutiveFails >= 2) break;
     }
 
-    log.info({ jobId: job.id, accountId, withdrawn, failed, stale: stale.length, status: accountStatus }, 'linkedin:withdraw complete');
+    log.info({ jobId: job.id, accountId, withdrawn, failed, leaseSkipped, stale: stale.length, status: accountStatus }, 'linkedin:withdraw complete');
     return {
         account_id: accountId, type: 'withdraw', withdrawn, failed,
         stale_candidates: stale.length, account_status: accountStatus,
+        ...(leaseSkipped > 0 ? { lease_skipped: leaseSkipped } : {}),
     };
 };
 

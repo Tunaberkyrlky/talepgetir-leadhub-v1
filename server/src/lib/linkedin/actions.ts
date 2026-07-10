@@ -454,6 +454,21 @@ export function classifierForResolve(httpStatus: number): WriteClassifier | null
  * is BOTH the in-memory snapshot AND a DB-level `status <> 'PAUSED'` on the update, so a
  * PAUSE that landed concurrently (after this handler loaded the row) is not clobbered (codex P1).
  *
+ * static_required accounts (Proxy P2, §4d) route through the single-txn RPC so the account
+ * transition, the dedicated-proxy retire/quarantine (+ generation bump), and the queued-job
+ * cancel all land ATOMICALLY (P1.14) — and a RESTRICTED/CHALLENGED state quarantines the IP
+ * WITHOUT auto-reassigning a fresh one (P1.15/P1.16). If the RPC errors or returns not-ok, we
+ * fall back to the conservative TS transition below (fail-closed: never leave a hard-classified
+ * account ACTIVE). legacy_rotating accounts have no dedicated proxy and take the TS path directly.
+ *
+ * ACCEPTED BOUNDARY (RPC-unavailable path): when the RPC is unreachable (deploy gap / transient DB
+ * error) the TS fallback RESTRICTS the account but does NOT quarantine the proxy or bump its
+ * generation — so the flagged IP keeps reputation_state='clean'. This is fail-SAFE: the account is
+ * already non-ACTIVE, so no new send starts, and the account's validated (proxy_id, generation)
+ * pointers are untouched, so a later recovery re-validate re-runs the live probe and only resurrects
+ * the IP for sending if that probe SUCCEEDS. The proxy is simply not proactively quarantined; it is
+ * never silently trusted for a send while the account stays hard-classified.
+ *
  * KNOWN RESIDUAL (codex P3, accepted): the guard is PAUSE-only, so a late 401 from a send that
  * began with now-superseded cookies can still flip a freshly RE-AUTHED ACTIVE account to
  * NEEDS_REAUTH (and auto-cancel its recovery validate). This needs a per-session epoch/version
@@ -465,6 +480,40 @@ export async function applyWriteHealth(
 ): Promise<string> {
     const next = statusForWrite(classifier);
     if (!next || account.status === 'PAUSED' || next === account.status) return account.status;
+
+    // Static-proxy accounts: atomic status + proxy-lifecycle + queue-cancel in one RPC (§4d).
+    if (account.proxy_mode === 'static_required') {
+        try {
+            const { data, error } = await researchSupabaseAdmin.rpc('linkedin_apply_proxy_health', {
+                p_tenant: tenantId, p_account: account.id, p_target_status: next, p_classifier: classifier,
+                // C1: fence the quarantine to the proxy this caller last validated against. If the
+                // account's active assignment has since moved to a DIFFERENT proxy, the RPC skips the
+                // proxy-lifecycle block (status + job-cancel still land) and returns
+                // proxy_skipped:'assignment_changed' — so a stale 403 can't quarantine a fresh proxy.
+                p_expected_proxy: account.last_validated_proxy_id ?? null,
+            });
+            if (error) throw error;
+            const r = (data ?? {}) as Record<string, unknown>;
+            if (r.ok === true) {
+                const status = typeof r.status === 'string' ? r.status : next;
+                log.info({ accountId: account.id, classifier, ...r }, 'linkedin static proxy health applied');
+                return status;
+            }
+            log.warn({ accountId: account.id, classifier, result: r }, 'apply_proxy_health returned not-ok; falling back to TS transition');
+        } catch (err) {
+            log.warn({ err, accountId: account.id, classifier }, 'apply_proxy_health rpc failed; falling back to TS transition');
+        }
+        // Fall through to the conservative TS transition (fail-closed).
+    }
+
+    return applyWriteHealthTs(tenantId, account, next, classifier);
+}
+
+/** The legacy multi-step TS health transition (status update + §6 auto-pause queue drain). Used
+ *  for legacy_rotating accounts and as the fail-closed fallback when the static RPC is unavailable. */
+async function applyWriteHealthTs(
+    tenantId: string, account: LinkedInAccountRow, next: string, classifier: WriteClassifier,
+): Promise<string> {
     const { data, error } = await researchSupabaseAdmin
         .from('linkedin_accounts').update({ status: next })
         .eq('id', account.id).eq('tenant_id', tenantId)

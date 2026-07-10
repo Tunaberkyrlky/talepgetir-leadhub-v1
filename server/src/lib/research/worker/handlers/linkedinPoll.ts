@@ -15,6 +15,15 @@
  * The connections/conversations voyager reads are a HOT-SURFACE that is UNVERIFIED against a
  * live account; reply detection is best-effort (unread-count heuristic) and fail-safe (a missed
  * reply keeps sending; a false reply merely stops early — the safe direction for suppression).
+ *
+ * Both reads (`listConnections`, `listConversations`) tunnel through the account's dispatcher and
+ * are wrapped in `withStaticLease` (109 extension, closes the same gate<->network TOCTOU
+ * `performInvite`/`performMessage` already close for sends) — a poll racing a proxy burn/
+ * reassignment could otherwise read connection/conversation state via an IP that was already
+ * pulled, feeding a stale-egress read into the accept/reply state machine. A lease denial is a
+ * conservative SKIP of just that one section (never a throw — this job is maxAttempts=1, and the
+ * self-perpetuating reschedule loop already tolerates a skipped cycle the same way it tolerates a
+ * `!gate.ok` cycle).
  */
 import type { JobHandler } from '../types.js';
 import { researchSupabaseAdmin } from '../../supabase.js';
@@ -24,6 +33,7 @@ import { RESEARCH_JOB_TYPES } from '../../jobTypes.js';
 import { loadAccount, credsFor, resolveDispatcher, classifierForHttp, applyWriteHealth, auditAction } from '../../../linkedin/actions.js';
 import { listConnections, listConversations } from '../../../linkedin/client.js';
 import { markReplied, type LeadRow } from '../../../linkedin/sequences/engine.js';
+import { withStaticLease } from '../../../linkedin/executor.js';
 
 const log = createLogger('research:handler:linkedin-poll');
 const POLL_INTERVAL_MS = 3 * 3_600_000; // §2 inbox poll cadence ~3h
@@ -97,7 +107,7 @@ export const linkedinPollHandler: JobHandler = async ({ job, heartbeat }) => {
     }
     dispatcher = gate.dispatcher;
 
-    let accepted = 0, replied = 0;
+    let accepted = 0, replied = 0, leaseSkipped = 0;
 
     // Lazy per-campaign step cache (to look up the message step's wait_days on accept).
     const stepCache = new Map<string, { step_order: number; wait_days: number }[]>();
@@ -115,51 +125,81 @@ export const linkedinPollHandler: JobHandler = async ({ job, heartbeat }) => {
     // ── Accept detection ──────────────────────────────────────────────────────────
     const invited = enrollments.filter((e) => e.state === 'invited' && e.lead.profile_urn);
     if (invited.length > 0) {
-        const conn = await listConnections(creds, dispatcher);
-        if (!conn.ok) {
-            const hc = classifierForHttp(conn.httpStatus);
-            if (hc) await applyWriteHealth(tenantId, account, hc);
-        } else {
-            for (const e of invited) {
-                if (e.lead.profile_urn && conn.urns.has(e.lead.profile_urn)) {
-                    const steps = await stepsFor(e.campaign_id);
-                    const waitDays = steps[e.current_step]?.wait_days ?? 0; // current_step = the message step
-                    const nextAt = new Date(Date.now() + Math.max(0, waitDays) * DAY_MS).toISOString();
-                    // Guard on state='invited': a concurrent tick no-accept write then loses (P2).
-                    await researchSupabaseAdmin.from('linkedin_enrollments')
-                        .update({ state: 'accepted', next_action_at: nextAt, updated_at: new Date().toISOString() })
-                        .eq('id', e.id).eq('state', 'invited');
-                    accepted++;
+        // A transport THROW here (network read / DB write failure) must not skip reply detection OR
+        // the loop reschedule at the bottom — otherwise one bad cycle silently kills the self-
+        // perpetuating poll forever (pre-existing exposure). Log + continue; existing non-throw
+        // behavior is unchanged.
+        try {
+            // Lease-protected (109 extension) — see file header. A denial skips ONLY accept
+            // detection this cycle (never a throw); reply detection below still gets its own chance.
+            const leased = await withStaticLease(tenantId, accountId, job.id, gate, () => listConnections(creds, dispatcher));
+            if (!leased.ok) {
+                leaseSkipped++;
+            } else {
+                const conn = leased.result;
+                if (!conn.ok) {
+                    const hc = classifierForHttp(conn.httpStatus);
+                    if (hc) await applyWriteHealth(tenantId, account, hc);
+                } else {
+                    for (const e of invited) {
+                        if (e.lead.profile_urn && conn.urns.has(e.lead.profile_urn)) {
+                            const steps = await stepsFor(e.campaign_id);
+                            const waitDays = steps[e.current_step]?.wait_days ?? 0; // current_step = the message step
+                            const nextAt = new Date(Date.now() + Math.max(0, waitDays) * DAY_MS).toISOString();
+                            // Guard on state='invited': a concurrent tick no-accept write then loses (P2).
+                            await researchSupabaseAdmin.from('linkedin_enrollments')
+                                .update({ state: 'accepted', next_action_at: nextAt, updated_at: new Date().toISOString() })
+                                .eq('id', e.id).eq('state', 'invited');
+                            accepted++;
+                        }
+                    }
                 }
             }
+        } catch (err) {
+            log.warn({ err, accountId, jobId: job.id }, 'linkedin:poll accept-detection threw (loop kept alive)');
         }
     }
 
     // ── Reply detection (conservative; UNVERIFIED hot-surface) ──────────────────────
     if (enrollments.length > 0 && account.status === 'ACTIVE') {
-        const conv = await listConversations(creds, dispatcher, account.member_urn);
-        if (!conv.ok) {
-            const hc = classifierForHttp(conv.httpStatus);
-            if (hc) await applyWriteHealth(tenantId, account, hc);
-        } else {
-            const incoming = new Set<string>();
-            for (const cv of conv.conversations) {
-                if (cv.incoming) for (const u of cv.participantUrns) incoming.add(u);
-            }
-            const seen = new Set<string>();
-            for (const e of enrollments) {
-                const urn = e.lead.profile_urn;
-                if (urn && incoming.has(urn) && !seen.has(e.lead_id)) {
-                    seen.add(e.lead_id);
-                    await markReplied(tenantId, e.lead);
-                    replied++;
+        // Same guarantee as accept detection: a throw here must not skip the reschedule below.
+        try {
+            // Fresh lease for THIS read (109 extension) — re-acquired rather than reusing any lease
+            // from the accept-detection block above, since arbitrary DB work (stepsFor/update) may
+            // have run in between; see `withStaticLease`'s doc comment for why one lease never spans
+            // more than a single network call.
+            const leased = await withStaticLease(tenantId, accountId, job.id, gate, () => listConversations(creds, dispatcher, account.member_urn));
+            if (!leased.ok) {
+                leaseSkipped++;
+            } else {
+                const conv = leased.result;
+                if (!conv.ok) {
+                    const hc = classifierForHttp(conv.httpStatus);
+                    if (hc) await applyWriteHealth(tenantId, account, hc);
+                } else {
+                    const incoming = new Set<string>();
+                    for (const cv of conv.conversations) {
+                        if (cv.incoming) for (const u of cv.participantUrns) incoming.add(u);
+                    }
+                    const seen = new Set<string>();
+                    for (const e of enrollments) {
+                        const urn = e.lead.profile_urn;
+                        if (urn && incoming.has(urn) && !seen.has(e.lead_id)) {
+                            seen.add(e.lead_id);
+                            await markReplied(tenantId, e.lead);
+                            replied++;
+                        }
+                    }
                 }
             }
+        } catch (err) {
+            log.warn({ err, accountId, jobId: job.id }, 'linkedin:poll reply-detection threw (loop kept alive)');
         }
     }
 
-    await auditAction({ tenantId, accountId, type: 'poll', status: 'ok', classifier: `accepted:${accepted} replied:${replied}`, jobId: job.id });
+    const pollClassifier = `accepted:${accepted} replied:${replied}${leaseSkipped > 0 ? ` lease_skipped:${leaseSkipped}` : ''}`;
+    await auditAction({ tenantId, accountId, type: 'poll', status: 'ok', classifier: pollClassifier, jobId: job.id });
     const rescheduled = await reschedulePoll();
-    log.info({ jobId: job.id, accountId, accepted, replied, rescheduled }, 'linkedin:poll complete');
-    return { account_id: accountId, accepted, replied, rescheduled };
+    log.info({ jobId: job.id, accountId, accepted, replied, leaseSkipped, rescheduled }, 'linkedin:poll complete');
+    return { account_id: accountId, accepted, replied, rescheduled, ...(leaseSkipped > 0 ? { lease_skipped: leaseSkipped } : {}) };
 };
