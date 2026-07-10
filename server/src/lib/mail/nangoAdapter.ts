@@ -19,9 +19,19 @@ export const nangoProvider: MailProvider = {
             accountEmail: req.accountEmail ?? undefined,
             ...(req.files?.length && { attachments: req.files }),
             ...(req.listUnsubscribe && { listUnsubscribe: req.listUnsubscribe }),
+            // Thread'leme (task-3): takip mailinin bağları.
+            inReplyTo: req.threading?.inReplyTo ?? undefined,
+            references: req.threading?.references ?? undefined,
+            gmailThreadId: req.threading?.gmailThreadId ?? undefined,
         });
         // emailSender returns the concrete provider ('google-mail' | 'microsoft-outlook')
         const provider = res.provider === 'microsoft-outlook' ? 'outlook' : 'gmail';
-        return { provider, providerMessageId: res.messageId, success: res.success };
+        return {
+            provider,
+            providerMessageId: res.messageId,
+            success: res.success,
+            rfcMessageId: res.rfcMessageId ?? null,
+            providerThreadId: res.providerThreadId ?? null,
+        };
     },
 };

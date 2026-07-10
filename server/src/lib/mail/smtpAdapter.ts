@@ -105,6 +105,11 @@ export const smtpProvider: MailProvider = {
                 ...(req.bcc?.length && { bcc: req.bcc }),
                 ...(req.replyTo && { replyTo: req.replyTo }),
                 ...(req.listUnsubscribe && { headers: listUnsubscribeHeaders(req.listUnsubscribe) }),
+                // Thread'leme (task-3): takip maili aynı konuşmaya bağlanır. nodemailer bu
+                // alanlardan In-Reply-To/References header'larını kurar. Message-ID'yi de
+                // kendisi üretir (gönderen alan adı) → info.messageId olarak döner.
+                ...(req.threading?.inReplyTo && { inReplyTo: req.threading.inReplyTo }),
+                ...(req.threading?.references && { references: req.threading.references }),
                 subject: req.subject,
                 // Deliverability: düz-metin alternatifini HTML'den türet; nodemailer
                 // text+html verildiğinde multipart/alternative'i kendisi kurar.
@@ -123,6 +128,10 @@ export const smtpProvider: MailProvider = {
                 provider: 'smtp',
                 providerMessageId: info.messageId || `smtp_${conn.id}`,
                 success: true,
+                // nodemailer'ın yazdığı RFC Message-ID (köşeli parantezli) → thread durumu için sakla.
+                rfcMessageId: info.messageId ?? null,
+                // SMTP'de native thread id kavramı yok; thread yalnız header'larla olur.
+                providerThreadId: null,
             };
         } catch (err) {
             // Drop a possibly-stale transporter so the next send rebuilds it.

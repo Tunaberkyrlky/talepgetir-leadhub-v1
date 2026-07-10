@@ -132,6 +132,20 @@ function dispositionFilename(filename: string): string {
         : `filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
+// Kendi RFC 2822 Message-ID'mizi üretiriz: <uuid@gönderen-alanadı>. Gönderen alan adını
+// From header'ından ("Ad <mail@x.com>" ya da düz "mail@x.com") çıkarır, güvenli karakterlere
+// süzeriz (header injection'a karşı). Gmail API raw send ve Graph MIME send verilen
+// Message-ID'yi korur; bu id thread durumunda saklanıp takip maillerinin In-Reply-To/
+// References'ında kullanılır.
+function generateRfcMessageId(fromHeader: string): string {
+    const m = fromHeader.match(/<([^>]+)>/);
+    const email = (m ? m[1] : fromHeader).trim();
+    const rawDomain = (email.split('@')[1] || 'localhost').trim();
+    const domain = rawDomain.replace(/[^A-Za-z0-9.-]/g, '') || 'localhost';
+    return `<${randomUUID()}@${domain}>`;
+}
+
+// Dönüş: hem ham MIME hem de yazdığımız Message-ID (çağıran thread durumunda saklar).
 function buildRfc2822(params: {
     from: string;
     to: string;
@@ -143,13 +157,21 @@ function buildRfc2822(params: {
     // Ekstra RFC 2822 header'ları (ör. List-Unsubscribe). Header adı/değeri tek satır
     // olmalı; çağıran zaten kontrollü değerler geçirir (CRLF injection riski yok).
     extraHeaders?: Record<string, string>;
-}): string {
+    // Thread'leme (task-3): takip maillerinde ebeveyn id + zincir. İlk mailde yok.
+    inReplyTo?: string | null;
+    references?: string | null;
+}): { raw: string; messageId: string } {
+    const messageId = generateRfcMessageId(params.from);
     const headers: string[] = [];
     headers.push(`From: ${params.from}`);
     headers.push(`To: ${params.to}`);
     if (params.cc?.length) headers.push(`Cc: ${params.cc.join(', ')}`);
     if (params.replyTo) headers.push(`Reply-To: ${params.replyTo}`);
     headers.push(`Subject: ${encodeSubject(params.subject)}`);
+    // Kendi Message-ID'miz + (takip mailiyse) thread bağları.
+    headers.push(`Message-ID: ${messageId}`);
+    if (params.inReplyTo) headers.push(`In-Reply-To: ${params.inReplyTo}`);
+    if (params.references) headers.push(`References: ${params.references}`);
     for (const [name, value] of Object.entries(params.extraHeaders || {})) {
         headers.push(`${name}: ${value}`);
     }
@@ -175,12 +197,15 @@ function buildRfc2822(params: {
 
     // Ek yoksa → mesajın kendisi multipart/alternative.
     if (!params.attachments?.length) {
-        return [
-            ...headers,
-            `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
-            '',
-            ...altPart,
-        ].join('\r\n');
+        return {
+            messageId,
+            raw: [
+                ...headers,
+                `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+                '',
+                ...altPart,
+            ].join('\r\n'),
+        };
     }
 
     // Ek varsa → multipart/mixed: önce multipart/alternative (metin+html), sonra her ek base64 part.
@@ -206,7 +231,7 @@ function buildRfc2822(params: {
         );
     }
     parts.push(`--${boundary}--`);
-    return parts.join('\r\n');
+    return { messageId, raw: parts.join('\r\n') };
 }
 
 // ── Provider-specific send ─────────────────────────────────────────────────
@@ -220,14 +245,26 @@ interface SendParams {
     fromName?: string;
     attachments?: ResolvedAttachment[];
     listUnsubscribe?: ListUnsubscribe;  // kampanya sendleri: RFC 8058 header çifti
+    // Thread'leme (task-3): takip mailleri. İlk mailde hepsi boştur.
+    inReplyTo?: string | null;      // ebeveyn Message-ID → In-Reply-To
+    references?: string | null;     // önceki id zinciri → References
+    gmailThreadId?: string | null;  // Gmail native threadId (send gövdesine geçer)
 }
 
-async function sendViaGmail(connection: EmailConnection, params: SendParams): Promise<string> {
+// Provider send çıktısı: sağlayıcı mesaj id'si + (thread durumu için) yazdığımız RFC
+// Message-ID ve varsa native threadId. Message-ID üretemeyen JSON yolu rfcMessageId'yi boş bırakır.
+interface ProviderSendOutput {
+    providerMessageId: string;         // Gmail message id / Graph request-id
+    rfcMessageId?: string | null;      // yazdığımız RFC Message-ID (MIME/Gmail yolları)
+    providerThreadId?: string | null;  // Gmail threadId (varsa)
+}
+
+async function sendViaGmail(connection: EmailConnection, params: SendParams): Promise<ProviderSendOutput> {
     const fromHeader = params.fromName
         ? `${params.fromName} <${connection.email_address}>`
         : connection.email_address;
 
-    const rawMessage = buildRfc2822({
+    const { raw: rawMessage, messageId } = buildRfc2822({
         from: fromHeader,
         to: params.to,
         subject: params.subject,
@@ -236,6 +273,8 @@ async function sendViaGmail(connection: EmailConnection, params: SendParams): Pr
         replyTo: params.replyTo,
         attachments: params.attachments,
         extraHeaders: params.listUnsubscribe ? listUnsubscribeHeaders(params.listUnsubscribe) : undefined,
+        inReplyTo: params.inReplyTo,
+        references: params.references,
     });
 
     const nango = await getNango();
@@ -245,11 +284,17 @@ async function sendViaGmail(connection: EmailConnection, params: SendParams): Pr
         endpoint: '/gmail/v1/users/me/messages/send',
         providerConfigKey: 'google-mail',
         connectionId: connection.connection_id ?? '',
-        data: { raw: base64url(rawMessage) },
+        // threadId verilince Gmail maili aynı konuşmaya native yerleştirir (In-Reply-To/
+        // References başlıkları bu thread'deki bir mesajla eşleştiği için kabul edilir).
+        data: { raw: base64url(rawMessage), ...(params.gmailThreadId ? { threadId: params.gmailThreadId } : {}) },
     });
 
-    const data = response.data as { id?: string } | undefined;
-    return data?.id || `gmail_${Date.now()}`;
+    const data = response.data as { id?: string; threadId?: string } | undefined;
+    return {
+        providerMessageId: data?.id || `gmail_${Date.now()}`,
+        rfcMessageId: messageId,
+        providerThreadId: data?.threadId ?? null,
+    };
 }
 
 // Microsoft Graph /sendMail caps the WHOLE request (HTML body + base64 attachments)
@@ -282,7 +327,7 @@ function outlookMessageId(response: { headers?: unknown }): string {
  * Ayrıca Graph `body` tek bir contentType (HTML) alır → text/plain ALTERNATİF taşınamaz;
  * düz-metin alternatifi yalnız MIME modunda (sendViaOutlookMime → buildRfc2822) gider.
  */
-async function sendViaOutlookJson(connection: EmailConnection, params: SendParams): Promise<string> {
+async function sendViaOutlookJson(connection: EmailConnection, params: SendParams): Promise<ProviderSendOutput> {
     const message: Record<string, unknown> = {
         subject: params.subject,
         body: { contentType: 'HTML', content: params.htmlBody },
@@ -314,19 +359,22 @@ async function sendViaOutlookJson(connection: EmailConnection, params: SendParam
         data: { message, saveToSentItems: true },
     });
 
-    return outlookMessageId(response);
+    // JSON gövdesi custom Message-ID yazamaz (Graph kendi id'sini üretir, yanıtta dönmez)
+    // → rfcMessageId boş; bu send thread'e bağlanamaz. Kampanya sendleri MIME'a gider,
+    // JSON yalnız kampanya-dışı / MIME-fallback yoludur.
+    return { providerMessageId: outlookMessageId(response), rfcMessageId: null, providerThreadId: null };
 }
 
 // Graph /sendMail MIME modu: Content-Type text/plain, gövde = base64 kodlu RFC 2822 MIME.
 // Sadece bu modda List-Unsubscribe gibi standart header'lar taşınabilir. Microsoft dokümanı:
 // MIME gönderiminde mesaj Sent Items'a otomatik kaydedilir (saveToSentItems parametresi yok).
-async function sendViaOutlookMime(connection: EmailConnection, params: SendParams): Promise<string> {
+async function sendViaOutlookMime(connection: EmailConnection, params: SendParams): Promise<ProviderSendOutput> {
     assertOutlookAttachmentSize(params.attachments);
     const fromHeader = params.fromName
         ? `${params.fromName} <${connection.email_address}>`
         : connection.email_address;
 
-    const rawMessage = buildRfc2822({
+    const { raw: rawMessage, messageId } = buildRfc2822({
         from: fromHeader,
         to: params.to,
         subject: params.subject,
@@ -335,6 +383,8 @@ async function sendViaOutlookMime(connection: EmailConnection, params: SendParam
         replyTo: params.replyTo,
         attachments: params.attachments,
         extraHeaders: params.listUnsubscribe ? listUnsubscribeHeaders(params.listUnsubscribe) : undefined,
+        inReplyTo: params.inReplyTo,
+        references: params.references,
     });
 
     const nango = await getNango();
@@ -348,21 +398,24 @@ async function sendViaOutlookMime(connection: EmailConnection, params: SendParam
         data: Buffer.from(rawMessage, 'utf-8').toString('base64'),
     });
 
-    return outlookMessageId(response);
+    // Outlook thread'i In-Reply-To/References header'larıyla olur; native conversationId
+    // gerekmez (task: MIME yaklaşımını seç). providerThreadId boş bırakılır.
+    return { providerMessageId: outlookMessageId(response), rfcMessageId: messageId, providerThreadId: null };
 }
 
-async function sendViaOutlook(connection: EmailConnection, params: SendParams): Promise<string> {
-    // Kampanya sendleri (List-Unsubscribe taşıyan) MIME moduna geçer; standart header
-    // JSON modda taşınamaz. MIME beklenmedik şekilde patlarsa JSON'a düşülür (header
-    // düşer ama mail yine gider). Kasıtlı hatalar (ör. 413 boyut) fallback'e girmez.
-    if (params.listUnsubscribe) {
+async function sendViaOutlook(connection: EmailConnection, params: SendParams): Promise<ProviderSendOutput> {
+    // Kampanya sendleri (List-Unsubscribe ya da thread bağı taşıyan) MIME moduna geçer;
+    // standart header'lar (List-Unsubscribe / In-Reply-To / References) JSON modda taşınamaz.
+    // MIME beklenmedik şekilde patlarsa JSON'a düşülür (header'lar düşer ama mail yine gider).
+    // Kasıtlı hatalar (ör. 413 boyut) fallback'e girmez.
+    if (params.listUnsubscribe || params.inReplyTo || params.references) {
         try {
             return await sendViaOutlookMime(connection, params);
         } catch (err) {
             if (err instanceof AppError) throw err;
             log.warn(
                 { err, to: params.to },
-                'Outlook MIME send failed; falling back to JSON (List-Unsubscribe header dropped)',
+                'Outlook MIME send failed; falling back to JSON (List-Unsubscribe / threading headers dropped)',
             );
         }
     }
@@ -373,8 +426,10 @@ async function sendViaOutlook(connection: EmailConnection, params: SendParams): 
 
 export interface SendResult {
     success: boolean;
-    messageId: string;
+    messageId: string;                  // sağlayıcı mesaj id'si (Gmail id / Graph request-id)
     provider: 'google-mail' | 'microsoft-outlook';
+    rfcMessageId?: string | null;       // yazdığımız RFC Message-ID (thread durumu için)
+    providerThreadId?: string | null;   // Gmail native threadId (varsa)
 }
 
 export async function sendEmail(
@@ -389,6 +444,10 @@ export async function sendEmail(
         accountEmail?: string;   // which connected mailbox to send from; default if omitted
         attachments?: ResolvedAttachment[];  // real file attachments (Gmail multipart / Graph)
         listUnsubscribe?: ListUnsubscribe;   // RFC 8058 header çifti (yalnız kampanya)
+        // Thread'leme (task-3): takip mailleri. İlk mailde boştur.
+        inReplyTo?: string | null;
+        references?: string | null;
+        gmailThreadId?: string | null;
     },
 ): Promise<SendResult> {
     const connection: EmailConnection = options?.accountEmail
@@ -410,13 +469,19 @@ export async function sendEmail(
     );
 
     try {
-        const messageId =
+        const out =
             provider === 'google-mail'
                 ? await sendViaGmail(connection, { to, subject, htmlBody, ...options })
                 : await sendViaOutlook(connection, { to, subject, htmlBody, ...options });
 
-        log.info({ tenantId, to, messageId, provider }, 'Email sent');
-        return { success: true, messageId, provider };
+        log.info({ tenantId, to, messageId: out.providerMessageId, provider }, 'Email sent');
+        return {
+            success: true,
+            messageId: out.providerMessageId,
+            provider,
+            rfcMessageId: out.rfcMessageId ?? null,
+            providerThreadId: out.providerThreadId ?? null,
+        };
     } catch (err) {
         if (err instanceof AppError) throw err;
         // Surface the provider's real error message (Gmail/Graph put it in response.data.error.message)

@@ -75,6 +75,12 @@ export interface CanonicalSendRequest {
     // sağlayıcılar (Outlook JSON fallback, Resend) bu alanı yok sayar.
     listUnsubscribe?: ListUnsubscribe;
 
+    // Thread'leme (task-3). YALNIZ takip mailleri için (step > 1) set edilir; ilk mailde
+    // yoktur (kök). Header set edebilen yollar (Gmail MIME, Outlook MIME, SMTP) In-Reply-To
+    // + References üretir; Gmail ayrıca native threadId'i send çağrısına geçer. Message-ID
+    // ise her gönderimde adapter tarafından üretilir (SendResult.rfcMessageId ile döner).
+    threading?: OutboundThreading;
+
     // Real-attachment candidates (caller already appended any link-card ones to
     // bodyHtml). The router loads their bytes into `files` before dispatch.
     attachments?: CanonicalAttachment[];
@@ -103,10 +109,26 @@ export function listUnsubscribeHeaders(u: ListUnsubscribe): Record<string, strin
     };
 }
 
+/**
+ * Bir takip mailini ilk mailin thread'ine bağlayan giriş verisi. Kampanya engine'i
+ * üretir; ilk mail (thread kökü) için hiç geçilmez.
+ */
+export interface OutboundThreading {
+    inReplyTo?: string | null;      // ebeveyn Message-ID → In-Reply-To header'ı
+    references?: string | null;     // önceki id'lerin boşlukla ayrılmış zinciri → References
+    gmailThreadId?: string | null;  // Gmail native threadId (yalnız aynı Gmail kutusundan)
+}
+
 export interface SendResult {
     provider: MailProviderName;
     providerMessageId: string;
     success: boolean;
+    // Bu gönderimde gerçekten kullanılan RFC Message-ID (header'a yazılan/nodemailer'ın
+    // ürettiği, köşeli parantezli). Thread durumu için engine bunu saklar; header üretemeyen
+    // yollar (Outlook JSON fallback, Resend) null döner → o enrollment thread'siz kalır.
+    rfcMessageId?: string | null;
+    // Gmail send yanıtındaki threadId (varsa). Takip maillerinde native thread için saklanır.
+    providerThreadId?: string | null;
     // Labels of real-file attachments the router could NOT load (e.g. storage
     // download failed) and therefore did NOT attach. The message still sent, so
     // the caller must surface this so the user knows the file was left off.

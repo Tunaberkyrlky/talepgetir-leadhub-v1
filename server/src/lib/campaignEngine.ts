@@ -104,6 +104,14 @@ function applySpintax(template: string): string {
     });
 }
 
+// Takip mailinin konusu "Re: <kök konu>" olur; zaten "Re:" ile başlıyorsa tekrar eklenmez
+// (çift önek yok). Boş konu aynen döner.
+function ensureRePrefix(subject: string): string {
+    const s = (subject || '').trim();
+    if (!s) return s;
+    return /^re\s*:/i.test(s) ? s : `Re: ${s}`;
+}
+
 // Inbox rotasyonu: enrollment id'sine göre deterministik mailbox seçimi. Aynı kişiye
 // hep aynı kutudan gidilir (thread tutarlılığı), kişiler kutulara dağılır.
 function hashStr(s: string): number {
@@ -417,7 +425,9 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
         .from('campaign_enrollments')
         .select(`
             id, tenant_id, campaign_id, contact_id, company_id, email,
-            current_step_id, next_scheduled_at, branch_path, status, replied_at
+            current_step_id, next_scheduled_at, branch_path, status, replied_at,
+            thread_first_message_id, thread_last_message_id, thread_references,
+            thread_provider_thread_id, thread_subject, thread_account_email
         `)
         .eq('status', 'active')
         .lte('next_scheduled_at', new Date().toISOString())
@@ -540,6 +550,25 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 const subject = applyTemplate(applySpintax(currentStep.subject || ''), ctx);
                 let bodyHtml = applyTemplate(applySpintax(currentStep.body_html || ''), ctx);
 
+                // ── Thread'leme (task-3): takip mailleri ilk mailin konuşmasında ──────
+                // İlk mail = thread kökü (henüz kayıtlı Message-ID yok). Kök değilse konu
+                // "Re: <kök konu>" olur; In-Reply-To (son id) + References (id zinciri) +
+                // (thread'i kuran kutu hâlâ aynıysa) Gmail native threadId geçilir. Bu
+                // değişiklikten ÖNCE oluşan enrollment'larda thread kolonları NULL → kök
+                // sayılır ve thread'siz gider (geriye-uyumlu).
+                const isThreadRoot = !enrollment.thread_last_message_id;
+                const finalSubject = isThreadRoot
+                    ? subject
+                    : ensureRePrefix(enrollment.thread_subject || subject);
+                const sameThreadAccount = !!accountEmail && enrollment.thread_account_email === accountEmail;
+                const threading = isThreadRoot ? undefined : {
+                    inReplyTo: enrollment.thread_last_message_id || undefined,
+                    references: enrollment.thread_references || enrollment.thread_last_message_id || undefined,
+                    // Gmail threadId kutuya özgü: rotasyon kutu değiştirdiyse geçme (Gmail
+                    // geçersiz threadId'yi reddeder); header'lar zaten thread'i bağlar.
+                    gmailThreadId: sameThreadAccount ? (enrollment.thread_provider_thread_id || undefined) : undefined,
+                };
+
                 // Create activity first (we need the ID for tracking)
                 const { data: activity, error: actErr } = await supabaseAdmin
                     .from('activities')
@@ -548,7 +577,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         company_id: enrollment.company_id,
                         contact_id: enrollment.contact_id,
                         type: 'campaign_email',
-                        summary: subject,
+                        summary: finalSubject,
                         detail: (currentStep.body_html || '').slice(0, 500), // snippet for timeline
                         outcome: 'sending',
                         campaign_id: enrollment.campaign_id,
@@ -595,7 +624,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         channel: 'campaign',
                         tenantId: enrollment.tenant_id,
                         to: enrollment.email,
-                        subject,
+                        subject: finalSubject,
                         bodyHtml,
                         fromName,
                         cc: ccAddresses.length > 0 ? ccAddresses : undefined,
@@ -603,6 +632,8 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         campaignId: enrollment.campaign_id,
                         // RFC 8058: footer ile aynı token; https tek-tık + mailto yedeği.
                         listUnsubscribe: buildListUnsubscribe(enrollment.id, accountEmail),
+                        // Thread'leme: takip mailleri ilk mailin konuşmasında (kökte undefined).
+                        threading,
                     });
                     if (!result.success) throw new Error('Send failed');
 
@@ -611,6 +642,29 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         .from('activities')
                         .update({ outcome: 'sent' })
                         .eq('id', activity.id);
+
+                    // ── Thread durumunu güncelle (task-3) ────────────────────────────
+                    // Yazdığımız Message-ID'yi sakla (son id + zincire ekle); kökse ilk id
+                    // ve konu + kutu da işaretlenir; Gmail threadId ilk kez geldiyse tutulur.
+                    // rfcMessageId üretemeyen yol (Outlook JSON fallback) → saklama, enrollment
+                    // thread'siz kalır (bir sonraki mail yine kök sayılır).
+                    const rfcId = result.rfcMessageId || null;
+                    if (rfcId) {
+                        const newReferences = enrollment.thread_references
+                            ? `${enrollment.thread_references} ${rfcId}`
+                            : rfcId;
+                        await supabaseAdmin
+                            .from('campaign_enrollments')
+                            .update({
+                                thread_first_message_id: enrollment.thread_first_message_id || rfcId,
+                                thread_last_message_id: rfcId,
+                                thread_references: newReferences,
+                                thread_provider_thread_id: result.providerThreadId || enrollment.thread_provider_thread_id || null,
+                                thread_subject: enrollment.thread_subject || subject,
+                                thread_account_email: enrollment.thread_account_email || accountEmail || null,
+                            })
+                            .eq('id', enrollment.id);
+                    }
 
                     sent++;
                     log.info({ enrollmentId: enrollment.id, to: enrollment.email, activityId: activity.id }, 'Campaign email sent');
