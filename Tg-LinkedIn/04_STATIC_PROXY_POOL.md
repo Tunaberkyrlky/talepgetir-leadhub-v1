@@ -1,10 +1,9 @@
 # TG-LinkedIn — Static Residential Proxy Havuzu (IPRoyal) — Araştırma & Akış Tasarımı
 
 > Amaç: her LinkedIn hesabına **kendine ait, hiç değişmeyen** bir residential IP vermek.
-> Bu doküman **Webshare Dedicated Static Residential'ı BİRİNCİL** alır (IPRoyal = yedek) ve proxy'leri
-> **programatik olarak havuza alıp hesap-başına atama** akışını tasarlar. Karar için hazırlanmıştır.
-> Sağlayıcı gerekçesi + fiyat karşılaştırması §6'da. Kaynak kod bağlamı: `01_FAZ0_BUILD_SPEC.md` §proxy,
-> `server/src/lib/linkedin/proxy.ts`. Seam **provider-agnostik** — Webshare/IPRoyal/mobile aynı havuzda karışır.
+> Bu doküman **IPRoyal Static Residential (ISP)'ı BİRİNCİL** alır (2026-07-10 kararı: **Webshare'in Türkiye IP'si yok**; Türkiye stoğu şart). Proxy'leri **havuza alıp hesap-başına atama** akışını tasarlar.
+> Sağlayıcı gerekçesi §6'da. Kaynak kod bağlamı: `01_FAZ0_BUILD_SPEC.md` §proxy, `server/src/lib/linkedin/proxy.ts`.
+> Seam **provider-agnostik**. **⚠️ Satın alma gerçeği (canlı doğrulandı 2026-07-10):** normal IPRoyal müşteri API'si (`resi-api.iproyal.com/v1`, Bearer) proxy **SATIN ALAMAZ** — sipariş yalnız **web dashboard**'dan; API yalnız sahip olunan proxy'leri listeler/yönetir. Reseller API (`apid.iproyal.com/v1/reseller`) order açabilir ama **onaylı reseller** ister (mevcut token yetkisiz). → **provizyon = operatör dashboard işi; kod tarafı = server-side import + havuz + atama.**
 
 ## 0. Neden static (tek cümle özet)
 
@@ -32,40 +31,33 @@ bir hipotez (§9-P2.26). Yine de per-account dedicated IP, paylaşımlı/rotatin
 | Bağlantı string'i | `host:port:username:password` (dashboard "Formatted Proxy List") |
 | Coğrafya | Ülke bazında stok (`availability` endpoint'i) |
 
-**Sonuç:** hesap-başına-IP modeli için birebir uygun. IP asla dönmez → sessid/sessttl gerekmez;
-proxy string'i verbatim kullanılır.
+**Sonuç:** hesap-başına-IP modeli için uygun. Pratikte kararlı (sessid/sessttl gerekmez, verbatim string) ama
+"asla dönmez" mutlak değil (§0/§9-P1.9) → gözlenen çıkış-IP reconcile edilir.
 
 ---
 
-## 2. Provider API'leri — Webshare (BİRİNCİL) + IPRoyal (yedek)
+## 2. Provider API'leri — IPRoyal (BİRİNCİL) + Webshare (TR stoğu yok)
 
-### 2a. Webshare API — BİRİNCİL (Dedicated Static Residential)
-- **Base:** `https://proxy.webshare.io/api/v2/`
-- **Auth:** `Authorization: Token <API_KEY>` (Dashboard → API keys)
-- **Ürün:** Dedicated Static Residential — **tek kullanıcı (exclusive) IP**, ~**$1.20–1.47/IP/ay**, 5→500+ ölçek. **Bandwidth tier'lı** (250/1000/5000 GB; sınırsız 50+ proxy'den) — "sınırsız" değil (P2.20).
-- **Auth modu:** user:pass veya IP-whitelist. **Direct modda bağlantı portu = `/proxy/list/`'in döndürdüğü `port`** (80/1080/3128/9999-19999 backbone içindir, P2.21).
+### 2a. IPRoyal — BİRİNCİL (Static Residential / ISP)
+**Canlı doğrulanmış gerçekler (2026-07-10, `IPROYAL_API` token ile):**
+- **Müşteri API base:** `https://resi-api.iproyal.com/v1` · **Auth:** `Authorization: Bearer <IPROYAL_API>`. Token bu API'de **geçerli** (business-error döndü, auth-error değil), ama hesapta "Residential API not enabled" (dashboard toggle + ürün gerektirir).
+- **Satın alma API YOK (normal müşteri):** static residential **siparişi yalnız web dashboard**'dan (`dashboard.iproyal.com/.../static-residential-proxies`). Kart bilgisi orada kullanılır. API yalnız sahip olunan proxy'leri yönetir/generate eder.
+- **Reseller API** (`apid.iproyal.com/v1/reseller`, `X-Access-Token`) order açabilir ama **onaylı reseller** ister — mevcut token orada **unauthorized**. (Bu yüzden §9-P2.25'in "legacy" notu: reseller yolu bizde kapalı.)
+- **Ürün:** ISP dedicated static — abonelik boyunca **aynı IP** (yenilemede rezerve), lease 1/30/60/90g, **$2.40/IP/ay** (90g) → $1.80 (24s). user:pass veya IP-whitelist; port HTTP 12323 / SOCKS5 12324; format `host:port:user:pass`.
 
-> **⚠️ codex §9 düzeltmeleri uygulandı** — endpoint/port/bandwidth iddialarının bir kısmı yanlıştı; aşağısı düzeltilmiş hali.
-
-| İş | Endpoint (düzeltilmiş) |
+| İş | Nasıl |
 |---|---|
-| **HAVUZU listele** | `GET /proxy/list/?mode=direct&plan_id=<PLAN>&page=1&page_size=100` → her IP: `id, proxy_address, port, username, password, country_code, city_name, valid, last_verification`. **`mode=direct` bağlantı modudur, ÜRÜN/tier filtresi DEĞİL** (P1.2) → `plan_id` şart + plan'ın `proxy_type/proxy_subtype`'ı dedicated-static-residential mı doğrula. **Bağlantı = dönen `proxy_address:port`** (backbone port aralığı değil, P2.21). |
-| Ülke filtre | `?country_code__in=TR,DE,US` |
-| **Bozuk/yanmış IP değiştir (ASYNC)** | `POST /api/v3/proxy/replace/` (**v3**, P1.1) → `validating` döner → **`completed`/`failed` olana kadar POLL**; geçmiş `GET /api/v2/proxy/list/replaced/`. Fail sebepleri: aktif replacement, kota bitti, düzenlenemez liste. **Tamamlanana + yeni IP doğrulanana kadar atama YAPMA.** |
-| Kullanım/stat | `GET /api/v2/stats/` (P1.1 — `/proxy/stats/` değil) |
-| Plan/fiyat | `GET /subscription/plan/` · `GET /subscription/pricing/` |
-| **Provizyon (IP satın al)** | `POST /api/v2/subscription/checkout/purchase/` (P2.19 — `/purchase_plan/` değil). Varsayılan `behavior=replace` **mevcut planı EZEBİLİR** → `behavior=add` kullan + önce fiyat önizle + onay. **recaptcha yalnız ödeme gerektiğinde** (koşullu, P2.19). |
+| **Provizyon (IP AL)** | **Dashboard** (API değil): Static Residential Proxies → ülke=**TR** → miktar=1 → lease seç → kart ile öde. |
+| Sahip olunan proxy'yi al | Dashboard "Formatted Proxy List" (`host:port:user:pass`) VEYA residential API enabled ise `POST /access/generate-proxy-list` (`{hostname,port,location,proxy_count,proxy_format}`). |
+| Credential değiştir | Dashboard (sub-user/credential). |
+| Lease uzat (aynı IP) | Dashboard auto-extend / renew. |
 
-> **Kritik:** provizyon = **ayrı operatör iş akışı** (koşullu recaptcha + `replace` tehlikesi). **Sync + atama + replacement** otomatize çekirdek; hepsi `plan_id`-nitelikli.
-> **Bandwidth (P2.20):** "sınırsız" mutlak değil — Webshare tier'ları 250/1000/5000 GB; sınırsız dedicated static residential **50 proxy'den** başlar. 5–20 hesap senaryosunda gerçek tier + replacement kotasını `pricing` API'den hesapla.
-> **Webshare avantajı (IPRoyal'e göre):** havuz tek `GET /proxy/list/`; order→detail zinciri yok. Ama replacement **async** (poll gerekir).
+> **Sonuç (kod):** provizyon = operatör dashboard işi; **kod = server-side import** (operatör `host:port:user:pass`'i sunucuya verir) + havuz + atama. Reseller onayı gelirse P3'te API-provizyon eklenir (seam hazır).
 
-### 2b. IPRoyal reseller API — YEDEK (Webshare'de hedef ülke stoğu yetmezse)
-- **Base:** `https://apid.iproyal.com/v1/reseller` · **Auth:** `X-Access-Token: <token>` · **⚠️ legacy API 2025-09-15 deprecate.**
-- `GET /access/availability/static-residential` (stok) · `GET /products` (katalog) · `POST /orders` (provizyon) · `GET /orders`+`GET /orders/{id}` (havuz) · `POST /orders/{id}/extend` (aynı IP lease uzat) · `POST /orders/proxies/change-credentials` (IP sabit, cred rotasyonu).
-- IPRoyal'de provizyon **tam-API** (recaptcha yok) ama havuz iki-adımlı (orders→detail).
+### 2b. Webshare — ELENDİ (Türkiye stoğu yok)
+API'si daha basitti (tek `GET /proxy/list/`) ama **TR dedicated static residential stoğu yok** → LinkedIn hesapları TR IP'sinden çıkmalı, o yüzden kullanılamaz. Endpoint referansı geçmiş sürümde; gerekirse başka ülke hesapları için değerlendirilebilir.
 
-> Env: `WEBSHARE_API_KEY` (birincil) · ops. `IPROYAL_RESELLER_TOKEN` (yedek). İkisi de **worker secret**; asla client/DB/plaintext'te durmaz.
+> Env: `IPROYAL_API` (Bearer, müşteri API — listeleme/generate) · ops. reseller `X-Access-Token` (onay gelirse). İkisi de **worker secret**; asla client/DB/plaintext'te durmaz.
 
 ---
 
@@ -148,16 +140,13 @@ Yalnız `username`/`password` şifreli; `proxy_address`/`exit_ip`/`port`/`countr
 ## 4. Akışlar
 
 ### 4a. Sync — worker `linkedin:proxy-sync` (codex P1.8 — partial-run destructive olamaz)
+IPRoyal normal müşteride havuz-listeleme API'si sınırlı ("residential_api_not_enabled"); P0'da **import server-side manuel**. Enabled olursa (`POST /access/generate-proxy-list`) veya reseller onayında sync şu invariant'larla:
 ```
-1. sync_run_id üret. GET /proxy/list/?mode=direct&plan_id=<PLAN>&page_size=100 TÜM sayfaları
-     STAGE'e yaz. Herhangi bir sayfa hata/rate-limit → run 'incomplete' → HİÇBİR yıkıcı değişiklik.
-2. TAM+doğrulanmış snapshot sonrası: her IP'yi (provider, ext_id) ile UPSERT; last_seen_sync=sync_run_id;
-     provider_health'i valid/last_verification'dan türet (assignment + reputation_state KORUNUR).
-3. 'expired'/'gone' işaretlemesi YALNIZ: bu plan için tam snapshot + N ardışık miss VEYA replaced-history
-     onayı (P1.8). Tek eksik listelenme yeterli DEĞİL.
-4. exit_ip'i echo ile doğrula (P2.24) — provider metadata IP ≠ garanti; iki bağımsız echo + ülke/ASN.
+1. sync_run_id üret. Sağlayıcı listesini TÜM sayfa STAGE'e yaz. Herhangi bir hata/rate-limit → 'incomplete' → HİÇBİR yıkıcı değişiklik.
+2. TAM+doğrulanmış snapshot sonrası (provider, ext_id) UPSERT; last_seen_sync; provider_health'i türet (assignment + reputation_state KORUNUR).
+3. 'expired'/'gone' YALNIZ: tam snapshot + N ardışık miss (tek eksik listelenme yetmez, P1.8).
+4. exit_ip'i echo ile doğrula (P2.24) — iki bağımsız echo + ülke/ASN.
 ```
-> **Provizyon yarı-manuel** (koşullu recaptcha + `behavior=replace` tehlikesi §2a). Sync/atama/replacement otomatik.
 
 ### 4b. Atama — TEK security-definer RPC (codex P1.5 — Supabase BEGIN/COMMIT tutamaz)
 Sıradan Supabase çağrıları transaction/row-lock'u çağrılar arası tutamaz → atama **tek RPC** olmalı (mevcut `linkedin_try_consume_quota` deseni gibi):
@@ -217,8 +206,8 @@ linkedin_apply_proxy_health(account, classifier) SECURITY DEFINER (tek txn):
 - `actions.ts::dispatcherFor(account)`: **async olur** (atama projeksiyonu DB'den) + fail-closed generation-gate (§4c). `ACCOUNT_COLUMNS`'a `geo` + `proxy_mode` + `last_validated_proxy_generation` + atama projeksiyonu eklenir. **⚠️ Şu an `geo` ACCOUNT_COLUMNS'ta YOK** (P1.11 — eski "zaten geo" iddiası yanlıştı).
 - `linkedinValidate.ts`: aynı async `dispatcherFor` (şu an `proxyAgentFor`'u doğrudan çağırıyor). Validate, doğruladığı generation'ı `last_validated_proxy_generation`'a yazar (P1.12).
 - **Client tarafı değişmez**; opsiyonel bir "Proxy" kolonu (IP/ülke/lease bitişi) Hesaplar sekmesine eklenebilir.
-- Yeni job type: `linkedin:proxy-sync` (registry + jobTypes) → Webshare `GET /proxy/list/` adaptörü (provider-adaptör deseni: `syncWebshare()` / `syncIproyal()`, ortak upsert). Yeni route: `POST /admin/linkedin/proxies/sync` (internal) + ops. manuel `POST /accounts/:id/proxy` (havuzdan ata veya elle yapıştır).
-- Env: `WEBSHARE_API_KEY` worker'da. Provider-adaptörü seçimi env/DB'den (`provider='webshare'` default).
+- Yeni job type: `linkedin:proxy-sync` (registry + jobTypes) → provider-adaptör deseni (`syncIproyal()` / `syncWebshare()`, ortak upsert). Yeni route'lar: `POST /admin/linkedin/proxies/import` (internal, server-side `host:port:user:pass` + hesap) + `POST /admin/linkedin/proxies/sync`.
+- Env: `IPROYAL_API` (Bearer) + `LINKEDIN_PROXY_ENC_KEY` worker'da. Provider-adaptörü DB'den (`provider='iproyal'` default).
 
 ---
 
@@ -237,13 +226,12 @@ Birden çok bağımsız kaynak (2026): **LinkedIn IP'ye göre hesap korelasyonun
 - Toplam = (aktif hesap) × (dedicated IP/ay). Düşük hacimde (5–20 hesap) mutlak fark küçük: Webshare $7–30 / IPRoyal $13–54.
 - **Coğrafya asıl kısıt:** IP, hesap-sahibinin normalde giriş yaptığı ÜLKEYE uymalı (TR hesap → TR IP). TR dedicated ISP her sağlayıcıda daha kıt/pahalı (~$3). Fiyattan önce **hedef ülkelerde dedicated stok** var mı bak.
 
-### 6c. Öneri
-1. **Shared/private ELE — LinkedIn hesabı için kullanma** (co-tenant ban bulaşması).
+### 6c. Öneri (KİLİT: IPRoyal, 2026-07-10)
+1. **Shared/private ELE** — LinkedIn hesabı için co-tenant ban bulaşması.
 2. **Dedicated static residential/ISP, hesap başına 1 IP, hesabın ülkesine geo-match.**
-3. **Değer seçimi: Webshare Dedicated Static Residential ($1.47/IP)** — gerçek tek-kullanıcı + temiz API; IPRoyal'in ~yarısı. Hedef ülkelerde (özellikle TR) dedicated stok yeterliyse birincil.
-4. **Yedek: IPRoyal ($2.70)** — API entegrasyonu bu dokümanda zaten yazılı; TR/stok Webshare'de zayıfsa buraya geç.
-5. **Premium katman (ops.):** en değerli hesaplara **mobile** IP (en yüksek sağkalım). Seam provider-agnostik (`linkedin_proxies`) olduğu için havuzda karıştırılabilir: çoğu hesap Webshare-dedicated, kritikler mobile.
-6. Düşük hacimde per-IP farkı önemsiz → sırala: **(1) dedicated tek-kullanıcı → (2) hedef-ülke stoğu → (3) temiz API**, per-IP fiyatı en son.
+3. **KARAR = IPRoyal Static Residential (ISP), ~$2.40/IP/ay.** Gerekçe: **Webshare'in TR IP'si yok**; LinkedIn hesapları TR'den çıkmalı → provider'ı belirleyen kısıt coğrafya, fiyat değil. IPRoyal TR stoğuna sahip.
+4. **Satın alma dashboard'dan** (API normal müşteride satın alamaz, §2a) — kod tarafı server-side import.
+5. **Premium katman (ops.):** kritik hesaplara mobile IP; seam provider-agnostik, havuzda karışır.
 
 **Not — mevcut fallback:** bugün sertleştirdiğim DataImpulse rotating (sessid+sessttl.120+cr) yalnız **fallback/ucuz katman** olarak kalır; hesap barındırmanın birincil yolu dedicated static'tir.
 
@@ -253,23 +241,23 @@ Birden çok bağımsız kaynak (2026): **LinkedIn IP'ye göre hesap korelasyonun
 
 | Faz | Kapsam | Bağımlılık |
 |---|---|---|
-| **P0 — SERVER-SIDE tek proxy (codex P1.18)** | **Client "yapıştır" YOK** (plaintext cred + SSRF). Internal-only route: operatör Webshare cred'ini **sunucuya** verir → SSRF guard (private/loopback/link-local/metadata/onaysız host reddi; yalnız izinli protokol/port) → echo ile çıkış-IP doğrula → `linkedin_proxies` + `assignments` (tek IP) → `proxy_mode='static_required'` + revalidate. `proxyAgentForStatic` (cache key `assignment:generation`). | `WEBSHARE_API_KEY` + `LINKEDIN_PROXY_ENC_KEY` — **bir Webshare IP'siyle bugün test** |
-| **P1 — havuz import + claim RPC** | `GET /proxy/list/?plan_id=` import (plan-tier doğrula) + `linkedin_claim_proxy` RPC (4b) + fail-closed dispatcher (4c) + `geo`/atama projeksiyonu ACCOUNT_COLUMNS'a. | P0 |
+| **P0 — SERVER-SIDE tek proxy (codex P1.18)** | **Client "yapıştır" YOK** (plaintext cred + SSRF). Internal-only route: operatör IPRoyal `host:port:user:pass`'ini **sunucuya** verir → SSRF guard (private/loopback/link-local/metadata/onaysız host reddi; yalnız izinli protokol/port) → echo ile çıkış-IP doğrula (TR + yanık-denylist) → `linkedin_proxies` + `assignments` (tek IP) → `proxy_mode='static_required'` + revalidate. `proxyAgentForStatic` (cache key `assignment:generation`). | `LINKEDIN_PROXY_ENC_KEY` — **IPRoyal TR IP'siyle test** |
+| **P1 — havuz import + claim RPC** | (opsiyonel API listeleme `POST /access/generate-proxy-list`, residential API enabled ise) + `linkedin_claim_proxy` RPC (4b) + fail-closed dispatcher (4c) + `geo`/atama projeksiyonu ACCOUNT_COLUMNS'a. | P0 |
 | **P2 — sync + async replacement + health RPC** | `linkedin:proxy-sync` (staged, P1.8) + `POST /api/v3/proxy/replace/` async-poll + `linkedin_apply_proxy_health` transactional + burned-IP denylist + generation-gate. | P1 |
 | **P3 — provizyon iş akışı** | operatör `checkout/purchase/` (`behavior=add`, fiyat önizle, onay) + plan/expiry tabloları + bandwidth/replacement-kota alarmı. | P2 + bütçe |
 
-> **Tavsiye:** **P0'dan başla** (server-side, SSRF-guard'lı). Bir **Webshare dedicated static residential IP'si** (hesabın ülkesinde) alıp sunucuya verirsin → çıkış-IP doğrulanır → validate/invite o **sabit** IP'den çıkıyor mu bugün kanıtlarız. İyiyse P1→P2 ile havuz+RPC+replacement.
-> **Uyarı (codex verdict):** bu doküman ilk halinde implementation-ready DEĞİLDİ; §9'daki 18 P1 düzeltmesi kritik yolun (RPC atama, tek atama ilişkisi, fail-closed static mode, generation-gate, denylist, doğru Webshare endpoint'leri, server-side import) her biri **inşa sırasında uygulanmalı.**
+> **Tavsiye:** **P0'dan başla** (server-side, SSRF-guard'lı). IPRoyal dashboard'dan bir **TR static residential IP** alıp sunucuya verirsin → çıkış-IP TR doğrulanır → validate/invite o **sabit** IP'den çıkıyor mu kanıtlarız. İyiyse P1→P2.
+> **Uyarı (codex verdict):** doküman ilk halinde implementation-ready DEĞİLDİ; §9'daki 18 P1 (RPC atama, tek atama ilişkisi, fail-closed static mode, generation-gate, denylist, server-side import) her biri **inşa sırasında uygulanmalı.**
 
 ---
 
 ## 8. Açık kararlar (senin onayına)
 
 1. **Provider:** §6 önerisi = **Webshare Dedicated Static Residential ($1.47/IP)** birincil, **IPRoyal ($2.70)** yedek — hedef ülke stoğuna göre. Onaylıyor musun? (shared seçenekler LinkedIn için ELENDİ.)
-2. **Webshare planı:** kaç IP, hangi ülkeler (`proxy_countries`)? Dedicated Static Residential subtype teyidi + hedef ülke (TR/DE/US...) stoğu. (Abonelik bazlı, sınırsız BW.)
+2. **IPRoyal planı:** kaç IP, lease (30/60/90g), TR (+ diğer ülke) stoğu. Dashboard'dan alınır; auto-extend açık mı.
 3. **Havuz kapsamı:** global paylaşımlı mı, tenant başına ayrılmış mı? (çoklu-tenant izolasyonu istiyorsan tenant'a ayrılmış.)
 4. **Şifreleme anahtarı:** cookie ile aynı mı, ayrı `LINKEDIN_PROXY_ENC_KEY` mi? (öneri: ayrı.)
-5. **Başlangıç fazı:** P0 (bir Webshare IP'si yapıştır, bugün test) → sonra `/proxy/list/` havuzu? yoksa doğrudan P1/P2 (API sync)?
+5. **Başlangıç fazı:** P0 (IPRoyal TR IP'si → server-side import → bugün test) → sonra havuz/RPC (P1)?
 
 ---
 
