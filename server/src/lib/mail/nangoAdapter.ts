@@ -32,6 +32,7 @@ export const nangoProvider: MailProvider = {
             success: res.success,
             rfcMessageId: res.rfcMessageId ?? null,
             providerThreadId: res.providerThreadId ?? null,
+            threadIdDropped: res.threadIdDropped ?? false,
         };
     },
 };

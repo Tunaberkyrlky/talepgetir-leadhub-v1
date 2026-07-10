@@ -129,6 +129,10 @@ export interface SendResult {
     rfcMessageId?: string | null;
     // Gmail send yanıtındaki threadId (varsa). Takip maillerinde native thread için saklanır.
     providerThreadId?: string | null;
+    // Geçilen gmailThreadId geçersizdi (kutu sahibi değil / konuşma silinmiş) ve
+    // threadId'siz tekrar gönderildi. Engine bunu görünce eski bozuk threadId'yi ATAR ve
+    // yerine dönen yeni-geçerli providerThreadId'yi saklar (kalıcı 404 döngüsünü kırar).
+    threadIdDropped?: boolean;
     // Labels of real-file attachments the router could NOT load (e.g. storage
     // download failed) and therefore did NOT attach. The message still sent, so
     // the caller must surface this so the user knows the file was left off.

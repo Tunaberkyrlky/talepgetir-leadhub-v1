@@ -653,17 +653,42 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         const newReferences = enrollment.thread_references
                             ? `${enrollment.thread_references} ${rfcId}`
                             : rfcId;
-                        await supabaseAdmin
+                        // Saklanan threadId, thread_account_email'in (sahibinin) kutusuna ait
+                        // OLMALI. Rotasyon bu maili farklı bir kutudan gönderdiyse
+                        // (sameThreadAccount=false) dönen yeni threadId o kutuya aittir → SAKLAMA;
+                        // aksi halde saklı thread_account_email ile çelişir ve rotasyon eski
+                        // kutuya dönünce Gmail yabancı threadId'yi 404'ler (kalıcı retry döngüsü).
+                        // threadIdDropped ise: geçilen threadId zaten geçersizdi, threadId'siz
+                        // yeniden gönderildi → eski bozuk id'ye DÖNME, dönen yeni-geçerli id'yi
+                        // (yoksa null) yaz. Kök ve sameThreadAccount durumunda normalde güncelle.
+                        let nextThreadId: string | null;
+                        if (result.threadIdDropped) {
+                            nextThreadId = result.providerThreadId || null;
+                        } else if (isThreadRoot || sameThreadAccount) {
+                            nextThreadId = result.providerThreadId || enrollment.thread_provider_thread_id || null;
+                        } else {
+                            nextThreadId = enrollment.thread_provider_thread_id || null;
+                        }
+                        const { error: threadUpdErr } = await supabaseAdmin
                             .from('campaign_enrollments')
                             .update({
                                 thread_first_message_id: enrollment.thread_first_message_id || rfcId,
                                 thread_last_message_id: rfcId,
                                 thread_references: newReferences,
-                                thread_provider_thread_id: result.providerThreadId || enrollment.thread_provider_thread_id || null,
+                                thread_provider_thread_id: nextThreadId,
                                 thread_subject: enrollment.thread_subject || subject,
                                 thread_account_email: enrollment.thread_account_email || accountEmail || null,
                             })
                             .eq('id', enrollment.id);
+                        // Sessiz düşme yok: mail çıktı ama thread durumu yazılamadıysa (geçici DB
+                        // hatası veya migration 061 henüz uygulanmamış) sonraki adım thread'siz
+                        // köklenir; nedenini logla (graceful degradation, ama gözlemlenebilir).
+                        if (threadUpdErr) {
+                            log.warn(
+                                { err: threadUpdErr, enrollmentId: enrollment.id },
+                                'Thread durumu güncellenemedi; sonraki adım thread\'siz köklenebilir',
+                            );
+                        }
                     }
 
                     sent++;

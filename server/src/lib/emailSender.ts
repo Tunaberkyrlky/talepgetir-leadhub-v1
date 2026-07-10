@@ -257,6 +257,10 @@ interface ProviderSendOutput {
     providerMessageId: string;         // Gmail message id / Graph request-id
     rfcMessageId?: string | null;      // yazdığımız RFC Message-ID (MIME/Gmail yolları)
     providerThreadId?: string | null;  // Gmail threadId (varsa)
+    // Geçilen gmailThreadId geçersizdi (kutu sahibi değil / konuşma silinmiş → Gmail
+    // 404/400) ve threadId'siz tekrar denendi. true ise engine eski bozuk threadId'ye
+    // DÖNMEMELİ; yerine yeni-geçerli providerThreadId'yi saklamalı (kendini onarma).
+    threadIdDropped?: boolean;
 }
 
 async function sendViaGmail(connection: EmailConnection, params: SendParams): Promise<ProviderSendOutput> {
@@ -278,22 +282,48 @@ async function sendViaGmail(connection: EmailConnection, params: SendParams): Pr
     });
 
     const nango = await getNango();
-    const response = await nango.proxy({
+    const rawBody = base64url(rawMessage);
+    // threadId verilince Gmail maili aynı konuşmaya native yerleştirir (In-Reply-To/
+    // References başlıkları bu thread'deki bir mesajla eşleştiği için kabul edilir).
+    const send = (threadId?: string | null) => nango.proxy({
         method: 'POST',
         baseUrlOverride: 'https://gmail.googleapis.com',
         endpoint: '/gmail/v1/users/me/messages/send',
         providerConfigKey: 'google-mail',
         connectionId: connection.connection_id ?? '',
-        // threadId verilince Gmail maili aynı konuşmaya native yerleştirir (In-Reply-To/
-        // References başlıkları bu thread'deki bir mesajla eşleştiği için kabul edilir).
-        data: { raw: base64url(rawMessage), ...(params.gmailThreadId ? { threadId: params.gmailThreadId } : {}) },
+        data: { raw: rawBody, ...(threadId ? { threadId } : {}) },
     });
+
+    // Saklı threadId artık geçersiz olabilir: rotasyon başka kutudan bir thread sakladıysa
+    // ya da kullanıcı konuşmayı kendi Gmail'inden sildiyse Gmail 404 (bulunamadı) / 400
+    // (geçersiz thread_id) döner. Bu durumda threadId'siz BİR kez daha dene — In-Reply-To/
+    // References header'ları thread'i yine bağlar ve Gmail yeni-geçerli bir threadId döndürür.
+    // Böylece "her 5 dk'da aynı 404 ile başarısız" kalıcı döngüsü kırılır (engine dönen yeni
+    // threadId'yi saklayarak kendini onarır). threadId geçilmediyse retry yok.
+    let threadIdDropped = false;
+    const response = await (async () => {
+        try {
+            return await send(params.gmailThreadId);
+        } catch (err) {
+            const status = (err as { response?: { status?: number } })?.response?.status;
+            if (params.gmailThreadId && (status === 404 || status === 400)) {
+                log.warn(
+                    { to: params.to, status, threadId: params.gmailThreadId },
+                    'Gmail rejected stored threadId; retrying send without threadId (header-only threading)',
+                );
+                threadIdDropped = true;
+                return await send(null);
+            }
+            throw err;
+        }
+    })();
 
     const data = response.data as { id?: string; threadId?: string } | undefined;
     return {
         providerMessageId: data?.id || `gmail_${Date.now()}`,
         rfcMessageId: messageId,
         providerThreadId: data?.threadId ?? null,
+        threadIdDropped,
     };
 }
 
@@ -430,6 +460,7 @@ export interface SendResult {
     provider: 'google-mail' | 'microsoft-outlook';
     rfcMessageId?: string | null;       // yazdığımız RFC Message-ID (thread durumu için)
     providerThreadId?: string | null;   // Gmail native threadId (varsa)
+    threadIdDropped?: boolean;          // saklı threadId geçersizdi, threadId'siz gönderildi
 }
 
 export async function sendEmail(
@@ -481,6 +512,7 @@ export async function sendEmail(
             provider,
             rfcMessageId: out.rfcMessageId ?? null,
             providerThreadId: out.providerThreadId ?? null,
+            threadIdDropped: out.threadIdDropped ?? false,
         };
     } catch (err) {
         if (err instanceof AppError) throw err;
