@@ -26,7 +26,7 @@ import { createLogger } from '../logger.js';
 import { sendInvite, sendMessage, resolveProfileUrn, isNotSent } from './client.js';
 import { INVITE_NOTE_MAX } from './voyager.js';
 import {
-    credsFor, dispatcherFor, consumeQuota, releaseQuota, applyWriteHealth, classifierForResolve,
+    credsFor, resolveDispatcher, consumeQuota, releaseQuota, applyWriteHealth, classifierForResolve,
     auditAction, dailyCapFor, weeklyCapFor, COUNTER_KEY, type LinkedInAccountRow,
 } from './actions.js';
 
@@ -74,12 +74,20 @@ export async function performInvite(
     let creds, dispatcher;
     try {
         creds = credsFor(account);
-        dispatcher = dispatcherFor(account);
     } catch (err) {
         await releaseQuota(tenantId, accountId, COUNTER);
         await auditAction({ tenantId, accountId, type: 'invite', status: 'error', classifier: 'transport_error', error: errMsg(err), jobId });
         throw err;
     }
+    // Fail-closed egress: a static_required account with no healthy, validated dedicated IP
+    // must SKIP (never fall back to a rotating IP; codex §9-P1.10/P1.12).
+    const gate = await resolveDispatcher(tenantId, account, 'send');
+    if (!gate.ok) {
+        await releaseQuota(tenantId, accountId, COUNTER);
+        await auditAction({ tenantId, accountId, type: 'invite', status: 'skipped', classifier: gate.reason, jobId });
+        return { sent: false, classifier: gate.reason, accountStatus: account.status, skipped: gate.reason };
+    }
+    dispatcher = gate.dispatcher;
 
     // Resolve the profile urn if only a public id was given (§4.3, best-effort GET).
     let targetUrn = target.profileUrn ?? null;
@@ -163,12 +171,18 @@ export async function performMessage(
     let creds, dispatcher;
     try {
         creds = credsFor(account);
-        dispatcher = dispatcherFor(account);
     } catch (err) {
         await releaseQuota(tenantId, accountId, COUNTER);
         await auditAction({ tenantId, accountId, type: 'message', status: 'error', classifier: 'transport_error', error: errMsg(err), jobId });
         throw err;
     }
+    const gate = await resolveDispatcher(tenantId, account, 'send');
+    if (!gate.ok) {
+        await releaseQuota(tenantId, accountId, COUNTER);
+        await auditAction({ tenantId, accountId, type: 'message', status: 'skipped', classifier: gate.reason, jobId });
+        return { sent: false, classifier: gate.reason, accountStatus: account.status, skipped: gate.reason };
+    }
+    dispatcher = gate.dispatcher;
 
     let result;
     try {

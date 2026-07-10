@@ -17,13 +17,32 @@ const ALGO = 'aes-256-gcm';
 const IV_LEN = 12;   // GCM standard nonce
 const TAG_LEN = 16;  // GCM auth tag
 
-function getKey(): Buffer {
-    const hex = process.env.LINKEDIN_COOKIE_ENC_KEY;
-    if (!hex) throw new AppError('LINKEDIN_COOKIE_ENC_KEY not configured', 500);
+function keyFrom(envName: string): Buffer {
+    const hex = process.env[envName];
+    if (!hex) throw new AppError(`${envName} not configured`, 500);
     if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
-        throw new AppError('LINKEDIN_COOKIE_ENC_KEY must be 64 hex characters (32 bytes)', 500);
+        throw new AppError(`${envName} must be 64 hex characters (32 bytes)`, 500);
     }
     return Buffer.from(hex, 'hex');
+}
+
+function encryptWith(key: Buffer, plain: string): string {
+    const iv = randomBytes(IV_LEN);
+    const cipher = createCipheriv(ALGO, key, iv);
+    const ct = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return Buffer.concat([iv, tag, ct]).toString('base64');
+}
+
+function decryptWith(key: Buffer, blob: string): string {
+    const buf = Buffer.from(blob, 'base64');
+    if (buf.length < IV_LEN + TAG_LEN) throw new AppError('Encrypted blob is malformed', 500);
+    const iv = buf.subarray(0, IV_LEN);
+    const tag = buf.subarray(IV_LEN, IV_LEN + TAG_LEN);
+    const ct = buf.subarray(IV_LEN + TAG_LEN);
+    const d = createDecipheriv(ALGO, key, iv);
+    d.setAuthTag(tag);
+    return Buffer.concat([d.update(ct), d.final()]).toString('utf8');
 }
 
 export function isLinkedInEncryptionConfigured(): boolean {
@@ -32,23 +51,24 @@ export function isLinkedInEncryptionConfigured(): boolean {
 
 /** Encrypt a UTF-8 cookie value. Returns base64(iv || tag || ciphertext). */
 export function encryptCookie(plain: string): string {
-    const key = getKey();
-    const iv = randomBytes(IV_LEN);
-    const cipher = createCipheriv(ALGO, key, iv);
-    const ct = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
-    const tag = cipher.getAuthTag();
-    return Buffer.concat([iv, tag, ct]).toString('base64');
+    return encryptWith(keyFrom('LINKEDIN_COOKIE_ENC_KEY'), plain);
 }
 
 /** Decrypt a base64(iv || tag || ciphertext) blob back to the original string. */
 export function decryptCookie(blob: string): string {
-    const key = getKey();
-    const buf = Buffer.from(blob, 'base64');
-    if (buf.length < IV_LEN + TAG_LEN) throw new AppError('Encrypted cookie blob is malformed', 500);
-    const iv = buf.subarray(0, IV_LEN);
-    const tag = buf.subarray(IV_LEN, IV_LEN + TAG_LEN);
-    const ct = buf.subarray(IV_LEN + TAG_LEN);
-    const d = createDecipheriv(ALGO, key, iv);
-    d.setAuthTag(tag);
-    return Buffer.concat([d.update(ct), d.final()]).toString('utf8');
+    return decryptWith(keyFrom('LINKEDIN_COOKIE_ENC_KEY'), blob);
+}
+
+// Proxy credentials use a SEPARATE key domain (LINKEDIN_PROXY_ENC_KEY) so a proxy-secret
+// rotation never touches session cookies, and vice versa. Fail-closed identically.
+export function isProxyEncryptionConfigured(): boolean {
+    return !!process.env.LINKEDIN_PROXY_ENC_KEY;
+}
+
+export function encryptProxySecret(plain: string): string {
+    return encryptWith(keyFrom('LINKEDIN_PROXY_ENC_KEY'), plain);
+}
+
+export function decryptProxySecret(blob: string): string {
+    return decryptWith(keyFrom('LINKEDIN_PROXY_ENC_KEY'), blob);
 }

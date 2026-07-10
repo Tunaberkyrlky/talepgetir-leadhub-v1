@@ -7,11 +7,13 @@
 import { Router } from 'express';
 import accountsRouter from './accounts.js';
 import campaignsRouter, { leadsRouter } from './campaigns.js';
+import proxiesRouter from './proxies.js';
 
 const router = Router();
 
 router.use('/accounts', accountsRouter);
 router.use('/campaigns', campaignsRouter);
+router.use('/proxies', proxiesRouter);
 // leadsRouter serves /leads + /suppression at the module root (not under /campaigns).
 router.use('/', leadsRouter);
 

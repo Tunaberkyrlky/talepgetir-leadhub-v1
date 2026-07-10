@@ -17,9 +17,8 @@ import type { JobHandler } from '../types.js';
 import { researchSupabaseAdmin } from '../../supabase.js';
 import { createLogger } from '../../../logger.js';
 import { decryptCookie } from '../../../linkedin/crypto.js';
-import { proxyAgentFor } from '../../../linkedin/proxy.js';
 import { validateSession, type ValidateClassifier } from '../../../linkedin/client.js';
-import { cancelPendingAccountJobs } from '../../../linkedin/actions.js';
+import { cancelPendingAccountJobs, resolveDispatcher } from '../../../linkedin/actions.js';
 
 const log = createLogger('research:handler:linkedin-validate');
 
@@ -47,6 +46,9 @@ interface AccountRow {
     warmup_started_at: string | null;
     li_at_enc: string | null;
     jsessionid_enc: string | null;
+    geo: string | null;
+    proxy_mode: string;
+    last_validated_proxy_generation: number | null;
 }
 
 /** Mark this row a duplicate identity (RESTRICTED, no member_urn) + audit. Shared by the
@@ -77,7 +79,7 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
 
     const { data, error: loadErr } = await researchSupabaseAdmin
         .from('linkedin_accounts')
-        .select('id, status, proxy_session_id, user_agent, accept_language, warmup_started_at, li_at_enc, jsessionid_enc')
+        .select('id, status, proxy_session_id, user_agent, accept_language, warmup_started_at, li_at_enc, jsessionid_enc, geo, proxy_mode, last_validated_proxy_generation')
         .eq('id', accountId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
@@ -87,19 +89,24 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
 
     const now = new Date().toISOString();
 
-    // ── Probe /voyager/api/me through the sticky proxy ────────────────────────────
+    // ── Probe /voyager/api/me through the account's proxy ─────────────────────────
+    // For a static_required account this is its dedicated IP; validate is what proves that
+    // IP alive, so on success we stamp last_validated_proxy_generation (the send-time gate).
     let result: Awaited<ReturnType<typeof validateSession>> | null = null;
     let transportError: string | null = null;
+    let staticGeneration: number | null = null;
     try {
         if (!account.li_at_enc || !account.jsessionid_enc) throw new Error('account has no stored session cookies');
-        if (!account.proxy_session_id) throw new Error('account has no proxy_session_id');
+        const gate = await resolveDispatcher(tenantId, account, 'validate');
+        if (!gate.ok) throw new Error(`proxy gate: ${gate.reason}`);
+        staticGeneration = gate.staticGeneration;
         const creds = {
             liAt: decryptCookie(account.li_at_enc),
             jsessionid: decryptCookie(account.jsessionid_enc),
             userAgent: account.user_agent ?? '',
             acceptLanguage: account.accept_language,
         };
-        result = await validateSession(creds, proxyAgentFor(account.proxy_session_id));
+        result = await validateSession(creds, gate.dispatcher);
     } catch (err) {
         transportError = err instanceof Error ? err.message : String(err);
     }
@@ -144,6 +151,10 @@ export const linkedinValidateHandler: JobHandler = async ({ job, heartbeat }) =>
     // Start the warmup clock the FIRST time an account validates alive (§1 ramp origin). Only
     // set it once; it's persisted so a re-validate can never reset the ramp progress.
     if (result.classifier === 'success' && !account.warmup_started_at) patch.warmup_started_at = now;
+    // Static IP proven alive → record the generation the send-time gate compares against.
+    if (result.classifier === 'success' && account.proxy_mode === 'static_required' && staticGeneration !== null) {
+        patch.last_validated_proxy_generation = staticGeneration;
+    }
 
     // DB-level PAUSE guard (codex P1): the in-memory `account.status !== 'PAUSED'` check above
     // was loaded BEFORE the multi-second proxied probe, so an operator PAUSE that landed during

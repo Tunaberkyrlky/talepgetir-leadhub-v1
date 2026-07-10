@@ -98,6 +98,31 @@ export function disposeProxyAgent(keyOrSessionId: string): void {
     }
 }
 
+/**
+ * Static dedicated proxy agent (IPRoyal ISP etc.) — a fixed IP the account owns, so there
+ * is NO sessid/sessttl injection: the endpoint is used verbatim. The cache key MUST be
+ * immutable per endpoint version (`static:<proxyId>:<generation>`), never the bare row id —
+ * a credential/IP change bumps the generation and thus mints a fresh agent, so a replaced
+ * proxy can't keep serving the old IP from a stale keep-alive pool (codex P1.13).
+ */
+export function proxyAgentForStatic(
+    cacheKey: string, host: string, port: number, username: string, password: string,
+): ProxyAgent {
+    const key = `static:${cacheKey}`;
+    const cached = agents.get(key);
+    if (cached) return cached;
+    const u = encodeURIComponent(username);
+    const p = encodeURIComponent(password);
+    const uri = `http://${u}:${p}@${host}:${port}`;
+    if (agents.size >= MAX_AGENTS) {
+        const oldest = agents.keys().next().value;
+        if (oldest !== undefined) disposeProxyAgent(oldest);
+    }
+    const agent = new ProxyAgent(uri);
+    agents.set(key, agent);
+    return agent;
+}
+
 /** Mint a new sticky session id for a freshly captured account. */
 export function newProxySessionId(): string {
     return `li_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;

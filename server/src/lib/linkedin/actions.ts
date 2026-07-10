@@ -14,8 +14,9 @@
  */
 import { researchSupabaseAdmin } from '../research/supabase.js';
 import { createLogger } from '../logger.js';
-import { decryptCookie } from './crypto.js';
-import { proxyAgentFor } from './proxy.js';
+import { decryptCookie, decryptProxySecret } from './crypto.js';
+import { proxyAgentFor, proxyAgentForStatic } from './proxy.js';
+import type { Dispatcher } from 'undici';
 import { effectiveDailyCap, WEEKLY_CAP, type ActionType } from './limits.js';
 import { nextSendAt, normalizeWorkingHours } from './schedule.js';
 import { enqueueJob } from '../research/queue.js';
@@ -45,12 +46,16 @@ export interface LinkedInAccountRow {
     warmup_started_at: string | null;
     working_hours: Record<string, unknown> | null;
     timezone: string | null;
+    geo: string | null;
+    proxy_mode: string;
+    last_validated_proxy_generation: number | null;
     created_at: string;
 }
 
 const ACCOUNT_COLUMNS =
     'id, status, proxy_session_id, user_agent, accept_language, li_at_enc, jsessionid_enc, ' +
-    'member_urn, daily_counters, warmup_started_at, working_hours, timezone, created_at';
+    'member_urn, daily_counters, warmup_started_at, working_hours, timezone, geo, ' +
+    'proxy_mode, last_validated_proxy_generation, created_at';
 
 /** The warmup-derived DAILY cap for this account+action (limits.ts §1 ramp). */
 export function dailyCapFor(account: LinkedInAccountRow, type: ActionType, now: number = Date.now()): number {
@@ -87,7 +92,92 @@ export function credsFor(account: LinkedInAccountRow): VoyagerCreds {
 
 export function dispatcherFor(account: LinkedInAccountRow) {
     if (!account.proxy_session_id) throw new Error('account has no proxy_session_id');
-    return proxyAgentFor(account.proxy_session_id);
+    return proxyAgentFor(account.proxy_session_id, account.geo);
+}
+
+interface ProxyAssignmentRow {
+    proxy_id: string;
+    endpoint_generation: number;
+    host: string;
+    port: number;
+    username_enc: string;
+    password_enc: string;
+    country: string | null;
+    provider_health: string;
+    reputation_state: string;
+}
+
+/** The account's active static-proxy assignment (joined), or null if it has none. */
+export async function loadProxyAssignment(
+    tenantId: string, accountId: string,
+): Promise<ProxyAssignmentRow | null> {
+    const { data, error } = await researchSupabaseAdmin
+        .from('linkedin_proxy_assignments')
+        .select('proxy_id, linkedin_proxies!inner(endpoint_generation, host, port, username_enc, password_enc, country, provider_health, reputation_state)')
+        .eq('account_id', accountId)
+        .eq('tenant_id', tenantId)
+        .is('released_at', null)
+        .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    const row = data as unknown as { proxy_id: string; linkedin_proxies: Record<string, unknown> | Record<string, unknown>[] };
+    // PostgREST embeds a to-one relation as an object or a single-element array depending on
+    // the inferred cardinality — normalize either way.
+    const p = (Array.isArray(row.linkedin_proxies) ? row.linkedin_proxies[0] : row.linkedin_proxies) ?? null;
+    if (!p) return null;
+    return {
+        proxy_id: row.proxy_id,
+        endpoint_generation: p.endpoint_generation as number,
+        host: p.host as string,
+        port: p.port as number,
+        username_enc: p.username_enc as string,
+        password_enc: p.password_enc as string,
+        country: (p.country as string | null) ?? null,
+        provider_health: p.provider_health as string,
+        reputation_state: p.reputation_state as string,
+    };
+}
+
+export type DispatcherGate =
+    | { ok: true; dispatcher: Dispatcher; staticGeneration: number | null }
+    | { ok: false; reason: string };
+
+/** Minimal account shape resolveDispatcher needs (both the send + validate rows satisfy it). */
+export interface ProxyResolvable {
+    id: string;
+    proxy_session_id: string | null;
+    geo: string | null;
+    proxy_mode: string;
+    last_validated_proxy_generation: number | null;
+}
+
+/**
+ * Resolve the egress dispatcher for an account, enforcing the fail-closed static invariants
+ * (codex §9). `static_required` accounts MUST use their assigned dedicated IP and never fall
+ * back to the rotating gateway; a send additionally requires the account's validated
+ * generation to match the proxy's current endpoint (validate!=send-same-IP, P1.12). Returns
+ * a skip reason (never throws for a gate failure) so the caller can audit + refund cleanly.
+ */
+export async function resolveDispatcher(
+    tenantId: string, account: ProxyResolvable, purpose: 'send' | 'validate',
+): Promise<DispatcherGate> {
+    if (account.proxy_mode !== 'static_required') {
+        if (!account.proxy_session_id) return { ok: false, reason: 'no_proxy_session' };
+        return { ok: true, dispatcher: proxyAgentFor(account.proxy_session_id, account.geo), staticGeneration: null };
+    }
+    const asg = await loadProxyAssignment(tenantId, account.id);
+    if (!asg) return { ok: false, reason: 'no_static_proxy' };
+    if (asg.reputation_state !== 'clean' || asg.provider_health === 'unhealthy') {
+        return { ok: false, reason: 'proxy_unhealthy' };
+    }
+    if (purpose === 'send' && account.last_validated_proxy_generation !== asg.endpoint_generation) {
+        return { ok: false, reason: 'proxy_revalidation_required' };
+    }
+    const dispatcher = proxyAgentForStatic(
+        `${asg.proxy_id}:${asg.endpoint_generation}`, asg.host, asg.port,
+        decryptProxySecret(asg.username_enc), decryptProxySecret(asg.password_enc),
+    );
+    return { ok: true, dispatcher, staticGeneration: asg.endpoint_generation };
 }
 
 /** Current same-day count for a counter key (0 after a rollover we haven't written yet). */
