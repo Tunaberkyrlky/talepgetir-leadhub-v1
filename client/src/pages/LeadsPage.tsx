@@ -129,6 +129,9 @@ interface PaginatedResponse {
         hasNext: boolean;
         hasPrev: boolean;
     };
+    // Present (true) only when the server had to drop the owner filter from this
+    // search on a pre-migration-118 DB — shown to the user as a one-time notice.
+    owner_filter_dropped?: boolean;
 }
 
 interface FilterOptions {
@@ -484,6 +487,26 @@ export default function LeadsPage() {
         },
     });
 
+    // One-time notice when the server had to drop the owner filter from a search
+    // (pre-migration-118 DB). The owner Select stays fully usable — the filter just
+    // didn't apply to THIS search. Reset once a later response applies it again, so a
+    // fresh drop can notify again without spamming on every refetch.
+    const ownerDropNotifiedRef = useRef(false);
+    useEffect(() => {
+        if (data?.owner_filter_dropped) {
+            if (!ownerDropNotifiedRef.current) {
+                ownerDropNotifiedRef.current = true;
+                notifications.show({
+                    message: t('owner.filterDropped'),
+                    color: 'yellow',
+                    autoClose: 6000,
+                });
+            }
+        } else {
+            ownerDropNotifiedRef.current = false;
+        }
+    }, [data?.owner_filter_dropped, t]);
+
     // Bulk selection computed (after data query)
     const allOnPage = data?.data.map(c => c.id) || [];
     const allSelected = allOnPage.length > 0 && allOnPage.every(id => selectedIds.has(id));
@@ -710,10 +733,6 @@ export default function LeadsPage() {
     };
 
     const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedCountries.length || selectedProducts.length || ownerFilter);
-    // Text search runs through a server RPC that does not apply the owner filter, so while a
-    // search term is present the owner control is disabled (its state is kept and re-applies
-    // once the search clears) to avoid implying a filter that isn't actually taking effect.
-    const searchActive = search.trim().length > 0;
 
     const clearAllFilters = () => {
         setSearch('');
@@ -1250,8 +1269,6 @@ export default function LeadsPage() {
                         searchable
                         radius="md"
                         maxDropdownHeight={240}
-                        disabled={searchActive}
-                        description={searchActive ? t('owner.filterDisabledWhileSearching') : undefined}
                     />
                 </Group>
                 <Group mt="xs" gap="xs" wrap="nowrap" justify="flex-end">

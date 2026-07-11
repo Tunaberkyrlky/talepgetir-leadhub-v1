@@ -8,11 +8,11 @@
  *   personal_grade      → the owner's real mailbox (Gmail/Nango or SMTP). The
  *                         message lands in their Sent folder; replies thread
  *                         back over the existing IMAP inbound. No brand fallback.
- *                         There is NO user→mailbox column on email_connections
- *                         yet (migration 116 pending), so an owner is pinned by
- *                         `accountEmail`; `ownerUserId` ALONE cannot map to a
- *                         mailbox and fails closed (see the input contract).
- *                         Absent both, it resolves the tenant default box.
+ *                         An owner is pinned either by `accountEmail` or, absent
+ *                         that, by `ownerUserId` via email_connections.owner_user_id
+ *                         (migration 117); an ownerUserId with no owned mailbox
+ *                         fails closed (see the input contract). Absent both, it
+ *                         resolves the tenant default box.
  *   brand_transactional → Resend, verified brand domain (booking receipts,
  *                         "your report link", system notices). Person-looking
  *                         `from` + `reply_to` owner is allowed (§3.2.3 / D7).
@@ -37,6 +37,10 @@ import { getConnectionByEmail } from '../emailConnections.js';
 import type { EmailConnection } from '../emailConnections.js';
 import type { MailChannel } from './types.js';
 import { isConfigured as isResendConfigured } from '../systemMailer.js';
+import { createLogger } from '../logger.js';
+import { isMissingColumnError } from '../supabaseErrors.js';
+
+const log = createLogger('mail:sendingIdentity');
 
 /** The three sending identity classes (MEGA §3.2.1). */
 export type SendClass = 'personal_grade' | 'brand_transactional' | 'marketing';
@@ -63,7 +67,8 @@ export interface IdentityHealth {
 /** Why a class could not resolve — the caller pauses; it does NOT fall back. */
 export type ResolveFailureReason =
     | 'no_owner_mailbox'                  // personal_grade: tenant has no active mailbox to send AS
-    | 'owner_mailbox_mapping_unavailable' // ownerUserId given but no user→mailbox column yet (migration 116)
+    | 'owner_mailbox_mapping_unavailable' // ownerUserId given but no owned mailbox (or the owner_user_id column is absent pre-117) — a mapping GAP, fail closed
+    | 'owner_mailbox_lookup_failed'       // ownerUserId given but the mailbox lookup hit a REAL DB error (not a missing column) — a transient/retryable fault, NOT a mapping gap
     | 'resend_unconfigured'               // brand_transactional: RESEND_* env missing
     | 'rotation_account_required'         // marketing: the rotation's accountEmail is mandatory (not passed)
     | 'no_marketing_mailbox';             // marketing: the passed campaign mailbox is not active
@@ -134,12 +139,13 @@ export interface ResolveSendingIdentityInput {
     tenantId: string;
     sendClass: SendClass;
     /**
-     * Reserved (Phase 5 contract — do NOT remove). There is no user→mailbox
-     * column on email_connections yet (migration 116 pending), so an owner CANNOT
-     * be mapped to a mailbox from here. Passing `ownerUserId` WITHOUT `accountEmail`
-     * fails closed with `owner_mailbox_mapping_unavailable` rather than silently
-     * ignoring the pin and dropping to the tenant default (which would send AS the
-     * wrong identity). Once migration 116 lands this will resolve the owner's box.
+     * Pin the send to a specific human owner. WITHOUT `accountEmail`, a
+     * personal_grade send resolves the owner's OWN mailbox via
+     * email_connections.owner_user_id (migration 117). If the owner has no owned
+     * active box — or the column is absent on a pre-117 DB — it fails closed with
+     * `owner_mailbox_mapping_unavailable` rather than silently dropping to the
+     * tenant default (which would send AS the wrong identity). WITH `accountEmail`,
+     * that explicit box wins and this is ignored.
      */
     ownerUserId?: string | null;
     /**
@@ -210,6 +216,57 @@ async function resolveMailbox(tenantId: string, accountEmail?: string | null): P
 }
 
 /**
+ * Outcome of an owner-mailbox lookup, so the resolver can tell a legitimate
+ * "no box mapped" apart from a real DB fault:
+ *   - ok       → an owned active mailbox was found.
+ *   - unmapped → no owned active box, OR the owner_user_id column is absent
+ *                (pre-117 DB) — an expected mapping GAP; the caller fails closed.
+ *   - error    → a real DB/permission error — surfaced typed so it is NOT
+ *                misreported as a mapping gap.
+ */
+type OwnerMailboxLookup =
+    | { kind: 'ok'; conn: EmailConnection }
+    | { kind: 'unmapped' }
+    | { kind: 'error'; message: string };
+
+/**
+ * Resolve the owner's OWN mailbox via email_connections.owner_user_id (migration
+ * 117). Same deterministic pick as resolveMailbox (is_default → oldest-active →
+ * id). Returns a typed OwnerMailboxLookup so the caller can distinguish an owned
+ * box (ok), a mapping gap / pre-117 missing column (unmapped → fail closed), and a
+ * real DB fault (error → typed lookup failure, NOT masked as a mapping gap). Never
+ * re-verifies / probes.
+ */
+async function resolveOwnerMailbox(tenantId: string, ownerUserId: string): Promise<OwnerMailboxLookup> {
+    try {
+        const { data, error } = await supabaseAdmin
+            .from('email_connections')
+            .select('*')
+            .eq('tenant_id', tenantId)
+            .eq('owner_user_id', ownerUserId)
+            .eq('is_active', true)
+            .order('is_default', { ascending: false })
+            .order('connected_at', { ascending: true })
+            .order('id', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+        if (error) {
+            // ONLY a missing owner_user_id column (pre-117 DB) is an expected "unmapped"
+            // fail-closed. Any OTHER error is a real fault — surface it typed instead of
+            // pretending the owner simply has no box.
+            if (isMissingColumnError(error, 'owner_user_id')) return { kind: 'unmapped' };
+            log.error({ err: error, tenantId, ownerUserId }, 'resolveOwnerMailbox query failed');
+            return { kind: 'error', message: error.message ?? 'owner mailbox lookup failed' };
+        }
+        if (!data) return { kind: 'unmapped' }; // no owned active box → fail closed
+        return { kind: 'ok', conn: data as unknown as EmailConnection };
+    } catch (e) {
+        log.error({ err: e, tenantId, ownerUserId }, 'resolveOwnerMailbox threw');
+        return { kind: 'error', message: e instanceof Error ? e.message : 'owner mailbox lookup failed' };
+    }
+}
+
+/**
  * Resolve the sending identity for a class. Pure READ: never sends, never
  * re-verifies a mailbox, never probes Nango. Returns a typed { ok:false } on a
  * missing / unmappable identity — the caller decides to pause; it does not fall
@@ -218,16 +275,47 @@ async function resolveMailbox(tenantId: string, accountEmail?: string | null): P
 export async function resolveSendingIdentity(input: ResolveSendingIdentityInput): Promise<ResolveResult> {
     const { tenantId, sendClass, ownerUserId, accountEmail } = input;
 
-    // Fail closed on an owner pin we cannot honor yet: email_connections has no
-    // user→mailbox column (migration 116 pending), so an ownerUserId with no
-    // accountEmail cannot be resolved to a mailbox. Do NOT ignore the pin and fall
-    // to the tenant default — that would send AS the wrong identity (§3.2.5).
+    // Owner pin without an explicit accountEmail: resolve the owner's OWN mailbox via
+    // email_connections.owner_user_id (migration 117). Only meaningful for a
+    // personal-grade (1:1) send. On a DB where the column doesn't exist yet, or where
+    // the owner has no owned active mailbox, fail closed with the typed reason — do
+    // NOT ignore the pin and fall to the tenant default (that would send AS the wrong
+    // identity, §3.2.5).
     if (ownerUserId && !accountEmail) {
+        if (sendClass === 'personal_grade') {
+            const lookup = await resolveOwnerMailbox(tenantId, ownerUserId);
+            if (lookup.kind === 'ok') {
+                const conn = lookup.conn;
+                return {
+                    ok: true,
+                    sendClass: 'personal_grade',
+                    transport: 'owner_mailbox',
+                    accountEmail: conn.email_address,
+                    connection: conn,
+                    health: mailboxHealth(conn),
+                };
+            }
+            if (lookup.kind === 'error') {
+                // A REAL DB fault (not a missing column) — pause with a DISTINCT typed reason
+                // so a transient lookup failure isn't misreported as a permanent mapping gap.
+                return {
+                    ok: false,
+                    sendClass,
+                    reason: 'owner_mailbox_lookup_failed',
+                    message:
+                        `Owner mailbox lookup failed (transient DB error): ${lookup.message}. ` +
+                        'Automation pauses — this is a lookup fault, not a mapping gap; retry is safe (§3.2.5).',
+                };
+            }
+            // lookup.kind === 'unmapped' → fall through to the mapping_unavailable return below.
+        }
         return {
             ok: false,
             sendClass,
             reason: 'owner_mailbox_mapping_unavailable',
-            message: 'email_connections has no owner mapping yet (migration 116 pending)',
+            message:
+                'No mailbox is mapped to this owner (email_connections.owner_user_id). ' +
+                'Automation pauses — the brand identity is not a substitute (§3.2.5).',
         };
     }
 

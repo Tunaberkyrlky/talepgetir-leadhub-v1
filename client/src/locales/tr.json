@@ -911,6 +911,20 @@
             "reject": "Reddet",
             "rejectedToast": "Açı reddedildi, artık limite sayılmaz."
         },
+        "hs": {
+            "approve": "Onayla",
+            "reject": "Reddet",
+            "approvedToast": "Kod onaylandı.",
+            "rejectedToast": "Kod reddedildi.",
+            "empty": "İncelenecek kod kalmadı."
+        },
+        "markets": {
+            "source": "UN Comtrade",
+            "worldImportRank": "Dünya ithalat sırası #{{rank}}",
+            "worldImportValue": "${{value}}",
+            "growth": "+{{pct}}% yıllık",
+            "bilateralExport": "{{country}} buraya ihracat yapıyor"
+        },
         "admin": {
             "title": "Araştırma — COGS & Marj (dahili)",
             "subtitle": "Tenant başına gerçek araştırma maliyeti ve faturalanan lead'ler. Müşteriler bu rakamları asla görmez.",
@@ -1159,6 +1173,27 @@
                 "targetMarkets": "Hedef pazarlar",
                 "exclusions": "Müşteriniz olmasını asla istemeyeceğiniz türler"
             },
+            "step22": {
+                "title": "Hangi ürün kodları geçerli?",
+                "subtitle": "AI ürünlerinizi resmi HS/GTIP kodlarıyla eşleştirdi — uygun olanları onaylayın.",
+                "failed": "Ürün kodu eşleme başarısız oldu.",
+                "stage": {
+                    "loading": "Onaylı ürünleriniz yükleniyor…",
+                    "generating": "Ürünler ticaret kodlarıyla eşleştiriliyor…",
+                    "persisting": "Kodlar UN Comtrade ile doğrulanıyor…",
+                    "default": "Ürünleriniz ticaret kodlarıyla eşleştiriliyor…"
+                }
+            },
+            "step23": {
+                "title": "Dünya pazarları analiz ediliyor",
+                "failed": "Pazar analizi başarısız oldu.",
+                "stage": {
+                    "loading": "Onaylı ürün kodlarınız yükleniyor…",
+                    "world_import": "Dünyanın en büyük ithalatçıları sıralanıyor…",
+                    "bilateral": "Ülkenizin her pazara ihracatı kontrol ediliyor…",
+                    "default": "UN Comtrade'de en büyük ithalatçılar kontrol ediliyor…"
+                }
+            },
             "step7": {
                 "title": "ICP profilleriniz oluşturuluyor",
                 "failed": "ICP oluşturma başarısız oldu.",
@@ -1344,7 +1379,6 @@
         "unassigned": "Sahipsiz",
         "myLeads": "Benim leadlerim",
         "filterPlaceholder": "Sahip",
-        "filterDisabledWhileSearching": "Arama sırasında sahip filtresi uygulanmaz",
         "updated": "Sahip güncellendi",
         "loadError": "Üyeler yüklenemedi",
         "noMembers": "Üye bulunamadı",
@@ -1355,7 +1389,8 @@
         "bulkAssigned": "Sahip ataması",
         "bulkAssignedCount": "{{count}} şirkete sahip atandı",
         "reassign": "Yeniden ata",
-        "taskReassigned": "Görev yeniden atandı"
+        "taskReassigned": "Görev yeniden atandı",
+        "filterDropped": "Sahip filtresi bu aramada uygulanamadı (veritabanı güncellemesi bekleniyor)"
     },
     "pipeline": {
         "search": "Pipeline'da ara...",

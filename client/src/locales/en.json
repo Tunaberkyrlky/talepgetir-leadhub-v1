@@ -911,6 +911,20 @@
             "reject": "Reject",
             "rejectedToast": "Angle rejected — it no longer counts toward the limit."
         },
+        "hs": {
+            "approve": "Approve",
+            "reject": "Reject",
+            "approvedToast": "Code approved.",
+            "rejectedToast": "Code rejected.",
+            "empty": "Nothing left to review."
+        },
+        "markets": {
+            "source": "UN Comtrade",
+            "worldImportRank": "World import rank #{{rank}}",
+            "worldImportValue": "${{value}}",
+            "growth": "+{{pct}}% YoY",
+            "bilateralExport": "{{country}} exports here"
+        },
         "admin": {
             "title": "Research — COGS & Margin (internal)",
             "subtitle": "Real per-tenant research costs vs billed leads. Customers never see these numbers.",
@@ -1159,6 +1173,27 @@
                 "targetMarkets": "Target markets",
                 "exclusions": "Types you'd never want as a customer"
             },
+            "step22": {
+                "title": "Which product codes apply?",
+                "subtitle": "AI matched your products to official HS/GTIP codes — approve the ones that fit.",
+                "failed": "Product code matching failed.",
+                "stage": {
+                    "loading": "Loading your approved products…",
+                    "generating": "Matching products to trade codes…",
+                    "persisting": "Validating codes against UN Comtrade…",
+                    "default": "Matching your products to trade codes…"
+                }
+            },
+            "step23": {
+                "title": "Analyzing world markets",
+                "failed": "Market analysis failed.",
+                "stage": {
+                    "loading": "Loading your approved product codes…",
+                    "world_import": "Ranking the world's biggest importers…",
+                    "bilateral": "Checking your country's exports to each market…",
+                    "default": "Checking UN Comtrade for the biggest importers…"
+                }
+            },
             "step7": {
                 "title": "Building your ICP profiles",
                 "failed": "ICP generation failed.",
@@ -1344,7 +1379,6 @@
         "unassigned": "Unassigned",
         "myLeads": "My leads",
         "filterPlaceholder": "Owner",
-        "filterDisabledWhileSearching": "Owner filter does not apply while searching",
         "updated": "Owner updated",
         "loadError": "Members could not be loaded",
         "noMembers": "No members found",
@@ -1355,7 +1389,8 @@
         "bulkAssigned": "Owner assignment",
         "bulkAssignedCount": "Owner assigned to {{count}} companies",
         "reassign": "Reassign",
-        "taskReassigned": "Task reassigned"
+        "taskReassigned": "Task reassigned",
+        "filterDropped": "Owner filter could not be applied to this search (database update pending)"
     },
     "pipeline": {
         "search": "Search pipeline...",

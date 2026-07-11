@@ -11,6 +11,7 @@ import { resolveUsers, ownerDisplayName } from '../lib/userResolver.js';
 import { parseList } from '../lib/parseList.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
+import { isMissingFunctionError } from '../lib/supabaseErrors.js';
 import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
 import { invalidateOverviewCache, invalidatePipelineStatsCache } from './statistics.js';
 import posthog from '../lib/posthog.js';
@@ -49,6 +50,76 @@ function chunkIds<T>(arr: T[], size: number): T[][] {
     return out;
 }
 const PIPELINE_ID_CHUNK = 100;
+
+type PipelineSignals = {
+    nextTasks: Record<string, { id: string; title: string; due_at: string; is_overdue: boolean }>;
+    lastContacts: Record<string, string>;
+};
+
+// Fallback for the get_pipeline_signals RPC (migration 119): the original chunked
+// PostgREST queries. Correct but per-chunk-capped — a company whose latest human
+// contact sorts past the activities cap loses its contact hint (the window-function
+// RPC has no per-group cap). Used only when the RPC isn't present / errors.
+async function computePipelineSignalsFallback(
+    db: ReturnType<typeof dbClient>,
+    tenantId: string,
+    activeIds: string[],
+): Promise<PipelineSignals> {
+    const idChunks = chunkIds(activeIds, PIPELINE_ID_CHUNK);
+
+    // Next pending task per company = smallest due_at (idx_tasks_company_due already covers
+    // tenant_id, company_id, due_at WHERE status = 'pending'). is_overdue is a request-time
+    // hint; the client recomputes it from due_at so a cached card can't go stale.
+    const nextTasks: PipelineSignals['nextTasks'] = {};
+    for (const idChunk of idChunks) {
+        const { data: taskRows, error: taskErr } = await db
+            .from('tasks')
+            .select('company_id, id, title, due_at')
+            .eq('tenant_id', tenantId)
+            .eq('status', 'pending')
+            .in('company_id', idChunk)
+            .order('due_at', { ascending: true })
+            .limit(2000);
+        if (taskErr) {
+            // Don't blank signals silently — log and leave this chunk's cards task-hint-free.
+            log.warn({ err: taskErr }, 'Pipeline next-task signal query failed for a chunk; leaving those cards without a task hint');
+            continue;
+        }
+        for (const tk of taskRows ?? []) {
+            if (!nextTasks[tk.company_id]) {
+                nextTasks[tk.company_id] = {
+                    id: tk.id,
+                    title: tk.title,
+                    due_at: tk.due_at,
+                    is_overdue: new Date(tk.due_at).getTime() < Date.now(),
+                };
+            }
+        }
+    }
+
+    // Last contact = latest occurred_at across human-touch activity types only.
+    const lastContacts: PipelineSignals['lastContacts'] = {};
+    for (const idChunk of idChunks) {
+        const { data: actRows, error: actErr } = await db
+            .from('activities')
+            .select('company_id, occurred_at')
+            .eq('tenant_id', tenantId)
+            .in('type', [...HUMAN_CONTACT_ACTIVITY_TYPES])
+            .in('company_id', idChunk)
+            .order('occurred_at', { ascending: false })
+            .limit(5000); // per-chunk row cap; a company whose latest contact sorts past this row is missed — the get_pipeline_signals RPC (migration 119) removes this cap.
+        if (actErr) {
+            // Don't blank signals silently — log and leave this chunk's cards contact-hint-free.
+            log.warn({ err: actErr }, 'Pipeline last-contact signal query failed for a chunk; leaving those cards without a contact hint');
+            continue;
+        }
+        for (const a of actRows ?? []) {
+            if (!lastContacts[a.company_id]) lastContacts[a.company_id] = a.occurred_at;
+        }
+    }
+
+    return { nextTasks, lastContacts };
+}
 
 /** Basic email format validation */
 function isValidEmail(email: string): boolean {
@@ -198,7 +269,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             const namedLocations = locations.filter(l => l !== '__empty__' && l !== '__not_geocoded__');
             const locationsParam = locations.length > 0 ? locations : null;
 
-            const { data: rows, error: rpcErr } = await db.rpc('search_companies', {
+            const baseParams = {
                 p_tenant_id:  tenantId,
                 p_search:     safe,
                 p_stages:     stages.length > 0 ? stages : null,
@@ -210,8 +281,34 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                 p_date_to:    dateTo || null,
                 p_limit:      limit,
                 p_offset:     offset,
-            });
+            };
             void namedLocations; // resolved inside the RPC
+
+            // Owner filter now applies during search too (search_companies gained
+            // p_owner / p_unassigned in migration 118). Append the params ONLY when an
+            // owner filter is set, so an owner-less search stays byte-identical to the
+            // 11-arg call and keeps working on a pre-118 DB.
+            const ownerParams = ownerFilter
+                ? {
+                      p_owner:      ownerFilter.mode === 'unassigned' ? null : ownerFilter.id,
+                      p_unassigned: ownerFilter.mode === 'unassigned',
+                  }
+                : {};
+
+            let { data: rows, error: rpcErr } = await db.rpc('search_companies', { ...baseParams, ...ownerParams });
+
+            // Pre-118 DB: the owner-param overload doesn't exist yet, so the RPC rejects the
+            // extra args with a missing-function/signature error. ONLY then retry owner-less
+            // so search still returns — the owner filter temporarily no-ops (surfaced to the
+            // client via owner_filter_dropped) until migration 118 lands. Any OTHER error
+            // (permission, generic DB fault) must NOT be masked by an owner-less retry — it
+            // falls through to the 500 below.
+            let ownerFilterDropped = false;
+            if (rpcErr && ownerFilter && isMissingFunctionError(rpcErr)) {
+                log.warn({ err: rpcErr }, 'search_companies owner params rejected (missing function/signature); retrying owner-less (migration 118 pending)');
+                ({ data: rows, error: rpcErr } = await db.rpc('search_companies', baseParams));
+                ownerFilterDropped = true;
+            }
 
             if (rpcErr) {
                 log.error({ err: rpcErr }, 'search_companies RPC failed');
@@ -223,9 +320,9 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             const data = list.map(({ total_count: _ignore, ...rest }) => rest);
             const totalPages = Math.ceil(total / limit);
 
-            // Owner filter is intentionally NOT applied in the ranked-search path (the
-            // search_companies RPC has no owner parameter); still enrich so the owner NAME
-            // shows and no raw UUID leaks while a text search is active.
+            // Enrich owners so the owner NAME shows and no raw UUID leaks. The owner
+            // FILTER itself runs inside the RPC (migration 118); on a pre-118 DB the
+            // retry above ran owner-less, so results stay owner-unfiltered until then.
             await enrichOwners(data);
 
             res.json({
@@ -238,6 +335,9 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                     hasNext: page < totalPages,
                     hasPrev: page > 1,
                 },
+                // Only present (true) when the owner filter had to be dropped for a pre-118
+                // DB; the client shows a one-time notice and keeps the filter control usable.
+                ...(ownerFilterDropped ? { owner_filter_dropped: true } : {}),
             });
             return;
         }
@@ -414,62 +514,49 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
         }
 
         // --- Working signals (A3): next pending task, last human contact, owner ----------
-        // Batched, chunked queries keyed on the company-id list — never per-company (N+1).
-        // Each company id lives in exactly one chunk, so keeping the first row seen per company
-        // (ordered within its chunk) still yields that company's true min-due / latest-contact.
         const activeRows = data ?? [];
         const activeIds = activeRows.map((c: any) => c.id);
-        const idChunks = chunkIds(activeIds, PIPELINE_ID_CHUNK);
 
-        // Next pending task per company = smallest due_at (idx_tasks_company_due already covers
-        // tenant_id, company_id, due_at WHERE status = 'pending'). is_overdue is a request-time
-        // hint; the client recomputes it from due_at so a cached card can't go stale.
-        const nextTasks: Record<string, { id: string; title: string; due_at: string; is_overdue: boolean }> = {};
-        for (const idChunk of idChunks) {
-            const { data: taskRows, error: taskErr } = await db
-                .from('tasks')
-                .select('company_id, id, title, due_at')
-                .eq('tenant_id', tenantId)
-                .eq('status', 'pending')
-                .in('company_id', idChunk)
-                .order('due_at', { ascending: true })
-                .limit(2000);
-            if (taskErr) {
-                // Don't blank signals silently — log and leave this chunk's cards task-hint-free.
-                log.warn({ err: taskErr }, 'Pipeline next-task signal query failed for a chunk; leaving those cards without a task hint');
-                continue;
-            }
-            for (const tk of taskRows ?? []) {
-                if (!nextTasks[tk.company_id]) {
-                    nextTasks[tk.company_id] = {
-                        id: tk.id,
-                        title: tk.title,
-                        due_at: tk.due_at,
-                        is_overdue: new Date(tk.due_at).getTime() < Date.now(),
-                    };
+        // Prefer the window/aggregate RPC (migration 119): one round-trip, no per-group
+        // row cap. Called via supabaseAdmin because the RPC is service_role-only and takes
+        // an explicit, server-resolved tenant, so the definer-rights read stays
+        // tenant-scoped. On a pre-119 DB (or any RPC error) fall back to the chunked
+        // queries, which are correct but per-chunk-capped.
+        let nextTasks: PipelineSignals['nextTasks'] = {};
+        let lastContacts: PipelineSignals['lastContacts'] = {};
+        let signalsResolved = activeIds.length === 0; // nothing to enrich → nothing to fetch
+        if (activeIds.length > 0) {
+            const { data: sigRows, error: sigErr } = await supabaseAdmin.rpc('get_pipeline_signals', {
+                p_tenant_id: tenantId,
+                p_company_ids: activeIds,
+            });
+            if (sigErr) {
+                // ONLY a missing-function error (pre-119 DB) justifies the chunk fallback.
+                // A general DB/permission error must surface as a 500 so a real regression
+                // isn't masked by silently degrading to the per-chunk-capped path.
+                if (isMissingFunctionError(sigErr)) {
+                    log.warn({ err: sigErr }, 'get_pipeline_signals RPC yok, chunk fallback (migration 119 pending)');
+                } else {
+                    log.error({ err: sigErr }, 'get_pipeline_signals RPC failed');
+                    throw new AppError('Failed to fetch pipeline signals', 500);
                 }
+            } else {
+                for (const r of (sigRows ?? []) as Array<any>) {
+                    if (r.next_task_id) {
+                        nextTasks[r.company_id] = {
+                            id: r.next_task_id,
+                            title: r.next_task_title,
+                            due_at: r.next_task_due_at,
+                            is_overdue: new Date(r.next_task_due_at).getTime() < Date.now(),
+                        };
+                    }
+                    if (r.last_contact_at) lastContacts[r.company_id] = r.last_contact_at;
+                }
+                signalsResolved = true;
             }
         }
-
-        // Last contact = latest occurred_at across human-touch activity types only.
-        const lastContacts: Record<string, string> = {};
-        for (const idChunk of idChunks) {
-            const { data: actRows, error: actErr } = await db
-                .from('activities')
-                .select('company_id, occurred_at')
-                .eq('tenant_id', tenantId)
-                .in('type', [...HUMAN_CONTACT_ACTIVITY_TYPES])
-                .in('company_id', idChunk)
-                .order('occurred_at', { ascending: false })
-                .limit(5000); // per-chunk row cap; a company whose latest contact sorts past this row is missed — PostgREST has no per-group limit, so the true fix is a window-function RPC (deferred).
-            if (actErr) {
-                // Don't blank signals silently — log and leave this chunk's cards contact-hint-free.
-                log.warn({ err: actErr }, 'Pipeline last-contact signal query failed for a chunk; leaving those cards without a contact hint');
-                continue;
-            }
-            for (const a of actRows ?? []) {
-                if (!lastContacts[a.company_id]) lastContacts[a.company_id] = a.occurred_at;
-            }
+        if (!signalsResolved) {
+            ({ nextTasks, lastContacts } = await computePipelineSignalsFallback(db, tenantId, activeIds));
         }
 
         // Resolve owners once (batched + cached); never expose the raw assigned_to UUID.
@@ -769,6 +856,19 @@ router.post(
                 if (!validSlugs.includes(stage)) {
                     res.status(400).json({ error: 'The selected pipeline stage is not valid' });
                     return;
+                }
+                // A company cannot be BORN into a terminal stage: closing a lead requires a
+                // closing report (sonlandirma_raporu), which the create path has no way to
+                // capture. Reuse the stage-transition guard's code/message so the client
+                // branches identically (create in a pipeline stage, THEN move to terminal
+                // with a report).
+                const terminalSlugs = await getTerminalStageSlugs(tenantId);
+                if (terminalSlugs.includes(stage)) {
+                    throw new AppError(
+                        'A closing report is required to move a company to this stage.',
+                        422,
+                        'closing_report_required',
+                    );
                 }
             }
 
