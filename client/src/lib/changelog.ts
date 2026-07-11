@@ -25,6 +25,25 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.21.0',
+        date: '2026-07-11',
+        type: 'feature',
+        area: 'campaigns',
+        title: { tr: 'Spam Dayanıklılığı Paketi', en: 'Deliverability Pack' },
+        about: {
+            tr: 'Kampanya mailleri spam filtrelerine karşı güçlendirildi: tek tık abonelik iptali, takip maillerinin aynı konuşmada gitmesi, geçersiz adres eleme, kalıcı bastırma listesi, içerik uyarıları ve kutu sağlığı göstergeleri eklendi.',
+            en: 'Campaign emails are now hardened against spam filters: one click unsubscribe, follow ups in the same conversation, invalid address screening, a permanent suppression list, content warnings and mailbox health indicators.',
+        },
+        usage: {
+            tr: 'Kutu sağlığı rozetlerini Ayarlar sayfasında, içerik uyarılarını kampanya adım editöründe görebilir, bastırma listesini e-posta ayarlarından yönetebilirsiniz.',
+            en: 'You can see mailbox health badges on the Settings page, content warnings in the campaign step editor, and manage the suppression list in email settings.',
+        },
+        notes: {
+            tr: 'Yeni bağlanan kutular günde 20 otomatik mail ile başlar, limit üç günde bir artarak 50 mailde sabitlenir.',
+            en: 'Newly connected mailboxes start at 20 automated emails per day, the limit rises every three days and settles at 50.',
+        },
+    },
+    {
         version: '1.20.0',
         date: '2026-07-10',
         type: 'feature',
