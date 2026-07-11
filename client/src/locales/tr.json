@@ -1236,7 +1236,15 @@
             "tracking": "Takip",
             "trackingDesc": "Açılma ve tıklama takibini bu kampanya için açıp kapatın.",
             "openTracking": "Açılma takibi",
-            "clickTracking": "Tıklama takibi"
+            "clickTracking": "Tıklama takibi",
+            "extras": "Mail içeriği eklentileri",
+            "extrasDesc": "Bu eklentilerin hepsi varsayılan olarak kapalıdır; yalnızca açtıklarınız mailinize eklenir.",
+            "openTrackingDesc": "Mailin açılıp açılmadığını ölçen görünmez bir piksel ekler; istatistik sağlar ama teslim edilebilirliği bir miktar düşürebilir.",
+            "clickTrackingDesc": "Maildeki bağlantıları takip bağlantısına dönüştürür; tıklama ölçer ama bağlantıları değiştirdiği için spam filtrelerini tetikleyebilir.",
+            "applyCc": "CC adresleri",
+            "applyCcDesc": "Ayarlarınızdaki CC adreslerini bu kampanyanın her gönderimine ekler; kopya görmeleri gerekmiyorsa kapalı bırakabilirsiniz.",
+            "unsubscribe": "Abonelikten çıkma bağlantısı",
+            "unsubscribeDesc": "Maile abonelikten çıkma bağlantısı ve tek tık başlıkları ekler; spam şikayetlerini azaltır ama gönderiminize görünür bir bağlantı koyar."
         },
         "list": {
             "search": "Kampanya ara...",
@@ -1352,7 +1360,7 @@
             "byInbox": "Kutu başına gönderim",
             "byStep": "Adıma göre",
             "stepN": "Adım {{n}}",
-            "trackingOff": "Açılma ve tıklama takibi yapılandırılmadığı için bu sayılar sıfır kalabilir. Yanıtlar yine de izlenir."
+            "trackingOff": "Açılma ve tıklama takibi bu kampanya için kapalı olduğundan bu sayılar sıfır kalır. İstatistik görmek isterseniz kampanya ayarlarından açabilirsiniz. Yanıtlar her durumda izlenir."
         }
     },
     "suppression": {

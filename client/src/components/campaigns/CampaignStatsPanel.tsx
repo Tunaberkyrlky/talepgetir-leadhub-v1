@@ -65,8 +65,8 @@ export default function CampaignStatsPanel({ campaignId }: { campaignId: string 
             )}
             <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
                 <StatCard title={t('campaign.stats.sent', 'Sent')} value={stats.emails_sent} icon={<IconSend size={20} />} color="blue" subtitle={t('campaign.stats.activeSub', { count: stats.active, defaultValue: '{{count}} active' })} />
-                <StatCard title={t('campaign.stats.opens', 'Opens')} value={stats.opens} icon={<IconEye size={20} />} color="green" subtitle={fmt(stats.open_rate)} />
-                <StatCard title={t('campaign.stats.clicks', 'Clicks')} value={stats.clicks} icon={<IconClick size={20} />} color="orange" subtitle={fmt(stats.click_rate)} />
+                <StatCard title={t('campaign.stats.opens', 'Opens')} value={stats.opens} icon={<IconEye size={20} />} color="green" subtitle={stats.tracking_enabled ? fmt(stats.open_rate) : '—'} />
+                <StatCard title={t('campaign.stats.clicks', 'Clicks')} value={stats.clicks} icon={<IconClick size={20} />} color="orange" subtitle={stats.tracking_enabled ? fmt(stats.click_rate) : '—'} />
                 <StatCard title={t('campaign.stats.replies', 'Replies')} value={stats.replies} icon={<IconMessageReply size={20} />} color="violet" subtitle={fmt(stats.reply_rate)} />
             </SimpleGrid>
 

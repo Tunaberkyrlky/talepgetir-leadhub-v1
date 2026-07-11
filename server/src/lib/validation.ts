@@ -394,9 +394,16 @@ const campaignSettingsSchema = z.object({
     }).optional(),
     // Inbox rotasyonu: kampanyanın kullanacağı gönderen mailbox adresleri (boşsa varsayılan kutu).
     sending_accounts: z.array(z.string().email()).max(50).optional(),
-    // Kampanya seviyesi CC adresleri (her gönderime eklenir).
+    // Kampanya seviyesi CC adresleri (geriye-uyum; apply_cc açıkken önceliklidir).
     cc: z.array(z.string().email()).max(20).optional(),
-    // Açılma/tıklama takip toggle'ları (tanımsızsa ikisi de açık).
+    // Mail içeriği eklentileri — HEPSİ varsayılan KAPALI (alan yoksa/undefined → OFF).
+    // Engine bu bayrakları `=== true` ile okur; eski satırlar (settings {} veya null)
+    // otomatik olarak kapalıya çözülür.
+    // CC: yalnız true iken tenant cc_addresses (veya kampanya cc'si) eklenir.
+    apply_cc: z.boolean().optional(),
+    // Abonelikten çıkma: yalnız true iken footer + RFC 8058 List-Unsubscribe header'ları eklenir.
+    unsubscribe_enabled: z.boolean().optional(),
+    // Açılma/tıklama takip toggle'ları (tanımsızsa/undefined → ikisi de KAPALI).
     tracking: z.object({
         open: z.boolean().optional(),
         click: z.boolean().optional(),

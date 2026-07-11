@@ -1236,7 +1236,15 @@
             "tracking": "Tracking",
             "trackingDesc": "Toggle open and click tracking for this campaign.",
             "openTracking": "Open tracking",
-            "clickTracking": "Click tracking"
+            "clickTracking": "Click tracking",
+            "extras": "Email content extras",
+            "extrasDesc": "These extras are all off by default; only the ones you switch on are added to your email.",
+            "openTrackingDesc": "Adds an invisible pixel that measures whether the email was opened; it gives you stats but can slightly lower deliverability.",
+            "clickTrackingDesc": "Rewrites the links in your email into tracking links; it measures clicks but can trip spam filters because it changes your links.",
+            "applyCc": "CC addresses",
+            "applyCcDesc": "Adds the CC addresses from your settings to every send in this campaign; you can leave it off when they do not need a copy.",
+            "unsubscribe": "Unsubscribe link",
+            "unsubscribeDesc": "Adds an unsubscribe link and one click headers to the email; it lowers spam complaints but places a visible link in your send."
         },
         "list": {
             "search": "Search campaigns...",
@@ -1352,7 +1360,7 @@
             "byInbox": "Sent per inbox",
             "byStep": "By step",
             "stepN": "Step {{n}}",
-            "trackingOff": "Open and click tracking is not configured, so these counts may stay at zero. Replies are still tracked."
+            "trackingOff": "Open and click tracking is off for this campaign, so these counts stay at zero. You can turn it on in the campaign settings if you want these stats. Replies are always tracked."
         }
     },
     "suppression": {

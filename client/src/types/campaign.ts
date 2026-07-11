@@ -15,8 +15,8 @@ export interface SendingWindow {
 }
 
 export interface CampaignTracking {
-    open?: boolean;    // açılma pikseli
-    click?: boolean;   // tıklama yönlendirme
+    open?: boolean;    // açılma pikseli (tanımsız → KAPALI)
+    click?: boolean;   // tıklama yönlendirme (tanımsız → KAPALI)
 }
 
 export interface CampaignSettings {
@@ -24,10 +24,12 @@ export interface CampaignSettings {
     per_inbox_limit?: number;        // kutu-başı günlük limit (canlı)
     jitter_minutes?: number;         // insansı gönderim — rastgele gecikme dk (canlı)
     timezone?: string;               // IANA tz — gönderim penceresi için kanonik (canlı)
-    cc?: string[];                   // kampanya seviyesi CC (canlı)
+    cc?: string[];                   // kampanya seviyesi CC (geriye-uyum; apply_cc açıkken önceliklidir)
+    apply_cc?: boolean;              // CC eklentisi — true iken tenant/kampanya cc eklenir (tanımsız → KAPALI)
+    unsubscribe_enabled?: boolean;   // abonelikten çıkma footer + header'ları (tanımsız → KAPALI)
     sending_window?: SendingWindow;  // gönderim programı (Faz 1.1)
     sending_accounts?: string[];     // inbox rotasyonu — kullanılacak gönderen mailler (canlı)
-    tracking?: CampaignTracking;     // açılma/tıklama takip toggle'ları (canlı)
+    tracking?: CampaignTracking;     // açılma/tıklama takip toggle'ları (tanımsız → KAPALI)
 }
 
 export interface Campaign {

@@ -703,21 +703,33 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                     continue;
                 }
 
-                // Inject tracking (kampanya açılma/tıklama toggle'larına göre) + unsubscribe.
-                // tracking tanımsızsa ikisi de açık (geriye dönük uyum).
+                // ── Mail içeriği eklentileri — HEPSİ varsayılan KAPALI ──────────
+                // Ürün kararı: kampanya maili varsayılan olarak kullanıcının
+                // yazdığından fazlasını taşımaz. Pixel/click/CC/unsubscribe yalnız
+                // ilgili bayrak `=== true` iken devreye girer; eski kayıtlarda
+                // (settings {} / null / alan yok) hepsi kapalıya çözülür.
                 const trk = campaign.settings?.tracking;
                 bodyHtml = injectTracking(bodyHtml, activity.id, 'activity', {
-                    open: trk?.open !== false,
-                    click: trk?.click !== false,
+                    open: trk?.open === true,
+                    click: trk?.click === true,
                     baseUrl: trackingBase,
                 });
-                bodyHtml += buildUnsubscribeFooter(enrollment.id, trackingBase);
+                // Abonelikten çıkma: footer + RFC 8058 header'ları TEK bayrağa bağlı.
+                // Kapalıyken footer eklenmez, header geçilmez, token da üretilmez.
+                const unsubscribeEnabled = campaign.settings?.unsubscribe_enabled === true;
+                if (unsubscribeEnabled) {
+                    bodyHtml += buildUnsubscribeFooter(enrollment.id, trackingBase);
+                }
 
                 try {
-                    // CC: campaign-level override > tenant-level default
-                    const ccAddresses: string[] = (campaign.settings?.cc
-                        || tenantSettings.cc_addresses?.map((a: any) => a.email)
-                        || []);
+                    // CC: yalnız apply_cc açıkken uygulanır. Açıkken kampanya cc'si
+                    // (varsa) önceliklidir, yoksa tenant cc_addresses eklenir.
+                    const applyCc = campaign.settings?.apply_cc === true;
+                    const ccAddresses: string[] = applyCc
+                        ? (campaign.settings?.cc?.length
+                            ? campaign.settings.cc
+                            : (tenantSettings.cc_addresses?.map((a: any) => a.email) || []))
+                        : [];
 
                     // Gönderen adı kutuya ait (tüm kampanyalarda ortak); yoksa kampanya from_name'i.
                     const senderNames = tenantSettings.sender_names || {};
@@ -733,7 +745,10 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         accountEmail,
                         campaignId: enrollment.campaign_id,
                         // RFC 8058: footer ile aynı token; https tek-tık + mailto yedeği.
-                        listUnsubscribe: buildListUnsubscribe(enrollment.id, accountEmail, trackingBase),
+                        // Yalnız abonelikten çıkma açıkken üretilir (kapalıyken header yok, token yok).
+                        listUnsubscribe: unsubscribeEnabled
+                            ? buildListUnsubscribe(enrollment.id, accountEmail, trackingBase)
+                            : undefined,
                         // Thread'leme: takip mailleri ilk mailin konuşmasında (kökte undefined).
                         threading,
                     });
@@ -1304,8 +1319,8 @@ export interface CampaignStats {
 }
 
 export async function getCampaignStats(campaignId: string, tenantId: string): Promise<CampaignStats> {
-    // Run enrollment counts + activity/event data in parallel (2 queries instead of 4)
-    const [enrollmentRes, activityRes] = await Promise.all([
+    // Run enrollment counts + activity/event data + campaign settings in parallel
+    const [enrollmentRes, activityRes, campaignRes] = await Promise.all([
         supabaseAdmin
             .from('campaign_enrollments')
             .select('status')
@@ -1317,6 +1332,12 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
             .eq('campaign_id', campaignId)
             .eq('tenant_id', tenantId)
             .eq('type', 'campaign_email'),
+        supabaseAdmin
+            .from('campaigns')
+            .select('settings')
+            .eq('id', campaignId)
+            .eq('tenant_id', tenantId)
+            .single(),
     ]);
 
     // Enrollment status counts
@@ -1384,6 +1405,12 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
     // durum sayısıdır (kart ile durum çubuğu böylece tutarlı olur).
     const replied = statusCounts['replied'] || 0;
 
+    // Açılma/tıklama takibi artık kampanya-başı opt-in (varsayılan KAPALI). tracking_enabled
+    // yalnız API_BASE tanımlı VE bu kampanyada en az bir takip toggle'ı `=== true` iken doğru.
+    // UI, kapalıyken açılma/tıklama sayılarının neden boş olduğunu (takip kapalı) açıklar.
+    const trk = (campaignRes.data?.settings as any)?.tracking;
+    const trackingOn = trk?.open === true || trk?.click === true;
+
     return {
         total_enrolled: totalEnrolled,
         active: statusCounts['active'] || 0,
@@ -1402,8 +1429,6 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
         by_account,
         daily,
         by_step,
-        // Açılma/tıklama pikseli yalnız API_BASE_URL tanımlıysa enjekte edilir
-        // (localhost'ta alıcı erişemez). UI bu sayıların neden boş olduğunu açıklar.
-        tracking_enabled: !!API_BASE,
+        tracking_enabled: !!API_BASE && trackingOn,
     };
 }

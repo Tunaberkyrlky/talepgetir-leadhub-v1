@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-    Stack, Paper, Group, Text, Badge, Select, NumberInput, TextInput, Switch, Chip, MultiSelect, TagsInput,
+    Stack, Paper, Group, Text, Badge, Select, NumberInput, TextInput, Switch, Chip, MultiSelect,
 } from '@mantine/core';
 import {
-    IconCalendarTime, IconGauge, IconInbox, IconAt, IconEye,
+    IconCalendarTime, IconGauge, IconInbox, IconPuzzle,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
@@ -59,9 +59,6 @@ const TZ_OPTIONS = (() => {
 // ── Bölüm kabuğu — başlık + opsiyonel "Yakında" rozeti + açıklama + içerik ──
 // Top-level: her render'da remount olup input focus'unu kaybetmemesi için
 // CampaignSettingsPanel içinde tanımlanmadı.
-// Basit e-posta kontrolü — CC etiketlerini eklerken geçersizleri eler.
-const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.trim());
-
 function SettingSection({ icon, title, desc, soonLabel, children }: {
     icon: ReactNode; title: string; desc?: string; soonLabel?: string; children: ReactNode;
 }) {
@@ -199,36 +196,33 @@ export default function CampaignSettingsPanel({
                 <SenderNamesEditor readOnly={readOnly} />
             </SettingSection>
 
-            {/* ── CC ── */}
+            {/* ── Mail içeriği eklentileri (hepsi varsayılan KAPALI) ── */}
             <SettingSection
-                icon={<IconAt size={16} color="var(--mantine-color-violet-6)" />}
-                title={t('campaign.settings.cc')}
-                desc={t('campaign.settings.ccDesc')}
+                icon={<IconPuzzle size={16} color="var(--mantine-color-violet-6)" />}
+                title={t('campaign.settings.extras')}
+                desc={t('campaign.settings.extrasDesc')}
             >
-                <TagsInput
-                    placeholder={t('campaign.settings.ccPlaceholder')}
-                    value={settings.cc || []}
-                    onChange={(v) => patch({ cc: v.filter(isEmail) })}
-                    splitChars={[',', ' ', ';']}
-                    clearable radius="md" size="sm" maxTags={20}
-                    disabled={readOnly}
-                />
-                <Text size="xs" c="dimmed" mt={4}>{t('campaign.settings.ccHint', 'Each contact also receives a copy at these addresses.')}</Text>
-            </SettingSection>
-
-            {/* ── Takip ── */}
-            <SettingSection
-                icon={<IconEye size={16} color="var(--mantine-color-violet-6)" />}
-                title={t('campaign.settings.tracking')}
-                desc={t('campaign.settings.trackingDesc')}
-            >
-                <Stack gap="xs">
-                    <Switch label={t('campaign.settings.openTracking')} size="sm" disabled={readOnly}
-                        checked={settings.tracking?.open !== false}
+                <Stack gap="md">
+                    <Switch size="sm" disabled={readOnly}
+                        label={t('campaign.settings.openTracking')}
+                        description={t('campaign.settings.openTrackingDesc')}
+                        checked={settings.tracking?.open === true}
                         onChange={(e) => patch({ tracking: { ...settings.tracking, open: e.currentTarget.checked } })} />
-                    <Switch label={t('campaign.settings.clickTracking')} size="sm" disabled={readOnly}
-                        checked={settings.tracking?.click !== false}
+                    <Switch size="sm" disabled={readOnly}
+                        label={t('campaign.settings.clickTracking')}
+                        description={t('campaign.settings.clickTrackingDesc')}
+                        checked={settings.tracking?.click === true}
                         onChange={(e) => patch({ tracking: { ...settings.tracking, click: e.currentTarget.checked } })} />
+                    <Switch size="sm" disabled={readOnly}
+                        label={t('campaign.settings.applyCc')}
+                        description={t('campaign.settings.applyCcDesc')}
+                        checked={settings.apply_cc === true}
+                        onChange={(e) => patch({ apply_cc: e.currentTarget.checked })} />
+                    <Switch size="sm" disabled={readOnly}
+                        label={t('campaign.settings.unsubscribe')}
+                        description={t('campaign.settings.unsubscribeDesc')}
+                        checked={settings.unsubscribe_enabled === true}
+                        onChange={(e) => patch({ unsubscribe_enabled: e.currentTarget.checked })} />
                 </Stack>
             </SettingSection>
         </Stack>
