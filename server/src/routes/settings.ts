@@ -18,22 +18,27 @@ const DEFAULT_PIPELINE_GROUPS = [
 ];
 
 // ─── Stage cache (per tenant, 60s TTL) ───
+export interface TenantStage {
+    slug: string;
+    stage_type: string;
+    display_name: string;
+}
 interface CachedStages {
-    all: { slug: string; stage_type: string }[];
+    all: TenantStage[];
     ts: number;
 }
 const stageCache = new Map<string, CachedStages>();
 const CACHE_TTL = 60_000;
 const MAX_STAGE_CACHE_SIZE = 200;
 
-/** Fetch tenant's valid stage slugs (cached) */
-export async function getTenantStages(tenantId: string): Promise<{ slug: string; stage_type: string }[]> {
+/** Fetch tenant's valid stages (cached). display_name is used for human-readable timeline entries. */
+export async function getTenantStages(tenantId: string): Promise<TenantStage[]> {
     const cached = stageCache.get(tenantId);
     if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.all;
 
     const { data, error } = await supabaseAdmin
         .from('pipeline_stages')
-        .select('slug, stage_type')
+        .select('slug, stage_type, display_name')
         .eq('tenant_id', tenantId)
         .eq('is_active', true)
         .order('sort_order');

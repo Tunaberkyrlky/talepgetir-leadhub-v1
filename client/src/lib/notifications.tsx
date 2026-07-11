@@ -44,6 +44,18 @@ export function getErrorMessage(error: unknown, fallback?: string): string {
 
         const status = error.response.status;
         const serverMessage = error.response.data?.error;
+        const code = error.response.data?.code as string | undefined;
+
+        // Coded app errors get a specific translated message regardless of status.
+        // Unknown codes fall through to the status-based handling below (unchanged).
+        switch (code) {
+            case 'closing_report_required':
+                return i18n.t('stages.closingReportRequired', 'A closing report is required to move this company to the selected stage.');
+            case 'reopen_reason_required':
+                return i18n.t('stages.reopenReasonRequired', 'A reason is required to reopen a closed company.');
+            case 'stage_conflict':
+                return i18n.t('stages.conflictRetry', 'The stage changed while you were editing. Please try again.');
+        }
 
         switch (status) {
             case 400:

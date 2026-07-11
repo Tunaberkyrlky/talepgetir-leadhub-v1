@@ -5,7 +5,8 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
-import { validateBody, createCompanySchema, updateCompanySchema, bulkOwnerSchema, sanitizeEmail } from '../lib/validation.js';
+import { validateBody, createCompanySchema, updateCompanySchema, bulkOwnerSchema, stagePatchSchema, sanitizeEmail } from '../lib/validation.js';
+import { transitionCompanyStage, assertStageTransition, recordStageChangeActivity } from '../lib/stageTransition.js';
 import { resolveUsers, ownerDisplayName } from '../lib/userResolver.js';
 import { parseList } from '../lib/parseList.js';
 import { isInternalRole } from '../lib/roles.js';
@@ -767,7 +768,7 @@ router.put(
             // Verify company belongs to tenant (also fetch fields needed for auto-geocoding + owner change)
             const { data: existing } = await supabaseAdmin
                 .from('companies')
-                .select('id, location, latitude, assigned_to')
+                .select('id, stage, location, latitude, assigned_to')
                 .eq('id', id)
                 .eq('tenant_id', tenantId)
                 .single();
@@ -777,14 +778,27 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email: rawCompanyEmail, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3, assigned_to } = req.body;
+            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email: rawCompanyEmail, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3, assigned_to, reopen_reason } = req.body;
 
             const company_email = sanitizeEmail(rawCompanyEmail);
 
-            // Validate stage if provided
-            if (stage) {
-                const validSlugs = await getValidStageSlugs(tenantId);
-                if (!validSlugs.includes(stage)) {
+            // Stage change goes through the same contract as every other surface: a terminal
+            // target is rejected here (the edit form opens the closing-report modal instead) and
+            // reopening a closed company requires a reason. assertStageTransition throws a coded
+            // 422/400; the actual write stays in the combined update below.
+            const stageChanged = stage !== undefined && stage !== existing.stage;
+            let stageGuard: ReturnType<typeof assertStageTransition> | null = null;
+            if (stage !== undefined) {
+                const stages = await getTenantStages(tenantId);
+                if (stageChanged) {
+                    stageGuard = assertStageTransition({
+                        stages,
+                        currentSlug: existing.stage,
+                        targetSlug: stage,
+                        hasClosingReport: false,
+                        reopenReason: reopen_reason,
+                    });
+                } else if (!stages.some((s) => s.slug === stage)) {
                     res.status(400).json({ error: 'The selected pipeline stage is not valid' });
                     return;
                 }
@@ -815,7 +829,9 @@ router.put(
             if (company_phone !== undefined) updateData.company_phone = company_phone;
             if (company_email !== undefined) updateData.company_email = company_email;
             if (email_status !== undefined) updateData.email_status = email_status;
-            if (stage !== undefined) {
+            // Only write stage when it actually changes — a same-value write would bypass the
+            // CAS below (clobbering a concurrent close/reopen) and wrongly reset stage_changed_at.
+            if (stageChanged) {
                 updateData.stage = stage;
                 updateData.stage_changed_at = new Date().toISOString();
             }
@@ -859,23 +875,59 @@ router.put(
                 }
             }
 
-            const { data, error } = await supabaseAdmin
+            // Compare-and-swap when this PUT changes the stage: gate the write on the stage
+            // we validated against (existing.stage) so a stale multi-field update can't clobber
+            // a concurrent terminal close/reopen. Non-stage PUTs are NOT gated — unrelated field
+            // updates must not fail on a stage race.
+            let updateQuery = supabaseAdmin
                 .from('companies')
                 .update(updateData)
                 .eq('id', id)
-                .eq('tenant_id', tenantId)
-                .select()
-                .single();
+                .eq('tenant_id', tenantId);
+            if (stageChanged) {
+                updateQuery = existing.stage === null
+                    ? updateQuery.is('stage', null)
+                    : updateQuery.eq('stage', existing.stage);
+            }
+            const { data, error } = await updateQuery.select().maybeSingle();
 
             if (error) {
                 log.error({ err: error }, 'Update company error');
                 throw new AppError('Failed to update company', 500);
             }
+            if (!data) {
+                // 0 rows. For a stage-changing PUT this is a CAS miss (disambiguate 404 vs 409);
+                // otherwise the row vanished under us — preserve the prior 500 behavior.
+                if (stageChanged) {
+                    const { data: fresh, error: freshErr } = await supabaseAdmin
+                        .from('companies')
+                        .select('stage')
+                        .eq('id', id)
+                        .eq('tenant_id', tenantId)
+                        .maybeSingle();
+                    if (freshErr) throw new AppError('Failed to update company', 500);
+                    if (!fresh) throw new AppError('Company not found', 404);
+                    throw new AppError('The stage changed while you were editing. Please try again.', 409, 'stage_conflict');
+                }
+                log.error('Update company returned no row');
+                throw new AppError('Failed to update company', 500);
+            }
 
-            // Stage changed via edit form — keep statistics cache consistent
-            if (updateData.stage !== undefined) {
+            // Stage changed via edit form — keep statistics cache consistent + drop a timeline line.
+            // Terminal targets never reach here (assertStageTransition throws above), so this is
+            // always a normal move or a reopen (with the reason captured on the guard).
+            if (stageChanged) {
                 invalidateOverviewCache(tenantId);
                 invalidatePipelineStatsCache(tenantId);
+                await recordStageChangeActivity({
+                    tenantId,
+                    actorId: req.user!.id,
+                    companyId: id as string,
+                    oldSlug: existing.stage,
+                    newSlug: stage,
+                    reopenReason: stageGuard?.isReopen ? reopen_reason : null,
+                    stages: await getTenantStages(tenantId),
+                });
             }
 
             // Owner change → timeline audit line (best-effort, does not block the response)
@@ -1079,6 +1131,23 @@ router.patch(
                 return;
             }
 
+            // Reopening a closed company requires a reason (see stageTransition), which bulk cannot
+            // collect — reject the whole batch if any selected company is currently terminal so a
+            // reopen never slips through silently. (Undo re-targets prior non-terminal stages, so it
+            // is unaffected.)
+            if (terminalSlugs.length > 0) {
+                const { data: currentRows, error: readErr } = await supabaseAdmin
+                    .from('companies')
+                    .select('id, stage')
+                    .in('id', ids)
+                    .eq('tenant_id', tenantId);
+                if (readErr) throw new AppError('Failed to load companies', 500);
+                if ((currentRows || []).some((r) => terminalSlugs.includes(r.stage as string))) {
+                    res.status(422).json({ error: 'Closed companies cannot be reopened in bulk. Reopen each one individually with a reason.', code: 'reopen_reason_required' });
+                    return;
+                }
+            }
+
             const { data, error } = await supabaseAdmin
                 .from('companies')
                 .update({ stage, updated_at: new Date().toISOString() })
@@ -1167,68 +1236,37 @@ router.patch(
     }
 );
 
-// PATCH /api/companies/:id/stage — Lightweight stage update (drag-drop)
+// PATCH /api/companies/:id/stage — Lightweight stage update (drag-drop / stage menu).
+// Routes through the single stageTransition service: terminal targets are rejected here
+// (the client opens the closing-report modal instead) and reopening a closed company
+// requires reopen_reason. Normal/reopen moves also drop a status_change timeline line.
 router.patch(
     '/:id/stage',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
+    validateBody(stagePatchSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
             const { id } = req.params;
-            const { stage } = req.body;
+            const { stage, reopen_reason } = req.body as { stage: string; reopen_reason?: string | null };
 
-            const [validSlugs, pipelineSlugs, terminalSlugs] = await Promise.all([
-                getValidStageSlugs(tenantId),
-                getPipelineStageSlugs(tenantId),
-                getTerminalStageSlugs(tenantId),
-            ]);
-            if (!stage || !validSlugs.includes(stage)) {
-                res.status(400).json({ error: 'The selected pipeline stage is not valid' });
-                return;
-            }
+            const result = await transitionCompanyStage({
+                tenantId,
+                userId: req.user!.id,
+                companyId: id as string,
+                targetStage: stage,
+                reopenReason: reopen_reason,
+            });
 
-            // Auto-geocode when entering pipeline/terminal and location exists but no coords yet
-            const geocodeData: { latitude?: number; longitude?: number; country?: string | null } = {};
-            if (pipelineSlugs.includes(stage) || terminalSlugs.includes(stage)) {
-                const { data: companyData } = await supabaseAdmin
-                    .from('companies')
-                    .select('location, latitude')
-                    .eq('id', id)
-                    .eq('tenant_id', tenantId)
-                    .single();
-                if (companyData?.location && companyData.latitude == null) {
-                    const coords = lookupCoordinates(companyData.location);
-                    if (coords) {
-                        geocodeData.latitude = coords.lat;
-                        geocodeData.longitude = coords.lng;
-                        geocodeData.country = coords.country;
-                    }
-                }
-            }
-
-            const now = new Date().toISOString();
-            const { data, error } = await supabaseAdmin
-                .from('companies')
-                .update({ stage, updated_at: now, stage_changed_at: now, ...geocodeData })
-                .eq('id', id)
-                .eq('tenant_id', tenantId)
-                .select('id, name, stage, updated_at')
-                .single();
-
-            if (error || !data) {
-                res.status(404).json({ error: 'Company not found' });
-                return;
-            }
-
-            invalidateOverviewCache(tenantId);
-            invalidatePipelineStatsCache(tenantId);
+            // Terminal targets never reach here (they 422 without a closing report), so
+            // the result is always a normal/reopen move.
+            const data = result.kind === 'moved' ? result.company : null;
             posthog.capture({
                 distinctId: req.user!.id,
                 event: 'company_stage_changed',
                 properties: {
-                    company_id: data.id,
-                    company_name: data.name,
-                    new_stage: data.stage,
+                    company_id: (data as Record<string, unknown> | null)?.id,
+                    new_stage: stage,
                     tenant_id: tenantId,
                 },
             });

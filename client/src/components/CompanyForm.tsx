@@ -22,6 +22,7 @@ import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { useStages } from '../contexts/StagesContext';
 import EmailStatusIcon from './EmailStatusIcon';
 import OwnerSelect from './OwnerSelect';
+import ReopenReasonModal from './ReopenReasonModal';
 import { useAuth } from '../contexts/AuthContext';
 
 /** Strip junk email placeholders (matches server-side sanitizeEmail) */
@@ -103,6 +104,10 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
         },
     });
 
+    // Reopen: editing a currently-terminal company to a non-terminal stage requires a reason.
+    // We hold the pending form values so the PUT still carries every other edit alongside the reason.
+    const [pendingReopen, setPendingReopen] = useState<{ values: typeof form.values; targetLabel: string } | null>(null);
+
     // Set form values when editing
     useEffect(() => {
         if (company) {
@@ -165,7 +170,7 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
     });
 
     const updateMutation = useMutation({
-        mutationFn: async (values: typeof form.values) => {
+        mutationFn: async (values: typeof form.values & { reopen_reason?: string }) => {
             // Strip contact fields on update, as we manage contacts separately
             const { contact_first_name: _cn, contact_title: _ct, contact_email: _ce, contact_phone_e164: _cp, ...updateValues } = values;
             const res = await api.put(`/companies/${company!.id}`, updateValues);
@@ -174,6 +179,9 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['companies'] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
+            queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+            queryClient.invalidateQueries({ queryKey: ['activities'] });
+            setPendingReopen(null);
             showSuccess(t('company.updated'));
             onClose();
             onSuccess?.();
@@ -189,6 +197,11 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
             onTerminalStageSelected(company!.id, company!.name, values.stage);
             return;
         }
+        // If editing a currently-terminal company to a non-terminal stage, ask a reopen reason first.
+        if (isEdit && company && terminalStageSlugs.includes(company.stage) && !terminalStageSlugs.includes(values.stage) && values.stage !== company.stage) {
+            setPendingReopen({ values, targetLabel: getStageLabel(values.stage) });
+            return;
+        }
         if (isEdit) {
             updateMutation.mutate(values);
         } else {
@@ -198,9 +211,10 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
 
     const isSaving = createMutation.isPending || updateMutation.isPending;
 
-    const { stageOptions, terminalStageSlugs } = useStages();
+    const { stageOptions, terminalStageSlugs, getStageLabel } = useStages();
 
     return (
+        <>
         <Modal
             opened={opened}
             onClose={onClose}
@@ -471,5 +485,16 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                 </Stack>
             </form>
         </Modal>
+        {pendingReopen && company && (
+            <ReopenReasonModal
+                opened
+                onClose={() => setPendingReopen(null)}
+                companyName={company.name}
+                targetStageLabel={pendingReopen.targetLabel}
+                loading={updateMutation.isPending}
+                onConfirm={(reason) => updateMutation.mutate({ ...pendingReopen.values, reopen_reason: reason })}
+            />
+        )}
+        </>
     );
 }

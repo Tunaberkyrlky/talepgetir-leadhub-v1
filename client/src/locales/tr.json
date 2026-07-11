@@ -227,7 +227,10 @@
         "negotiation": "Müzakere",
         "won": "Kazanıldı",
         "lost": "Kaybedildi",
-        "on_hold": "Askıda"
+        "on_hold": "Askıda",
+        "closingReportRequired": "Bu şirketi seçilen aşamaya taşımak için bir kapanış raporu gerekli.",
+        "reopenReasonRequired": "Kapanmış bir şirketi yeniden açmak için bir neden gerekli.",
+        "conflictRetry": "Düzenleme sırasında aşama değişti. Lütfen tekrar deneyin."
     },
     "pagination": {
         "showing": "Gösterilen",
@@ -1518,6 +1521,14 @@
             "won": "Kazanıldı",
             "lost": "Kaybedildi",
             "on_hold": "Askıda"
+        },
+        "reopen": {
+            "title": "Kaydı Yeniden Aç",
+            "description": "Bu kapalı kaydı yeniden açmak üzeresiniz. Ekibin görebilmesi için bir neden belirtin.",
+            "reasonLabel": "Yeniden açma nedeni",
+            "reasonPlaceholder": "Bu kaydı neden yeniden açıyorsunuz?",
+            "reasonRequired": "Lütfen bir neden girin",
+            "confirm": "Yeniden Aç"
         },
         "outcomes": {
             "won": "Kazanıldı",

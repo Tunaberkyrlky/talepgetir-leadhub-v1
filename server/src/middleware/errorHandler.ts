@@ -4,13 +4,17 @@ import posthog from '../lib/posthog.js';
 
 const log = createLogger('errorHandler');
 
-// Custom error class with status code
+// Custom error class with status code. An optional machine-readable `code`
+// lets clients branch on specific app errors (e.g. closing_report_required)
+// without string-matching the human message.
 export class AppError extends Error {
     statusCode: number;
+    code?: string;
 
-    constructor(message: string, statusCode: number) {
+    constructor(message: string, statusCode: number, code?: string) {
         super(message);
         this.statusCode = statusCode;
+        this.code = code;
         this.name = 'AppError';
     }
 }
@@ -73,6 +77,7 @@ export function errorHandler(
     if (err instanceof AppError) {
         res.status(err.statusCode).json({
             error: err.message,
+            ...(err.code ? { code: err.code } : {}),
             request_id: requestId,
         });
         return;

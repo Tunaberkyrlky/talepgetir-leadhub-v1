@@ -84,6 +84,7 @@ import { useStages } from '../contexts/StagesContext';
 import CompanyForm from '../components/CompanyForm';
 import CompaniesPeopleToggle from '../components/CompaniesPeopleToggle';
 import ClosingReportModal from '../components/ClosingReportModal';
+import ReopenReasonModal from '../components/ReopenReasonModal';
 import TruncatedText from '../components/TruncatedText';
 import EmailStatusIcon from '../components/EmailStatusIcon';
 import { useUndoStack } from '../hooks/useUndoStack';
@@ -408,6 +409,13 @@ export default function LeadsPage() {
         companyName: string;
         targetStage: ClosingOutcome;
     } | null>(null);
+    const [reopenTarget, setReopenTarget] = useState<{
+        companyId: string;
+        companyName: string;
+        targetStage: string;
+        targetLabel: string;
+    } | null>(null);
+    const [reopenLoading, setReopenLoading] = useState(false);
 
     const canEdit = canWrite(user?.role || '');
 
@@ -823,6 +831,18 @@ export default function LeadsPage() {
                                                         targetStage: s.slug as ClosingOutcome,
                                                     });
                                                 }
+                                                return;
+                                            }
+                                            // Single-row reopen: a closed company moving to a non-terminal stage needs a
+                                            // reason, so route it through PATCH /:id/stage (not the reason-less bulk path).
+                                            // Bulk reopens are rejected server-side (422) and surfaced via showErrorFromApi.
+                                            if (!isBulk && terminalStageSlugs.includes(company.stage)) {
+                                                setReopenTarget({
+                                                    companyId: company.id,
+                                                    companyName: company.name,
+                                                    targetStage: s.slug,
+                                                    targetLabel: getStageLabel(s.slug),
+                                                });
                                                 return;
                                             }
                                             const ids = isBulk
@@ -1609,6 +1629,10 @@ export default function LeadsPage() {
                 opened={opened}
                 onClose={handleFormClose}
                 company={editingCompany}
+                onTerminalStageSelected={(cId, cName, stage) => {
+                    handleFormClose();
+                    setClosingReportTarget({ companyId: cId, companyName: cName, targetStage: stage as ClosingOutcome });
+                }}
             />
 
             {/* Delete Confirm Modal */}
@@ -1656,6 +1680,30 @@ export default function LeadsPage() {
                         queryClient.invalidateQueries({ queryKey: ['filterOptions'] });
                         queryClient.invalidateQueries({ queryKey: ['statistics'] });
                         queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+                    }}
+                />
+            )}
+            {reopenTarget && (
+                <ReopenReasonModal
+                    opened
+                    onClose={() => setReopenTarget(null)}
+                    companyName={reopenTarget.companyName}
+                    targetStageLabel={reopenTarget.targetLabel}
+                    loading={reopenLoading}
+                    onConfirm={(reason) => {
+                        setReopenLoading(true);
+                        api.patch(`/companies/${reopenTarget.companyId}/stage`, { stage: reopenTarget.targetStage, reopen_reason: reason })
+                            .then(() => {
+                                queryClient.invalidateQueries({ queryKey: ['companies'] });
+                                queryClient.invalidateQueries({ queryKey: ['filterOptions'] });
+                                queryClient.invalidateQueries({ queryKey: ['statistics'] });
+                                queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+                                queryClient.invalidateQueries({ queryKey: ['activities'] });
+                                setReopenTarget(null);
+                                showSuccess(t('company.updated'));
+                            })
+                            .catch((err) => showErrorFromApi(err))
+                            .finally(() => setReopenLoading(false));
                     }}
                 />
             )}

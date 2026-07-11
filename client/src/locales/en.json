@@ -227,7 +227,10 @@
         "negotiation": "Negotiation",
         "won": "Won",
         "lost": "Lost",
-        "on_hold": "On Hold"
+        "on_hold": "On Hold",
+        "closingReportRequired": "A closing report is required to move this company to the selected stage.",
+        "reopenReasonRequired": "A reason is required to reopen a closed company.",
+        "conflictRetry": "The stage changed while you were editing. Please try again."
     },
     "pagination": {
         "showing": "Showing",
@@ -1518,6 +1521,14 @@
             "won": "Won",
             "lost": "Lost",
             "on_hold": "On Hold"
+        },
+        "reopen": {
+            "title": "Reopen Record",
+            "description": "You are about to reopen this closed record. Add a reason so your team can see why.",
+            "reasonLabel": "Reopen reason",
+            "reasonPlaceholder": "Why are you reopening this record?",
+            "reasonRequired": "Please enter a reason",
+            "confirm": "Reopen"
         },
         "outcomes": {
             "won": "Won",

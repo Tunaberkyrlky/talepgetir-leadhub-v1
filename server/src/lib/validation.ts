@@ -132,7 +132,16 @@ export const createCompanySchema = z.object({
 
 export const updateCompanySchema = createCompanySchema
     .omit({ contact_first_name: true, contact_last_name: true, contact_title: true, contact_email: true, contact_phone_e164: true })
-    .partial();
+    .partial()
+    // Reason accompanying a reopen (moving a company out of a terminal stage via the edit form).
+    .extend({ reopen_reason: z.string().max(1000).trim().optional().nullable() });
+
+// PATCH /companies/:id/stage — lightweight drag-drop / menu stage change. reopen_reason is
+// required by the server only when the company is currently in a terminal stage.
+export const stagePatchSchema = z.object({
+    stage: z.string().min(1, 'The selected pipeline stage is not valid').max(100),
+    reopen_reason: z.string().max(1000).trim().optional().nullable(),
+});
 
 // Bulk owner (re)assignment. assigned_to null = move the selected companies to the unassigned queue.
 export const bulkOwnerSchema = z.object({

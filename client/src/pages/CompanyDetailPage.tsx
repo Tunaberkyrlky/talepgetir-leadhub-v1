@@ -65,6 +65,7 @@ import EmailStatusIcon from '../components/EmailStatusIcon';
 import OwnerSelect from '../components/OwnerSelect';
 import CompanyForm from '../components/CompanyForm';
 import ClosingReportModal from '../components/ClosingReportModal';
+import ReopenReasonModal from '../components/ReopenReasonModal';
 import ActivityTimeline from '../components/ActivityTimeline';
 import type { ActivityTimelineHandle } from '../components/ActivityTimeline';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
@@ -254,6 +255,8 @@ export default function CompanyDetailPage() {
         companyName: string;
         targetStage: ClosingOutcome;
     } | null>(null);
+    const [reopenTarget, setReopenTarget] = useState<{ targetStage: string; targetLabel: string } | null>(null);
+    const [reopenLoading, setReopenLoading] = useState(false);
     const [selectedEmailReply, setSelectedEmailReply] = useState<EmailReply | null>(null);
     const [emailModalOpened, { open: openEmailModal, close: closeEmailModal }] = useDisclosure(false);
     const canEdit = canWrite(user?.role || '');
@@ -312,6 +315,19 @@ export default function CompanyDetailPage() {
         },
         enabled: !!id,
     });
+
+    // Single stage-change path for the header menu (drag-drop lives in PipelinePage). Terminal
+    // targets and reopens are gated by the caller; reopenReason is forwarded when present.
+    const patchStage = (slug: string, reopenReason?: string) =>
+        api.patch(`/companies/${id}/stage`, { stage: slug, ...(reopenReason ? { reopen_reason: reopenReason } : {}) })
+            .then(() => {
+                queryClient.invalidateQueries({ queryKey: ['company', id] });
+                queryClient.invalidateQueries({ queryKey: ['companies'] });
+                queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+                queryClient.invalidateQueries({ queryKey: ['statistics'] });
+                queryClient.invalidateQueries({ queryKey: ['activities'] });
+                showSuccess(t('company.updated'));
+            });
 
     const contactForm = useForm({
         initialValues: {
@@ -531,13 +547,12 @@ export default function CompanyDetailPage() {
                                                     });
                                                     return;
                                                 }
-                                                api.patch(`/companies/${company.id}/stage`, { stage: s.slug }).then(() => {
-                                                    queryClient.invalidateQueries({ queryKey: ['company', id] });
-                                                    queryClient.invalidateQueries({ queryKey: ['companies'] });
-                                                    queryClient.invalidateQueries({ queryKey: ['pipeline'] });
-                                                    queryClient.invalidateQueries({ queryKey: ['statistics'] });
-                                                    showSuccess(t('company.updated'));
-                                                }).catch((err) => showErrorFromApi(err));
+                                                // Reopen: currently in a terminal stage → ask a reason first
+                                                if (terminalStageSlugs.includes(company.stage)) {
+                                                    setReopenTarget({ targetStage: s.slug, targetLabel: getStageLabel(s.slug) });
+                                                    return;
+                                                }
+                                                patchStage(s.slug).catch((err) => showErrorFromApi(err));
                                             }}
                                         >
                                             <Text size="sm" fw={company.stage === s.slug ? 700 : 400}>
@@ -1057,6 +1072,22 @@ export default function CompanyDetailPage() {
                 onSuccess={() => {
                     setClosingReportTarget(null);
                     queryClient.invalidateQueries({ queryKey: ['company', id] });
+                }}
+            />
+        )}
+        {reopenTarget && company && (
+            <ReopenReasonModal
+                opened
+                onClose={() => setReopenTarget(null)}
+                companyName={company.name}
+                targetStageLabel={reopenTarget.targetLabel}
+                loading={reopenLoading}
+                onConfirm={(reason) => {
+                    setReopenLoading(true);
+                    patchStage(reopenTarget.targetStage, reason)
+                        .then(() => setReopenTarget(null))
+                        .catch((err) => showErrorFromApi(err))
+                        .finally(() => setReopenLoading(false));
                 }}
             />
         )}

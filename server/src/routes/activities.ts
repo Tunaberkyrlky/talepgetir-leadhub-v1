@@ -4,7 +4,7 @@ import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { validateBody, createActivitySchema, updateActivitySchema, closingReportSchema } from '../lib/validation.js';
-import { invalidateOverviewCache, invalidatePipelineStatsCache } from './statistics.js';
+import { transitionCompanyStage } from '../lib/stageTransition.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import posthog from '../lib/posthog.js';
@@ -482,31 +482,18 @@ router.post(
             const tenantId = req.tenantId!;
             const { company_id, outcome, summary, detail, visibility, occurred_at } = req.body;
 
-            // Single atomic RPC — all 4 steps (fetch + lock, insert activity, update stage,
-            // insert audit) run inside one Postgres transaction. No TOCTOU race condition.
-            const { data: activity, error } = await supabaseAdmin
-                .rpc('close_company', {
-                    p_tenant_id: tenantId,
-                    p_company_id: company_id,
-                    p_outcome: outcome,
-                    p_summary: summary,
-                    p_detail: detail || null,
-                    p_visibility: visibility,
-                    p_occurred_at: occurred_at || null,
-                    p_created_by: req.user!.id,
-                });
-
-            if (error) {
-                if (error.message?.includes('Company not found')) {
-                    res.status(404).json({ error: 'Company not found' });
-                    return;
-                }
-                log.error({ err: error }, 'Closing report RPC error');
-                throw new AppError('Failed to create closing report', 500);
-            }
-
-            invalidateOverviewCache(tenantId);
-            invalidatePipelineStatsCache(tenantId);
+            // Route through the single stageTransition service so every stage change (terminal
+            // included) shares one code path. The service delegates to the same atomic
+            // close_company RPC (fetch+lock, insert sonlandirma_raporu, update stage, audit —
+            // one transaction) and busts the statistics caches. outcome is a terminal stage slug.
+            const result = await transitionCompanyStage({
+                tenantId,
+                userId: req.user!.id,
+                companyId: company_id,
+                targetStage: outcome,
+                closingReport: { outcome, summary, detail: detail || null, visibility, occurred_at: occurred_at || null },
+            });
+            const activity = result.kind === 'closed' ? result.activity : null;
 
             posthog.capture({
                 distinctId: req.user!.id,
