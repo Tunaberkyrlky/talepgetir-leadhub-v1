@@ -385,7 +385,7 @@ function StageColumn({
                                     }}
                                 >
                                     <Box style={{ flex: '0 0 260px', minWidth: 260 }}>
-                                        <PipelineCard company={company} isDragEnabled={isDragEnabled} />
+                                        <PipelineCard company={company} isDragEnabled={isDragEnabled} showWorkSignals={!isOutcomesView} />
                                     </Box>
                                     <Paper
                                         p="sm"
@@ -409,6 +409,7 @@ function StageColumn({
                                     key={company.id}
                                     company={company}
                                     isDragEnabled={isDragEnabled}
+                                    showWorkSignals={!isOutcomesView}
                                 />
                             )
                         )

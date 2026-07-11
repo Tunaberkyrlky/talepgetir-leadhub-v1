@@ -16,6 +16,8 @@ import {
     Loader,
     Button,
     UnstyledButton,
+    Avatar,
+    Tooltip,
 } from '@mantine/core';
 import { useDebouncedValue, useHotkeys } from '@mantine/hooks';
 import { showSuccess, showError, showInfo } from '../lib/notifications';
@@ -33,6 +35,9 @@ import {
     IconChevronUp,
     IconChevronDown,
     IconSelector,
+    IconAlertTriangle,
+    IconClock,
+    IconHistory,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
@@ -44,6 +49,7 @@ import { hasRolePermission } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
 import KanbanBoard from '../components/pipeline/KanbanBoard';
 import type { PipelineCompany } from '../components/pipeline/PipelineCard';
+import { isTaskOverdue, getContactAgeDays, getOwnerInitials } from '../lib/pipelineSignals';
 import { useUndoStack } from '../hooks/useUndoStack';
 import ClosingReportModal from '../components/ClosingReportModal';
 import type { ClosingOutcome } from '../types/activity';
@@ -65,6 +71,9 @@ export default function PipelinePage() {
     const role = user?.role || '';
     const [search, setSearch] = useState('');
     const [debouncedSearch] = useDebouncedValue(search, 300);
+    // Additive work-signal filter: '' = none, 'overdue' = has an overdue pending task,
+    // 'none' = no pending task at all. Threaded into the query so counts stay server-correct.
+    const [taskFilter, setTaskFilter] = useState<'' | 'overdue' | 'none'>('');
     const [viewMode, setViewMode] = useState<string>('board');
     const searchRef = useRef<HTMLInputElement>(null);
     const undoStack = useUndoStack();
@@ -111,10 +120,12 @@ export default function PipelinePage() {
 
     // Fetch pipeline data
     const { data, isLoading, error } = useQuery<PipelineData>({
-        queryKey: ['pipeline', debouncedSearch],
+        queryKey: ['pipeline', debouncedSearch, taskFilter],
         queryFn: async () => {
             const params = new URLSearchParams();
             if (debouncedSearch) params.set('search', debouncedSearch);
+            if (taskFilter === 'overdue') params.set('has_overdue_task', 'true');
+            if (taskFilter === 'none') params.set('no_task', 'true');
             const res = await api.get(`/companies/pipeline?${params.toString()}`);
             return res.data;
         },
@@ -127,12 +138,13 @@ export default function PipelinePage() {
             return res.data;
         },
         onMutate: async ({ companyId, newStage }) => {
-            // Capture search at mutation time — user may change it before onError fires,
-            // which would cause the rollback to write to the wrong cache key.
+            // Capture search + filter at mutation time — user may change either before onError
+            // fires, which would cause the rollback to write to the wrong cache key.
             const searchSnapshot = debouncedSearch;
+            const taskFilterSnapshot = taskFilter;
 
             await queryClient.cancelQueries({ queryKey: ['pipeline'] });
-            const previous = queryClient.getQueryData<PipelineData>(['pipeline', searchSnapshot]);
+            const previous = queryClient.getQueryData<PipelineData>(['pipeline', searchSnapshot, taskFilterSnapshot]);
 
             // Optimistic update
             if (previous) {
@@ -154,15 +166,15 @@ export default function PipelinePage() {
                     updated.columns[newStage] = [movedCompany, ...updated.columns[newStage]];
                 }
 
-                queryClient.setQueryData(['pipeline', searchSnapshot], updated);
+                queryClient.setQueryData(['pipeline', searchSnapshot, taskFilterSnapshot], updated);
             }
 
-            return { previous, searchSnapshot };
+            return { previous, searchSnapshot, taskFilterSnapshot };
         },
         onError: (_err, _vars, context) => {
-            // Rollback using the search snapshot captured at mutation start
+            // Rollback using the search + filter snapshot captured at mutation start
             if (context?.previous) {
-                queryClient.setQueryData(['pipeline', context.searchSnapshot], context.previous);
+                queryClient.setQueryData(['pipeline', context.searchSnapshot, context.taskFilterSnapshot], context.previous);
             }
             showError(t('pipeline.moveError'));
         },
@@ -317,6 +329,21 @@ export default function PipelinePage() {
                                 )
                             }
                         />
+                        {viewMode !== 'outcomes' && (
+                            // Single-select: the server treats has_overdue_task and no_task as
+                            // mutually exclusive (both → 400), so the UI can only ever pick one.
+                            // The explicit "all" option ('') is the way back to an unfiltered board.
+                            <SegmentedControl
+                                size="xs"
+                                value={taskFilter}
+                                onChange={(v) => setTaskFilter(v as '' | 'overdue' | 'none')}
+                                data={[
+                                    { label: t('pipeline.filterAll'), value: '' },
+                                    { label: t('pipeline.filterOverdueTask'), value: 'overdue' },
+                                    { label: t('pipeline.filterNoTask'), value: 'none' },
+                                ]}
+                            />
+                        )}
                         <SegmentedControl
                             size="xs"
                             value={viewMode}
@@ -395,7 +422,7 @@ export default function PipelinePage() {
                                 </Stack>
                             </Center>
                         ) : (
-                            <Table.ScrollContainer minWidth={700}>
+                            <Table.ScrollContainer minWidth={1100}>
                                 <Table
                                     striped
                                     highlightOnHover
@@ -422,7 +449,10 @@ export default function PipelinePage() {
                                                 ['name', t('company.name')],
                                                 ['stage', t('company.stage')],
                                                 ['industry', t('company.industry')],
+                                                [null, t('pipeline.owner')],
                                                 [null, t('company.nextStep')],
+                                                [null, t('pipeline.nextTask')],
+                                                [null, t('pipeline.lastContact')],
                                                 ['contact_count', t('contacts.title')],
                                                 ['days', t('pipeline.daysInStage')],
                                                 ['updated_at', t('company.updatedAt')],
@@ -460,6 +490,10 @@ export default function PipelinePage() {
                                             const days = company.stage_changed_at
                                                 ? Math.floor((Date.now() - new Date(company.stage_changed_at).getTime()) / 86400000)
                                                 : null;
+                                            const nextTask = company.next_task;
+                                            const nextTaskOverdue = nextTask ? isTaskOverdue(nextTask.due_at) : false;
+                                            const contactAge = getContactAgeDays(company.last_contact_at);
+                                            const owner = company.assigned_user;
                                             return (
                                                 <Table.Tr
                                                     key={company.id}
@@ -489,7 +523,56 @@ export default function PipelinePage() {
                                                         <Text size="sm" c="dimmed">{company.industry || '—'}</Text>
                                                     </Table.Td>
                                                     <Table.Td>
+                                                        {owner ? (
+                                                            <Tooltip label={owner.name || owner.email} withArrow>
+                                                                <Group gap={6} wrap="nowrap">
+                                                                    <Avatar size={22} radius="xl" variant="light" color="violet">
+                                                                        <Text size="10px" fw={700}>
+                                                                            {getOwnerInitials(owner.name, owner.email)}
+                                                                        </Text>
+                                                                    </Avatar>
+                                                                    <Text size="sm" lineClamp={1} maw={120}>
+                                                                        {owner.name || owner.email}
+                                                                    </Text>
+                                                                </Group>
+                                                            </Tooltip>
+                                                        ) : (
+                                                            <Text size="xs" c="dimmed">{t('pipeline.unassigned')}</Text>
+                                                        )}
+                                                    </Table.Td>
+                                                    <Table.Td>
                                                         <Text size="sm" lineClamp={1} maw={200}>{company.next_step || '—'}</Text>
+                                                    </Table.Td>
+                                                    <Table.Td>
+                                                        {nextTask ? (
+                                                            <Group gap={6} wrap="nowrap">
+                                                                <Text size="sm" lineClamp={1} maw={160}>{nextTask.title}</Text>
+                                                                <Badge
+                                                                    size="xs"
+                                                                    variant={nextTaskOverdue ? 'filled' : 'light'}
+                                                                    color={nextTaskOverdue ? 'red' : 'gray'}
+                                                                    leftSection={nextTaskOverdue ? <IconAlertTriangle size={9} /> : <IconClock size={9} />}
+                                                                >
+                                                                    {nextTaskOverdue ? t('pipeline.overdue') : formatDate(nextTask.due_at)}
+                                                                </Badge>
+                                                            </Group>
+                                                        ) : (
+                                                            <Text size="xs" c="dimmed">{t('pipeline.noTask')}</Text>
+                                                        )}
+                                                    </Table.Td>
+                                                    <Table.Td>
+                                                        {contactAge === null ? (
+                                                            <Text size="xs" c="dimmed">{t('pipeline.neverContacted')}</Text>
+                                                        ) : (
+                                                            <Tooltip label={new Date(company.last_contact_at!).toLocaleDateString()} withArrow>
+                                                                <Group gap={4} wrap="nowrap">
+                                                                    <IconHistory size={13} color="var(--mantine-color-dimmed)" />
+                                                                    <Text size="sm" c="dimmed">
+                                                                        {contactAge === 0 ? t('pipeline.contactToday') : `${contactAge}${t('pipeline.ageDaysShort')}`}
+                                                                    </Text>
+                                                                </Group>
+                                                            </Tooltip>
+                                                        )}
                                                     </Table.Td>
                                                     <Table.Td>
                                                         <Group gap={4}>

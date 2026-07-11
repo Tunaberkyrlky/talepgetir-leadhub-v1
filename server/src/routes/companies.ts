@@ -33,6 +33,22 @@ function dbClient(req: Request) {
 
 const VALID_EMAIL_STATUSES = ['valid', 'uncertain', 'invalid'] as const;
 
+// "Last contact" on the pipeline card counts only genuine human-touch activities.
+// System-generated types (status_change on stage moves, sonlandirma_raporu closing reports)
+// are intentionally excluded — they are audit lines, not outreach. Mirrors the human-facing
+// activity set (ALLOWED_ACTIVITY_TYPES = not/meeting/follow_up) plus the outbound touches
+// call and campaign_email.
+const HUMAN_CONTACT_ACTIVITY_TYPES = ['not', 'meeting', 'follow_up', 'call', 'campaign_email'] as const;
+
+// Split an id list into fixed-size chunks so a `.in('company_id', ids)` filter never
+// balloons the request URL (PostgREST inlines every value) or hits a single huge scan.
+function chunkIds<T>(arr: T[], size: number): T[][] {
+    const out: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
+}
+const PIPELINE_ID_CHUNK = 100;
+
 /** Basic email format validation */
 function isValidEmail(email: string): boolean {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -360,6 +376,15 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
         const tenantId = req.tenantId!;
         const search = (req.query.search as string || '').trim();
 
+        // Work-signal filters are mutually exclusive: a company either has an overdue task or
+        // has no task at all — never both. AND-ing them always yields an empty board, so reject
+        // the combination up front (400) instead of silently returning nothing.
+        const hasOverdueTaskFilter = req.query.has_overdue_task === 'true';
+        const noTaskFilter = req.query.no_task === 'true';
+        if (hasOverdueTaskFilter && noTaskFilter) {
+            throw new AppError('Filters are mutually exclusive', 400);
+        }
+
         // Dynamic pipeline stages from tenant config
         const pipelineStages = await getPipelineStageSlugs(tenantId);
         const terminalStages = await getTerminalStageSlugs(tenantId);
@@ -368,7 +393,7 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
 
         let query = db
             .from('companies')
-            .select('id, name, industry, stage, next_step, company_summary, updated_at, stage_changed_at, contact_count')
+            .select('id, name, industry, stage, next_step, company_summary, updated_at, stage_changed_at, contact_count, assigned_to')
             .eq('tenant_id', tenantId)
             .in('stage', pipelineStages);
 
@@ -387,14 +412,92 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
             throw new AppError('Failed to fetch pipeline data', 500);
         }
 
+        // --- Working signals (A3): next pending task, last human contact, owner ----------
+        // Batched, chunked queries keyed on the company-id list — never per-company (N+1).
+        // Each company id lives in exactly one chunk, so keeping the first row seen per company
+        // (ordered within its chunk) still yields that company's true min-due / latest-contact.
+        const activeRows = data ?? [];
+        const activeIds = activeRows.map((c: any) => c.id);
+        const idChunks = chunkIds(activeIds, PIPELINE_ID_CHUNK);
+
+        // Next pending task per company = smallest due_at (idx_tasks_company_due already covers
+        // tenant_id, company_id, due_at WHERE status = 'pending'). is_overdue is a request-time
+        // hint; the client recomputes it from due_at so a cached card can't go stale.
+        const nextTasks: Record<string, { id: string; title: string; due_at: string; is_overdue: boolean }> = {};
+        for (const idChunk of idChunks) {
+            const { data: taskRows, error: taskErr } = await db
+                .from('tasks')
+                .select('company_id, id, title, due_at')
+                .eq('tenant_id', tenantId)
+                .eq('status', 'pending')
+                .in('company_id', idChunk)
+                .order('due_at', { ascending: true })
+                .limit(2000);
+            if (taskErr) {
+                // Don't blank signals silently — log and leave this chunk's cards task-hint-free.
+                log.warn({ err: taskErr }, 'Pipeline next-task signal query failed for a chunk; leaving those cards without a task hint');
+                continue;
+            }
+            for (const tk of taskRows ?? []) {
+                if (!nextTasks[tk.company_id]) {
+                    nextTasks[tk.company_id] = {
+                        id: tk.id,
+                        title: tk.title,
+                        due_at: tk.due_at,
+                        is_overdue: new Date(tk.due_at).getTime() < Date.now(),
+                    };
+                }
+            }
+        }
+
+        // Last contact = latest occurred_at across human-touch activity types only.
+        const lastContacts: Record<string, string> = {};
+        for (const idChunk of idChunks) {
+            const { data: actRows, error: actErr } = await db
+                .from('activities')
+                .select('company_id, occurred_at')
+                .eq('tenant_id', tenantId)
+                .in('type', [...HUMAN_CONTACT_ACTIVITY_TYPES])
+                .in('company_id', idChunk)
+                .order('occurred_at', { ascending: false })
+                .limit(5000); // per-chunk row cap; a company whose latest contact sorts past this row is missed — PostgREST has no per-group limit, so the true fix is a window-function RPC (deferred).
+            if (actErr) {
+                // Don't blank signals silently — log and leave this chunk's cards contact-hint-free.
+                log.warn({ err: actErr }, 'Pipeline last-contact signal query failed for a chunk; leaving those cards without a contact hint');
+                continue;
+            }
+            for (const a of actRows ?? []) {
+                if (!lastContacts[a.company_id]) lastContacts[a.company_id] = a.occurred_at;
+            }
+        }
+
+        // Resolve owners once (batched + cached); never expose the raw assigned_to UUID.
+        await enrichOwners(activeRows);
+
+        // Additive work-signal filters — applied BEFORE grouping so per-column counts and the
+        // client's active total stay consistent. (Read + validated mutually exclusive above.)
+        const filteredRows = activeRows.filter((c: any) => {
+            if (noTaskFilter && nextTasks[c.id]) return false;
+            if (hasOverdueTaskFilter && !nextTasks[c.id]?.is_overdue) return false;
+            return true;
+        });
+
         // Group by stage
         const columns: Record<string, any[]> = {};
         for (const stage of pipelineStages) {
             columns[stage] = [];
         }
-        for (const company of data ?? []) {
+        for (const company of filteredRows) {
             const col = columns[company.stage];
-            if (col) col.push(company);
+            if (!col) continue;
+            // enrichOwners already attached assigned_user — drop the raw owner UUID so it
+            // never leaks to the client in the pipeline response.
+            delete (company as any).assigned_to;
+            col.push({
+                ...company,
+                next_task: nextTasks[company.id] || null,
+                last_contact_at: lastContacts[company.id] || null,
+            });
         }
 
         // Terminal stage companies + counts
