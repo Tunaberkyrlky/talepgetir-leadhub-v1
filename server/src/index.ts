@@ -31,6 +31,7 @@ import activitiesRoutes from './routes/activities.js';
 import tasksRoutes from './routes/tasks.js';
 import leadsRoutes from './routes/leads/index.js';
 import leadIntakeRoutes from './routes/leads/intake.js';
+import assetsRoutes from './routes/assets/index.js';
 import emailRepliesRoutes from './routes/email-replies.js';
 import plusvibeRoutes from './routes/plusvibe.js';
 import webhooksRoutes from './routes/webhooks.js';
@@ -128,6 +129,12 @@ const leadIntakeLimiter = rateLimit({
     message: { error: 'Too many intake requests' },
 });
 app.use('/api/lead-intake', leadIntakeLimiter, express.json({ limit: '50kb' }), leadIntakeRoutes);
+
+// Asset telemetry ingest is a tiny event body — cap it at 16kb BEFORE the global 10mb
+// parser (same pre-parser pattern as lead intake). This just parses the body; auth,
+// tenant scoping, and the handler stay on the assets router mounted below. The path
+// pattern matches POST /api/assets/:id/events for any asset id.
+app.use('/api/assets/:id/events', express.json({ limit: '16kb' }));
 
 app.use(express.json({
     limit: '10mb',
@@ -246,6 +253,7 @@ app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
 app.use('/api/tasks', authMiddleware, tasksRoutes);
 app.use('/api/leads', authMiddleware, leadsRoutes);
+app.use('/api/assets', authMiddleware, assetsRoutes);
 app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
 app.use('/api/plusvibe/import-replies', authMiddleware, plusvibeImportLimiter);
 app.use('/api/plusvibe', authMiddleware, dataFilter, plusvibeRoutes);

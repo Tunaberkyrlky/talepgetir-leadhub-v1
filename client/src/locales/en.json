@@ -471,6 +471,7 @@
         "pipeline": "Pipeline",
         "tasks": "My Work",
         "leads": "Lead Inbox",
+        "assets": "Asset Studio",
         "activities": "Activities",
         "emailReplies": "Email Replies",
         "research": "Research",
@@ -479,6 +480,74 @@
         "campaigns": "Campaigns",
         "import": "Import",
         "admin": "Admin Panel"
+    },
+    "assets": {
+        "title": "Asset Studio",
+        "hint": "Generate a personalized asset for a company from a recipe, preview it, then approve and publish.",
+        "loadError": "Could not load the list",
+        "empty": "No assets generated yet",
+        "recipesEmpty": "No recipes defined yet",
+        "noTarget": "No target",
+        "published": "Published",
+        "approved": "Approved",
+        "previewTitle": "Preview",
+        "noPreview": "No content to preview",
+        "generateTitle": "Generate asset",
+        "generateFor": "Recipe",
+        "company": "Company",
+        "companyPlaceholder": "Select a company",
+        "noCompanies": "No companies found",
+        "cancel": "Cancel",
+        "generateSuccess": "Generation started",
+        "generateError": "Could not start generation",
+        "approveSuccess": "Approved",
+        "approveError": "Could not approve",
+        "publishSuccess": "Published",
+        "publishError": "Could not publish",
+        "tabs": {
+            "generated": "Generated",
+            "recipes": "Recipes"
+        },
+        "status": {
+            "queued": "Queued",
+            "generating": "Generating",
+            "generated": "Generated",
+            "failed": "Failed"
+        },
+        "delivery": {
+            "public": "Public",
+            "gated": "Gated"
+        },
+        "outputKind": {
+            "html": "HTML",
+            "pdf": "PDF",
+            "json": "JSON"
+        },
+        "approvalPolicy": {
+            "manual": "Manual",
+            "sampled": "Sampled",
+            "automatic": "Automatic"
+        },
+        "recipeStatus": {
+            "active": "Active",
+            "inactive": "Inactive",
+            "draft": "Draft"
+        },
+        "actions": {
+            "preview": "Preview",
+            "approve": "Approve",
+            "publish": "Publish",
+            "generate": "Generate"
+        },
+        "col": {
+            "recipe": "Recipe",
+            "output": "Output",
+            "approval": "Approval",
+            "status": "Status",
+            "action": "Action",
+            "target": "Target",
+            "stage": "Stage"
+        }
     },
     "coldcall": {
         "title": "Cold Call",

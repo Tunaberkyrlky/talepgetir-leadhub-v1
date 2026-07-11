@@ -471,6 +471,7 @@
         "pipeline": "Pipeline",
         "tasks": "İşlerim",
         "leads": "Lead Gelen Kutusu",
+        "assets": "Asset Stüdyosu",
         "activities": "Aktiviteler",
         "emailReplies": "Email Yanıtları",
         "research": "Araştırma",
@@ -479,6 +480,74 @@
         "campaigns": "Kampanyalar",
         "import": "İçe Aktar",
         "admin": "Yönetim Paneli"
+    },
+    "assets": {
+        "title": "Asset Stüdyosu",
+        "hint": "Reçeteden bir firma için kişiselleştirilmiş asset üretin, önizleyin, onaylayıp yayınlayın.",
+        "loadError": "Liste yüklenemedi",
+        "empty": "Henüz üretilmiş asset yok",
+        "recipesEmpty": "Henüz reçete tanımlı değil",
+        "noTarget": "Hedef yok",
+        "published": "Yayında",
+        "approved": "Onaylı",
+        "previewTitle": "Önizleme",
+        "noPreview": "Önizlenecek içerik yok",
+        "generateTitle": "Asset üret",
+        "generateFor": "Reçete",
+        "company": "Firma",
+        "companyPlaceholder": "Firma seçin",
+        "noCompanies": "Firma bulunamadı",
+        "cancel": "Vazgeç",
+        "generateSuccess": "Üretim başlatıldı",
+        "generateError": "Üretim başlatılamadı",
+        "approveSuccess": "Onaylandı",
+        "approveError": "Onaylanamadı",
+        "publishSuccess": "Yayınlandı",
+        "publishError": "Yayınlanamadı",
+        "tabs": {
+            "generated": "Üretilenler",
+            "recipes": "Reçeteler"
+        },
+        "status": {
+            "queued": "Sırada",
+            "generating": "Üretiliyor",
+            "generated": "Üretildi",
+            "failed": "Başarısız"
+        },
+        "delivery": {
+            "public": "Herkese Açık",
+            "gated": "Kapılı"
+        },
+        "outputKind": {
+            "html": "HTML",
+            "pdf": "PDF",
+            "json": "JSON"
+        },
+        "approvalPolicy": {
+            "manual": "Manuel",
+            "sampled": "Örneklemli",
+            "automatic": "Otomatik"
+        },
+        "recipeStatus": {
+            "active": "Aktif",
+            "inactive": "Pasif",
+            "draft": "Taslak"
+        },
+        "actions": {
+            "preview": "Önizle",
+            "approve": "Onayla",
+            "publish": "Yayınla",
+            "generate": "Üret"
+        },
+        "col": {
+            "recipe": "Reçete",
+            "output": "Çıktı",
+            "approval": "Onay",
+            "status": "Durum",
+            "action": "İşlem",
+            "target": "Hedef",
+            "stage": "Aşama"
+        }
     },
     "coldcall": {
         "title": "Cold Call",

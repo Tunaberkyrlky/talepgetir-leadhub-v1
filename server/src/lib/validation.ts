@@ -573,3 +573,57 @@ export const reviewQuerySchema = z.object({
     page: z.coerce.number().int().min(1).catch(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).catch(25).default(25),
 });
+
+// ── Asset foundation schemas (v3 WP3) ──────────────────────────────────────
+export const ASSET_OUTPUT_KINDS = ['html', 'pdf', 'json'] as const;
+export const APPROVAL_POLICIES = ['manual', 'sampled', 'automatic'] as const;
+export const ASSET_DELIVERY_MODES = ['public', 'gated'] as const;
+export const ASSET_EVENT_TYPES = [
+    'viewed', 'unique_viewed', 'section_reached',
+    'cta_clicked', 'pdf_downloaded', 'booking_opened', 'booking_completed',
+] as const;
+
+// Enqueue a generation run for a recipe against an optional lead/company/contact.
+// Generation mode is server-gated (ASSET_LLM_LIVE env) — never client-supplied.
+// At least one target link is required so the asset is auditable to a record.
+export const generateAssetSchema = z.object({
+    recipe_id: uuidField('Invalid recipe_id'),
+    lead_id: uuidField('Invalid lead_id').optional().nullable(),
+    company_id: uuidField('Invalid company_id').optional().nullable(),
+    contact_id: uuidField('Invalid contact_id').optional().nullable(),
+    delivery_mode: z.enum(ASSET_DELIVERY_MODES).optional().default('gated'),
+}).refine(
+    (d) => !!(d.lead_id || d.company_id || d.contact_id),
+    { message: 'At least one of lead_id, company_id, contact_id is required' },
+);
+
+// Approve a generated asset (manual approval MVP). Body optional; a bare POST is valid.
+export const approveAssetSchema = z.preprocess(
+    (v) => (v == null ? {} : v),
+    z.object({ note: z.string().trim().max(2000).optional().nullable() }),
+);
+
+// Publish an approved asset. Body optional; publish is blocked in the route unless approved.
+export const publishAssetSchema = z.preprocess(
+    (v) => (v == null ? {} : v),
+    z.object({}).passthrough(),
+);
+
+// Asset telemetry event ingest (skeleton). event_type is the closed enum; meta is a
+// SHALLOW scalar bag — no nested objects/arrays, so it can't smuggle arbitrary deep
+// JSON. At most 20 keys, each value a bounded scalar. No real traffic at night.
+const assetEventMetaValue = z.union([
+    z.string().max(500),
+    z.number(),
+    z.boolean(),
+    z.null(),
+]);
+export const assetEventSchema = z.object({
+    event_type: z.enum(ASSET_EVENT_TYPES),
+    meta: z
+        .record(z.string().max(120), assetEventMetaValue)
+        .refine((m) => Object.keys(m).length <= 20, {
+            message: 'meta accepts at most 20 keys',
+        })
+        .optional(),
+});

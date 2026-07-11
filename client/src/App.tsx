@@ -35,6 +35,7 @@ const PipelinePage = lazy(() => import('./pages/PipelinePage'));
 const ActivitiesPage = lazy(() => import('./pages/ActivitiesPage'));
 const TasksPage = lazy(() => import('./pages/TasksPage'));
 const LeadInboxPage = lazy(() => import('./pages/LeadInboxPage'));
+const AssetsPage = lazy(() => import('./pages/AssetsPage'));
 const EmailRepliesPage = lazy(() => import('./pages/EmailRepliesPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const CampaignsPage = lazy(() => import('./pages/CampaignsPage'));
@@ -122,6 +123,7 @@ function App() {
                           <Route path="/activities" element={<ActivitiesPage />} />
                           <Route path="/tasks" element={<TasksPage />} />
                           <Route path="/leads" element={<LeadInboxPage />} />
+                          <Route path="/assets" element={<AssetsPage />} />
                           <Route path="/email-replies" element={<EmailRepliesPage />} />
                           <Route path="/research" element={<ResearchFlowPage />} />
                           <Route path="/research/full" element={<ResearchPage />} />
