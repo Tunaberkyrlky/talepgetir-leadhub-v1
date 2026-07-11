@@ -19,6 +19,7 @@ import { enqueueJob, ResearchJob } from '../../lib/research/queue.js';
 import { RESEARCH_JOB_TYPES } from '../../lib/research/jobTypes.js';
 import { geoAnalysisSchema } from '../../lib/research/geo/schema.js';
 import { availableCredits } from '../../lib/research/engine/ledger.js';
+import { loadMarketEvidenceForGeoCountry } from '../../lib/research/trade/marketEvidence.js';
 
 const log = createLogger('route:research:geographies');
 const router = Router();
@@ -276,6 +277,44 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'list geographies error');
         next(new AppError('Failed to fetch geographies', 500));
+    }
+});
+
+// ── GET /api/research/geographies/:id/markets — raw Comtrade evidence, no LLM in the path ────
+router.get('/:id/markets', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const parsed = idParamSchema.safeParse(req.params);
+        if (!parsed.success) {
+            res.status(400).json({ error: 'Invalid geography ID' });
+            return;
+        }
+        const tenantId = req.tenantId!;
+
+        const { data: geo, error: geoErr } = await researchSupabaseAdmin
+            .from('research_geographies')
+            .select('id, project_id, country')
+            .eq('id', parsed.data.id)
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+        if (geoErr) {
+            log.error({ err: geoErr }, 'geography markets lookup failed');
+            throw new AppError('Failed to fetch market evidence', 500);
+        }
+        if (!geo) {
+            res.status(404).json({ error: 'Geography not found' });
+            return;
+        }
+
+        const rows = await loadMarketEvidenceForGeoCountry({
+            tenantId,
+            projectId: (geo as { project_id: string }).project_id,
+            geoCountry: (geo as { country: string }).country,
+        });
+        res.json({ data: rows });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'geography markets error');
+        next(new AppError('Failed to fetch market evidence', 500));
     }
 });
 

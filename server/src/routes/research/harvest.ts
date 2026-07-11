@@ -287,10 +287,16 @@ router.get('/companies', async (req: Request, res: Response, next: NextFunction)
 
             // Merge in verdict order; the PER-ICP verdict overrides the rollup status/score/evidence and
             // pins icp_id/ruleset_version. A missing company (deleted mid-page) is dropped defensively.
+            // WP10: a suppressed company (customer "istemiyorum", or opt-out/bounce) is dropped here too
+            // — suppression > dedup, and a company the customer explicitly hid must never resurface in
+            // their own results list. This is a POST-pagination filter (the verdict query above already
+            // paged before suppression is known), so a page can legitimately return fewer than `limit`
+            // rows when some were suppressed — same bounded imprecision this codebase already accepts
+            // elsewhere (e.g. the export route's own `has_more` approximation).
             const data = verdicts
                 .map((v) => {
                     const company = companyById.get(v.company_id);
-                    if (!company) return null;
+                    if (!company || (company as { suppressed?: boolean }).suppressed) return null;
                     return {
                         ...company,
                         icp_id,
@@ -316,10 +322,13 @@ router.get('/companies', async (req: Request, res: Response, next: NextFunction)
         }
 
         // ── Flat rollup view (no icp_id) ─────────────────────────────────────────
+        // WP10: suppressed companies (customer "istemiyorum" / opt-out / bounce) never resurface —
+        // applied server-side, before pagination, so `total`/`hasNext` stay exact for this path.
         let query = researchSupabaseAdmin
             .from('research_companies')
             .select('*', { count: 'exact' })
             .eq('tenant_id', tenantId)
+            .eq('suppressed', false)
             .order('score', { ascending: false, nullsFirst: false })
             .order('created_at', { ascending: false })
             .range(offset, offset + limit - 1);
@@ -340,6 +349,115 @@ router.get('/companies', async (req: Request, res: Response, next: NextFunction)
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'list companies error');
         next(new AppError('Failed to fetch companies', 500));
+    }
+});
+
+// ── POST /api/research/harvest/companies/:id/suppress — customer "istemiyorum" (WP10) ────
+// The customer-facing counterpart to feedbackAggregate.ts's opt-out sync (both funnel through
+// the SAME fenced RPC — suppression is a single, canonical action regardless of who triggers
+// it). Suppression is canonical_key-keyed and TENANT-WIDE (not per-ICP): once suppressed, the
+// firm never resurfaces in ANY future discovery/harvest for this tenant, matching the RPC's own
+// "suppression > dedup" invariant. icp_id only scopes the (best-effort) learning-signal row —
+// a research_company_feedback 'bad' rating for whichever ICP the customer was looking at, so a
+// future icp:revise call sees it as evidence alongside the calibration-loop's own ratings. This
+// is DELIBERATELY NOT routed through POST /icps/:id/feedback: that endpoint also advances
+// research_icps.calibration_state (calibration-loop bookkeeping), which would incorrectly
+// demote/touch an ICP's calibration state from an action taken well after calibration finished.
+const suppressCompanySchema = z.object({
+    icp_id: uuidField('Invalid ICP ID').optional(),
+    note: z.string().max(2000).optional(),
+});
+const suppressIdParamSchema = z.object({ id: uuidField('Invalid company ID') });
+
+router.post('/companies/:id/suppress', requireWriter, validateBody(suppressCompanySchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const parsedParams = suppressIdParamSchema.safeParse(req.params);
+        if (!parsedParams.success) {
+            res.status(400).json({ error: 'Invalid company ID' });
+            return;
+        }
+        const tenantId = req.tenantId!;
+        const { icp_id, note } = req.body as z.infer<typeof suppressCompanySchema>;
+
+        const { data: company, error: compErr } = await researchSupabaseAdmin
+            .from('research_companies')
+            .select('id, canonical_key')
+            .eq('id', parsedParams.data.id)
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+        if (compErr) {
+            log.error({ err: compErr }, 'suppress company lookup failed');
+            throw new AppError('Failed to suppress company', 500);
+        }
+        if (!company) {
+            res.status(404).json({ error: 'Company not found' });
+            return;
+        }
+
+        const { error: supErr } = await researchSupabaseAdmin.rpc('research_suppress_company', {
+            p_tenant: tenantId,
+            p_canonical_key: (company as { canonical_key: string }).canonical_key,
+            p_source: 'manual',
+            p_hard_erase: false,
+        });
+        if (supErr) {
+            log.error({ err: supErr }, 'suppress company RPC failed');
+            throw new AppError('Failed to suppress company', 500);
+        }
+
+        // Best-effort learning signal — never fails the suppress action (already applied above).
+        if (icp_id) {
+            try {
+                const { data: icp } = await researchSupabaseAdmin
+                    .from('research_icps')
+                    .select('ruleset_version')
+                    .eq('id', icp_id)
+                    .eq('tenant_id', tenantId)
+                    .maybeSingle();
+                if (icp) {
+                    const { data: verdict } = await researchSupabaseAdmin
+                        .from('research_company_verdicts')
+                        .select('id')
+                        .eq('tenant_id', tenantId)
+                        .eq('icp_id', icp_id)
+                        .eq('company_id', parsedParams.data.id)
+                        .eq('ruleset_version', (icp as { ruleset_version: number }).ruleset_version)
+                        .maybeSingle();
+                    // P3 fix (adversarial review): supabase-js RESOLVES with { error } rather
+                    // than throwing — the try/catch around this block only ever catches a
+                    // thrown network/programming error, not a returned DB error (constraint,
+                    // RLS, bad column), so that class of failure was silently losing the
+                    // learning signal with zero trace. Still best-effort (never fails the
+                    // suppress action itself) — just actually logged now.
+                    const { error: fbUpsertErr } = await researchSupabaseAdmin
+                        .from('research_company_feedback')
+                        .upsert(
+                            {
+                                tenant_id: tenantId,
+                                icp_id,
+                                company_id: parsedParams.data.id,
+                                verdict_id: (verdict as { id: string } | null)?.id ?? null,
+                                ruleset_version: (icp as { ruleset_version: number }).ruleset_version,
+                                rating: 'bad',
+                                note: note ?? 'Suppressed from the results screen ("istemiyorum")',
+                                created_by: req.user?.id ?? null,
+                            },
+                            { onConflict: 'tenant_id,icp_id,company_id,ruleset_version' }
+                        );
+                    if (fbUpsertErr) {
+                        log.warn({ err: fbUpsertErr, companyId: parsedParams.data.id, icpId: icp_id }, 'suppress: best-effort feedback upsert returned an error (suppression itself already applied)');
+                    }
+                }
+            } catch (fbErr) {
+                log.warn({ err: fbErr, companyId: parsedParams.data.id, icpId: icp_id }, 'suppress: best-effort feedback row failed (suppression itself already applied)');
+            }
+        }
+
+        res.json({ suppressed: true });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'suppress company error');
+        next(new AppError('Failed to suppress company', 500));
     }
 });
 
@@ -575,6 +693,9 @@ router.post('/companies/export', requireWriter, validateBody(exportSchema), asyn
             const { data: marked, error: markErr } = await researchSupabaseAdmin.rpc('research_mark_exported', {
                 p_tenant: tenantId,
                 p_links: links,
+                // Pin the ICP this batch is exported under (WP5 attribution stays fixed even if
+                // the firm is later re-discovered under another ICP). geo is snapshot in the RPC.
+                p_icp_id: icp_id,
             });
             if (markErr) {
                 // CRM rows exist but carry the correlation key — a RE-RUN links them instead of

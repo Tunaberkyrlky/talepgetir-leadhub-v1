@@ -9,7 +9,7 @@ import {
     Container, Title, Text, Paper, Stack, Group, TextInput, Textarea, TagsInput,
     NumberInput, Button, Loader, Alert, SimpleGrid, Badge, Tabs,
 } from '@mantine/core';
-import { IconSparkles, IconInfoCircle, IconBuildingSkyscraper, IconTargetArrow, IconFileSpreadsheet, IconBrandLinkedin, IconWorldPin, IconUserSearch } from '@tabler/icons-react';
+import { IconSparkles, IconInfoCircle, IconBuildingSkyscraper, IconTargetArrow, IconFileSpreadsheet, IconBrandLinkedin, IconWorldPin, IconUserSearch, IconBarcode } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -19,9 +19,16 @@ import IcpCard, { type ResearchIcp } from '../../components/research/IcpCard';
 import CompaniesPanel from '../../components/research/CompaniesPanel';
 import GeographiesPanel from '../../components/research/GeographiesPanel';
 import OffersPanel from '../../components/research/OffersPanel';
+import HsCodesPanel from '../../components/research/HsCodesPanel';
 import TradeImportsPanel from '../../components/research/TradeImportsPanel';
 import EnrichmentPanel from '../../components/research/EnrichmentPanel';
 import LinkedInPanel from '../../components/linkedin/LinkedInPanel';
+import { useAuth } from '../../contexts/AuthContext';
+import {
+    latestResearchProjectQueryKey,
+    type ResearchProjectSummary,
+    type ResearchProjectsListResponse,
+} from '../../lib/researchProjects';
 
 interface ResearchJob {
     id: string;
@@ -33,11 +40,16 @@ interface ResearchJob {
 
 const JOB_RUNNING = (s?: string) => s === 'queued' || s === 'running';
 
-const RESEARCH_TABS = ['icp', 'geographies', 'offers', 'companies', 'enrichment', 'trade', 'linkedin'];
+const RESEARCH_TABS = ['icp', 'hs', 'geographies', 'offers', 'companies', 'enrichment', 'trade', 'linkedin'];
+
+function asStringArray(v: unknown): string[] {
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
 
 export default function ResearchPage() {
     const { t } = useTranslation();
     const qc = useQueryClient();
+    const { activeTenantId } = useAuth();
     // URL-controlled active tab (?tab=…) so the LinkedIn connect page can deep-link
     // back to a specific tab after a session is captured (no manual reload/click).
     const [searchParams, setSearchParams] = useSearchParams();
@@ -64,10 +76,57 @@ export default function ResearchPage() {
     const [projectId, setProjectId] = useState<string | null>(null);
     const [jobId, setJobId] = useState<string | null>(null);
 
+    // Full server-side profile object for the loaded/created project — preserved so a
+    // PATCH here (wholesale JSONB replace, no server merge) never drops keys another
+    // surface wrote into the same column (e.g. the wizard's contact_name/social_links,
+    // WP6). Starts empty for a brand-new project created directly from this page —
+    // there's nothing to preserve yet.
+    const [loadedProfile, setLoadedProfile] = useState<Record<string, unknown>>({});
+
+    // Deep-link continuation from the wizard's "Switch to advanced view" (WP6):
+    // ?project=<id> loads that exact row instead of starting a second, blank one.
+    // `hydratedFromProjectParam` ONLY ever flips true on a successful hydration — on
+    // load failure it stays false forever, which (below) keeps Generate permanently
+    // disabled for this session rather than silently falling through to the blank-create
+    // path and risking a duplicate project (WP6 review P1).
+    const projectParam = searchParams.get('project');
+    const [hydratedFromProjectParam, setHydratedFromProjectParam] = useState(!projectParam);
+    // True from mount until the deep-linked project's GET settles (success or error) —
+    // Generate (and the profile fields themselves) are guarded while this is true so a
+    // click can't fire into a still-blank form and POST a second project.
+    const projectStillLoading = !!projectParam && !hydratedFromProjectParam;
+
+    const existingProjectQuery = useQuery<{ id: string; profile: Record<string, unknown> | null }>({
+        queryKey: ['research', 'project', projectParam, activeTenantId],
+        queryFn: async () => (await api.get(`/research/projects/${projectParam}`)).data,
+        enabled: !!projectParam && !hydratedFromProjectParam,
+    });
+
+    // Adjusted synchronously during render (React's "you might not need an effect"
+    // pattern, guarded by `hydratedFromProjectParam` so it can only ever fire once)
+    // rather than in a useEffect, which would cause an extra cascading render.
+    if (!hydratedFromProjectParam && projectParam && existingProjectQuery.isSuccess) {
+        const loaded = existingProjectQuery.data;
+        const p = loaded.profile ?? {};
+        setProjectId(loaded.id);
+        setLoadedProfile(p);
+        setWebsite(typeof p.website === 'string' ? p.website : '');
+        setWhatTheyDo(typeof p.what_they_do === 'string' ? p.what_they_do : '');
+        setProducts(asStringArray(p.products));
+        setTargetMarkets(asStringArray(p.target_markets));
+        setExclusions(asStringArray(p.exclusions));
+        setHydratedFromProjectParam(true);
+    }
+
     // Create project (if needed) + enqueue generation.
     const generateMut = useMutation({
         mutationFn: async () => {
+            // Spread the full last-known server profile FIRST, then override only the
+            // fields this form edits — a bare 5-key object would silently wipe any other
+            // profile keys (e.g. the wizard's contact_name/social_links) on PATCH, since
+            // the server replaces the JSONB column wholesale rather than merging it.
             const profile = {
+                ...loadedProfile,
                 website,
                 what_they_do: whatTheyDo,
                 products,
@@ -82,9 +141,29 @@ export default function ResearchPage() {
                 })).data;
                 pid = project.id as string;
                 setProjectId(pid);
+                // A brand-new project genuinely IS the tenant's latest one by
+                // construction — publish it into the shared "latest project" cache
+                // (also read by RootRedirect and ResearchFlowPage) synchronously, not
+                // just via invalidate, so no reader can observe a stale "no project yet"
+                // result in the refetch window (WP6 review P2).
+                const summary: ResearchProjectSummary = {
+                    id: project.id,
+                    name: project.name,
+                    profile: project.profile ?? null,
+                    flow_state: project.flow_state ?? null,
+                };
+                const queryKey = latestResearchProjectQueryKey(activeTenantId);
+                qc.setQueryData<ResearchProjectsListResponse>(queryKey, { data: [summary] });
+                qc.invalidateQueries({ queryKey });
             } else {
+                // Editing an EXISTING project here must never touch the "latest project"
+                // cache: this advanced view can be editing an OLD project reached via a
+                // ?project=<id> deep link, and publishing it as "latest" would corrupt
+                // what RootRedirect/ResearchFlowPage resume into, even if a genuinely
+                // newer project exists (WP6 review P2 round 2).
                 await api.patch(`/research/projects/${pid}`, { profile });
             }
+            setLoadedProfile(profile);
             const job = (await api.post('/research/icps/generate', { project_id: pid, count })).data as ResearchJob;
             setJobId(job.id);
             return job;
@@ -103,11 +182,12 @@ export default function ResearchPage() {
     const jobDone = jobQuery.data?.status === 'succeeded';
     const jobFailed = jobQuery.data?.status === 'failed' || jobQuery.data?.status === 'canceled';
 
-    // Load ICPs for the project (refreshed when the job succeeds).
+    // Load ICPs for the project (refreshed when the job succeeds, or immediately when
+    // the project was hydrated from an existing ?project= deep link — WP6).
     const icpsQuery = useQuery<{ data: ResearchIcp[] }>({
         queryKey: ['research', 'icps', projectId],
         queryFn: async () => (await api.get(`/research/icps?project_id=${projectId}`)).data,
-        enabled: !!projectId && jobDone,
+        enabled: !!projectId && (jobDone || hydratedFromProjectParam),
     });
 
     // When the job flips to succeeded, refresh the ICP list once (covers regenerate).
@@ -138,6 +218,9 @@ export default function ResearchPage() {
                         <Tabs.Tab value="icp" leftSection={<IconTargetArrow size={16} />}>
                             {t('research.tabs.icp', 'ICP Master')}
                         </Tabs.Tab>
+                        <Tabs.Tab value="hs" leftSection={<IconBarcode size={16} />}>
+                            {t('research.tabs.hs', 'HS Codes')}
+                        </Tabs.Tab>
                         <Tabs.Tab value="geographies" leftSection={<IconWorldPin size={16} />}>
                             {t('research.tabs.geographies', 'Geographies')}
                         </Tabs.Tab>
@@ -157,6 +240,8 @@ export default function ResearchPage() {
                             {t('research.tabs.linkedin', 'LinkedIn')}
                         </Tabs.Tab>
                     </Tabs.List>
+
+                    <Tabs.Panel value="hs"><HsCodesPanel /></Tabs.Panel>
 
                     <Tabs.Panel value="geographies">
                         <GeographiesPanel />
@@ -184,33 +269,48 @@ export default function ResearchPage() {
 
                     <Tabs.Panel value="icp">
                     <Stack gap="lg">
+                {existingProjectQuery.isError && (
+                    <Alert color="red" icon={<IconInfoCircle size={18} />}>
+                        <Group justify="space-between" align="center" wrap="nowrap">
+                            <Text size="sm">{t('research.profile.loadProjectFailed', 'Could not load the linked project. To avoid creating a duplicate, generating ICPs is disabled until this loads.')}</Text>
+                            <Button size="xs" variant="light" color="red" onClick={() => existingProjectQuery.refetch()}>
+                                {t('common.retry', 'Retry')}
+                            </Button>
+                        </Group>
+                    </Alert>
+                )}
                 <Paper withBorder radius="md" p="lg">
                     <Stack gap="sm">
                         <TextInput
                             label={t('research.profile.website', 'Website')}
                             placeholder="https://…"
                             value={website}
+                            disabled={projectStillLoading}
                             onChange={(e) => setWebsite(e.currentTarget.value)}
                         />
                         <Textarea
                             label={t('research.profile.whatTheyDo', 'What does your company do?')}
                             autosize minRows={2}
                             value={whatTheyDo}
+                            disabled={projectStillLoading}
                             onChange={(e) => setWhatTheyDo(e.currentTarget.value)}
                         />
                         <TagsInput
                             label={t('research.profile.products', 'Products / services')}
                             value={products}
+                            disabled={projectStillLoading}
                             onChange={setProducts}
                         />
                         <TagsInput
                             label={t('research.profile.targetMarkets', 'Target markets (countries)')}
                             value={targetMarkets}
+                            disabled={projectStillLoading}
                             onChange={setTargetMarkets}
                         />
                         <TagsInput
                             label={t('research.profile.exclusions', 'Exclude (who is NOT a buyer)')}
                             value={exclusions}
+                            disabled={projectStillLoading}
                             onChange={setExclusions}
                         />
                         <Group justify="space-between" align="flex-end">
@@ -223,12 +323,20 @@ export default function ResearchPage() {
                             <Button
                                 leftSection={<IconSparkles size={18} />}
                                 loading={generating}
-                                disabled={!whatTheyDo.trim()}
+                                disabled={!whatTheyDo.trim() || projectStillLoading}
                                 onClick={() => generateMut.mutate()}
                             >
                                 {projectId ? t('research.regenerate', 'Regenerate ICPs') : t('research.generate', 'Generate ICPs')}
                             </Button>
                         </Group>
+                        {projectStillLoading && !existingProjectQuery.isError && (
+                            <Group gap="xs">
+                                <Loader size="xs" />
+                                <Text size="xs" c="dimmed">
+                                    {t('research.profile.loadingProject', 'Loading your project…')}
+                                </Text>
+                            </Group>
+                        )}
                     </Stack>
                 </Paper>
 

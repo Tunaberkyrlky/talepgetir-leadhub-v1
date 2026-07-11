@@ -27,6 +27,21 @@ export interface GeoEvidenceQuery {
     results: Array<{ title: string; url: string }>;
 }
 
+/** One real Comtrade evidence row for this geo cell's country (WP11) — world-import ranking
+ *  or seller-country bilateral export, for an approved HS code. Real numbers, never invented
+ *  by the model; the raw rows are ALSO rendered directly to the customer (bypassing the LLM)
+ *  via GET /api/research/geographies/:id/markets, so this prompt section must describe the
+ *  SAME evidence the customer can already see, not a paraphrase of it. */
+export interface GeoMarketEvidence {
+    hs_code: string;
+    kind: 'world_import' | 'bilateral_export';
+    country: string;
+    import_value: number | null;
+    growth_pct: number | null;
+    rank: number | null;
+    reporter_country: string | null;
+}
+
 export interface GeoAnalyzePromptInput {
     /** research_projects.profile (freeform): website, what they do, products, targets, exclusions. */
     profile: Record<string, unknown>;
@@ -35,6 +50,8 @@ export interface GeoAnalyzePromptInput {
     region?: string | null;
     /** Optional SearXNG sweep — empty when the instance is unconfigured or unreachable. */
     evidence?: GeoEvidenceQuery[];
+    /** Optional UN Comtrade trade evidence (WP11) for this cell's country — real world-import/bilateral-export figures for approved HS codes, empty when no HS codes are approved yet. */
+    marketEvidence?: GeoMarketEvidence[];
 }
 
 const SYSTEM = `You are a senior export-market analyst instantiating an Ideal Customer Profile
@@ -59,7 +76,10 @@ Produce:
 - certifications: certifications/registrations buyers in this market expect or require.
 - buyer_titles: the job titles that own this purchase at target firms, in the local language.
 - market_notes: ONE tight paragraph on how the buying channel is structured in this country
-  (import concentration, distributor tiers, who actually decides, regional patterns).
+  (import concentration, distributor tiers, who actually decides, regional patterns). If UN
+  Comtrade trade evidence is provided below, ground market_notes in its REAL import/export
+  figures (cite the HS code); if none is provided, describe market structure qualitatively and
+  do not invent specific trade dollar figures.
 - estimate: a rough count of firms matching the ICP in this country, with estimate_basis
   explaining how you derived it and confidence 0..1. Use null for estimate/confidence only when
   you truly cannot judge.
@@ -90,8 +110,19 @@ function evidenceBlock(e: GeoEvidenceQuery): string {
     return stripFence(`## Query: ${e.query}\n${hits}`);
 }
 
+function marketEvidenceBlock(rows: GeoMarketEvidence[]): string {
+    const lines = rows.map((r) => {
+        const value = r.import_value != null ? `$${Math.round(r.import_value).toLocaleString('en-US')}` : 'n/a';
+        const growth = r.growth_pct != null ? `${r.growth_pct >= 0 ? '+' : ''}${r.growth_pct.toFixed(1)}%` : 'n/a';
+        return r.kind === 'world_import'
+            ? `- HS ${r.hs_code}: world import value ${value}, YoY growth ${growth}${r.rank != null ? `, rank #${r.rank} importer` : ''}`
+            : `- HS ${r.hs_code}: ${r.reporter_country ?? 'the seller'} exported ${value} to ${r.country}, YoY growth ${growth}`;
+    });
+    return stripFence(lines.join('\n'));
+}
+
 export function buildGeoAnalyzePrompt(input: GeoAnalyzePromptInput): { system: string; messages: LlmMessage[] } {
-    const { profile, icp, evidence } = input;
+    const { profile, icp, evidence, marketEvidence } = input;
     const country = stripFence(input.country);
     const region = input.region ? stripFence(input.region) : null;
     const target = region ? `${country} (region: ${region})` : country;
@@ -119,6 +150,11 @@ export function buildGeoAnalyzePrompt(input: GeoAnalyzePromptInput): { system: s
     if (evidence?.length) {
         parts.push('\n# Web evidence (deterministic search sweep — titles and URLs only)');
         parts.push(evidence.map(evidenceBlock).join('\n\n'));
+    }
+
+    if (marketEvidence?.length) {
+        parts.push('\n# Trade evidence (UN Comtrade — official customs statistics, approved HS codes only)');
+        parts.push(marketEvidenceBlock(marketEvidence));
     }
 
     parts.push('<<<END_UNTRUSTED_DATA>>>');

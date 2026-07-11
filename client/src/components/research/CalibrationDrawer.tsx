@@ -4,8 +4,10 @@
  * ask the strategy model for an ICP revision → review the diff and apply it (the 062
  * trigger bumps ruleset_version + reverts approved→draft) → re-approve on the card →
  * finally mark the logic "calibrated". Credits surface as lead counts — never dollars.
+ * All query/mutation logic now lives in ../../lib/useCalibration.ts (WP8b), shared with the
+ * wizard's steps 11-14 — this file owns ONLY the Drawer chrome + table JSX below, unchanged
+ * from before the extraction.
  */
-import { useEffect, useState } from 'react';
 import {
     ActionIcon, Alert, Badge, Button, Divider, Drawer, Group, List, Loader, Paper,
     SegmentedControl, Stack, Table, Text, TextInput, Tooltip,
@@ -13,67 +15,18 @@ import {
 import {
     IconChecks, IconInfoCircle, IconPlayerPlay, IconSparkles, IconThumbDown, IconThumbUp, IconWorld,
 } from '@tabler/icons-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import api from '../../lib/api';
-import { showError, showErrorFromApi, showSuccess, showWarning } from '../../lib/notifications';
+import { diffArrays, RULESET_KEYS, RULESET_LABEL, useCalibration, type CompanyRow } from '../../lib/useCalibration';
+import { useAuth } from '../../contexts/AuthContext';
 import type { ResearchIcp } from './IcpCard';
 
 const CALIBRATION_COLOR: Record<ResearchIcp['calibration_state'], string> = {
     none: 'gray', sampling: 'blue', feedback: 'yellow', revised: 'grape', calibrated: 'green',
 };
 
-/** The strategy model's proposed revision (icpRevisionSchema) — FULL replacement arrays. */
-type IcpRevision = {
-    signals: string[]; negative_signals: string[]; neutral_signals: string[];
-    elimination_rules: string[]; changes_summary: string[]; rationale: string;
-};
-
-interface CalibrationIcp extends ResearchIcp {
-    revision_draft: IcpRevision | null;
-    revision_job_id?: string | null;
-}
-
-interface CompanyRow {
-    id: string; name: string; domain: string | null; website: string | null;
-    status: 'match' | 'partial' | 'eliminated' | 'review';
-    score: number | null; evidence: string | null; elimination_reason: string | null;
-}
-
-interface FeedbackRow { company_id: string; rating: 'good' | 'bad'; note: string | null }
-
-interface CalibrationJob {
-    id: string; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
-    progress: Record<string, unknown> | null; result: Record<string, unknown> | null; error: string | null;
-}
-
-type RatingDraft = { rating: 'good' | 'bad' | null; note: string };
-type TrackedJob = { id: string; kind: 'sample' | 'revise' };
-
 const VERDICT_COLOR: Record<CompanyRow['status'], string> = {
     match: 'green', partial: 'yellow', eliminated: 'red', review: 'gray',
 };
-
-const JOB_RUNNING = (s?: string) => s === 'queued' || s === 'running';
-
-const RULESET_KEYS = ['signals', 'negative_signals', 'neutral_signals', 'elimination_rules'] as const;
-const RULESET_LABEL: Record<(typeof RULESET_KEYS)[number], { key: string; fallback: string }> = {
-    signals: { key: 'signals', fallback: 'Signals' },
-    negative_signals: { key: 'negativeSignals', fallback: 'Negative signals' },
-    neutral_signals: { key: 'neutralSignals', fallback: 'Neutral signals' },
-    elimination_rules: { key: 'eliminationRules', fallback: 'Elimination rules' },
-};
-
-function diffArrays(current: string[], proposed: string[]) {
-    const cur = new Set(current);
-    const next = new Set(proposed);
-    return { removed: current.filter((s) => !next.has(s)), added: proposed.filter((s) => !cur.has(s)) };
-}
-
-function httpInfo(err: unknown) {
-    const resp = (err as { response?: { status?: number; data?: { job_id?: string } } }).response;
-    return { status: resp?.status, jobId: resp?.data?.job_id };
-}
 
 function StepHeader({ title, hint }: { title: string; hint: string }) {
     return <div><Text fw={600} size="sm">{title}</Text><Text size="xs" c="dimmed">{hint}</Text></div>;
@@ -87,239 +40,19 @@ export default function CalibrationDrawer({
     onClose: () => void;
 }) {
     const { t } = useTranslation();
-    const qc = useQueryClient();
-    const icpId = icp?.id;
+    // Tenant-scoped reset key (P1-D, WP8b review) — same reasoning as ResearchFlowPage.tsx's
+    // own call site: without it, a tenant switch while this Drawer happens to be mounted would
+    // leave the previous tenant's typed-in geography behind for the auto-sample-adjacent state.
+    const { activeTenantId } = useAuth();
+    const calib = useCalibration(icp, opened, activeTenantId);
+    const {
+        geography, setGeography, source, setSource, ratings, companies, companiesQuery, savedCount,
+        jobQuery, jobStatus, sampleMut, feedbackMut, reviseMut, applyMut, markMut,
+        live, calibrationState: state, revision, sampleRunning, reviseRunning, anyRunning, canSample, ratedCount,
+        setRating, setNote,
+    } = calib;
 
-    const [geography, setGeography] = useState('');
-    const [source, setSource] = useState<'web' | 'maps'>('web');
-    const [ratings, setRatings] = useState<Record<string, RatingDraft>>({});
-    // The ruleset the local ratings were MADE against (codex verify #1): captured when rating
-    // starts, sent with the save, and reset whenever the drafts are cleared — so a 409'd batch
-    // can never be resubmitted against a newer ruleset it doesn't describe.
-    const [ratingsVersion, setRatingsVersion] = useState<number | null>(null);
-    const [job, setJob] = useState<TrackedJob | null>(null);
-
-    const invalidateIcp = () => {
-        qc.invalidateQueries({ queryKey: ['research', 'icp', icpId] });
-        qc.invalidateQueries({ queryKey: ['research', 'icps', icp?.project_id] });
-    };
-    const invalidateFeedback = () => qc.invalidateQueries({ queryKey: ['research', 'calibration', 'feedback', icpId] });
-
-    // Fresh ICP (calibration_state + revision_draft live here; the list row can be stale).
-    const icpQuery = useQuery<CalibrationIcp>({
-        queryKey: ['research', 'icp', icpId],
-        queryFn: async () => (await api.get(`/research/icps/${icpId}`)).data,
-        enabled: opened && !!icpId,
-    });
-
-    // Sampled companies (verdict-aware view, same endpoint as CompaniesPanel).
-    const companiesQuery = useQuery<{ data: CompanyRow[] }>({
-        queryKey: ['research', 'companies', icpId, 'calibration'],
-        queryFn: async () => (await api.get(`/research/harvest/companies?icp_id=${icpId}&limit=50`)).data,
-        enabled: opened && !!icpId,
-    });
-    const companies = companiesQuery.data?.data ?? [];
-
-    // Existing feedback at the CURRENT ruleset — prefills the rating column.
-    const feedbackQuery = useQuery<{ data: FeedbackRow[]; ruleset_version: number }>({
-        queryKey: ['research', 'calibration', 'feedback', icpId],
-        queryFn: async () => (await api.get(`/research/icps/${icpId}/feedback`)).data,
-        enabled: opened && !!icpId,
-    });
-    const savedCount = feedbackQuery.data?.data.length ?? 0;
-
-    // Prefill saved ratings without clobbering unsaved local edits.
-    useEffect(() => {
-        const rows = feedbackQuery.data?.data;
-        if (!rows?.length) return;
-        setRatingsVersion((v) => v ?? feedbackQuery.data?.ruleset_version ?? null);
-        setRatings((prev) => {
-            const next = { ...prev };
-            for (const r of rows) {
-                if (!next[r.company_id]) next[r.company_id] = { rating: r.rating, note: r.note ?? '' };
-            }
-            return next;
-        });
-    }, [feedbackQuery.data]);
-
-    // Poll whichever job (sample or revise) is in flight; mirror CompaniesPanel's approach.
-    const jobQuery = useQuery<CalibrationJob>({
-        queryKey: ['research', 'job', job?.id],
-        queryFn: async () => (await api.get(`/research/jobs/${job?.id}`)).data,
-        enabled: !!job,
-        refetchInterval: (query) => (JOB_RUNNING(query.state.data?.status) ? 2500 : false),
-    });
-    const jobStatus = jobQuery.data?.status;
-    useEffect(() => {
-        if (jobStatus !== 'succeeded') return;
-        if (job?.kind === 'sample') {
-            showSuccess(t('research.calibration.sampleDone', 'Sample finished — rate the companies below.'));
-            qc.invalidateQueries({ queryKey: ['research', 'companies'] });
-            qc.invalidateQueries({ queryKey: ['research', 'credits'] });
-        } else if (job?.kind === 'revise') {
-            showSuccess(t('research.calibration.reviseDone', 'Revision proposal is ready — review the changes below.'));
-        }
-        invalidateIcp();
-        invalidateFeedback();
-        setJob(null);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [jobStatus]);
-
-    const sampleMut = useMutation({
-        mutationFn: async () => {
-            const started = (await api.post(`/research/icps/${icpId}/calibrate`, {
-                geography: geography.trim(),
-                source,
-            })).data as CalibrationJob;
-            setJob({ id: started.id, kind: 'sample' });
-            return started;
-        },
-        onError: (err: unknown) => {
-            const { status, jobId } = httpInfo(err);
-            if (status === 402) {
-                showError(t('research.calibration.noCredits', 'No lead quota available for the sample — top up first.'));
-                return;
-            }
-            if (status === 409) {
-                // Already in flight → adopt the existing job (CompaniesPanel convention) and say so.
-                if (jobId) {
-                    setJob({ id: jobId, kind: 'sample' });
-                    showWarning(t('research.calibration.alreadyRunning', 'A run is already in progress for this ICP — watching it.'));
-                    return;
-                }
-                showError(t('research.calibration.notApproved', 'The ICP must be approved before sampling.'));
-                return;
-            }
-            showErrorFromApi(err);
-        },
-    });
-
-    const feedbackMut = useMutation({
-        mutationFn: async () => {
-            const items = Object.entries(ratings)
-                .filter(([, v]) => v.rating !== null)
-                .map(([company_id, v]) => ({
-                    company_id,
-                    rating: v.rating as 'good' | 'bad',
-                    ...(v.note.trim() ? { note: v.note.trim().slice(0, 2000) } : {}),
-                }));
-            // Pinned to the ruleset the ratings were MADE against — not whatever is current at
-            // save time. The server 409s if the ICP moved since.
-            await api.post(`/research/icps/${icpId}/feedback`, {
-                items,
-                ruleset_version: ratingsVersion ?? (icpQuery.data ?? icp)?.ruleset_version,
-            });
-            return items.length;
-        },
-        onSuccess: (count) => {
-            showSuccess(t('research.calibration.feedbackSaved', '{{count}} ratings saved', { count }));
-            invalidateFeedback();
-            invalidateIcp();
-        },
-        onError: (err: unknown) => {
-            if (httpInfo(err).status === 409) {
-                showWarning(t('research.calibration.feedbackStale', 'The ICP changed since you rated these companies — reloaded, review and rate again.'));
-                // The drafts describe firms sampled under OLD rules — drop them so a second
-                // Save can't resubmit them against the new ruleset (codex verify #1).
-                setRatings({});
-                setRatingsVersion(null);
-                invalidateIcp();
-                invalidateFeedback();
-                return;
-            }
-            showErrorFromApi(err);
-        },
-    });
-
-    const reviseMut = useMutation({
-        mutationFn: async () => {
-            const started = (await api.post(`/research/icps/${icpId}/revise`)).data as CalibrationJob;
-            setJob({ id: started.id, kind: 'revise' });
-            return started;
-        },
-        onError: (err: unknown) => {
-            const { status, jobId } = httpInfo(err);
-            if (status === 409) {
-                if (jobId) setJob({ id: jobId, kind: 'revise' });
-                showWarning(t('research.calibration.reviseConflict', 'A revision is already being generated for this ICP.'));
-                return;
-            }
-            if (status === 400) {
-                showError(t('research.calibration.needFeedback', 'Save at least one rating before requesting a revision.'));
-                return;
-            }
-            showErrorFromApi(err);
-        },
-    });
-
-    // Double CAS on what the customer is LOOKING at: the ruleset (a concurrent edit bumps it)
-    // AND the proposal identity (a concurrent re-revise swaps the draft without a bump) — either
-    // moving means 409, never a blind apply of an unreviewed diff.
-    const applyMut = useMutation({
-        mutationFn: async (args: { rulesetVersion: number; revisionJobId: string }) =>
-            (await api.post(`/research/icps/${icpId}/apply-revision`, {
-                ruleset_version: args.rulesetVersion,
-                revision_job_id: args.revisionJobId,
-            })).data,
-        onSuccess: () => {
-            showSuccess(t('research.calibration.applied', 'Revision applied — the ICP is back in draft, review and approve it again.'));
-            setRatings({});
-            setRatingsVersion(null);
-            invalidateIcp();
-            invalidateFeedback();
-        },
-        onError: (err: unknown) => {
-            if (httpInfo(err).status === 409) {
-                showWarning(t('research.calibration.applyStale', 'The ICP changed in the meantime — reloaded the latest version, review again.'));
-                invalidateIcp();
-                return;
-            }
-            showErrorFromApi(err);
-        },
-    });
-
-    const markMut = useMutation({
-        mutationFn: async () => (await api.post(`/research/icps/${icpId}/mark-calibrated`)).data,
-        onSuccess: () => {
-            showSuccess(t('research.calibration.marked', 'ICP marked as calibrated.'));
-            invalidateIcp();
-        },
-        onError: (err: unknown) => {
-            if (httpInfo(err).status === 409) {
-                showError(t('research.calibration.needApprovedFinish', 'The ICP must be approved before you can mark it calibrated.'));
-                return;
-            }
-            if (httpInfo(err).status === 400) {
-                showError(t('research.calibration.needFeedbackFinish', 'Rate at least one sampled company at the current ruleset before finishing.'));
-                return;
-            }
-            showErrorFromApi(err);
-        },
-    });
-
-    if (!icp) return null;
-    const live: CalibrationIcp = icpQuery.data ?? { ...icp, revision_draft: null };
-    const state = live.calibration_state ?? 'none';
-    const revision = live.revision_draft;
-    const sampleRunning = sampleMut.isPending || (job?.kind === 'sample' && JOB_RUNNING(jobStatus));
-    const reviseRunning = reviseMut.isPending || (job?.kind === 'revise' && JOB_RUNNING(jobStatus));
-    const anyRunning = sampleRunning || reviseRunning;
-    const canSample = live.status === 'approved' && geography.trim().length > 0 && !anyRunning;
-    const ratedCount = Object.values(ratings).filter((r) => r.rating !== null).length;
-
-    const captureRatingsVersion = () =>
-        setRatingsVersion((v) => v ?? (icpQuery.data ?? icp)?.ruleset_version ?? null);
-    const setRating = (id: string, rating: 'good' | 'bad') => {
-        captureRatingsVersion();
-        setRatings((prev) => {
-            const cur = prev[id] ?? { rating: null, note: '' };
-            return { ...prev, [id]: { ...cur, rating: cur.rating === rating ? null : rating } };
-        });
-    };
-    const setNote = (id: string, note: string) => {
-        captureRatingsVersion();
-        setRatings((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { rating: null, note: '' }), note } }));
-    };
+    if (!icp || !live) return null;
 
     return (
         <Drawer
@@ -369,7 +102,7 @@ export default function CalibrationDrawer({
                         {live.status !== 'approved' && (
                             <Text size="sm" c="dimmed">{t('research.calibration.notApproved', 'The ICP must be approved before sampling.')}</Text>
                         )}
-                        {job?.kind === 'sample' && jobStatus === 'failed' && (
+                        {calib.job?.kind === 'sample' && jobStatus === 'failed' && (
                             <Alert color="red" icon={<IconInfoCircle size={16} />}>{t('research.calibration.sampleFailed', 'Sample failed')}: {jobQuery.data?.error ?? 'unknown'}</Alert>
                         )}
                     </Stack>
@@ -470,7 +203,7 @@ export default function CalibrationDrawer({
                         {reviseRunning && (
                             <Group gap="xs"><Loader size="xs" /><Text size="sm" c="dimmed">{t('research.calibration.revising', 'Revision being generated…')}</Text></Group>
                         )}
-                        {job?.kind === 'revise' && jobStatus === 'failed' && (
+                        {calib.job?.kind === 'revise' && jobStatus === 'failed' && (
                             <Alert color="red" icon={<IconInfoCircle size={16} />}>{t('research.calibration.reviseFailed', 'Revision failed')}: {jobQuery.data?.error ?? 'unknown'}</Alert>
                         )}
                         {revision && (

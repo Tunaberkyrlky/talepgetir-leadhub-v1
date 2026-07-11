@@ -16,7 +16,8 @@ import { withLlmMeter, type MeteredError } from '../../llm/meter.js';
 import { costFromUsageSummary } from '../../engine/pricing.js';
 import { searxngBaseUrl, searxngSearch } from '../../engine/searxng.js';
 import { geoAnalysisSchema } from '../../geo/schema.js';
-import { buildGeoAnalyzePrompt, type GeoAnalyzeIcp, type GeoEvidenceQuery } from '../../geo/prompt.js';
+import { buildGeoAnalyzePrompt, type GeoAnalyzeIcp, type GeoEvidenceQuery, type GeoMarketEvidence } from '../../geo/prompt.js';
+import { loadMarketEvidenceForGeoCountry } from '../../trade/marketEvidence.js';
 import { createLogger } from '../../../logger.js';
 
 const log = createLogger('research:handler:geo-analyze');
@@ -72,6 +73,21 @@ export async function geoAnalyzeHandler({ job, heartbeat }: HandlerContext): Pro
     if (projErr) throw projErr;
     if (!project) throw new Error(`geo:analyze: project ${geo.project_id} not found for tenant ${tenantId}`);
 
+    const marketRows = await loadMarketEvidenceForGeoCountry({
+        tenantId,
+        projectId: geo.project_id,
+        geoCountry: geo.country,
+    });
+    const marketEvidence: GeoMarketEvidence[] = marketRows.slice(0, 20).map((r) => ({
+        hs_code: r.hs_code ?? '',
+        kind: r.kind,
+        country: r.country,
+        import_value: r.import_value,
+        growth_pct: r.growth_pct,
+        rank: r.rank,
+        reporter_country: r.reporter_country,
+    }));
+
     // ── Evidence sweep (optional, $0) ─────────────────────────────────────────
     // Deterministic SearXNG queries for the country's canonical channel surface
     // (associations, directories, fairs, importers, chamber, company lists) so the
@@ -113,6 +129,7 @@ export async function geoAnalyzeHandler({ job, heartbeat }: HandlerContext): Pro
         country: geo.country,
         region: geo.region,
         evidence,
+        marketEvidence,
     });
 
     await heartbeat({ stage: 'analyzing', evidence_queries: evidence.length });

@@ -11,8 +11,16 @@
  */
 export const RESEARCH_JOB_TYPES = {
     PING: 'ping',
+    /** WP7 FAZ 1: crawl the project's website + social links (reading model) -> profile.ai_draft. */
+    PROFILE_CRAWL: 'profile:crawl',
     /** ICP Master (B5): generate ICP drafts from the project profile via the strategy model. */
     ICP_GENERATE: 'icp:generate',
+    /** WP11: propose 6-digit HS candidates for approved physical products (strategy model),
+     *  validated against the live UN Comtrade HS nomenclature before persisting to research_hs_codes. */
+    HS_MATCH: 'hs:match',
+    /** WP11: rank world importers + seller-country bilateral exports for approved HS codes via
+     *  UN Comtrade (no LLM call) -> research_markets. Requires >=1 approved HS code. */
+    MARKET_ANALYZE: 'market:analyze',
     /** WP1 calibration: propose an ICP ruleset revision from human good/bad feedback (strategy model). */
     ICP_REVISE: 'icp:revise',
     /** WP2 sub-ICP: instantiate an ICP for one country (local terms/signals/channels/E) into research_geographies. */
@@ -35,6 +43,9 @@ export const RESEARCH_JOB_TYPES = {
     FEEDBACK_AGGREGATE: 'feedback:aggregate',
     /** Enrichment: Hunter domain-search contacts for selected companies (strict domain match, once-ever billing). */
     ENRICH_RUN: 'enrich:run',
+    /** WP9: conductor for ONE approved icp×geo cell — enqueues + polls channels:discover/harvest
+     *  (Y1) and harvest:run (Y3) in sequence until scale_target/credits/full coverage stops it. */
+    ORCHESTRATE: 'research:orchestrate',
 
     // ── TG-LinkedIn (isolated module; rides this same research_jobs queue) ─────
     /** LinkedIn: session liveness + UA/proxy health smoke (/voyager/api/me). Faz 1. */

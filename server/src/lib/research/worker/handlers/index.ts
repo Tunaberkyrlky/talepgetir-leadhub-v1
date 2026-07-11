@@ -5,7 +5,10 @@
 import type { JobHandler } from '../types.js';
 import { RESEARCH_JOB_TYPES } from '../../jobTypes.js';
 import { pingHandler } from './ping.js';
+import { profileCrawlHandler } from './profileCrawl.js';
 import { icpGenerateHandler } from './icpGenerate.js';
+import { hsMatchHandler } from './hsMatch.js';
+import { marketAnalyzeHandler } from './marketAnalyze.js';
 import { icpReviseHandler } from './icpRevise.js';
 import { geoAnalyzeHandler } from './geoAnalyze.js';
 import { harvestRunHandler } from './harvestRun.js';
@@ -17,6 +20,7 @@ import { channelsHarvestHandler } from './channelsHarvest.js';
 import { offerGenerateHandler } from './offerGenerate.js';
 import { feedbackAggregateHandler } from './feedbackAggregate.js';
 import { enrichRunHandler } from './enrichRun.js';
+import { orchestrateHandler } from './orchestrate.js';
 import { linkedinValidateHandler } from './linkedinValidate.js';
 import { linkedinInviteHandler } from './linkedinInvite.js';
 import { linkedinMessageHandler } from './linkedinMessage.js';
@@ -28,7 +32,10 @@ import { linkedinProxySyncHandler } from './linkedinProxySync.js';
 
 const handlers: Record<string, JobHandler> = {
     [RESEARCH_JOB_TYPES.PING]: pingHandler,
+    [RESEARCH_JOB_TYPES.PROFILE_CRAWL]: profileCrawlHandler,
     [RESEARCH_JOB_TYPES.ICP_GENERATE]: icpGenerateHandler,
+    [RESEARCH_JOB_TYPES.HS_MATCH]: hsMatchHandler,
+    [RESEARCH_JOB_TYPES.MARKET_ANALYZE]: marketAnalyzeHandler,
     [RESEARCH_JOB_TYPES.ICP_REVISE]: icpReviseHandler,
     [RESEARCH_JOB_TYPES.GEO_ANALYZE]: geoAnalyzeHandler,
     [RESEARCH_JOB_TYPES.HARVEST_RUN]: harvestRunHandler,
@@ -40,6 +47,7 @@ const handlers: Record<string, JobHandler> = {
     [RESEARCH_JOB_TYPES.OFFER_GENERATE]: offerGenerateHandler,
     [RESEARCH_JOB_TYPES.FEEDBACK_AGGREGATE]: feedbackAggregateHandler,
     [RESEARCH_JOB_TYPES.ENRICH_RUN]: enrichRunHandler,
+    [RESEARCH_JOB_TYPES.ORCHESTRATE]: orchestrateHandler,
     [RESEARCH_JOB_TYPES.LINKEDIN_VALIDATE]: linkedinValidateHandler,
     [RESEARCH_JOB_TYPES.LINKEDIN_INVITE]: linkedinInviteHandler,
     [RESEARCH_JOB_TYPES.LINKEDIN_MESSAGE]: linkedinMessageHandler,

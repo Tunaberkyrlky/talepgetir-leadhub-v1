@@ -22,6 +22,7 @@ import { NextActionProvider } from './contexts/NextActionContext';
 import ImportProgressBar from './components/ImportProgressBar';
 import ErrorBoundary from './components/ErrorBoundary';
 import Layout from './components/Layout';
+import RootRedirect from './components/RootRedirect';
 
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const LeadsPage = lazy(() => import('./pages/LeadsPage'));
@@ -39,6 +40,7 @@ const AdminPage = lazy(() => import('./pages/AdminPage'));
 const CampaignsPage = lazy(() => import('./pages/CampaignsPage'));
 const CampaignEditorPage = lazy(() => import('./pages/CampaignEditorPage'));
 const ResearchPage = lazy(() => import('./pages/research/ResearchPage'));
+const ResearchFlowPage = lazy(() => import('./pages/research/ResearchFlowPage'));
 const ColdCallPage = lazy(() => import('./pages/coldcall/ColdCallPage'));
 const ResearchAdminPage = lazy(() => import('./pages/research/ResearchAdminPage'));
 const LinkedInConnectPage = lazy(() => import('./pages/linkedin/LinkedInConnectPage'));
@@ -110,7 +112,7 @@ function App() {
                       <Routes>
                         <Route path="/login" element={<LoginPage />} />
                         <Route element={<Layout />}>
-                          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                          <Route path="/" element={<RootRedirect />} />
                           <Route path="/dashboard" element={<DashboardPage />} />
                           <Route path="/companies" element={<LeadsPage />} />
                           <Route path="/companies/:id" element={<CompanyDetailPage />} />
@@ -121,7 +123,8 @@ function App() {
                           <Route path="/tasks" element={<TasksPage />} />
                           <Route path="/leads" element={<LeadInboxPage />} />
                           <Route path="/email-replies" element={<EmailRepliesPage />} />
-                          <Route path="/research" element={<ResearchPage />} />
+                          <Route path="/research" element={<ResearchFlowPage />} />
+                          <Route path="/research/full" element={<ResearchPage />} />
                           <Route path="/linkedin/connect" element={<LinkedInConnectPage />} />
                           <Route path="/cold-call" element={<ColdCallPage />} />
                           <Route path="/research/admin" element={<ResearchAdminPage />} />

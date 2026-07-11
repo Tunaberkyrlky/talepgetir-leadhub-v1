@@ -17,6 +17,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { createLogger } from '../../lib/logger.js';
 import { validateBody, uuidField } from '../../lib/validation.js';
 import { grantCredits } from '../../lib/research/engine/ledger.js';
+import { HUNTER_PER_REQUEST_USD } from '../../lib/research/engine/pricing.js';
 import { effectiveCostRole } from '../../lib/research/freshRole.js';
 
 const log = createLogger('route:research:admin');
@@ -63,6 +64,9 @@ router.get('/costs', async (req: Request, res: Response, next: NextFunction): Pr
         const { data, error } = await researchSupabaseAdmin.rpc('research_admin_cost_summary', {
             p_from: from?.toISOString() ?? null,
             p_to: to?.toISOString() ?? null,
+            // Per-Hunter-request USD rate (0 on the free/trial plan) — the RPC returns request
+            // counts always; hunter_cost_usd is those counts × this rate. One config source (pricing.ts).
+            p_hunter_usd: HUNTER_PER_REQUEST_USD,
         });
         if (error) {
             log.error({ err: error }, 'admin cost summary failed');

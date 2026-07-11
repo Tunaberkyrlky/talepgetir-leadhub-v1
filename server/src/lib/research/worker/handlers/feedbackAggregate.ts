@@ -51,7 +51,21 @@ interface ExportedCompany {
     canonical_key: string;
     icp_id: string | null;
     geo_id: string | null;
+    // Export-moment pins (mig 104): the (ICP, geo) the firm was exported UNDER. NULL on rows
+    // exported before the pin existed → fall back to the current rollup (icp_id/geo_id).
+    crm_exported_icp_id: string | null;
+    crm_exported_geo_id: string | null;
     suppressed: boolean;
+}
+
+/** Attribution ICP: the pinned export-moment ICP when present, else the current rollup. */
+function effectiveIcp(c: ExportedCompany): string | null {
+    return c.crm_exported_icp_id ?? c.icp_id;
+}
+/** Attribution geo: pinned together with the ICP (so a NULL pin is only "legacy", never
+ *  "pinned to no geo") — legacy rows fall back to the current rollup geo. */
+function effectiveGeo(c: ExportedCompany): string | null {
+    return c.crm_exported_icp_id ? c.crm_exported_geo_id : c.geo_id;
 }
 
 interface OutcomeCounts { sent: number; replies: number; positive: number; optout: boolean }
@@ -148,7 +162,7 @@ export const feedbackAggregateHandler: JobHandler = async ({ job, heartbeat }: H
         for (;;) {
             let q = researchSupabaseAdmin
                 .from('research_companies')
-                .select('id, crm_company_id, canonical_key, icp_id, geo_id, suppressed')
+                .select('id, crm_company_id, canonical_key, icp_id, geo_id, crm_exported_icp_id, crm_exported_geo_id, suppressed')
                 .eq('tenant_id', tenantId)
                 .not('crm_company_id', 'is', null)
                 .order('id', { ascending: true })
@@ -182,19 +196,19 @@ export const feedbackAggregateHandler: JobHandler = async ({ job, heartbeat }: H
         job.id
     );
 
-    // Angle attribution: the company's MATCH verdict for ITS icp carries angle_suggestion.
-    // CHUNKED like the CRM reads (review P1): a full-set .in() rides the URL and hits the
-    // gateway limit around a few hundred UUIDs — which would fail the whole job (and with it
-    // the opt-out sync) for exactly the biggest tenants.
-    // NOTE (documented limitation, review P3): attribution uses the company's CURRENT rollup
-    // icp_id — a firm re-discovered under another ICP after export reports there; export-time
-    // ICP pinning is a follow-up (needs a column on research_mark_exported).
-    // Only the ICP's CURRENT ruleset counts (codex P2): historical verdict rows from older
-    // rulesets survive on purpose — letting them overwrite the map would make the angle
+    // Angle attribution: the company's MATCH verdict for its EFFECTIVE icp carries
+    // angle_suggestion. CHUNKED like the CRM reads (review P1): a full-set .in() rides the URL
+    // and hits the gateway limit around a few hundred UUIDs — which would fail the whole job
+    // (and with it the opt-out sync) for exactly the biggest tenants.
+    // Attribution is pinned to the EXPORT-MOMENT (ICP, geo) (mig 104, effectiveIcp/effectiveGeo):
+    // a firm re-discovered under another ICP after export still reports against the ICP whose
+    // copy the campaign actually ran. Legacy rows (NULL pin) fall back to the current rollup.
+    // Only the pinned ICP's CURRENT ruleset counts (codex P2): historical verdict rows from
+    // older rulesets survive on purpose — letting them overwrite the map would make the angle
     // nondeterministic after an ICP revision.
     const currentRuleset = new Map<string, number>();
     {
-        const icpIds = [...new Set(companies.map((c) => c.icp_id).filter((v): v is string => !!v))];
+        const icpIds = [...new Set(companies.map(effectiveIcp).filter((v): v is string => !!v))];
         if (icpIds.length > 0) {
             const { data: icpRows, error: icpErr } = await researchSupabaseAdmin
                 .from('research_icps')
@@ -249,8 +263,10 @@ export const feedbackAggregateHandler: JobHandler = async ({ job, heartbeat }: H
     // keyset → deterministic). Non-representative rows only add to `exported` — and still
     // sync opt-outs (each has its own canonical_key; the suppress RPC is conflict-safe).
     const optoutCompanies: ExportedCompany[] = [];
-    const angleOf = (comp: ExportedCompany): string | null =>
-        comp.icp_id ? angleByCompanyIcp.get(`${comp.id}:${comp.icp_id}`) ?? null : null;
+    const angleOf = (comp: ExportedCompany): string | null => {
+        const icp = effectiveIcp(comp);
+        return icp ? angleByCompanyIcp.get(`${comp.id}:${icp}`) ?? null : null;
+    };
     const byCrm = new Map<string, ExportedCompany[]>();
     for (const comp of companies) {
         const group = byCrm.get(comp.crm_company_id) ?? [];
@@ -263,8 +279,10 @@ export const feedbackAggregateHandler: JobHandler = async ({ job, heartbeat }: H
         for (const comp of group) {
             const counts = comp === representative ? crmCounts : emptyCounts();
             const angle = angleOf(comp);
-            bump(comp.icp_id, comp.geo_id, null, counts);            // all-angles rollup
-            if (angle) bump(comp.icp_id, comp.geo_id, angle, counts); // per-angle cell
+            const icp = effectiveIcp(comp);
+            const geo = effectiveGeo(comp);
+            bump(icp, geo, null, counts);            // all-angles rollup
+            if (angle) bump(icp, geo, angle, counts); // per-angle cell
             if (crmCounts.optout && !comp.suppressed) optoutCompanies.push(comp);
         }
     }

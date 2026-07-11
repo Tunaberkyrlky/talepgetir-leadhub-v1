@@ -60,7 +60,15 @@ export default function IcpCard({ icp }: { icp: ResearchIcp }) {
     const [calibrationOpen, setCalibrationOpen] = useState(false);
     const score = draft.human_score ?? 5;
 
-    const invalidate = () => qc.invalidateQueries({ queryKey: ['research', 'icps', icp.project_id] });
+    // Invalidates BOTH the list key (step 8's own cards, ResearchPage's advanced view) AND the
+    // singular icp key (WP8b review — useCalibration's own icpQuery reads ['research','icp',id],
+    // and step 14 reuses this exact card to re-approve mid-calibration; without this, approving
+    // here left `calib.live` permanently stale and its status-gated "Approve the logic" button
+    // permanently disabled — a real dead end, not just a display glitch).
+    const invalidate = () => {
+        qc.invalidateQueries({ queryKey: ['research', 'icps', icp.project_id] });
+        qc.invalidateQueries({ queryKey: ['research', 'icp', icp.id] });
+    };
 
     const editBody = () => ({
         name: draft.name,

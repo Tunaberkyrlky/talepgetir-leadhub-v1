@@ -158,6 +158,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, [queryClient]);
 
     const switchTenant = useCallback((tenantId: string) => {
+        // Cancel in-flight fetches BEFORE flipping the tenant identity: api.ts's request
+        // interceptor reads `activeTenantId` from localStorage at the moment each request is
+        // dispatched, not from whatever tenant a query's cache key was set up under. Without
+        // this, a fetch already in flight when the switch happens can still be pending when
+        // this function updates localStorage, so its underlying HTTP call (if not yet fired)
+        // — or a query that TanStack Query is about to re-dispatch for the same key — could
+        // send the NEW tenant's header while its result lands under the OLD tenant's cache
+        // entry (or vice versa), cross-contaminating tenant data. `cancelQueries()` rejects
+        // each matching query's in-flight promise at the query-client level (via TanStack's
+        // own CancelledError path), discarding any such result even though the underlying
+        // network call may still complete in the background unaware it was cancelled.
+        void queryClient.cancelQueries();
         setActiveTenantId(tenantId);
         localStorage.setItem('activeTenantId', tenantId);
         // Invalidate all queries so they refetch with new X-Tenant-Id header

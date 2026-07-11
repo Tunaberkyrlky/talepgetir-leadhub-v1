@@ -27,6 +27,9 @@ interface TenantCostRow {
     search_cost_usd: string | number;
     icp_runs: number;
     icp_cost_usd: string | number;
+    enrich_runs: number;
+    hunter_requests: number;
+    hunter_cost_usd: string | number;
     billed_leads: number;
     credits_balance: number;
     credits_reserved: number;
@@ -173,7 +176,9 @@ export default function ResearchAdminPage() {
         const billed = rows.reduce((s, r) => s + r.billed_leads, 0);
         const reserved = rows.reduce((s, r) => s + r.credits_reserved, 0);
         const failed = rows.reduce((s, r) => s + r.failed_runs, 0);
-        return { cost, billed, reserved, failed, perLead: billed > 0 ? cost / billed : null };
+        const hunterReq = rows.reduce((s, r) => s + Number(r.hunter_requests || 0), 0);
+        const hunterCost = rows.reduce((s, r) => s + Number(r.hunter_cost_usd || 0), 0);
+        return { cost, billed, reserved, failed, hunterReq, hunterCost, perLead: billed > 0 ? cost / billed : null };
     }, [rows]);
 
     // ── Tier / monthly quota settings (no Stripe — operator-managed) ──────────
@@ -241,7 +246,7 @@ export default function ResearchAdminPage() {
                 </div>
 
                 {/* Fleet totals */}
-                <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md">
+                <SimpleGrid cols={{ base: 2, md: 5 }} spacing="md">
                     <Paper withBorder radius="md" p="md">
                         <Text size="xs" c="dimmed" tt="uppercase">{t('research.admin.totalCogs', 'Total harvest COGS')}</Text>
                         <Text size="xl" fw={700}>{usd(totals.cost)}</Text>
@@ -258,6 +263,13 @@ export default function ResearchAdminPage() {
                     <Paper withBorder radius="md" p="md">
                         <Text size="xs" c="dimmed" tt="uppercase">{t('research.admin.blended', 'Blended $/lead')}</Text>
                         <Text size="xl" fw={700}>{totals.perLead != null ? usd(totals.perLead) : '—'}</Text>
+                    </Paper>
+                    <Paper withBorder radius="md" p="md">
+                        <Tooltip label={t('research.admin.hunterHint', 'Hunter enrichment requests (1 credit each) — a separate product line, not part of per-lead harvest COGS. $ is 0 on the free/trial plan.')} multiline w={260}>
+                            <Text size="xs" c="dimmed" tt="uppercase" style={{ cursor: 'help' }}>{t('research.admin.enrichCogs', 'Hunter enrichment')}</Text>
+                        </Tooltip>
+                        <Text size="xl" fw={700}>{totals.hunterReq}</Text>
+                        <Text size="xs" c="dimmed">{t('research.admin.hunterReqUnit', '{{count}} requests · {{cost}}', { count: totals.hunterReq, cost: usd(totals.hunterCost) })}</Text>
                     </Paper>
                     <Paper withBorder radius="md" p="md">
                         <Text size="xs" c="dimmed" tt="uppercase">{t('research.admin.reserved', 'Open reservations')}</Text>
@@ -285,7 +297,7 @@ export default function ResearchAdminPage() {
                             ) : rows.length === 0 ? (
                                 <Text c="dimmed" ta="center" py="xl">{t('research.admin.noData', 'No research activity yet.')}</Text>
                             ) : (
-                                <Table.ScrollContainer minWidth={900}>
+                                <Table.ScrollContainer minWidth={1060}>
                                     <Table striped highlightOnHover verticalSpacing="sm">
                                         <Table.Thead>
                                             <Table.Tr>
@@ -308,6 +320,12 @@ export default function ResearchAdminPage() {
                                                         <span>{t('research.admin.setup', 'Setup $')}</span>
                                                     </Tooltip>
                                                 </Table.Th>
+                                                <Table.Th ta="right">
+                                                    <Tooltip label={t('research.admin.hunterHint', 'Hunter enrichment requests (1 credit each) — a separate product line, not part of per-lead harvest COGS. $ is 0 on the free/trial plan.')} multiline w={260}>
+                                                        <span>{t('research.admin.hunterReqCol', 'Hunter req')}</span>
+                                                    </Tooltip>
+                                                </Table.Th>
+                                                <Table.Th ta="right">{t('research.admin.hunterCostCol', 'Hunter $')}</Table.Th>
                                                 <Table.Th ta="right">{t('research.admin.billed', 'Billed')}</Table.Th>
                                                 <Table.Th ta="right">{t('research.admin.perLead', '$/lead')}</Table.Th>
                                                 <Table.Th ta="right">{t('research.admin.balance', 'Balance')}</Table.Th>
@@ -330,6 +348,8 @@ export default function ResearchAdminPage() {
                                                     <Table.Td ta="right"><Text size="sm" ff="monospace">{usd(r.harvest_cost_usd)}</Text></Table.Td>
                                                     <Table.Td ta="right"><Text size="sm" ff="monospace" c="dimmed">{usd(r.search_cost_usd)}</Text></Table.Td>
                                                     <Table.Td ta="right"><Text size="sm" ff="monospace" c="dimmed">{usd(r.icp_cost_usd)}</Text></Table.Td>
+                                                    <Table.Td ta="right"><Text size="sm" c={Number(r.hunter_requests) > 0 ? undefined : 'dimmed'}>{r.hunter_requests}</Text></Table.Td>
+                                                    <Table.Td ta="right"><Text size="sm" ff="monospace" c="dimmed">{usd(r.hunter_cost_usd)}</Text></Table.Td>
                                                     <Table.Td ta="right"><Text size="sm" fw={600}>{r.billed_leads}</Text></Table.Td>
                                                     <Table.Td ta="right"><Text size="sm" ff="monospace">{usd(r.cost_per_lead_usd)}</Text></Table.Td>
                                                     <Table.Td ta="right">{r.credits_balance}</Table.Td>

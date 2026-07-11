@@ -12,7 +12,7 @@ import { requireRole } from '../../middleware/auth.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { createLogger } from '../../lib/logger.js';
 import { validateBody, uuidField } from '../../lib/validation.js';
-import { enqueueJob } from '../../lib/research/queue.js';
+import { enqueueJob, ResearchJob } from '../../lib/research/queue.js';
 import { RESEARCH_JOB_TYPES } from '../../lib/research/jobTypes.js';
 import { availableCredits } from '../../lib/research/engine/ledger.js';
 import { sanitizeJobForRole } from '../../lib/research/sanitize.js';
@@ -97,6 +97,30 @@ const applyRevisionSchema = z.object({
     revision_job_id: uuidField('Invalid revision job ID'),
 });
 
+/**
+ * Best-effort in-flight guard (advisory, check-then-enqueue — same shape as
+ * geographies.ts's findInflightAnalysis): a reload of the wizard's step-7 wait screen
+ * re-fires the auto-start effect while the first generation is still running, and unlike
+ * geo_id (payload-only), project_id is already a real column on research_jobs, so this
+ * filters on it directly instead of a payload .contains() check.
+ */
+async function findInflightGeneration(tenantId: string, projectId: string): Promise<ResearchJob | null> {
+    const { data, error } = await researchSupabaseAdmin
+        .from('research_jobs')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('project_id', projectId)
+        .eq('type', RESEARCH_JOB_TYPES.ICP_GENERATE)
+        .in('status', ['queued', 'running'])
+        .limit(1)
+        .maybeSingle();
+    if (error) {
+        log.error({ err: error }, 'icp:generate in-flight check failed');
+        throw new AppError('Failed to start ICP generation', 500);
+    }
+    return (data as ResearchJob | null) ?? null;
+}
+
 // ── POST /api/research/icps/generate — enqueue ICP generation ────────────────
 router.post('/generate', requireWriter, validateBody(generateSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -115,6 +139,14 @@ router.post('/generate', requireWriter, validateBody(generateSchema), async (req
         }
         if (!project) {
             res.status(404).json({ error: 'Research project not found' });
+            return;
+        }
+
+        const inflight = await findInflightGeneration(tenantId, project_id);
+        if (inflight) {
+            // Adopt the generation already in flight instead of stacking a second one
+            // (double-drafted ICPs + double-billed generation on a wizard-step-7 reload).
+            res.status(200).json(inflight);
             return;
         }
 

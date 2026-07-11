@@ -10,7 +10,7 @@
 import { isInternalRole } from '../roles.js';
 
 /** Dollar-bearing keys inside a job's result payload (harvest:run summary). */
-const COST_RESULT_KEYS = ['cost_usd', 'cost_recheck', 'usage_raw', 'caps', 'pricing_version'];
+const COST_RESULT_KEYS = ['cost_usd', 'cost_recheck', 'usage_raw', 'caps', 'pricing_version', 'comtrade_requests', 'comtrade_failed'];
 
 /**
  * Map a raw worker error to a customer-safe message. Raw text can carry provider billing/quota

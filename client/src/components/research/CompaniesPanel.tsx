@@ -4,14 +4,15 @@
  * browse the verdict-aware companies list (per-ICP truth, not the rollup). Credits (the lead
  * quota) surface strictly as COUNTS — dollar costs are internal-only and never reach this panel.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert, Badge, Button, Group, Loader, Pagination, Paper, SegmentedControl, Select,
     Stack, Table, Text, TextInput, Tooltip,
 } from '@mantine/core';
-import { IconInfoCircle, IconPlayerPlay, IconWorld, IconArrowRight } from '@tabler/icons-react';
+import { IconInfoCircle, IconPlayerPlay, IconWorld, IconArrowRight, IconBan } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { modals } from '@mantine/modals';
 import api from '../../lib/api';
 import { showErrorFromApi, showSuccess } from '../../lib/notifications';
 import type { ResearchIcp } from './IcpCard';
@@ -67,12 +68,54 @@ function scoreColor(score: number | null): string {
 
 const PAGE_SIZE = 25;
 
-export default function CompaniesPanel() {
+interface CompaniesPanelProps {
+    /** WP10: pre-scope the panel (wizard step 19 embeds this component pre-scoped to the
+     *  calibrated project/ICP so the customer never has to re-pick what the wizard already
+     *  knows). Seeded ONCE, on first mount only — undefined/omitted (every existing
+     *  /research/full call site) keeps the panel's own "auto-select the only project"
+     *  behavior byte-identical.
+     *
+     *  `lockScope` (P2 fix, adversarial review round 2): the wizard embeds this panel inside a
+     *  "review your results" screen scoped to ONE calibrated project/ICP — but the picker above
+     *  let the customer silently browse to (and, worse, run a full billed free-text/maps harvest
+     *  launcher for) a DIFFERENT project/ICP than the one the wizard's own "Next" button and
+     *  scale_target apply to, spending credits outside the guided flow entirely. When true: hides
+     *  the picker (project/ICP are fixed to the seed props, full stop) and the harvest launcher
+     *  (finding NEW leads outside the orchestrated flow doesn't belong on a results-review
+     *  screen); the table, suppress action and CRM export — exactly what step 19 needs — still
+     *  render normally. Also closes review round 2's OTHER finding as a side effect: the old
+     *  seed-if-null effects re-seeded the original ICP the instant the (now-hidden) picker's
+     *  onChange cleared it mid-project-switch — with no picker, that path can't fire. */
+    initialProjectId?: string;
+    initialIcpId?: string;
+    lockScope?: boolean;
+}
+
+export default function CompaniesPanel({ initialProjectId, initialIcpId, lockScope }: CompaniesPanelProps = {}) {
     const { t } = useTranslation();
     const qc = useQueryClient();
 
     const [projectId, setProjectId] = useState<string | null>(null);
     const [icpId, setIcpId] = useState<string | null>(null);
+    // Seed from props EXACTLY once (a ref latch, not "seed whenever null" — review round 2 P2:
+    // the prior "if null" version re-seeded every time the picker cleared icpId on a project
+    // switch, fighting the user's own navigation). initialProjectId/initialIcpId can still arrive
+    // on a LATER render than mount (the wizard resolves them from its own queries), so this stays
+    // an effect, not a useState initializer — it just never fires a second time.
+    const seededProjectRef = useRef(false);
+    useEffect(() => {
+        if (initialProjectId && !seededProjectRef.current) {
+            seededProjectRef.current = true;
+            setProjectId(initialProjectId);
+        }
+    }, [initialProjectId]);
+    const seededIcpRef = useRef(false);
+    useEffect(() => {
+        if (initialIcpId && !seededIcpRef.current) {
+            seededIcpRef.current = true;
+            setIcpId(initialIcpId);
+        }
+    }, [initialIcpId]);
     const [status, setStatus] = useState<string>('all');
     const [page, setPage] = useState(1);
     const [geography, setGeography] = useState('');
@@ -177,6 +220,36 @@ export default function CompaniesPanel() {
         onError: (err: unknown) => showErrorFromApi(err),
     });
 
+    // "İstemiyorum" (WP10) — customer-facing suppress. Tenant-wide + canonical_key-keyed server
+    // side (same fenced RPC feedbackAggregate.ts uses for opt-outs): the firm never resurfaces in
+    // ANY future discovery for this tenant, not just this ICP's list.
+    const suppressMut = useMutation({
+        mutationFn: async (companyId: string) =>
+            (await api.post(`/research/harvest/companies/${companyId}/suppress`, icpId ? { icp_id: icpId } : {})).data,
+        onSuccess: () => {
+            showSuccess(t('research.companies.suppressedToast', "Hidden — you won't see this company again."));
+            qc.invalidateQueries({ queryKey: ['research', 'companies'] });
+        },
+        onError: (err: unknown) => showErrorFromApi(err),
+    });
+
+    // P2 fix (adversarial review, WP10): suppression is irreversible (no unsuppress route
+    // anywhere in the codebase) and tenant-wide (every future discovery, not just this list) —
+    // a bare one-click button for that is too easy to fire by accident. Confirm first, same
+    // pattern NumbersTab.tsx already uses for its own irreversible "release number" action.
+    const confirmSuppress = (companyId: string, companyName: string) =>
+        modals.openConfirmModal({
+            title: t('research.companies.suppressConfirmTitle', "Don't want this company?"),
+            children: (
+                <Text size="sm">
+                    {t('research.companies.suppressConfirmBody', '{{name}} will be hidden permanently — you will never see it again in any research for this workspace. This cannot be undone.', { name: companyName })}
+                </Text>
+            ),
+            labels: { confirm: t('research.companies.suppress', "Don't want this"), cancel: t('common.cancel', 'Cancel') },
+            confirmProps: { color: 'red' },
+            onConfirm: () => suppressMut.mutate(companyId),
+        });
+
     // Poll the harvest job; on success refresh companies + credits and toast the outcome.
     const runJobQuery = useQuery<HarvestJob>({
         queryKey: ['research', 'job', runJobId],
@@ -223,30 +296,34 @@ export default function CompaniesPanel() {
             {/* Scope: project → ICP; credits as lead COUNTS only */}
             <Paper withBorder radius="md" p="md">
                 <Group justify="space-between" align="flex-end" wrap="wrap">
-                    <Group align="flex-end" gap="sm">
-                        <Select
-                            label={t('research.companies.project', 'Project')}
-                            placeholder={t('research.companies.pickProject', 'Pick a project')}
-                            data={projects.map((p) => ({ value: p.id, label: p.name }))}
-                            value={projectId}
-                            onChange={(v) => { setProjectId(v); setIcpId(null); setPage(1); }}
-                            w={220}
-                            searchable
-                        />
-                        <Select
-                            label={t('research.companies.icp', 'ICP')}
-                            placeholder={t('research.companies.pickIcp', 'Pick an ICP')}
-                            data={icps.map((i) => ({
-                                value: i.id,
-                                label: `${i.name}${i.status === 'approved' ? ' ✓' : ` (${i.status})`}`,
-                            }))}
-                            value={icpId}
-                            onChange={(v) => { setIcpId(v); setPage(1); }}
-                            w={260}
-                            disabled={!projectId}
-                            searchable
-                        />
-                    </Group>
+                    {lockScope ? (
+                        <Text size="sm" fw={600}>{selectedIcp?.name ?? '—'}</Text>
+                    ) : (
+                        <Group align="flex-end" gap="sm">
+                            <Select
+                                label={t('research.companies.project', 'Project')}
+                                placeholder={t('research.companies.pickProject', 'Pick a project')}
+                                data={projects.map((p) => ({ value: p.id, label: p.name }))}
+                                value={projectId}
+                                onChange={(v) => { setProjectId(v); setIcpId(null); setPage(1); }}
+                                w={220}
+                                searchable
+                            />
+                            <Select
+                                label={t('research.companies.icp', 'ICP')}
+                                placeholder={t('research.companies.pickIcp', 'Pick an ICP')}
+                                data={icps.map((i) => ({
+                                    value: i.id,
+                                    label: `${i.name}${i.status === 'approved' ? ' ✓' : ` (${i.status})`}`,
+                                }))}
+                                value={icpId}
+                                onChange={(v) => { setIcpId(v); setPage(1); }}
+                                w={260}
+                                disabled={!projectId}
+                                searchable
+                            />
+                        </Group>
+                    )}
                     {credits && (
                         <Group gap="xs">
                             <Tooltip label={t('research.credits.availableHint', 'Leads you can still harvest (balance minus in-flight reservations)')}>
@@ -267,8 +344,11 @@ export default function CompaniesPanel() {
                 </Group>
             </Paper>
 
-            {/* Harvest launcher — approved ICP only; the worker enforces quota authoritatively */}
-            {selectedIcp && (
+            {/* Harvest launcher — approved ICP only; the worker enforces quota authoritatively.
+                Hidden under lockScope (see its own doc comment) — finding NEW leads outside the
+                wizard's own orchestrated flow doesn't belong on a locked "review your results"
+                screen. */}
+            {!lockScope && selectedIcp && (
                 <Paper withBorder radius="md" p="md">
                     <Group align="flex-end" gap="sm" wrap="wrap">
                         {approvedGeos.length > 0 && (
@@ -384,6 +464,7 @@ export default function CompaniesPanel() {
                                             <Table.Th ta="center">{t('research.companies.score', 'Score')}</Table.Th>
                                             <Table.Th ta="center">{t('research.companies.status', 'Status')}</Table.Th>
                                             <Table.Th>{t('research.companies.evidence', 'Evidence')}</Table.Th>
+                                            <Table.Th />
                                         </Table.Tr>
                                     </Table.Thead>
                                     <Table.Tbody>
@@ -447,8 +528,20 @@ export default function CompaniesPanel() {
                                                                     </Badge>
                                                                 </Tooltip>
                                                             ))}
-                                                        </Group>
+                                        </Group>
                                                     )}
+                                                </Table.Td>
+                                                <Table.Td>
+                                                    <Tooltip label={t('research.companies.suppressHint', "Hide this company — you'll never see it again")}>
+                                                        <Button
+                                                            size="compact-xs" variant="subtle" color="red"
+                                                            leftSection={<IconBan size={14} />}
+                                                            onClick={() => confirmSuppress(c.id, c.name)}
+                                                            loading={suppressMut.isPending && suppressMut.variables === c.id}
+                                                        >
+                                                            {t('research.companies.suppress', "Don't want this")}
+                                                        </Button>
+                                                    </Tooltip>
                                                 </Table.Td>
                                             </Table.Tr>
                                         ))}

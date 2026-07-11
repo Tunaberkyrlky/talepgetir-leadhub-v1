@@ -61,6 +61,18 @@ const GEMINI_GROUNDING_PER_QUERY = envNum('RESEARCH_PRICE_GEMINI_GROUNDING_QUERY
 /** Per successful page fetch via Jina Reader (r.jina.ai), USD. 0 = within free tier. */
 const JINA_PER_FETCH = envNum('RESEARCH_PRICE_JINA_FETCH', 0);
 
+/** USD per Hunter domain-search request (each request = one Hunter credit). 0 = free/trial
+ *  plan (the shipped default) — the raw request COUNT is the meaningful figure until a paid
+ *  Hunter plan sets a real per-request rate here. Surfaced ONLY on the internal admin margin
+ *  panel; enrichment is a distinct product line, not part of per-MATCH harvest COGS. */
+export const HUNTER_PER_REQUEST_USD = envNum('RESEARCH_PRICE_HUNTER_REQUEST', 0);
+
+/** USD per UN Comtrade API request. 0 = the free/keyless preview endpoint (the shipped default —
+ *  see COMTRADE_SUBSCRIPTION_KEY in trade/comtrade.ts for the optional higher-quota path). Surfaced
+ *  ONLY on the internal admin margin panel; the raw request COUNT is the meaningful figure for
+ *  rate-limit budgeting, same posture as HUNTER_PER_REQUEST_USD. */
+export const COMTRADE_PER_REQUEST_USD = envNum('RESEARCH_PRICE_COMTRADE_REQUEST', 0);
+
 function tokenCost(provider: string, usage: LlmUsage | undefined): number {
     const rate = TOKEN_RATES[provider];
     if (!rate || !usage) return 0;

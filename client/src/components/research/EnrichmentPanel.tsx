@@ -8,7 +8,7 @@
  * match is STRICT — a mismatch persists nothing and bills nothing (reported in the
  * result toast). Credits surface as COUNTS only (no dollars — product rule).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert, Badge, Button, Checkbox, Drawer, Group, Loader, MultiSelect, NumberInput,
     Pagination, Paper, Select, Stack, Table, TagsInput, Text, Tooltip,
@@ -54,13 +54,42 @@ interface EnrichJob {
 const JOB_RUNNING = (s?: string) => s === 'queued' || s === 'running';
 const PAGE_SIZE = 25;
 
-export default function EnrichmentPanel() {
+interface EnrichmentPanelProps {
+    /** WP10: pre-scope the panel (wizard step 20 embeds this component pre-scoped to the
+     *  calibrated project/ICP), same seed-once contract as CompaniesPanel's own props —
+     *  omitted (every existing /research/full call site) keeps behavior byte-identical.
+     *  `lockScope` (P2 fix, adversarial review round 2): hides the project/ICP picker so the
+     *  customer can't silently enrich a DIFFERENT project's companies than the one the wizard's
+     *  scale target/calibration apply to — the config + selection table + run button (step 20's
+     *  own intended action) stay exactly as-is. */
+    initialProjectId?: string;
+    initialIcpId?: string;
+    lockScope?: boolean;
+}
+
+export default function EnrichmentPanel({ initialProjectId, initialIcpId, lockScope }: EnrichmentPanelProps = {}) {
     const { t, i18n } = useTranslation();
     const qc = useQueryClient();
     const lang = i18n.language?.startsWith('tr') ? 'tr' : 'en';
 
     const [projectId, setProjectId] = useState<string | null>(null);
     const [icpId, setIcpId] = useState<string | null>(null);
+    // Seed from props EXACTLY once (a ref latch — see CompaniesPanel's identical fix for why a
+    // plain "seed if null" effect was a bug: it re-seeded on every picker-driven project switch).
+    const seededProjectRef = useRef(false);
+    useEffect(() => {
+        if (initialProjectId && !seededProjectRef.current) {
+            seededProjectRef.current = true;
+            setProjectId(initialProjectId);
+        }
+    }, [initialProjectId]);
+    const seededIcpRef = useRef(false);
+    useEffect(() => {
+        if (initialIcpId && !seededIcpRef.current) {
+            seededIcpRef.current = true;
+            setIcpId(initialIcpId);
+        }
+    }, [initialIcpId]);
     const [page, setPage] = useState(1);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [buckets, setBuckets] = useState<string[]>([]);
@@ -204,27 +233,31 @@ export default function EnrichmentPanel() {
             {/* Scope + credits (counts only) */}
             <Paper withBorder radius="md" p="md">
                 <Group justify="space-between" align="flex-end" wrap="wrap">
-                    <Group align="flex-end" gap="sm">
-                        <Select
-                            label={t('research.companies.project', 'Project')}
-                            placeholder={t('research.companies.pickProject', 'Pick a project')}
-                            data={projects.map((p) => ({ value: p.id, label: p.name }))}
-                            value={projectId}
-                            onChange={(v) => { setProjectId(v); setIcpId(null); setPage(1); setSelected(new Set()); }}
-                            w={220}
-                            searchable
-                        />
-                        <Select
-                            label={t('research.companies.icp', 'ICP')}
-                            placeholder={t('research.companies.pickIcp', 'Pick an ICP')}
-                            data={icps.map((i) => ({ value: i.id, label: i.name }))}
-                            value={icpId}
-                            onChange={(v) => { setIcpId(v); setPage(1); setSelected(new Set()); }}
-                            w={260}
-                            disabled={!projectId}
-                            searchable
-                        />
-                    </Group>
+                    {lockScope ? (
+                        <Text size="sm" fw={600}>{icps.find((i) => i.id === icpId)?.name ?? '—'}</Text>
+                    ) : (
+                        <Group align="flex-end" gap="sm">
+                            <Select
+                                label={t('research.companies.project', 'Project')}
+                                placeholder={t('research.companies.pickProject', 'Pick a project')}
+                                data={projects.map((p) => ({ value: p.id, label: p.name }))}
+                                value={projectId}
+                                onChange={(v) => { setProjectId(v); setIcpId(null); setPage(1); setSelected(new Set()); }}
+                                w={220}
+                                searchable
+                            />
+                            <Select
+                                label={t('research.companies.icp', 'ICP')}
+                                placeholder={t('research.companies.pickIcp', 'Pick an ICP')}
+                                data={icps.map((i) => ({ value: i.id, label: i.name }))}
+                                value={icpId}
+                                onChange={(v) => { setIcpId(v); setPage(1); setSelected(new Set()); }}
+                                w={260}
+                                disabled={!projectId}
+                                searchable
+                            />
+                        </Group>
+                    )}
                     {credits && (
                         <Badge size="lg" variant="light" color={credits.available > 5 ? 'teal' : credits.available > 0 ? 'yellow' : 'red'}>
                             {t('research.credits.available', 'Available')}: {credits.available}
