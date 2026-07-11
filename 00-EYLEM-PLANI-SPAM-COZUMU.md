@@ -140,6 +140,28 @@ kutular için daha düşük profiller: `05-mailbox-onboarding-and-safety-policy.
 
 ---
 
+## 6a. Sequencer sonuçlarını etkileyecek adımlar (kod taraması 2026-07-10)
+
+Motorun mevcut durumu tarandı. **Zaten var ve iyi:** spintax, insansı jitter, gönderim
+penceresi + saat dilimi, kampanya ve kutu-başı günlük limitler, açılma/tıklama takibi
+(aç/kapa), unsubscribe linki + unsubscribed durumu, yanıt gelince diziyi durdurma.
+
+Eksikler, etki/emek sırasına göre:
+
+| # | Adım | Neden sonucu etkiler | Emek |
+|---|---|---|---|
+| 1 | **List-Unsubscribe + List-Unsubscribe-Post header'ları (RFC 8058 tek tık)** | Gmail/Yahoo 2024+ zorunluluğu; alıcı "Spam" yerine "Abonelikten çık"a basar, şikâyet oranı düşer. Footer linki var ama header YOK. Not: Graph /sendMail özel header'larda yalnızca `X-` kabul eder; Outlook için MIME formatında gönderime geçmek gerekir | Düşük (Gmail/SMTP), Orta (Outlook) |
+| 2 | **Follow-up'ları aynı thread'de gönderme (In-Reply-To/References, Graph createReply)** | Şu an her adım yeni mail açıyor; konuşma geçmişi olan mail hem daha az spam'e düşer hem yanıt oranını belirgin artırır | Orta |
+| 3 | **Plain-text alternatifi (multipart/alternative)** | Yalnızca HTML gönderiliyor; text/plain parçası eklemek bilinen bir spam skorunu düşürür | Düşük |
+| 4 | **Gönderim öncesi liste doğrulama** | Syntax + MX kontrolü (domainHealth resolver'ı hazır) + disposable/rol adresi (info@, admin@) eleme; hard bounce oranını Gmail'in %2 eşiğinin altında tutar | Orta |
+| 5 | **Hard bounce → kalıcı suppression + otomatik duraklatma** | Bounce alan adrese bir daha asla gönderilmemeli (tenant bazlı suppression tablosu); kutu bounce oranı eşiği aşarsa kampanya otomatik duraklamalı | Orta |
+| 6 | **Otomatik ramp-up** | Kutu-başı limit statik; bağlantı yaşına göre 20→50/gün otomatik artış politikayı kendiliğinden uygular | Düşük |
+| 7 | **Paylaşımlı izleme domaini riski** | Açılma pikseli/tıklama linki TÜM müşteriler için aynı API domain'inden geçiyor; bir müşterinin kötü listesi domain'i kara listeye sokarsa herkes etkilenir. Çözüm: müşteri başına custom tracking domain (CNAME) veya düşük hacimde open-tracking'i varsayılan kapalı tutmak | Orta-Yüksek |
+| 8 | **Gönderim öncesi içerik denetimi (spam-lint)** | Çok link, URL kısaltıcı, BÜYÜK HARF/ünlem, spam kelimeler, görsel/metin oranı uyarıları | Düşük |
+| 9 | **Kutu sağlığı paneli** | Kutu başına bounce/yanıt/unsubscribe oranları + Google Postmaster Tools önerisi; sorunu şikâyete dönüşmeden gösterir | Orta |
+
+Önerilen sıra: önce 1+3 (hızlı kazanım), sonra 2 (en yüksek tekil etki), ardından 4+5 birlikte (liste hijyeni zinciri), 6, 8, 9; 7 müşteri sayısı arttıkça.
+
 ## 6. Sırada ne var (öncelik sırasıyla)
 
 1. ☐ Ceren'in kutusunu "İş veya okul hesabı" ile yeniden bağla (Adım 1)
