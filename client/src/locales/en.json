@@ -1551,6 +1551,8 @@
         "cancelled": "Task cancelled",
         "overdue": "Overdue",
         "today": "Today",
+        "suggestNextTitle": "Plan your next action",
+        "suggestNextCta": "Create task",
         "nextActions": "Next actions",
         "nextActionsDescription": "Upcoming work for this company",
         "emptyTitle": "No next action is scheduled",

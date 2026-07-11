@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { useAuth } from '../contexts/AuthContext';
+import { useNextAction } from '../contexts/NextActionContext';
 import { isInternal } from '../lib/permissions';
 import type { Activity, ActivityType } from '../types/activity';
 
@@ -42,6 +43,7 @@ const TYPE_CONFIG: { value: ActivityType; emoji: string; labelKey: string; showD
 export default function ActivityForm({ opened, onClose, onSuccess, companyId, contactId, contacts, activity, inline }: ActivityFormProps) {
     const { t } = useTranslation();
     const { user } = useAuth();
+    const { suggestNextAction } = useNextAction();
     const queryClient = useQueryClient();
     const isEdit = !!activity;
     const isMobile = useMediaQuery('(max-width: 48em)') ?? false;
@@ -123,12 +125,21 @@ export default function ActivityForm({ opened, onClose, onSuccess, companyId, co
             });
             return res.data;
         },
-        onSuccess: () => {
+        onSuccess: (_data, values) => {
             showSuccess(t('activity.created'));
             queryClient.invalidateQueries({ queryKey: ['activities', companyId] });
             onSuccess?.();
             onClose();
             form.reset();
+            // Yalnız kullanıcı-üretimi kayıtlar (not/görüşme) sonraki aksiyon önerir; follow_up zaten
+            // tarihli bir sonraki temas olduğundan çift planlama yapmamak için dışarıda bırakılır.
+            if (values.type === 'not' || values.type === 'meeting') {
+                suggestNextAction({
+                    companyId,
+                    initialContactId: contacts ? (values.contact_id || undefined) : (contactId || undefined),
+                    contacts,
+                });
+            }
         },
         onError: (err) => {
             showErrorFromApi(err);

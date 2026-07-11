@@ -27,6 +27,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showErrorFromApi, showSuccess } from '../../lib/notifications';
+import { useNextAction } from '../../contexts/NextActionContext';
 import type { CrmTask, TasksResponse } from '../../types/task';
 import TaskForm from './TaskForm';
 
@@ -50,6 +51,7 @@ function dueState(dueAt: string) {
 export default function NextActionPanel({ companyId, contacts = [], canEdit, legacyNextStep }: NextActionPanelProps) {
     const { t, i18n } = useTranslation();
     const queryClient = useQueryClient();
+    const { suggestNextAction } = useNextAction();
     const [formOpened, setFormOpened] = useState(false);
     const [editingTask, setEditingTask] = useState<CrmTask | null>(null);
 
@@ -69,9 +71,15 @@ export default function NextActionPanel({ companyId, contacts = [], canEdit, leg
 
     const completeMutation = useMutation({
         mutationFn: async (taskId: string) => api.post(`/tasks/${taskId}/complete`, {}),
-        onSuccess: () => {
+        onSuccess: (_data, taskId) => {
             refresh();
             showSuccess(t('tasks.completed', 'Görev tamamlandı'));
+            const done = tasks.find((tk) => tk.id === taskId);
+            suggestNextAction({
+                companyId,
+                initialContactId: done?.contact_id ?? undefined,
+                contacts,
+            });
         },
         onError: (error) => showErrorFromApi(error),
     });

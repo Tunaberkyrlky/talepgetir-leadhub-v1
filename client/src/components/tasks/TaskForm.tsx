@@ -38,6 +38,8 @@ interface TaskFormProps {
     companyId?: string;
     enableCompanyPicker?: boolean;
     contacts?: TaskContact[];
+    // Öneriyle açıldığında (aktivite/görev sonrası) kişi önceden seçili gelir.
+    initialContactId?: string;
     task?: CrmTask | null;
     onSuccess?: () => void;
 }
@@ -55,6 +57,7 @@ export default function TaskForm({
     companyId,
     enableCompanyPicker = false,
     contacts = [],
+    initialContactId,
     task,
     onSuccess,
 }: TaskFormProps) {
@@ -135,7 +138,10 @@ export default function TaskForm({
                 detail: '',
                 due_at: defaultDueDate(),
                 priority: 'normal',
-                contact_id: '',
+                // Kişi verilen listede yoksa bağlama — gizli kişiye bağlı görev oluşmasın (Select boş/disabled görünürken).
+                contact_id: initialContactId && contacts.some((c) => c.id === initialContactId)
+                    ? initialContactId
+                    : '',
                 company_id: '',
                 assigned_to: user?.id ?? null,
             });

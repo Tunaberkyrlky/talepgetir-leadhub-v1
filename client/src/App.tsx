@@ -18,6 +18,7 @@ import { showErrorFromApi } from './lib/notifications';
 import { AuthProvider } from './contexts/AuthContext';
 import { StagesProvider } from './contexts/StagesContext';
 import { ImportProgressProvider } from './contexts/ImportProgressContext';
+import { NextActionProvider } from './contexts/NextActionContext';
 import ImportProgressBar from './components/ImportProgressBar';
 import ErrorBoundary from './components/ErrorBoundary';
 import Layout from './components/Layout';
@@ -103,6 +104,7 @@ function App() {
               <ErrorBoundary>
                 <AuthProvider>
                   <StagesProvider>
+                    <NextActionProvider>
                     <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
                       <Routes>
                         <Route path="/login" element={<LoginPage />} />
@@ -131,6 +133,7 @@ function App() {
                         <Route path="*" element={<Navigate to="/dashboard" replace />} />
                       </Routes>
                     </Suspense>
+                    </NextActionProvider>
                   </StagesProvider>
                 </AuthProvider>
               </ErrorBoundary>

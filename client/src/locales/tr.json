@@ -1551,6 +1551,8 @@
         "cancelled": "Görev iptal edildi",
         "overdue": "Gecikmiş",
         "today": "Bugün",
+        "suggestNextTitle": "Sonraki aksiyonu planlayın",
+        "suggestNextCta": "Görev oluştur",
         "nextActions": "Sonraki aksiyonlar",
         "nextActionsDescription": "Bu firmada yapılacak sıradaki işler",
         "emptyTitle": "Planlanmış bir sonraki aksiyon yok",

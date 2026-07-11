@@ -43,6 +43,7 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
+import { useNextAction } from '../contexts/NextActionContext';
 import { canWrite } from '../lib/permissions';
 import api from '../lib/api';
 import { showErrorFromApi, showSuccess } from '../lib/notifications';
@@ -125,6 +126,7 @@ export default function TasksPage() {
     const { t, i18n } = useTranslation();
     const queryClient = useQueryClient();
     const { user } = useAuth();
+    const { suggestNextAction } = useNextAction();
     const canEdit = canWrite(user?.role || '');
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
 
@@ -194,7 +196,21 @@ export default function TasksPage() {
 
     const completeMutation = useMutation({
         mutationFn: async (taskId: string) => api.post(`/tasks/${taskId}/complete`, {}),
-        onSuccess: () => { refresh(); showSuccess(t('tasks.completed', 'Görev tamamlandı')); },
+        onSuccess: (_data, taskId) => {
+            refresh();
+            showSuccess(t('tasks.completed', 'Görev tamamlandı'));
+            const done = tasks.find((tk) => tk.id === taskId);
+            if (done) {
+                // Tek elemanlı contacts, önceden seçili kişiye TaskForm Select'inde etiket kazandırır.
+                suggestNextAction({
+                    companyId: done.company_id,
+                    initialContactId: done.contact_id ?? undefined,
+                    contacts: done.contact_id
+                        ? [{ id: done.contact_id, first_name: done.contact_name ?? '' }]
+                        : [],
+                });
+            }
+        },
         onError: (error) => showErrorFromApi(error),
     });
 
