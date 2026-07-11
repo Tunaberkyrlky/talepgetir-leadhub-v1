@@ -29,6 +29,8 @@ import adminRoutes from './routes/admin.js';
 import settingsRoutes from './routes/settings.js';
 import activitiesRoutes from './routes/activities.js';
 import tasksRoutes from './routes/tasks.js';
+import leadsRoutes from './routes/leads/index.js';
+import leadIntakeRoutes from './routes/leads/intake.js';
 import emailRepliesRoutes from './routes/email-replies.js';
 import plusvibeRoutes from './routes/plusvibe.js';
 import webhooksRoutes from './routes/webhooks.js';
@@ -111,6 +113,22 @@ app.use(cors({
     credentials: true,
 }));
 app.use(cookieParser());
+
+// ── Public lead intake — mounted BEFORE the global 10mb JSON parser (P1-2) ────
+// A website form is cookie-less (slug-authed) and must never be able to push a
+// large body through the general 10mb parser. Its own tight chain runs first,
+// here after CORS but ahead of express.json: per-IP limiter → route-local 50kb
+// JSON parser → handler, so an oversized body is rejected at 50kb and never
+// parsed at 10mb. Tenant is derived from the resolved form row, not req.tenantId.
+const leadIntakeLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many intake requests' },
+});
+app.use('/api/lead-intake', leadIntakeLimiter, express.json({ limit: '50kb' }), leadIntakeRoutes);
+
 app.use(express.json({
     limit: '10mb',
     // Capture raw body buffer so webhook HMAC verification can re-read it
@@ -213,6 +231,9 @@ app.use('/api/webhooks', webhookLimiter, webhooksRoutes);
 // MUST precede the protected /api/linkedin mount below (Express matches in order).
 app.use('/api/linkedin/capture', linkedinCaptureLimiter, linkedinCaptureRoutes);
 
+// (Lead intake is mounted ABOVE the global JSON parser — see the leadIntakeLimiter
+// block near cookieParser — so its 50kb body cap runs before express.json's 10mb.)
+
 // Protected routes — auth middleware applied
 app.use('/api/companies', authMiddleware, dataFilter, companiesRoutes);
 app.use('/api/contacts', authMiddleware, dataFilter, contactsRoutes);
@@ -224,6 +245,7 @@ app.use('/api/statistics', authMiddleware, statisticsRoutes);
 app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
 app.use('/api/tasks', authMiddleware, tasksRoutes);
+app.use('/api/leads', authMiddleware, leadsRoutes);
 app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
 app.use('/api/plusvibe/import-replies', authMiddleware, plusvibeImportLimiter);
 app.use('/api/plusvibe', authMiddleware, dataFilter, plusvibeRoutes);

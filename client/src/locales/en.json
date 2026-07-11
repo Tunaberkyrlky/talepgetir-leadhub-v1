@@ -1,4 +1,43 @@
 {
+    "leadInbox": {
+        "title": "Lead Inbox",
+        "identityPending": "Identity pending",
+        "openCompany": "Open company",
+        "openPerson": "Open person",
+        "noLinkedRecord": "No linked record",
+        "empty": "No leads in this queue",
+        "loadError": "Failed to load leads",
+        "hint": "Leads captured from forms collect here. Ambiguous identities fall into the Review queue.",
+        "tabs": {
+            "new": "New",
+            "review": "Review",
+            "error": "Error"
+        },
+        "col": {
+            "who": "Company / Person",
+            "source": "Source",
+            "status": "Status",
+            "score": "Score",
+            "age": "Age",
+            "action": "Action"
+        },
+        "status": {
+            "captured": "Captured",
+            "identity_pending": "Identity pending",
+            "needs_review": "Needs review",
+            "processing_error": "Processing error"
+        },
+        "sourceType": {
+            "website": "Web form",
+            "cold_email": "Cold email",
+            "google_ads": "Google Ads",
+            "meta_ads": "Meta Ads",
+            "youtube": "YouTube",
+            "whatsapp": "WhatsApp",
+            "import": "Import",
+            "research": "Research"
+        }
+    },
     "app": {
         "title": "TG Core",
         "subtitle": "B2B Lead Management"
@@ -379,6 +418,7 @@
         "people": "People",
         "pipeline": "Pipeline",
         "tasks": "My Work",
+        "leads": "Lead Inbox",
         "activities": "Activities",
         "emailReplies": "Email Replies",
         "research": "Research",
@@ -524,6 +564,7 @@
         "subtitle": "Describe your company; the assistant proposes ideal buyer profiles you score and refine.",
         "tabs": {
             "icp": "ICP Master",
+            "hs": "HS Codes",
             "geographies": "Geographies",
             "companies": "Leads",
             "trade": "Customs data",
@@ -916,7 +957,17 @@
             "reject": "Reject",
             "approvedToast": "Code approved.",
             "rejectedToast": "Code rejected.",
-            "empty": "Nothing left to review."
+            "empty": "Nothing left to review.",
+            "project": "Project",
+            "pickProject": "Pick a project",
+            "runMatch": "Run HS matching",
+            "matching": "Matching HS codes…",
+            "matchStarted": "HS matching started.",
+            "matchFailed": "HS matching failed — try again.",
+            "decidedHeading": "Already reviewed",
+            "noProject": "Pick a project to see its HS codes.",
+            "approved": "Approved",
+            "rejected": "Rejected"
         },
         "markets": {
             "source": "UN Comtrade",

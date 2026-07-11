@@ -501,3 +501,44 @@ export const audienceFilterSchema = z.object({
     countries: z.array(z.string().max(100)).max(100).optional(),
     seniorities: z.array(z.string().max(100)).max(50).optional(),
 });
+
+// ── Lead foundation schemas (v3 WP1) ───────────────────────────────────────
+
+export const LEAD_SOURCE_TYPES = [
+    'cold_email', 'google_ads', 'meta_ads', 'youtube', 'website', 'whatsapp', 'import', 'research',
+] as const;
+export const LEAD_LIFECYCLE_STATUSES = [
+    'captured', 'identity_pending', 'needs_review', 'processing_error',
+] as const;
+
+// Public form slug: lowercase, digits, dashes; 3-64 chars, must start alphanumeric.
+const slugField = z.string().trim().regex(/^[a-z0-9][a-z0-9-]{2,63}$/, 'Invalid slug (a-z, 0-9, dash; 3-64 chars)');
+
+export const createLeadSourceSchema = z.object({
+    provider: z.string().trim().min(1).max(100),
+    source_type: z.enum(LEAD_SOURCE_TYPES).optional().default('website'),
+    display_name: z.string().trim().min(1).max(500),
+    default_owner_id: uuidField('Invalid default_owner_id').optional().nullable(),
+    config: z.record(z.string(), z.unknown()).optional(),
+    is_active: z.boolean().optional().default(true),
+});
+
+export const createLeadFormSchema = z.object({
+    name: z.string().trim().min(1).max(500),
+    source_id: uuidField('Invalid source_id').optional().nullable(),
+    // public_slug is NEVER client-supplied — the route always generates an opaque token.
+    external_form_id: z.string().max(255).optional().nullable(),
+    field_mapping: z.record(z.string(), z.string().max(120)).optional(),
+    honeypot_field: z.string().trim().max(120).optional(),
+    consent_version: z.string().max(100).optional().nullable(),
+    consent_copy: z.string().max(5000).optional().nullable(),
+    success_behavior: z.record(z.string(), z.unknown()).optional(),
+    is_active: z.boolean().optional().default(true),
+});
+
+// Public intake payload: an open bag of form fields. Bounded so a malicious
+// caller can't post an unbounded document; honeypot + attribution live inside.
+export const leadIntakeSchema = z.record(
+    z.string().max(200),
+    z.union([z.string().max(20000), z.number(), z.boolean(), z.null()]),
+).refine((obj) => Object.keys(obj).length <= 200, { message: 'Too many fields' });

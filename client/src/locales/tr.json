@@ -1,4 +1,43 @@
 {
+    "leadInbox": {
+        "title": "Lead Gelen Kutusu",
+        "identityPending": "Kimlik bekliyor",
+        "openCompany": "Firmayı aç",
+        "openPerson": "Kişiyi aç",
+        "noLinkedRecord": "Bağlı kayıt yok",
+        "empty": "Bu kuyrukta lead yok",
+        "loadError": "Lead listesi yüklenemedi",
+        "hint": "Formlardan gelen leadler burada birikir. Belirsiz kimlikler İnceleme kuyruğuna düşer.",
+        "tabs": {
+            "new": "Yeni",
+            "review": "İnceleme",
+            "error": "Hata"
+        },
+        "col": {
+            "who": "Firma / Kişi",
+            "source": "Kaynak",
+            "status": "Durum",
+            "score": "Skor",
+            "age": "Yaş",
+            "action": "İşlem"
+        },
+        "status": {
+            "captured": "Yakalandı",
+            "identity_pending": "Kimlik bekliyor",
+            "needs_review": "İnceleme gerekli",
+            "processing_error": "İşleme hatası"
+        },
+        "sourceType": {
+            "website": "Web formu",
+            "cold_email": "Soğuk e-posta",
+            "google_ads": "Google Ads",
+            "meta_ads": "Meta Ads",
+            "youtube": "YouTube",
+            "whatsapp": "WhatsApp",
+            "import": "İçe aktarma",
+            "research": "Araştırma"
+        }
+    },
     "app": {
         "title": "TG Core",
         "subtitle": "B2B Lead Management"
@@ -379,6 +418,7 @@
         "people": "Kişiler",
         "pipeline": "Pipeline",
         "tasks": "İşlerim",
+        "leads": "Lead Gelen Kutusu",
         "activities": "Aktiviteler",
         "emailReplies": "Email Yanıtları",
         "research": "Araştırma",
@@ -524,6 +564,7 @@
         "subtitle": "Firmanızı tanımlayın; asistan, puanlayıp düzenleyebileceğiniz ideal alıcı profilleri önersin.",
         "tabs": {
             "icp": "ICP Master",
+            "hs": "HS Kodları",
             "geographies": "Coğrafyalar",
             "companies": "Lead'ler",
             "trade": "Gümrük Verisi",
@@ -916,7 +957,17 @@
             "reject": "Reddet",
             "approvedToast": "Kod onaylandı.",
             "rejectedToast": "Kod reddedildi.",
-            "empty": "İncelenecek kod kalmadı."
+            "empty": "İncelenecek kod kalmadı.",
+            "project": "Proje",
+            "pickProject": "Proje seçin",
+            "runMatch": "HS eşleştirmeyi çalıştır",
+            "matching": "HS kodları eşleştiriliyor…",
+            "matchStarted": "HS eşleştirme başlatıldı.",
+            "matchFailed": "HS eşleştirme başarısız oldu — tekrar deneyin.",
+            "decidedHeading": "Daha önce incelendi",
+            "noProject": "HS kodlarını görmek için bir proje seçin.",
+            "approved": "Onaylandı",
+            "rejected": "Reddedildi"
         },
         "markets": {
             "source": "UN Comtrade",
