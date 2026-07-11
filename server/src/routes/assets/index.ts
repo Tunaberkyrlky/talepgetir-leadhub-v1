@@ -29,6 +29,7 @@ import {
 } from '../../lib/assets/generator.js';
 import { renderHtml, type RenderTheme } from '../../lib/assets/renderer.js';
 import { uploadRenderedHtml } from '../../lib/assets/storage.js';
+import { emitEvent } from '../../lib/automation/outbox.js';
 
 const router = Router();
 const log = createLogger('route:assets');
@@ -98,6 +99,18 @@ async function runAssetGeneration(
             source_evidence_snapshot: snapshot,
         }).eq('id', assetId).eq('tenant_id', tenantId);
         if (doneErr) throw new Error(`write asset result failed: ${doneErr.message}`);
+
+        // ── Automation runtime event (v3 §10.1, Phase 5). Best-effort append after the
+        // asset is marked generated; awaited to narrow the loss window (safe — emitEvent
+        // never throws). dedup_key keeps a re-run idempotent-on-retry. No consumer runs
+        // this round — outbox row only; a failed emit never fails the generation.
+        await emitEvent(
+            tenantId,
+            'asset.generated',
+            { aggregate_type: 'asset', aggregate_id: assetId },
+            { recipe_id: recipe.id, lead_id: target.leadId, company_id: target.companyId, contact_id: target.contactId },
+            { dedupKey: `${assetId}:generated` },
+        );
     } catch (err) {
         const message = err instanceof Error ? err.message : 'asset generation failed';
         log.error({ err, assetId }, 'asset generation run failed');
@@ -349,6 +362,19 @@ router.post('/:id/publish', writeRoles, validateBody(publishAssetSchema), async 
             .maybeSingle();
         if (error) throw new AppError('Failed to publish asset', 500);
         if (!data) throw new AppError('Asset is not publishable (must be approved and not already published)', 409, 'asset_conflict');
+
+        // ── Automation runtime event (v3 §10.1, Phase 5). Best-effort append after the
+        // publish stamp lands; awaited to narrow the loss window (safe — emitEvent never
+        // throws). dedup_key keeps a re-publish idempotent-on-retry. No consumer runs
+        // this round — outbox row only; never triggers outbound here.
+        await emitEvent(
+            tenantId,
+            'asset.published',
+            { aggregate_type: 'asset', aggregate_id: req.params.id as string },
+            { published_at: (data as { published_at?: string | null }).published_at ?? null },
+            { dedupKey: `${req.params.id}:published` },
+        );
+
         res.json({ data });
     } catch (err) {
         next(err);

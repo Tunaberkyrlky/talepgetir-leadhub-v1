@@ -18,6 +18,7 @@ import { normalizeSubmission, normalizeAttribution, normalizeText, escapeLike, t
 import { resolveIdentity } from './identity.js';
 import { isDisposableEmail } from './disposableDomains.js';
 import { checkMxForEmail, type MxResult } from './mxCheck.js';
+import { emitEvent } from '../automation/outbox.js';
 
 const log = createLogger('lib:leads:intake');
 
@@ -353,6 +354,19 @@ export async function processIntake(input: IntakeInput): Promise<IntakeResult> {
         }).eq('id', submissionId).eq('tenant_id', tenantId);
       })
       .catch((err) => log.warn({ err, leadId, submissionId }, 'MX reconciliation failed'));
+
+    // ── Automation runtime event (v3 §10.1, Phase 5). Best-effort append AFTER the
+    // lead is finalized so a failed emit can never flip the lead to processing_error
+    // (emitEvent never throws). Awaited to narrow the loss window (durable before we
+    // return) — safe because emitEvent never throws. dedup_key makes a retried capture
+    // idempotent-on-retry. No consumer runs this round — this only appends an outbox row.
+    await emitEvent(
+      tenantId,
+      'lead.captured',
+      { aggregate_type: 'lead', aggregate_id: leadId },
+      { lifecycle, source_type: sourceType, needs_review: reviewFlag, company_id: companyId, contact_id: contactId },
+      { dedupKey: `${leadId}:captured` },
+    );
 
     return { status: 'created', leadId, lifecycle, needsReview: reviewFlag };
   } catch (err) {

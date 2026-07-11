@@ -10,6 +10,7 @@ import { requireRole } from '../../middleware/auth.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { createLogger } from '../../lib/logger.js';
 import { resolveUsers } from '../../lib/userResolver.js';
+import { emitEvent } from '../../lib/automation/outbox.js';
 import {
     validateBody,
     createLeadFormSchema,
@@ -546,6 +547,21 @@ router.post('/:id/resolve', writeRoles, validateBody(resolveQualificationSchema)
                 'Enrichment run is not resolvable (already resolved or not in review)',
                 409,
                 'run_conflict',
+            );
+        }
+
+        // ── Automation runtime event (v3 §10.1, Phase 5). Best-effort append after the
+        // atomic resolve, reading the verdict the RPC actually persisted; awaited to
+        // narrow the loss window (safe — emitEvent never throws). dedup_key keeps a
+        // re-resolve idempotent-on-retry. No consumer runs this round — outbox row only.
+        const resolvedVerdict = (data as { resolved_verdict?: string | null }).resolved_verdict;
+        if (resolvedVerdict === 'qualified' || resolvedVerdict === 'disqualified') {
+            await emitEvent(
+                tenantId,
+                resolvedVerdict === 'qualified' ? 'lead.qualified' : 'lead.disqualified',
+                { aggregate_type: 'lead', aggregate_id: req.params.id as string },
+                { run_id: req.body.run_id as string, resolved_by: req.user?.id ?? null },
+                { dedupKey: `${req.params.id}:${resolvedVerdict}` },
             );
         }
 
