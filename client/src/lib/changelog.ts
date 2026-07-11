@@ -23,6 +23,42 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.14.0',
+        date: '2026-07-12',
+        type: 'feature',
+        title: { tr: 'Görev Yönetimi ve İşlerim', en: 'Tasks & My Work' },
+        about: {
+            tr: 'Firmalara bağlı görevler oluşturabilir, son tarih ve önceliğe göre takip edebilir, İşlerim sayfasında gecikmiş, bugün ve yaklaşan işlerinizi tek yerden yönetebilirsiniz.',
+            en: 'You can create tasks tied to companies, track them by due date and priority, and manage overdue, today and upcoming work from one place on the My Work page.',
+        },
+        usage: {
+            tr: 'Soldaki menüden İşlerim sayfasını açın ya da bir firma detayında Sonraki Aksiyon panelinden görev ekleyin; bir aktiviteyi veya görevi tamamladığınızda sistem sıradaki görevi önerir.',
+            en: 'Open the My Work page from the left menu, or add a task from the Next Action panel on a company detail; when you complete an activity or task, the app suggests the next one.',
+        },
+        notes: {
+            tr: 'Bir görev yalnızca durumu bekliyor ve son tarihi geçmişse gecikmiş sayılır; tamamlanan görevler hiçbir yerde gecikmiş görünmez.',
+            en: 'A task counts as overdue only when it is pending and past its due date; completed tasks never appear as overdue anywhere.',
+        },
+    },
+    {
+        version: '1.14.0',
+        date: '2026-07-12',
+        type: 'improvement',
+        title: { tr: 'Sahiplik, Pipeline Sinyalleri ve Birleşik Geçmiş', en: 'Ownership, Pipeline Signals & Unified Timeline' },
+        about: {
+            tr: 'Firmalara ve görevlere sahip atayabilir, pipeline kartlarında sonraki görev, gecikme, son temas ve sahibi görebilir, firma geçmişini not, e-posta ve görüşmelerin tek akışında izleyebilirsiniz.',
+            en: 'You can assign owners to companies and tasks, see the next task, overdue state, last contact and owner right on pipeline cards, and follow a company history in one stream of notes, emails and calls.',
+        },
+        usage: {
+            tr: 'Firma listesinde Benim leadlerim ve Sahipsiz filtreleriyle süzün, kartlardan toplu sahip atayın, firma detayındaki zaman çizelgesini kanal ve kişiye göre filtreleyebilirsiniz.',
+            en: 'Filter with My leads and Unassigned on the company list, bulk-assign owners from cards, and filter the company detail timeline by channel and person.',
+        },
+        notes: {
+            tr: 'Bir firmayı kapanış aşamasına taşırken hangi ekrandan yaparsanız yapın kapanış raporu istenir, kapalı bir kaydı yeniden açarken de neden sorulur.',
+            en: 'Moving a company to a closing stage always asks for a closing report from any screen, and reopening a closed record asks for a reason.',
+        },
+    },
+    {
         version: '1.13.0',
         date: '2026-07-08',
         type: 'feature',
