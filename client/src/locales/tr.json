@@ -1482,6 +1482,23 @@
         "bulkDeleteSuccess": "Silme tamamlandı: {{companies}} şirket, {{contacts}} kişi, {{activities}} aktivite, {{email_replies}} e-posta yanıtı silindi",
         "bulkDeleteExecute": "Sil"
     },
+    "timeline": {
+        "empty": "Henüz geçmiş yok",
+        "emptyFiltered": "Seçili filtrelere uyan olay yok",
+        "channels": {
+            "email_in": "Gelen e-posta",
+            "email_out": "Giden e-posta"
+        },
+        "filters": {
+            "channel": "Kanal",
+            "allChannels": "Tüm kanallar",
+            "user": "Kullanıcı",
+            "allUsers": "Tüm kullanıcılar",
+            "dateRange": "Tarih aralığı",
+            "importantOnly": "Yalnız önemli",
+            "clear": "Filtreleri temizle"
+        }
+    },
     "activity": {
         "timeline": "Aktivite Zaman Çizelgesi",
         "addActivity": "Aktivite Ekle",

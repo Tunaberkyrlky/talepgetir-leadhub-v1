@@ -160,6 +160,7 @@ export default function ActivityForm({ opened, onClose, onSuccess, companyId, co
         onSuccess: () => {
             showSuccess(t('activity.updated'));
             queryClient.invalidateQueries({ queryKey: ['activities', companyId] });
+            onSuccess?.();
             onClose();
         },
         onError: (err) => {

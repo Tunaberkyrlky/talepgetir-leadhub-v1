@@ -1482,6 +1482,23 @@
         "bulkDeleteSuccess": "Done: deleted {{companies}} companies, {{contacts}} contacts, {{activities}} activities, {{email_replies}} email replies",
         "bulkDeleteExecute": "Delete"
     },
+    "timeline": {
+        "empty": "No history yet",
+        "emptyFiltered": "No events match the selected filters",
+        "channels": {
+            "email_in": "Inbound email",
+            "email_out": "Outbound email"
+        },
+        "filters": {
+            "channel": "Channel",
+            "allChannels": "All channels",
+            "user": "User",
+            "allUsers": "All users",
+            "dateRange": "Date range",
+            "importantOnly": "Important only",
+            "clear": "Clear filters"
+        }
+    },
     "activity": {
         "timeline": "Activity Timeline",
         "addActivity": "Add Activity",

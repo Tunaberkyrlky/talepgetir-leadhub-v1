@@ -604,6 +604,141 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
     }
 });
 
+// GET /api/companies/:id/timeline — Unified chronological history for one company.
+// Batches a FIXED set of queries (no N+1): activities (RLS-scoped) + email replies
+// (admin-scoped, gated by role) + contact names + actor display names. Every source is
+// mapped to a common event contract so the client can render a single stream. Email is
+// omitted for roles that cannot read it (client_viewer), mirroring /email-replies gating.
+router.get('/:id/timeline', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const companyId = String(req.params.id);
+
+        if (!/^[0-9a-f-]{36}$/i.test(companyId)) {
+            res.status(400).json({ error: 'Invalid company ID' });
+            return;
+        }
+
+        const ROW_CAP = 250;
+        const canReadEmail = ['superadmin', 'ops_agent', 'client_admin'].includes(req.user!.role);
+
+        // Activities go through the RLS-aware client so client roles stay tenant-isolated.
+        const db = dbClient(req);
+        const [activitiesRes, emailsRes] = await Promise.all([
+            db
+                .from('activities')
+                .select('*')
+                .eq('tenant_id', tenantId)
+                .eq('company_id', companyId)
+                .order('occurred_at', { ascending: false })
+                .limit(ROW_CAP),
+            canReadEmail
+                ? supabaseAdmin
+                    .from('email_replies')
+                    .select('id, sender_email, subject, reply_body, replied_at, read_status, direction, campaign_id, campaign_name, contact_id, category')
+                    .eq('tenant_id', tenantId)
+                    .eq('company_id', companyId)
+                    // Skip unsent drafts with IS DISTINCT FROM 'draft' semantics: keep rows
+                    // with no raw_payload AND rows whose raw_payload lacks a `source` key
+                    // (real inbound emails), dropping only rows explicitly sourced as 'draft'.
+                    // A bare `source.neq.draft` also swallows null-source rows because
+                    // NULL != 'draft' is NULL, not true.
+                    .or('raw_payload.is.null,raw_payload->>source.is.null,raw_payload->>source.neq.draft')
+                    .order('replied_at', { ascending: false })
+                    .limit(ROW_CAP)
+                : Promise.resolve({ data: [], error: null }),
+        ]);
+
+        if (activitiesRes.error) {
+            log.error({ err: activitiesRes.error }, 'Timeline activities error');
+            throw new AppError('Failed to fetch timeline', 500);
+        }
+        if (emailsRes.error) {
+            log.error({ err: emailsRes.error }, 'Timeline emails error');
+            throw new AppError('Failed to fetch timeline', 500);
+        }
+
+        const activities = (activitiesRes.data || []) as any[];
+        const emails = (emailsRes.data || []) as any[];
+
+        // Resolve contact names (both sources) and actor display names (activities) in
+        // one round-trip each — no per-row lookups.
+        const contactIds = [...new Set(
+            [...activities, ...emails].map((r: any) => r.contact_id).filter(Boolean)
+        )];
+        const contactMap: Record<string, string> = {};
+        if (contactIds.length > 0) {
+            const { data: contacts } = await db
+                .from('contacts')
+                .select('id, first_name, last_name')
+                .eq('tenant_id', tenantId)
+                .in('id', contactIds);
+            for (const c of contacts || []) {
+                contactMap[c.id] = [c.first_name, c.last_name].filter(Boolean).join(' ');
+            }
+        }
+
+        const actorIds = activities.map((a: any) => a.created_by).filter(Boolean);
+        const userMap = await resolveUsers(actorIds);
+
+        const events = [
+            ...activities.map((a: any) => ({
+                id: `activity:${a.id}`,
+                ref_id: a.id,
+                source: 'activity' as const,
+                kind: a.type as string,
+                direction: null as null,
+                occurred_at: a.occurred_at,
+                actor: ownerDisplayName(userMap.get(a.created_by)),
+                actor_id: a.created_by || null,
+                summary: a.summary ?? null,
+                detail: a.detail ?? null,
+                contact_name: a.contact_id ? (contactMap[a.contact_id] || null) : null,
+                outcome: a.outcome ?? null,
+                visibility: a.visibility ?? null,
+                campaign_name: null as string | null,
+                category: null as string | null,
+                read_status: null as string | null,
+                subject: null as string | null,
+                sender_email: null as string | null,
+                is_system: a.type === 'status_change',
+                // Full row so the client edit form can prefill without a second fetch.
+                activity: { ...a, contact_name: a.contact_id ? (contactMap[a.contact_id] || null) : null },
+            })),
+            ...emails.map((r: any) => ({
+                id: `email:${r.id}`,
+                ref_id: r.id,
+                source: 'email' as const,
+                kind: 'email' as const,
+                direction: (r.direction === 'OUT' ? 'OUT' : 'IN') as 'IN' | 'OUT',
+                occurred_at: r.replied_at,
+                actor: null as string | null,
+                actor_id: null as string | null,
+                summary: r.subject ?? null,
+                detail: r.reply_body ?? null,
+                contact_name: r.contact_id ? (contactMap[r.contact_id] || null) : null,
+                outcome: null as string | null,
+                visibility: null as string | null,
+                campaign_name: r.campaign_name ?? null,
+                category: r.category ?? null,
+                read_status: r.read_status ?? null,
+                subject: r.subject ?? null,
+                sender_email: r.sender_email ?? null,
+                is_system: false,
+            })),
+        ]
+            .filter((e) => e.occurred_at)
+            .sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime())
+            .slice(0, ROW_CAP);
+
+        res.json({ events });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Timeline error');
+        res.status(500).json({ error: 'Failed to fetch timeline' });
+    }
+});
+
 // POST /api/companies — Create new company
 router.post(
     '/',

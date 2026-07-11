@@ -66,7 +66,7 @@ import OwnerSelect from '../components/OwnerSelect';
 import CompanyForm from '../components/CompanyForm';
 import ClosingReportModal from '../components/ClosingReportModal';
 import ReopenReasonModal from '../components/ReopenReasonModal';
-import ActivityTimeline from '../components/ActivityTimeline';
+import ActivityTimelineUnified from '../components/ActivityTimelineUnified';
 import type { ActivityTimelineHandle } from '../components/ActivityTimeline';
 import ReplyDetailModal from '../components/email/ReplyDetailModal';
 import CallButton from '../components/coldcall/CallButton';
@@ -269,6 +269,28 @@ export default function CompanyDetailPage() {
         enabled: !!id,
         retry: false,
     });
+
+    // Timeline email deep-link. The reply is usually already in companyEmails, but
+    // the list can still be loading (or errored) when the timeline is clicked — a bare
+    // `.find` miss then silently drops the user onto the emails tab. Fall back to a
+    // cache-backed on-demand resolve (shares the ['company-emails', id] cache, so no
+    // duplicate fetch when already loaded; retries once if the initial load errored),
+    // keeping the tab switch only when the reply truly can't be resolved.
+    const openEmailByRef = (refId: string) => {
+        const cached = companyEmails.find((r) => r.id === refId);
+        if (cached) { setSelectedEmailReply(cached); openEmailModal(); return; }
+        queryClient
+            .ensureQueryData<EmailReply[]>({
+                queryKey: ['company-emails', id],
+                queryFn: async () => (await api.get(`/email-replies/by-company/${id}`)).data,
+            })
+            .then((list) => {
+                const found = list.find((r) => r.id === refId);
+                if (found) { setSelectedEmailReply(found); openEmailModal(); }
+                else setActiveTab('emails');
+            })
+            .catch(() => setActiveTab('emails'));
+    };
 
     const toggleField = (key: DetailFieldKey) => {
         const next = new Set(hiddenFields);
@@ -834,7 +856,14 @@ export default function CompanyDetailPage() {
                     </Group>
 
                     <Tabs.Panel value="activities">
-                        {id && <ActivityTimeline ref={activityTimelineRef} companyId={id} embedded hideActionButton />}
+                        {id && (
+                            <ActivityTimelineUnified
+                                ref={activityTimelineRef}
+                                companyId={id}
+                                hideActionButton
+                                onOpenEmail={openEmailByRef}
+                            />
+                        )}
                     </Tabs.Panel>
 
                     <Tabs.Panel value="contacts">
@@ -933,7 +962,7 @@ export default function CompanyDetailPage() {
             <ReplyDetailModal
                 reply={selectedEmailReply}
                 opened={emailModalOpened}
-                onClose={() => { closeEmailModal(); queryClient.invalidateQueries({ queryKey: ['company-emails', id] }); }}
+                onClose={() => { closeEmailModal(); queryClient.invalidateQueries({ queryKey: ['company-emails', id] }); queryClient.invalidateQueries({ queryKey: ['company-timeline', id] }); }}
             />
 
             {/* Company Edit Modal */}
