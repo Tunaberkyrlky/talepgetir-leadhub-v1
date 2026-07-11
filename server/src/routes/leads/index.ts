@@ -14,9 +14,14 @@ import {
     validateBody,
     createLeadFormSchema,
     createLeadSourceSchema,
+    enqueueEnrichmentSchema,
+    resolveQualificationSchema,
+    reviewQuerySchema,
     LEAD_SOURCE_TYPES,
     LEAD_LIFECYCLE_STATUSES,
 } from '../../lib/validation.js';
+import { qualifyLead, type QualificationFormFields, type QualificationRecipe } from '../../lib/leads/qualification.js';
+import { gatherWebsiteEvidence, enrichmentMode } from '../../lib/leads/enrichmentAdapter.js';
 
 const router = Router();
 const log = createLogger('route:leads');
@@ -54,6 +59,108 @@ async function mapLeadRelations(rows: LeadRelations[]) {
             owner: row.owner_id ? users.get(row.owner_id) || null : null,
         };
     });
+}
+
+// Map a qualification verdict → the leads.qualification_status enum (which uses
+// 'needs_review' for the ambiguous case). This ONLY writes qualification_status +
+// score; it deliberately never touches lifecycle_status (identity/deliverability
+// review is a DISTINCT queue from qualification review).
+const VERDICT_TO_QUAL: Record<string, string> = {
+    qualified: 'qualified',
+    disqualified: 'disqualified',
+    review: 'needs_review',
+};
+
+/** Build the qualification form-field view from a submission's normalized snapshot. */
+function formFieldsFromNormalized(normalized: Record<string, unknown> | null): QualificationFormFields {
+    const n = (normalized || {}) as Record<string, unknown>;
+    const s = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
+    return {
+        email: s(n.email),
+        companyName: s(n.companyName),
+        website: s(n.website),
+        domain: s(n.domain),
+        country: s(n.country),
+        fullName: s(n.fullName) || s(n.firstName),
+        phone: s(n.phone),
+        title: s(n.title),
+    };
+}
+
+interface EnrichLeadRow {
+    id: string;
+    company_id: string | null;
+    owner_id: string | null;
+    source_id: string | null;
+    raw_submission_id: string | null;
+}
+
+/**
+ * Run one enrichment+qualification pass for a queued run (fire-and-forget; the
+ * long-lived process makes background work after the response safe — CLAUDE.md).
+ * READ-ONLY adapter, DRY-RUN by default. On completion it writes the run result
+ * and syncs the lead's qualification_status + score. Low-confidence ⇒ verdict
+ * 'review' ⇒ it stays in the human review queue and NEVER triggers outbound.
+ */
+async function runEnrichment(tenantId: string, runId: string, lead: EnrichLeadRow): Promise<void> {
+    try {
+        // NOTE: every .update() below is error-checked and THROWS on failure so the
+        // catch marks the run failed — a swallowed write must never look like success.
+        const { error: runningErr } = await supabaseAdmin.from('lead_enrichment_runs')
+            .update({ status: 'running', started_at: new Date().toISOString() })
+            .eq('id', runId).eq('tenant_id', tenantId);
+        if (runningErr) throw new Error(`mark running failed: ${runningErr.message}`);
+
+        // Form fields come from the immutable submission's normalized snapshot.
+        let normalized: Record<string, unknown> | null = null;
+        if (lead.raw_submission_id) {
+            const { data: sub } = await supabaseAdmin
+                .from('lead_submissions').select('normalized')
+                .eq('id', lead.raw_submission_id).eq('tenant_id', tenantId).maybeSingle();
+            normalized = (sub as { normalized?: Record<string, unknown> } | null)?.normalized ?? null;
+        }
+        const formFields = formFieldsFromNormalized(normalized);
+
+        // Recipe: per-source override, else the built-in default (qualification.ts).
+        let recipe: QualificationRecipe | null = null;
+        let sourceOwnerId: string | null = null;
+        if (lead.source_id) {
+            const { data: src } = await supabaseAdmin
+                .from('lead_sources').select('qualification_recipe, default_owner_id')
+                .eq('id', lead.source_id).eq('tenant_id', tenantId).maybeSingle();
+            recipe = (src as { qualification_recipe?: QualificationRecipe | null } | null)?.qualification_recipe ?? null;
+            sourceOwnerId = (src as { default_owner_id?: string | null } | null)?.default_owner_id ?? null;
+        }
+
+        const { websiteEvidence, sourceEvidence } = await gatherWebsiteEvidence(tenantId, lead.company_id, formFields);
+        const result = qualifyLead(formFields, websiteEvidence, recipe);
+
+        const { error: doneErr } = await supabaseAdmin.from('lead_enrichment_runs').update({
+            status: 'done',
+            score: result.score,
+            verdict: result.verdict,
+            evidence: result.evidence,
+            reason_codes: result.reasonCodes,
+            source_evidence: sourceEvidence,
+            suggested_owner_id: lead.owner_id ?? sourceOwnerId,
+            completed_at: new Date().toISOString(),
+        }).eq('id', runId).eq('tenant_id', tenantId);
+        if (doneErr) throw new Error(`write run result failed: ${doneErr.message}`);
+
+        // Sync the lead's qualification fields ONLY (never lifecycle_status).
+        const { error: leadErr } = await supabaseAdmin.from('leads').update({
+            qualification_status: VERDICT_TO_QUAL[result.verdict],
+            score: result.score,
+        }).eq('id', lead.id).eq('tenant_id', tenantId);
+        if (leadErr) throw new Error(`sync lead qualification failed: ${leadErr.message}`);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'enrichment failed';
+        log.error({ err, runId, leadId: lead.id }, 'lead enrichment run failed');
+        const { error: failErr } = await supabaseAdmin.from('lead_enrichment_runs')
+            .update({ status: 'failed', error_reason: message, completed_at: new Date().toISOString() })
+            .eq('id', runId).eq('tenant_id', tenantId);
+        if (failErr) log.error({ err: failErr, runId }, 'failed to mark enrichment run failed');
+    }
 }
 
 // ── GET / — Lead Inbox list (queue-filtered) ──────────────────────────────────
@@ -252,6 +359,75 @@ router.post('/forms', writeRoles, validateBody(createLeadFormSchema), async (req
     }
 });
 
+// ── GET /review — qualification review queue (verdict=review, unresolved) ─────
+// Registered BEFORE '/:id' so the literal path wins. This is the QUALIFICATION
+// review queue (enrichment verdict), DISTINCT from the identity/deliverability
+// 'needs_review' lifecycle queue. Only low-confidence, human-unresolved runs.
+router.get('/review', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const { page, limit } = reviewQuerySchema.parse(req.query);
+        const offset = (page - 1) * limit;
+
+        const { data, count, error } = await supabaseAdmin
+            .from('lead_enrichment_runs')
+            .select(
+                'id, lead_id, verdict, score, reason_codes, evidence, created_at, ' +
+                'leads(source_type, captured_at, company_id, contact_id, companies(name), contacts(first_name, last_name), lead_sources(display_name))',
+                { count: 'exact' },
+            )
+            .eq('tenant_id', tenantId)
+            .eq('verdict', 'review')
+            .is('resolved_verdict', null)
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+        if (error) {
+            log.error({ err: error }, 'List review queue failed');
+            throw new AppError('Failed to fetch review queue', 500);
+        }
+
+        const mapped = ((data || []) as unknown as Record<string, unknown>[]).map((row) => {
+            const lead = (row.leads || {}) as {
+                source_type?: string; captured_at?: string; company_id?: string | null; contact_id?: string | null;
+                companies?: { name?: string } | null;
+                contacts?: { first_name?: string; last_name?: string | null } | null;
+                lead_sources?: { display_name?: string } | null;
+            };
+            const contactName = lead.contacts
+                ? [lead.contacts.first_name, lead.contacts.last_name].filter(Boolean).join(' ') || null
+                : null;
+            return {
+                id: row.id as string,
+                lead_id: row.lead_id as string,
+                verdict: row.verdict as string,
+                score: (row.score as number | null) ?? null,
+                reason_codes: (row.reason_codes as string[] | null) ?? [],
+                evidence: (row.evidence as unknown[] | null) ?? [],
+                created_at: row.created_at as string,
+                source_type: lead.source_type ?? null,
+                source_name: lead.lead_sources?.display_name ?? null,
+                company_id: lead.company_id ?? null,
+                contact_id: lead.contact_id ?? null,
+                company_name: lead.companies?.name ?? null,
+                contact_name: contactName,
+                captured_at: lead.captured_at ?? null,
+            };
+        });
+        const total = count || 0;
+        res.json({
+            data: mapped,
+            pagination: {
+                page, limit, total,
+                totalPages: Math.ceil(total / limit),
+                hasNext: offset + mapped.length < total,
+                hasPrev: page > 1,
+            },
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
 // ── GET /:id — lead detail (submission + touchpoints) ─────────────────────────
 router.get('/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -283,6 +459,97 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
             .order('event_time', { ascending: true });
 
         res.json({ data: { ...mapped, submission: submission || null, touchpoints: touchpoints || [] } });
+    } catch (err) {
+        next(err);
+    }
+});
+
+// ── POST /:id/enrich — enqueue an enrichment run (async, dry-run) ─────────────
+// Intake never waits on enrichment; this creates a SEPARATE queued run and returns
+// immediately (202). Processing is fire-and-forget in-process. Mode is server-gated.
+router.post('/:id/enrich', writeRoles, validateBody(enqueueEnrichmentSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        if (!UUID_RE.test(req.params.id as string)) throw new AppError('Invalid lead id', 400);
+        const tenantId = req.tenantId!;
+        const { data: lead, error } = await supabaseAdmin
+            .from('leads')
+            .select('id, company_id, owner_id, source_id, raw_submission_id')
+            .eq('id', req.params.id).eq('tenant_id', tenantId).maybeSingle();
+        if (error) throw new AppError('Failed to load lead', 500);
+        if (!lead) throw new AppError('Lead not found', 404);
+
+        const mode = enrichmentMode();
+        const { data: run, error: insErr } = await supabaseAdmin
+            .from('lead_enrichment_runs')
+            .insert({ tenant_id: tenantId, lead_id: (lead as EnrichLeadRow).id, status: 'queued', mode })
+            .select('id, status, mode, created_at')
+            .single();
+        if (insErr) {
+            log.error({ err: insErr }, 'Enqueue enrichment failed');
+            throw new AppError('Failed to enqueue enrichment', 500);
+        }
+
+        // Fire-and-forget: the response returns while the run processes in-process.
+        void runEnrichment(tenantId, (run as { id: string }).id, lead as EnrichLeadRow);
+
+        res.status(202).json({ data: run });
+    } catch (err) {
+        next(err);
+    }
+});
+
+// ── GET /:id/enrichment — latest enrichment run for a lead (read model) ───────
+router.get('/:id/enrichment', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        if (!UUID_RE.test(req.params.id as string)) throw new AppError('Invalid lead id', 400);
+        const tenantId = req.tenantId!;
+        const { data, error } = await supabaseAdmin
+            .from('lead_enrichment_runs')
+            .select('*')
+            .eq('lead_id', req.params.id).eq('tenant_id', tenantId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (error) throw new AppError('Failed to fetch enrichment run', 500);
+        res.json({ data: data || null });
+    } catch (err) {
+        next(err);
+    }
+});
+
+// ── POST /:id/resolve — human resolves a qualification verdict ────────────────
+// Records the human's call (qualify/disqualify) on ONE specific review run + syncs
+// the lead's qualification_status — atomically, in a single DB transaction
+// (resolve_lead_enrichment RPC), so the run write and lead write can't race or
+// half-apply. The client pins the exact run via run_id. NEVER triggers outbound —
+// a resolved lead is simply routed for a later phase's automation, not messaged here.
+router.post('/:id/resolve', writeRoles, validateBody(resolveQualificationSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        if (!UUID_RE.test(req.params.id as string)) throw new AppError('Invalid lead id', 400);
+        const tenantId = req.tenantId!;
+
+        const { data, error } = await supabaseAdmin.rpc('resolve_lead_enrichment', {
+            p_tenant_id: tenantId,
+            p_run_id: req.body.run_id as string,
+            p_resolver: req.user?.id ?? null,
+            p_verdict: req.body.verdict as string,
+            p_note: req.body.note ?? null,
+        });
+        if (error) {
+            log.error({ err: error, runId: req.body.run_id }, 'Resolve qualification failed');
+            throw new AppError('Failed to resolve qualification', 500);
+        }
+        // NULL ⇒ no resolvable run matched (wrong run/tenant, already resolved, or
+        // not a review verdict) — a conflict, not a server fault.
+        if (!data) {
+            throw new AppError(
+                'Enrichment run is not resolvable (already resolved or not in review)',
+                409,
+                'run_conflict',
+            );
+        }
+
+        res.json({ data });
     } catch (err) {
         next(err);
     }

@@ -52,3 +52,54 @@ export interface SpamSubmissionsResponse {
     data: SpamSubmission[];
     pagination: LeadsResponse['pagination'];
 }
+
+// ── Enrichment + qualification (v3 WP2) ────────────────────────────────────
+export type Verdict = 'qualified' | 'disqualified' | 'review';
+export type EnrichmentStatus = 'queued' | 'running' | 'done' | 'failed';
+
+export interface EvidenceItem {
+    code: string;
+    weight: number;
+    hit: boolean;
+    detail?: string | null;
+}
+
+export interface EnrichmentRun {
+    id: string;
+    lead_id: string;
+    status: EnrichmentStatus;
+    mode: 'dry_run' | 'live';
+    score: number | null;
+    verdict: Verdict | null;
+    evidence: EvidenceItem[];
+    reason_codes: string[];
+    source_evidence: Record<string, unknown>;
+    resolved_verdict: Verdict | null;
+    resolved_note: string | null;
+    error_reason: string | null;
+    created_at: string;
+    completed_at: string | null;
+}
+
+// A row in the qualification review queue (enrichment verdict=review, unresolved).
+export interface ReviewQueueItem {
+    id: string;                 // enrichment run id
+    lead_id: string;
+    verdict: Verdict;
+    score: number | null;
+    reason_codes: string[];
+    evidence: EvidenceItem[];
+    created_at: string;
+    source_type: LeadSourceType | null;
+    source_name: string | null;
+    company_id: string | null;
+    contact_id: string | null;
+    company_name: string | null;
+    contact_name: string | null;
+    captured_at: string | null;
+}
+
+export interface ReviewQueueResponse {
+    data: ReviewQueueItem[];
+    pagination: LeadsResponse['pagination'];
+}

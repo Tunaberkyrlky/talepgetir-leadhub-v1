@@ -542,3 +542,34 @@ export const leadIntakeSchema = z.record(
     z.string().max(200),
     z.union([z.string().max(20000), z.number(), z.boolean(), z.null()]),
 ).refine((obj) => Object.keys(obj).length <= 200, { message: 'Too many fields' });
+
+// ── Enrichment + qualification schemas (v3 WP2) ────────────────────────────
+// The full machine verdict set the qualifier can emit.
+export const VERDICTS = ['qualified', 'disqualified', 'review'] as const;
+// A HUMAN may only resolve TO a terminal verdict — never back to 'review'
+// (that would drop the row from the queue while leaving the lead unresolved).
+export const RESOLVE_VERDICTS = ['qualified', 'disqualified'] as const;
+
+// Enqueue an enrichment run for a lead. Body is optional (a bare POST is valid);
+// mode is server-gated (env), so only an explicit dry_run request is accepted here.
+export const enqueueEnrichmentSchema = z.preprocess(
+    (v) => (v == null ? {} : v),
+    z.object({ mode: z.literal('dry_run').optional().default('dry_run') }),
+);
+
+// Human resolution of a qualification verdict (qualify / disqualify) on ONE
+// specific run. run_id pins the exact review row so a concurrent re-enrichment
+// can't move the target; the resolve is atomic in the DB (resolve_lead_enrichment).
+// Never triggers outbound — it only records the human's call on the run + lead.
+export const resolveQualificationSchema = z.object({
+    run_id: uuidField('Invalid run_id'),
+    verdict: z.enum(RESOLVE_VERDICTS),
+    note: z.string().trim().max(2000).optional().nullable(),
+});
+
+// Bounded pagination for the review queue (GET /leads/review). Coerced from the
+// query string; out-of-range/garbage falls back to safe defaults.
+export const reviewQuerySchema = z.object({
+    page: z.coerce.number().int().min(1).catch(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).catch(25).default(25),
+});

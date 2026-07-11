@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
     ActionIcon,
     Anchor,
     Badge,
+    Button,
     Center,
     Container,
     Group,
@@ -18,13 +19,14 @@ import {
     Title,
     Tooltip,
 } from '@mantine/core';
-import { IconInbox, IconAlertTriangle, IconSearch, IconExternalLink, IconAlertCircle, IconShieldX } from '@tabler/icons-react';
+import { IconInbox, IconAlertTriangle, IconSearch, IconExternalLink, IconAlertCircle, IconShieldX, IconSparkles, IconThumbUp, IconThumbDown } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import type { Lead, LeadsResponse, SpamSubmissionsResponse } from '../types/lead';
+import { showSuccess, showErrorFromApi } from '../lib/notifications';
+import type { Lead, LeadsResponse, SpamSubmissionsResponse, ReviewQueueResponse, ReviewQueueItem, Verdict } from '../types/lead';
 
-type InboxTab = 'new' | 'review' | 'error' | 'spam';
+type InboxTab = 'new' | 'review' | 'qualify' | 'error' | 'spam';
 
 // Lead queues → lifecycle_status filter sent to the API. The Spam queue is NOT a
 // lifecycle (those submissions never became leads); it has its own endpoint.
@@ -57,11 +59,15 @@ function ageLabel(iso: string, language: string): string {
 export default function LeadInboxPage() {
     const { t, i18n } = useTranslation();
     const { activeTenantId } = useAuth();
+    const queryClient = useQueryClient();
 
     const [activeTab, setActiveTab] = useState<InboxTab>('new');
     const [page, setPage] = useState(1);
 
     const isSpam = activeTab === 'spam';
+    // Qualification review queue (enrichment verdict=review) — DISTINCT from the
+    // 'review' lifecycle tab (identity/deliverability needs_review).
+    const isQualify = activeTab === 'qualify';
 
     // review_reason is a machine string that may carry several reasons joined by ';'
     // or ',' (e.g. "name_only_match; mx_missing"). Localize each known snake_case
@@ -79,7 +85,7 @@ export default function LeadInboxPage() {
     // rows, and don't fetch until a tenant is resolved.
     const { data, isLoading, isError } = useQuery<LeadsResponse>({
         queryKey: ['leads', activeTenantId, activeTab, page],
-        enabled: !!activeTenantId && !isSpam,
+        enabled: !!activeTenantId && !isSpam && !isQualify,
         queryFn: async () => {
             const res = await api.get('/leads', {
                 params: { lifecycle: TAB_LIFECYCLE[activeTab as 'new' | 'review' | 'error'], page, limit: PAGE_LIMIT },
@@ -100,12 +106,41 @@ export default function LeadInboxPage() {
         refetchInterval: 30_000,
     });
 
+    // Qualification review queue: enrichment runs whose verdict is low-confidence
+    // 'review' and not yet human-resolved.
+    const { data: reviewData, isLoading: reviewLoading, isError: reviewError } = useQuery<ReviewQueueResponse>({
+        queryKey: ['leads-review', activeTenantId, page],
+        enabled: !!activeTenantId && isQualify,
+        queryFn: async () => {
+            const res = await api.get('/leads/review', { params: { page, limit: PAGE_LIMIT } });
+            return res.data as ReviewQueueResponse;
+        },
+        refetchInterval: 30_000,
+    });
+
+    // Resolve a qualification verdict (qualify / disqualify) — never triggers outbound.
+    // runId pins the exact review run so a concurrent re-enrichment can't move the target.
+    const resolveMutation = useMutation({
+        mutationFn: async ({ leadId, runId, verdict }: { leadId: string; runId: string; verdict: Verdict }) => {
+            await api.post(`/leads/${leadId}/resolve`, { run_id: runId, verdict });
+        },
+        onSuccess: () => {
+            showSuccess(t('leadInbox.resolveSuccess', 'Karar kaydedildi'));
+            // The row leaves the review queue AND the lead's qualification_status
+            // changed, so refresh both the review queue and the lead lists.
+            queryClient.invalidateQueries({ queryKey: ['leads-review', activeTenantId] });
+            queryClient.invalidateQueries({ queryKey: ['leads', activeTenantId] });
+        },
+        onError: (err) => showErrorFromApi(err, t('leadInbox.resolveError', 'Karar kaydedilemedi')),
+    });
+
     const leads = data?.data ?? [];
     const spamRows = spamData?.data ?? [];
-    const loading = isSpam ? spamLoading : isLoading;
-    const errored = isSpam ? spamError : isError;
-    const empty = isSpam ? spamRows.length === 0 : leads.length === 0;
-    const totalPages = (isSpam ? spamData?.pagination.totalPages : data?.pagination.totalPages) ?? 1;
+    const reviewRows = reviewData?.data ?? [];
+    const loading = isSpam ? spamLoading : isQualify ? reviewLoading : isLoading;
+    const errored = isSpam ? spamError : isQualify ? reviewError : isError;
+    const empty = isSpam ? spamRows.length === 0 : isQualify ? reviewRows.length === 0 : leads.length === 0;
+    const totalPages = (isSpam ? spamData?.pagination.totalPages : isQualify ? reviewData?.pagination.totalPages : data?.pagination.totalPages) ?? 1;
 
     const handleTab = (value: string | null) => {
         if (!value) return;
@@ -201,6 +236,68 @@ export default function LeadInboxPage() {
         </Table.Tr>
     ));
 
+    // Localize reason codes (snake_case tokens) via leadInbox.reasonCode.*; unknown
+    // tokens fall through to their raw text.
+    const formatReasonCodes = (codes: string[]): string =>
+        codes.map((c) => t(`leadInbox.reasonCode.${c}`, c)).join(', ');
+
+    const reviewTableRows = reviewRows.map((r: ReviewQueueItem) => {
+        const who = r.contact_name || r.company_name || (
+            <Text component="span" c="dimmed" fs="italic">{t('leadInbox.identityPending', 'Kimlik bekliyor')}</Text>
+        );
+        const resolving = resolveMutation.isPending && resolveMutation.variables?.leadId === r.lead_id;
+        return (
+            <Table.Tr key={r.id}>
+                <Table.Td>
+                    {r.company_id ? (
+                        <Anchor component={Link} to={`/companies/${r.company_id}`} fw={500}>{who}</Anchor>
+                    ) : (
+                        <Text fw={500}>{who}</Text>
+                    )}
+                    {r.company_name && r.contact_name && (
+                        <Text size="xs" c="dimmed">{r.company_name}</Text>
+                    )}
+                </Table.Td>
+                <Table.Td>
+                    <Badge variant="light" color="gray" size="sm">
+                        {r.source_type ? t(`leadInbox.sourceType.${r.source_type}`, r.source_name || r.source_type) : (r.source_name || '—')}
+                    </Badge>
+                </Table.Td>
+                <Table.Td>
+                    <Text size="sm" c="dimmed">{r.score ?? '—'}</Text>
+                </Table.Td>
+                <Table.Td>
+                    <Text size="xs" c="dimmed">
+                        {r.reason_codes.length ? formatReasonCodes(r.reason_codes) : t('leadInbox.noReasons', 'Sinyal yok')}
+                    </Text>
+                </Table.Td>
+                <Table.Td>
+                    <Tooltip label={r.captured_at ? new Date(r.captured_at).toLocaleString() : ''}>
+                        <Text size="sm" c="dimmed">{r.captured_at ? ageLabel(r.captured_at, i18n.language) : '—'}</Text>
+                    </Tooltip>
+                </Table.Td>
+                <Table.Td>
+                    <Group gap="xs" wrap="nowrap">
+                        <Button
+                            size="compact-xs" variant="light" color="green" leftSection={<IconThumbUp size={14} />}
+                            loading={resolving} disabled={resolveMutation.isPending}
+                            onClick={() => resolveMutation.mutate({ leadId: r.lead_id, runId: r.id, verdict: 'qualified' })}
+                        >
+                            {t('leadInbox.actions.qualify', 'Nitelikli')}
+                        </Button>
+                        <Button
+                            size="compact-xs" variant="light" color="red" leftSection={<IconThumbDown size={14} />}
+                            loading={resolving} disabled={resolveMutation.isPending}
+                            onClick={() => resolveMutation.mutate({ leadId: r.lead_id, runId: r.id, verdict: 'disqualified' })}
+                        >
+                            {t('leadInbox.actions.disqualify', 'Elenmiş')}
+                        </Button>
+                    </Group>
+                </Table.Td>
+            </Table.Tr>
+        );
+    });
+
     return (
         <Container size="xl" py="md">
             <Group gap="xs" mb="md">
@@ -215,6 +312,9 @@ export default function LeadInboxPage() {
                     </Tabs.Tab>
                     <Tabs.Tab value="review" leftSection={<IconSearch size={16} />}>
                         {t('leadInbox.tabs.review', 'İnceleme')}
+                    </Tabs.Tab>
+                    <Tabs.Tab value="qualify" leftSection={<IconSparkles size={16} />}>
+                        {t('leadInbox.tabs.qualify', 'Nitelendirme')}
                     </Tabs.Tab>
                     <Tabs.Tab value="error" leftSection={<IconAlertTriangle size={16} />}>
                         {t('leadInbox.tabs.error', 'Hata')}
@@ -231,7 +331,23 @@ export default function LeadInboxPage() {
                 ) : errored ? (
                     <Center py="xl"><Text c="red">{t('leadInbox.loadError', 'Lead listesi yüklenemedi')}</Text></Center>
                 ) : empty ? (
-                    <Center py="xl"><Text c="dimmed">{isSpam ? t('leadInbox.spamEmpty', 'Spam olarak işaretlenmiş gönderim yok') : t('leadInbox.empty', 'Bu kuyrukta lead yok')}</Text></Center>
+                    <Center py="xl"><Text c="dimmed">{isSpam ? t('leadInbox.spamEmpty', 'Spam olarak işaretlenmiş gönderim yok') : isQualify ? t('leadInbox.qualifyEmpty', 'İncelenecek nitelendirme yok') : t('leadInbox.empty', 'Bu kuyrukta lead yok')}</Text></Center>
+                ) : isQualify ? (
+                    <Table.ScrollContainer minWidth={820}>
+                        <Table verticalSpacing="sm" highlightOnHover>
+                            <Table.Thead>
+                                <Table.Tr>
+                                    <Table.Th>{t('leadInbox.col.who', 'Firma / Kişi')}</Table.Th>
+                                    <Table.Th>{t('leadInbox.col.source', 'Kaynak')}</Table.Th>
+                                    <Table.Th>{t('leadInbox.col.score', 'Skor')}</Table.Th>
+                                    <Table.Th>{t('leadInbox.col.signals', 'Sinyaller')}</Table.Th>
+                                    <Table.Th>{t('leadInbox.col.age', 'Yaş')}</Table.Th>
+                                    <Table.Th>{t('leadInbox.col.action', 'İşlem')}</Table.Th>
+                                </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>{reviewTableRows}</Table.Tbody>
+                        </Table>
+                    </Table.ScrollContainer>
                 ) : isSpam ? (
                     <Table.ScrollContainer minWidth={640}>
                         <Table verticalSpacing="sm" highlightOnHover>

@@ -7,11 +7,16 @@
         "noLinkedRecord": "Bağlı kayıt yok",
         "empty": "Bu kuyrukta lead yok",
         "spamEmpty": "Spam olarak işaretlenmiş gönderim yok",
+        "qualifyEmpty": "İncelenecek nitelendirme yok",
+        "noReasons": "Sinyal yok",
+        "resolveSuccess": "Karar kaydedildi",
+        "resolveError": "Karar kaydedilemedi",
         "loadError": "Lead listesi yüklenemedi",
         "hint": "Formlardan gelen leadler burada birikir. Belirsiz kimlikler İnceleme kuyruğuna düşer.",
         "tabs": {
             "new": "Yeni",
             "review": "İnceleme",
+            "qualify": "Nitelendirme",
             "error": "Hata",
             "spam": "Spam"
         },
@@ -20,11 +25,42 @@
             "source": "Kaynak",
             "status": "Durum",
             "score": "Skor",
+            "signals": "Sinyaller",
             "age": "Yaş",
             "action": "İşlem",
             "contact": "İletişim",
             "form": "Form",
             "reason": "Neden"
+        },
+        "actions": {
+            "qualify": "Nitelikli",
+            "disqualify": "Elenmiş"
+        },
+        "verdict": {
+            "qualified": "Nitelikli",
+            "disqualified": "Elenmiş",
+            "review": "İnceleme"
+        },
+        "reasonCode": {
+            "has_email": "E-posta var",
+            "missing_email": "E-posta yok",
+            "has_company": "Firma var",
+            "missing_company": "Firma yok",
+            "has_website": "Web sitesi var",
+            "work_email": "Kurumsal e-posta",
+            "icp_industry_match": "ICP sektör eşleşmesi",
+            "icp_industry_miss": "Sektör ICP dışı",
+            "icp_country_match": "ICP ülke eşleşmesi",
+            "icp_country_miss": "Ülke ICP dışı",
+            "company_size_match": "Firma büyüklüğü uygun",
+            "company_size_below": "Firma çok küçük",
+            "low_confidence": "Yetersiz kanıt",
+            "missing_required_email": "Zorunlu: e-posta",
+            "missing_required_company": "Zorunlu: firma",
+            "missing_required_website": "Zorunlu: web sitesi",
+            "missing_required_phone": "Zorunlu: telefon",
+            "missing_required_name": "Zorunlu: isim",
+            "missing_required_country": "Zorunlu: ülke"
         },
         "spamReason": {
             "honeypot": "Bal küpü",

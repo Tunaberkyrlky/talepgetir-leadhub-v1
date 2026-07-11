@@ -7,11 +7,16 @@
         "noLinkedRecord": "No linked record",
         "empty": "No leads in this queue",
         "spamEmpty": "No submissions flagged as spam",
+        "qualifyEmpty": "No qualifications to review",
+        "noReasons": "No signals",
+        "resolveSuccess": "Decision saved",
+        "resolveError": "Could not save the decision",
         "loadError": "Failed to load leads",
         "hint": "Leads captured from forms collect here. Ambiguous identities fall into the Review queue.",
         "tabs": {
             "new": "New",
             "review": "Review",
+            "qualify": "Qualification",
             "error": "Error",
             "spam": "Spam"
         },
@@ -20,11 +25,42 @@
             "source": "Source",
             "status": "Status",
             "score": "Score",
+            "signals": "Signals",
             "age": "Age",
             "action": "Action",
             "contact": "Contact",
             "form": "Form",
             "reason": "Reason"
+        },
+        "actions": {
+            "qualify": "Qualify",
+            "disqualify": "Disqualify"
+        },
+        "verdict": {
+            "qualified": "Qualified",
+            "disqualified": "Disqualified",
+            "review": "Review"
+        },
+        "reasonCode": {
+            "has_email": "Has email",
+            "missing_email": "No email",
+            "has_company": "Has company",
+            "missing_company": "No company",
+            "has_website": "Has website",
+            "work_email": "Work email",
+            "icp_industry_match": "ICP industry match",
+            "icp_industry_miss": "Industry off-ICP",
+            "icp_country_match": "ICP country match",
+            "icp_country_miss": "Country off-ICP",
+            "company_size_match": "Company size fits",
+            "company_size_below": "Company too small",
+            "low_confidence": "Thin evidence",
+            "missing_required_email": "Required: email",
+            "missing_required_company": "Required: company",
+            "missing_required_website": "Required: website",
+            "missing_required_phone": "Required: phone",
+            "missing_required_name": "Required: name",
+            "missing_required_country": "Required: country"
         },
         "spamReason": {
             "honeypot": "Honeypot",
