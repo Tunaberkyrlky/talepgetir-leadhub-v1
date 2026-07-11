@@ -6,12 +6,14 @@
         "openPerson": "Open person",
         "noLinkedRecord": "No linked record",
         "empty": "No leads in this queue",
+        "spamEmpty": "No submissions flagged as spam",
         "loadError": "Failed to load leads",
         "hint": "Leads captured from forms collect here. Ambiguous identities fall into the Review queue.",
         "tabs": {
             "new": "New",
             "review": "Review",
-            "error": "Error"
+            "error": "Error",
+            "spam": "Spam"
         },
         "col": {
             "who": "Company / Person",
@@ -19,7 +21,21 @@
             "status": "Status",
             "score": "Score",
             "age": "Age",
-            "action": "Action"
+            "action": "Action",
+            "contact": "Contact",
+            "form": "Form",
+            "reason": "Reason"
+        },
+        "spamReason": {
+            "honeypot": "Honeypot",
+            "turnstile": "Turnstile",
+            "spam_suspect": "Spam suspect"
+        },
+        "reviewReason": {
+            "disposable_email": "Disposable email",
+            "mx_missing": "No MX record",
+            "name_only_match": "Name-only match",
+            "ambiguous_company_name": "Ambiguous company name"
         },
         "status": {
             "captured": "Captured",

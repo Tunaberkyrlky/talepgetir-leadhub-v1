@@ -37,3 +37,18 @@ export interface LeadsResponse {
         hasPrev: boolean;
     };
 }
+
+// A honeypot/Turnstile-flagged submission that never became a lead (Spam queue).
+export interface SpamSubmission {
+    id: string;
+    email: string | null;
+    name: string | null;
+    form_name: string | null;
+    reason: string | null;      // 'honeypot' | 'turnstile' | 'spam_suspect'
+    submitted_at: string;
+}
+
+export interface SpamSubmissionsResponse {
+    data: SpamSubmission[];
+    pagination: LeadsResponse['pagination'];
+}

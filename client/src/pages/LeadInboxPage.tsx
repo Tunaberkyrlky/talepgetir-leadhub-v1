@@ -18,16 +18,17 @@ import {
     Title,
     Tooltip,
 } from '@mantine/core';
-import { IconInbox, IconAlertTriangle, IconSearch, IconExternalLink, IconAlertCircle } from '@tabler/icons-react';
+import { IconInbox, IconAlertTriangle, IconSearch, IconExternalLink, IconAlertCircle, IconShieldX } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import type { Lead, LeadsResponse } from '../types/lead';
+import type { Lead, LeadsResponse, SpamSubmissionsResponse } from '../types/lead';
 
-type InboxTab = 'new' | 'review' | 'error';
+type InboxTab = 'new' | 'review' | 'error' | 'spam';
 
-// Inbox queue → lifecycle_status filter sent to the API.
-const TAB_LIFECYCLE: Record<InboxTab, string> = {
+// Lead queues → lifecycle_status filter sent to the API. The Spam queue is NOT a
+// lifecycle (those submissions never became leads); it has its own endpoint.
+const TAB_LIFECYCLE: Record<'new' | 'review' | 'error', string> = {
     new: 'captured,identity_pending',
     review: 'needs_review',
     error: 'processing_error',
@@ -60,22 +61,51 @@ export default function LeadInboxPage() {
     const [activeTab, setActiveTab] = useState<InboxTab>('new');
     const [page, setPage] = useState(1);
 
+    const isSpam = activeTab === 'spam';
+
+    // review_reason is a machine string that may carry several reasons joined by ';'
+    // or ',' (e.g. "name_only_match; mx_missing"). Localize each known snake_case
+    // token via leadInbox.reviewReason.*; free-form values (e.g. processing-error
+    // messages) fall through to their raw text.
+    const formatReason = (reason: string): string =>
+        reason
+            .split(/[;,]/)
+            .map((r) => r.trim())
+            .filter(Boolean)
+            .map((token) => (/^[a-z][a-z0-9_]*$/.test(token) ? t(`leadInbox.reviewReason.${token}`, token) : token))
+            .join(', ');
+
     // Scope the cache to the active tenant so a tenant switch can't surface stale
     // rows, and don't fetch until a tenant is resolved.
     const { data, isLoading, isError } = useQuery<LeadsResponse>({
         queryKey: ['leads', activeTenantId, activeTab, page],
-        enabled: !!activeTenantId,
+        enabled: !!activeTenantId && !isSpam,
         queryFn: async () => {
             const res = await api.get('/leads', {
-                params: { lifecycle: TAB_LIFECYCLE[activeTab], page, limit: PAGE_LIMIT },
+                params: { lifecycle: TAB_LIFECYCLE[activeTab as 'new' | 'review' | 'error'], page, limit: PAGE_LIMIT },
             });
             return res.data as LeadsResponse;
         },
         refetchInterval: 30_000,
     });
 
+    // Spam queue: honeypot/Turnstile-flagged submissions that never became leads.
+    const { data: spamData, isLoading: spamLoading, isError: spamError } = useQuery<SpamSubmissionsResponse>({
+        queryKey: ['leads-spam', activeTenantId, page],
+        enabled: !!activeTenantId && isSpam,
+        queryFn: async () => {
+            const res = await api.get('/leads/spam', { params: { page, limit: PAGE_LIMIT } });
+            return res.data as SpamSubmissionsResponse;
+        },
+        refetchInterval: 30_000,
+    });
+
     const leads = data?.data ?? [];
-    const totalPages = data?.pagination.totalPages ?? 1;
+    const spamRows = spamData?.data ?? [];
+    const loading = isSpam ? spamLoading : isLoading;
+    const errored = isSpam ? spamError : isError;
+    const empty = isSpam ? spamRows.length === 0 : leads.length === 0;
+    const totalPages = (isSpam ? spamData?.pagination.totalPages : data?.pagination.totalPages) ?? 1;
 
     const handleTab = (value: string | null) => {
         if (!value) return;
@@ -111,7 +141,7 @@ export default function LeadInboxPage() {
                         {t(`leadInbox.status.${lead.lifecycle_status}`, lead.lifecycle_status)}
                     </Badge>
                     {lead.review_reason && activeTab !== 'new' && (
-                        <Text size="xs" c="dimmed">{lead.review_reason}</Text>
+                        <Text size="xs" c="dimmed">{formatReason(lead.review_reason)}</Text>
                     )}
                 </Table.Td>
                 <Table.Td>
@@ -136,7 +166,7 @@ export default function LeadInboxPage() {
                             </ActionIcon>
                         </Tooltip>
                     ) : (
-                        <Tooltip label={lead.review_reason || t('leadInbox.noLinkedRecord', 'Bağlı kayıt yok')}>
+                        <Tooltip label={lead.review_reason ? formatReason(lead.review_reason) : t('leadInbox.noLinkedRecord', 'Bağlı kayıt yok')}>
                             <span style={{ display: 'inline-flex' }}>
                                 <ActionIcon variant="subtle" color="gray" disabled aria-label={t('leadInbox.noLinkedRecord', 'Bağlı kayıt yok')}>
                                     <IconAlertCircle size={16} />
@@ -148,6 +178,28 @@ export default function LeadInboxPage() {
             </Table.Tr>
         );
     });
+
+    const spamTableRows = spamRows.map((s) => (
+        <Table.Tr key={s.id}>
+            <Table.Td>
+                <Text fw={500}>{s.email || s.name || <Text component="span" c="dimmed" fs="italic">—</Text>}</Text>
+                {s.email && s.name && <Text size="xs" c="dimmed">{s.name}</Text>}
+            </Table.Td>
+            <Table.Td>
+                <Text size="sm" c="dimmed">{s.form_name || '—'}</Text>
+            </Table.Td>
+            <Table.Td>
+                <Badge variant="light" color="red" size="sm">
+                    {t(`leadInbox.spamReason.${s.reason}`, s.reason || 'spam')}
+                </Badge>
+            </Table.Td>
+            <Table.Td>
+                <Tooltip label={new Date(s.submitted_at).toLocaleString()}>
+                    <Text size="sm" c="dimmed">{ageLabel(s.submitted_at, i18n.language)}</Text>
+                </Tooltip>
+            </Table.Td>
+        </Table.Tr>
+    ));
 
     return (
         <Container size="xl" py="md">
@@ -167,16 +219,33 @@ export default function LeadInboxPage() {
                     <Tabs.Tab value="error" leftSection={<IconAlertTriangle size={16} />}>
                         {t('leadInbox.tabs.error', 'Hata')}
                     </Tabs.Tab>
+                    <Tabs.Tab value="spam" leftSection={<IconShieldX size={16} />}>
+                        {t('leadInbox.tabs.spam', 'Spam')}
+                    </Tabs.Tab>
                 </Tabs.List>
             </Tabs>
 
             <Paper withBorder radius="md">
-                {isLoading ? (
+                {loading ? (
                     <Center py="xl"><Loader /></Center>
-                ) : isError ? (
+                ) : errored ? (
                     <Center py="xl"><Text c="red">{t('leadInbox.loadError', 'Lead listesi yüklenemedi')}</Text></Center>
-                ) : leads.length === 0 ? (
-                    <Center py="xl"><Text c="dimmed">{t('leadInbox.empty', 'Bu kuyrukta lead yok')}</Text></Center>
+                ) : empty ? (
+                    <Center py="xl"><Text c="dimmed">{isSpam ? t('leadInbox.spamEmpty', 'Spam olarak işaretlenmiş gönderim yok') : t('leadInbox.empty', 'Bu kuyrukta lead yok')}</Text></Center>
+                ) : isSpam ? (
+                    <Table.ScrollContainer minWidth={640}>
+                        <Table verticalSpacing="sm" highlightOnHover>
+                            <Table.Thead>
+                                <Table.Tr>
+                                    <Table.Th>{t('leadInbox.col.contact', 'İletişim')}</Table.Th>
+                                    <Table.Th>{t('leadInbox.col.form', 'Form')}</Table.Th>
+                                    <Table.Th>{t('leadInbox.col.reason', 'Neden')}</Table.Th>
+                                    <Table.Th>{t('leadInbox.col.age', 'Yaş')}</Table.Th>
+                                </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>{spamTableRows}</Table.Tbody>
+                        </Table>
+                    </Table.ScrollContainer>
                 ) : (
                     <Table.ScrollContainer minWidth={720}>
                         <Table verticalSpacing="sm" highlightOnHover>

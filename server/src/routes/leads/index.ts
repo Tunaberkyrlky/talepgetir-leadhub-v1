@@ -108,6 +108,56 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
     }
 });
 
+// ── GET /spam — spam_suspect submissions (honeypot / Turnstile), no lead ──────
+// Registered BEFORE '/:id' so the literal path wins. These rows never became
+// leads, so they are invisible in the lead-based queues above; surface them here
+// for audit (MEGA §3.6: spam is stored, not silently dropped).
+router.get('/spam', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+        const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit || '25'), 10) || 25));
+        const offset = (page - 1) * limit;
+
+        const { data, count, error } = await supabaseAdmin
+            .from('lead_submissions')
+            .select('id, normalized, dedupe_result, review_reason, submitted_at, lead_forms(name)', { count: 'exact' })
+            .eq('tenant_id', tenantId)
+            .eq('processing_status', 'spam_suspect')
+            .order('submitted_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+        if (error) {
+            log.error({ err: error }, 'List spam submissions failed');
+            throw new AppError('Failed to fetch spam submissions', 500);
+        }
+
+        const mapped = ((data || []) as Record<string, unknown>[]).map((row) => {
+            const norm = (row.normalized || {}) as { email?: string | null; fullName?: string | null };
+            const formRel = row.lead_forms as { name?: string } | null;
+            return {
+                id: row.id as string,
+                email: norm.email ?? null,
+                name: norm.fullName ?? null,
+                form_name: formRel?.name ?? null,
+                reason: (row.review_reason as string | null) ?? (row.dedupe_result as string | null) ?? null,
+                submitted_at: row.submitted_at as string,
+            };
+        });
+        const total = count || 0;
+        res.json({
+            data: mapped,
+            pagination: {
+                page, limit, total,
+                totalPages: Math.ceil(total / limit),
+                hasNext: offset + mapped.length < total,
+                hasPrev: page > 1,
+            },
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
 // ── Sources ───────────────────────────────────────────────────────────────────
 router.get('/sources', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {

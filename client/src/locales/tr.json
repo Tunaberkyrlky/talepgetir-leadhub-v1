@@ -6,12 +6,14 @@
         "openPerson": "Kişiyi aç",
         "noLinkedRecord": "Bağlı kayıt yok",
         "empty": "Bu kuyrukta lead yok",
+        "spamEmpty": "Spam olarak işaretlenmiş gönderim yok",
         "loadError": "Lead listesi yüklenemedi",
         "hint": "Formlardan gelen leadler burada birikir. Belirsiz kimlikler İnceleme kuyruğuna düşer.",
         "tabs": {
             "new": "Yeni",
             "review": "İnceleme",
-            "error": "Hata"
+            "error": "Hata",
+            "spam": "Spam"
         },
         "col": {
             "who": "Firma / Kişi",
@@ -19,7 +21,21 @@
             "status": "Durum",
             "score": "Skor",
             "age": "Yaş",
-            "action": "İşlem"
+            "action": "İşlem",
+            "contact": "İletişim",
+            "form": "Form",
+            "reason": "Neden"
+        },
+        "spamReason": {
+            "honeypot": "Bal küpü",
+            "turnstile": "Turnstile",
+            "spam_suspect": "Spam şüphesi"
+        },
+        "reviewReason": {
+            "disposable_email": "Tek kullanımlık e-posta",
+            "mx_missing": "MX kaydı yok",
+            "name_only_match": "Yalnız ada göre eşleşme",
+            "ambiguous_company_name": "Belirsiz firma adı"
         },
         "status": {
             "captured": "Yakalandı",

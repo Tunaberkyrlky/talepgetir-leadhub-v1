@@ -16,6 +16,8 @@ import { supabaseAdmin } from '../supabase.js';
 import { createLogger } from '../logger.js';
 import { normalizeSubmission, normalizeAttribution, normalizeText, escapeLike, type NormalizedLead } from './normalize.js';
 import { resolveIdentity } from './identity.js';
+import { isDisposableEmail } from './disposableDomains.js';
+import { checkMxForEmail, type MxResult } from './mxCheck.js';
 
 const log = createLogger('lib:leads:intake');
 
@@ -32,10 +34,12 @@ export interface IntakeInput {
   rawPayload: Record<string, unknown>;
   externalLeadId?: string | null;
   testLead?: boolean;
+  /** Turnstile outcome from the route: true=passed, false=failed, null=not enforced. */
+  turnstilePass?: boolean | null;
 }
 
 export type IntakeResult =
-  | { status: 'ignored'; reason: 'honeypot' }
+  | { status: 'ignored'; reason: 'honeypot' | 'turnstile' }
   | { status: 'duplicate'; leadId: string | null }
   | { status: 'created'; leadId: string; lifecycle: string; needsReview: boolean }
   | { status: 'error'; leadId: string | null };
@@ -174,20 +178,32 @@ export async function processIntake(input: IntakeInput): Promise<IntakeResult> {
     }
   }
 
-  // ── Honeypot (§MEGA 3.6): a filled hidden field ⇒ bot. Record for audit, no lead.
+  // ── Spam gate (§MEGA 3.6): a filled honeypot OR a failed Turnstile ⇒ bot.
+  // Record a spam_suspect submission for audit/Review visibility; produce NO lead.
+  // The reason ('honeypot' | 'turnstile') is stored so the Spam queue can show it.
   const honeypotField = form.honeypot_field || '_hp';
-  if (str(rawPayload[honeypotField])) {
+  const spamReason: 'honeypot' | 'turnstile' | null =
+    str(rawPayload[honeypotField]) ? 'honeypot' : input.turnstilePass === false ? 'turnstile' : null;
+  if (spamReason) {
     await supabaseAdmin.from('lead_submissions').insert({
       tenant_id: tenantId, lead_form_id: form.id, source_id: form.source_id,
       raw_payload: rawPayload, external_lead_id: externalLeadId,
       normalized: norm as unknown as Record<string, unknown>, utm: attribution as unknown as Record<string, unknown>,
       gclid: attribution.gclid, fbclid: attribution.fbclid,
       landing_url: attribution.landing_url, referrer: attribution.referrer,
-      processing_status: 'spam_suspect', dedupe_result: 'spam_suspect',
+      processing_status: 'spam_suspect', dedupe_result: 'spam_suspect', review_reason: spamReason,
       test_lead: input.testLead ?? false,
     });
-    return { status: 'ignored', reason: 'honeypot' };
+    return { status: 'ignored', reason: spamReason };
   }
+
+  // Deliverability signals run in PARALLEL with submission/lead/identity work
+  // below (kept off the critical path). Disposable is a cheap Set lookup applied
+  // synchronously; the MX check is a tight-timeout DNS query that is NEVER awaited
+  // on the response path (P2-2) — it is reconciled fire-and-forget after the lead
+  // is written. Neither rejects a lead — they only route it to Review.
+  const disposable = isDisposableEmail(norm.email);
+  const mxPromise: Promise<MxResult> = norm.email ? checkMxForEmail(norm.email) : Promise.resolve('unknown');
 
   // ── Immutable submission. Provider-dedup unique may reject a repeat event.
   const submissionInsert = {
@@ -285,12 +301,22 @@ export async function processIntake(input: IntakeInput): Promise<IntakeResult> {
       contactId = await createOrMatchContact(tenantId, companyId, norm);
     }
 
-    const lifecycle = needsReview ? 'needs_review' : companyId ? 'captured' : 'identity_pending';
-    const dedupeResult = needsReview ? 'needs_review' : matchMethod ? `matched_${matchMethod}` : 'new';
+    // Deliverability signals: a disposable address does NOT reject the lead
+    // (false-positive cost is high) — it forces Review with an explicit reason.
+    // The MX result is deliberately NOT awaited here (P2-2); it is reconciled
+    // fire-and-forget below so a slow/timeout DNS query adds no tail latency to
+    // the public form's response.
+    const spamSignals: string[] = [];
+    if (disposable) spamSignals.push('disposable_email');
+
+    const reviewFlag = needsReview || spamSignals.length > 0;
+    const combinedReason = [reviewReason, ...spamSignals].filter(Boolean).join('; ') || null;
+    const lifecycle = reviewFlag ? 'needs_review' : companyId ? 'captured' : 'identity_pending';
+    const dedupeResult = reviewFlag ? 'needs_review' : matchMethod ? `matched_${matchMethod}` : 'new';
 
     await supabaseAdmin.from('leads').update({
       company_id: companyId, contact_id: contactId,
-      lifecycle_status: lifecycle, match_method: matchMethod, review_reason: reviewReason,
+      lifecycle_status: lifecycle, match_method: matchMethod, review_reason: combinedReason,
     }).eq('id', leadId).eq('tenant_id', tenantId);
 
     await supabaseAdmin.from('lead_touchpoints').insert({
@@ -304,10 +330,31 @@ export async function processIntake(input: IntakeInput): Promise<IntakeResult> {
 
     await supabaseAdmin.from('lead_submissions').update({
       processing_status: 'processed', company_id: companyId, contact_id: contactId,
-      dedupe_result: dedupeResult, review_reason: reviewReason,
+      dedupe_result: dedupeResult, review_reason: combinedReason,
     }).eq('id', submissionId).eq('tenant_id', tenantId);
 
-    return { status: 'created', leadId, lifecycle, needsReview };
+    // ── MX reconciliation, fire-and-forget (P2-2). The response returns without
+    // waiting on DNS; a long-lived server process makes this background patch safe
+    // (CLAUDE.md). A domain with NO MX record pulls the lead into Review and merges
+    // the reason onto both the lead and its submission — it NEVER rejects. If the
+    // lead is already in Review (disposable / ambiguous identity) only the reason is
+    // merged; setting needs_review is idempotent. DNS uncertainty ('unknown') is
+    // never penalized. Errors are swallowed + warned — the lead already exists, so a
+    // failed reconcile only misses the Review flag.
+    void mxPromise
+      .then(async (mxResult) => {
+        if (mxResult !== 'mx_missing') return;
+        const mergedReason = [combinedReason, 'mx_missing'].filter(Boolean).join('; ');
+        await supabaseAdmin.from('leads').update({
+          lifecycle_status: 'needs_review', review_reason: mergedReason,
+        }).eq('id', leadId).eq('tenant_id', tenantId);
+        await supabaseAdmin.from('lead_submissions').update({
+          dedupe_result: 'needs_review', review_reason: mergedReason,
+        }).eq('id', submissionId).eq('tenant_id', tenantId);
+      })
+      .catch((err) => log.warn({ err, leadId, submissionId }, 'MX reconciliation failed'));
+
+    return { status: 'created', leadId, lifecycle, needsReview: reviewFlag };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'intake processing failed';
     log.error({ err, leadId, submissionId }, 'lead intake processing failed');
