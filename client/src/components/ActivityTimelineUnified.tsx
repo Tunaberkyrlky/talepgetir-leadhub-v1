@@ -27,7 +27,7 @@ import {
     IconChevronRight,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
-import { CHANNEL_ICONS, CHANNEL_COLORS, OUTCOME_COLORS } from '../lib/activityConstants';
+import { CHANNEL_ICONS, CHANNEL_COLORS, OUTCOME_COLORS, parseOwnerChange } from '../lib/activityConstants';
 import { useAuth } from '../contexts/AuthContext';
 import { hasRolePermission, canDelete } from '../lib/permissions';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
@@ -271,7 +271,10 @@ const ActivityTimelineUnified = forwardRef<ActivityTimelineHandle, ActivityTimel
                             const isCampaign = e.kind === 'campaign_email';
                             const outcomeColor = OUTCOME_COLORS[e.outcome || ''] || 'gray';
                             const unreadEmail = isEmail && e.read_status === 'unread';
-                            const title = e.summary || e.sender_email || t(`activity.types.${e.kind}`);
+                            const ownerChange = parseOwnerChange(e.kind, e.detail);
+                            const title = ownerChange
+                                ? t('activity.ownerChanged', ownerChange)
+                                : e.summary || e.sender_email || t(`activity.types.${e.kind}`);
 
                             return (
                                 <div key={e.id}>
@@ -381,7 +384,7 @@ const ActivityTimelineUnified = forwardRef<ActivityTimelineHandle, ActivityTimel
                                         <Text size="sm" fw={unreadEmail ? 700 : 500} mt="xs">
                                             {title}
                                         </Text>
-                                        {e.detail && (
+                                        {e.detail && !ownerChange && (
                                             <Text
                                                 size="sm"
                                                 c="dimmed"

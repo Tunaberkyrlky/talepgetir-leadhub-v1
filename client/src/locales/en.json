@@ -1720,6 +1720,7 @@
         "updated": "Activity updated",
         "deleted": "Activity deleted",
         "loadMore": "Load more",
+        "ownerChanged": "Owner changed: {{from}} → {{to}}",
         "types": {
             "not": "Note",
             "meeting": "Meeting",

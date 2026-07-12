@@ -18,7 +18,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { isInternal, hasRolePermission, canDelete } from '../lib/permissions';
 import api from '../lib/api';
 import StatCard from '../components/StatCard';
-import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS } from '../lib/activityConstants';
+import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS, parseOwnerChange } from '../lib/activityConstants';
 import ActivityForm from '../components/ActivityForm';
 import CompanyTimelineGroup from '../components/CompanyTimelineGroup';
 import AgendaDayGroup from '../components/AgendaDayGroup';
@@ -193,6 +193,7 @@ function ActivityCard({ activity, navigate, t, locale, canEdit, canDeleteItem, o
     const isStatusChange = activity.type === 'status_change';
     const isClosingReport = activity.type === 'sonlandirma_raporu';
     const showMenu = (canEdit && !isStatusChange && !isClosingReport) || canDeleteItem;
+    const ownerChange = parseOwnerChange(activity.type, activity.detail);
 
     return (
         <Paper key={activity.id} p="md" radius="md" withBorder>
@@ -241,8 +242,8 @@ function ActivityCard({ activity, navigate, t, locale, canEdit, canDeleteItem, o
                             </Badge>
                         )}
                     </Group>
-                    <Text size="sm" fw={500}>{activity.summary}</Text>
-                    {activity.detail && (
+                    <Text size="sm" fw={500}>{ownerChange ? t('activity.ownerChanged', ownerChange) : activity.summary}</Text>
+                    {activity.detail && !ownerChange && (
                         <Text size="xs" c="dimmed" lineClamp={2}>{activity.detail}</Text>
                     )}
                 </Stack>

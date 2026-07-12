@@ -160,9 +160,12 @@ async function assertAssignableOwner(tenantId: string, userId: string | null | u
 
 // Records an owner change on each company's timeline as a system `status_change` activity
 // (the type is intentionally reused — no new activity type). Names are resolved so the entry
-// reads "Sahip değişikliği: Ali → Ayşe"; a null owner reads as the unassigned queue. Internal
-// visibility keeps it as an ops audit line. Best-effort: a failure here must not undo the
-// owner update itself, so the caller ignores the result.
+// reads "Sahip değişikliği: Ali → Ayşe"; a null owner reads as the unassigned queue. The
+// resolved from/to names are also stored as a JSON payload in `detail` so the client can
+// render a localized line (never a raw UUID). visibility stays `internal` (an ops audit line,
+// per the 2026-07-11 product decision) — this slice localizes the text only.
+// Best-effort: a failure here must not undo the owner update itself, so the caller ignores
+// the result.
 const OWNER_UNASSIGNED_LABEL = 'Sahipsiz';
 async function recordOwnerChanges(
     tenantId: string,
@@ -181,7 +184,13 @@ async function recordOwnerChanges(
             tenant_id: tenantId,
             company_id: c.companyId,
             type: 'status_change',
+            // Human-readable Turkish fallback for legacy / non-localized views.
             summary: `Sahip değişikliği: ${label(c.oldOwner)} → ${label(c.newOwner)}`,
+            // Structured payload the client renders as a localized line — resolved names only.
+            detail: JSON.stringify({ k: 'owner_change', from: label(c.oldOwner), to: label(c.newOwner) }),
+            // Stays 'internal' per the 2026-07-11 product decision (reassign is an ops audit line).
+            // The timeline already shows internal rows to client roles (with a badge); this slice
+            // only localizes the text, it does NOT reclassify the row's visibility.
             visibility: 'internal',
             occurred_at: now,
             created_by: actorId,

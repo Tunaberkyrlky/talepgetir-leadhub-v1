@@ -76,3 +76,29 @@ export const OUTCOME_ICONS: Record<string, React.ReactNode> = {
     on_hold: createElement(IconClock, { size: 12 }),
     cancelled: createElement(IconBan, { size: 12 }),
 };
+
+// Owner-change audit lines (type 'status_change') carry their structured payload as
+// JSON in the free `detail` column: { k: 'owner_change', from, to } with RESOLVED
+// display names (never raw UUIDs). Parsing it lets the client render a localized line
+// instead of the server's fixed-Turkish `summary`. Legacy rows (null / plain-text
+// detail) return null so callers fall back to `summary`.
+export interface OwnerChangeMeta {
+    from: string;
+    to: string;
+    // Index signature lets this be passed directly as i18next interpolation
+    // options (t('activity.ownerChanged', meta)) — satisfies i18next's $Dictionary.
+    [key: string]: string;
+}
+
+export function parseOwnerChange(type: string, detail: string | null | undefined): OwnerChangeMeta | null {
+    if (type !== 'status_change' || !detail) return null;
+    try {
+        const parsed = JSON.parse(detail);
+        if (parsed && parsed.k === 'owner_change' && typeof parsed.from === 'string' && typeof parsed.to === 'string') {
+            return { from: parsed.from, to: parsed.to };
+        }
+    } catch {
+        // Legacy / non-JSON detail — not an owner-change payload.
+    }
+    return null;
+}

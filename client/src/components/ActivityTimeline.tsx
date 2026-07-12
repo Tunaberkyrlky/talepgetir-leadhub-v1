@@ -24,7 +24,7 @@ import {
     IconUser,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
-import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS } from '../lib/activityConstants';
+import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS, parseOwnerChange } from '../lib/activityConstants';
 import { useAuth } from '../contexts/AuthContext';
 import { hasRolePermission, canDelete } from '../lib/permissions';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
@@ -181,6 +181,7 @@ const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProp
                         const isStatusChange = activity.type === 'status_change';
                         const isCampaignEmail = activity.type === 'campaign_email';
                         const outcomeColor = OUTCOME_COLORS[activity.outcome || ''] || 'gray';
+                        const ownerChange = parseOwnerChange(activity.type, activity.detail);
 
                         return (
                             <div key={activity.id}>
@@ -277,9 +278,9 @@ const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProp
                                     </Group>
 
                                     <Text size={compact ? 'xs' : 'sm'} fw={500} mt="xs">
-                                        {activity.summary}
+                                        {ownerChange ? t('activity.ownerChanged', ownerChange) : activity.summary}
                                     </Text>
-                                    {activity.detail && (
+                                    {activity.detail && !ownerChange && (
                                         <Text size={compact ? 'xs' : 'sm'} c="dimmed" mt={4} style={{ whiteSpace: 'pre-wrap' }}>
                                             {activity.detail}
                                         </Text>
