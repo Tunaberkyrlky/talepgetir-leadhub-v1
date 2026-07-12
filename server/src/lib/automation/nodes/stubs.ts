@@ -10,9 +10,9 @@
  */
 import type { NodeExecutor, NodeType, NodeResult } from '../types.js';
 
-/** Every node type that performs an external side-effect (kept out of C2's scope). */
+/** Every node type that performs an external side-effect and is STILL a skipped stub.
+ *  'email' graduated to a real executor in C3 (nodes/emailNode.ts) and is no longer here. */
 const SEND_NODE_TYPES: NodeType[] = [
-  'email',
   'whatsapp',
   'sms',
   'generate_asset',

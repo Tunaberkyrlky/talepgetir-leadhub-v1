@@ -119,6 +119,15 @@ export interface NodeResult {
   waitUntil?: string;
   /** stop node: end the run as stopped with this reason. */
   stopReason?: string;
+  /**
+   * Park the run at THIS node as `paused` (non-terminal) with this reason — the cursor is
+   * NOT advanced. Used when a step CANNOT proceed but must not be treated as done or failed
+   * (e.g. a LIVE email send whose identity/transport is unresolved): an operator fixes the
+   * config, and the run resumes from the same node. Distinct from stopReason (terminal) and
+   * failed status (terminal). applyResult persists it so a crash still re-pauses, never
+   * silently advances. Ignored in dry-run — a simulated skip advances as before.
+   */
+  pauseReason?: string;
   /** goal node: mark the run goal-reached (and complete it). */
   goalReached?: boolean;
   /** Arbitrary output recorded on the action ledger row. */

@@ -363,6 +363,7 @@ async function advanceFromLedger(
       status: (persisted.status as NodeResult['status']) ?? 'succeeded',
       waitUntil: (persisted.wait_until as string | null) ?? undefined,
       stopReason: (persisted.stop_reason as string | null) ?? undefined,
+      pauseReason: (persisted.pause_reason as string | null) ?? undefined,
       goalReached: (persisted.goal_reached as boolean | undefined) ?? undefined,
       contextPatch: (persisted.context_patch as Record<string, unknown> | null) ?? undefined,
       output: out,
@@ -406,6 +407,7 @@ async function finalizeAction(
       next: resolvedNext,
       wait_until: result.waitUntil ?? null,
       stop_reason: result.stopReason ?? null,
+      pause_reason: result.pauseReason ?? null,
       goal_reached: result.goalReached ?? false,
       context_patch: result.contextPatch ?? null,
     },
@@ -458,6 +460,26 @@ async function applyResult(
   if (result.status === 'failed') {
     await failRun(run.id, result.retryReason ?? `node_failed:${nodeKey}`, mergedContext);
     return { status: 'failed' };
+  }
+
+  // pause → NON-terminal park at THIS node (cursor NOT advanced). A step that could not
+  // proceed but must not be treated as done/failed (e.g. a LIVE email send whose identity
+  // is unresolved). status='paused' is not re-claimed by stepRun (it claims running/waiting
+  // only), so the run rests until an operator fixes config and flips it back. This is
+  // persisted in the ledger (__result.pause_reason), so a crash-recovery replay re-pauses
+  // instead of silently advancing. current_node_key stays = nodeKey.
+  if (result.pauseReason !== undefined) {
+    await supabaseAdmin
+      .from('automation_runs')
+      .update({
+        status: 'paused',
+        current_node_key: nodeKey,
+        stop_reason: result.pauseReason,
+        wake_at: null,
+        context: mergedContext,
+      })
+      .eq('id', run.id);
+    return { status: 'paused', node: nodeKey };
   }
 
   // Global stop_conditions: any truthy predicate ends the run before advancing.

@@ -32,6 +32,7 @@ import tasksRoutes from './routes/tasks.js';
 import leadsRoutes from './routes/leads/index.js';
 import leadIntakeRoutes from './routes/leads/intake.js';
 import assetsRoutes from './routes/assets/index.js';
+import automationsRoutes from './routes/automations/index.js';
 import emailRepliesRoutes from './routes/email-replies.js';
 import plusvibeRoutes from './routes/plusvibe.js';
 import webhooksRoutes from './routes/webhooks.js';
@@ -254,6 +255,9 @@ app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
 app.use('/api/tasks', authMiddleware, tasksRoutes);
 app.use('/api/leads', authMiddleware, leadsRoutes);
 app.use('/api/assets', authMiddleware, assetsRoutes);
+// Automation run inspector (read-only). The runtime worker stays flag-gated OFF;
+// this only READS runs / actions / messages for the tenant (v3 Phase 5).
+app.use('/api/automations', authMiddleware, automationsRoutes);
 app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
 app.use('/api/plusvibe/import-replies', authMiddleware, plusvibeImportLimiter);
 app.use('/api/plusvibe', authMiddleware, dataFilter, plusvibeRoutes);

@@ -11,6 +11,7 @@ import {
   updateStageExecutor,
   createTaskExecutor,
 } from './crmActions.js';
+import { emailExecutor } from './emailNode.js';
 import { stubExecutors } from './stubs.js';
 
 const registry: Record<string, NodeExecutor> = {};
@@ -28,7 +29,9 @@ register(updateLifecycleExecutor);
 register(assignOwnerExecutor);
 register(updateStageExecutor);
 register(createTaskExecutor);
-// send-capable — skipped stubs until each is wired (email = C3)
+// send-capable — email is a REAL executor (C3, dry-run by default); the rest are
+// skipped stubs until each is wired.
+register(emailExecutor);
 for (const stub of stubExecutors) register(stub);
 
 // Exhaustiveness guard (§26): EVERY NodeType in the union must have a registered
