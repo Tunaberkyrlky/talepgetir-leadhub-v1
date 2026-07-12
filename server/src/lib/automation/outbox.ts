@@ -78,13 +78,50 @@ export interface ClaimedEvent {
 }
 
 /**
- * SKELETON — Phase 5 C2. The real implementation will atomically claim the oldest
- * queued events (FOR UPDATE SKIP LOCKED via a service-role RPC), stamp status
- * 'claimed'/claimed_at, and return them for processing. It is NOT called anywhere
- * in this round (no consumer runs); it returns an empty batch so an accidental
- * wire-up is inert rather than a crash.
+ * Atomically claim the oldest queued events (FOR UPDATE SKIP LOCKED via the
+ * automation_events_claim RPC, 126), stamping each status 'claimed'/claimed_at. The
+ * RPC body is the real claim; this is just its typed wrapper. CONSUMED ONLY by the
+ * flag-gated runtime (runtime.ts#runtimeTick) — with AUTOMATION_WORKER_ENABLED unset
+ * nothing calls this, so no night claim happens. Never throws: a claim error is
+ * logged and returns an empty batch so a tick is inert rather than crashing.
  */
-export async function claimBatch(_limit = 20): Promise<ClaimedEvent[]> {
-  // TODO(C2): atomic claim + status transition; no-op skeleton until then.
-  return [];
+export async function claimBatch(limit = 20): Promise<ClaimedEvent[]> {
+  try {
+    const { data, error } = await supabaseAdmin.rpc('automation_events_claim', {
+      p_limit: limit,
+    });
+    if (error) {
+      log.warn({ err: error }, 'claimBatch RPC failed');
+      return [];
+    }
+    return (data ?? []) as ClaimedEvent[];
+  } catch (err) {
+    log.warn({ err }, 'claimBatch threw');
+    return [];
+  }
+}
+
+/**
+ * Finalize a claimed event's lifecycle: 'processed' on success, 'failed' with a
+ * reason otherwise. Best-effort — a status write failure is logged, not thrown (the
+ * caller is a flag-gated tick and must never crash the process on a status blip).
+ */
+export async function markEvent(
+  eventId: string,
+  status: 'processed' | 'failed',
+  errorReason?: string,
+): Promise<void> {
+  try {
+    const patch: Record<string, unknown> =
+      status === 'processed'
+        ? { status, processed_at: new Date().toISOString() }
+        : { status, error_reason: errorReason ?? null };
+    const { error } = await supabaseAdmin
+      .from('automation_events_outbox')
+      .update(patch)
+      .eq('id', eventId);
+    if (error) log.warn({ err: error, eventId }, 'markEvent failed');
+  } catch (err) {
+    log.warn({ err, eventId }, 'markEvent threw');
+  }
 }

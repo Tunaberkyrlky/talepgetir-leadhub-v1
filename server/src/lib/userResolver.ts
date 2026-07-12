@@ -53,3 +53,31 @@ export function ownerDisplayName(user: ResolvedUser | null | undefined): string 
     const local = user.email.split('@')[0];
     return local || null;
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True iff `v` is a syntactically valid UUID string. Guards `.eq('...', v)` filters on
+ *  uuid columns from throwing 22P02 on malformed input. */
+export function isUuid(v: unknown): v is string {
+    return typeof v === 'string' && UUID_RE.test(v);
+}
+
+/**
+ * True iff `userId` is an ACTIVE member of `tenantId` (memberships.is_active). Shared by
+ * the tasks route (assertAssignableUser) and the automation executors (owner/assignee)
+ * so a UUID from any source is validated against the tenant's roster before it lands on
+ * a row — a cross-tenant or non-member user can never be made an owner/assignee.
+ * Fail-CLOSED: a malformed UUID or a query error returns false (never assigns).
+ */
+export async function isActiveMember(tenantId: string, userId: unknown): Promise<boolean> {
+    if (!isUuid(userId)) return false;
+    const { data, error } = await supabaseAdmin
+        .from('memberships')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .maybeSingle();
+    if (error) return false; // fail-closed: a transient error must not green-light an assignment
+    return !!data;
+}
