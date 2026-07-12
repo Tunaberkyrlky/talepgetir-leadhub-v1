@@ -108,6 +108,8 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const dateTo = typeof req.query.date_to === 'string' ? req.query.date_to : '';
         const completedFrom = typeof req.query.completed_from === 'string' ? req.query.completed_from : '';
         const overdue = req.query.overdue === 'true';
+        // Overdue sınırı için opsiyonel referans zaman; client tüm pencereleri tek 'now'dan türetir.
+        const asOf = typeof req.query.as_of === 'string' ? req.query.as_of : '';
 
         if (companyId) {
             if (!UUID_RE.test(companyId)) throw new AppError('Invalid company_id', 400);
@@ -147,7 +149,11 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             if (Number.isNaN(Date.parse(completedFrom))) throw new AppError('Invalid completed_from', 400);
             query = query.gte('completed_at', completedFrom);
         }
-        if (overdue) query = query.eq('status', 'pending').lt('due_at', new Date().toISOString());
+        if (asOf && Number.isNaN(Date.parse(asOf))) throw new AppError('Invalid as_of', 400);
+        if (overdue) {
+            const overdueRef = asOf || new Date().toISOString();
+            query = query.eq('status', 'pending').lt('due_at', overdueRef);
+        }
 
         const { data, count, error } = await query
             .order('due_at', { ascending: true })

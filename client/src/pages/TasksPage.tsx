@@ -82,6 +82,8 @@ function buildQueryParams(
     const params: Record<string, string> = {};
     if (tab === 'overdue') {
         params.overdue = 'true';
+        // Gecikme sınırını, bugün/yaklaşan pencereleriyle AYNI now'a bağla (server-now ile kaymayı önler).
+        params.as_of = now.toISOString();
     } else if (tab === 'today') {
         params.status = 'pending';
         params.date_from = now.toISOString();
