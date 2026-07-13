@@ -17,6 +17,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { validateBody, smtpConnectionSchema, uuidField } from '../lib/validation.js';
 import { listConnections, recordSmtpVerify, PUBLIC_COLUMNS } from '../lib/emailConnections.js';
+import { buildDeliverabilityHealth, type DeliverabilityHealthInput } from '../lib/mail/deliverabilityHealth.js';
 import { verifySmtp } from '../lib/mail/smtpAdapter.js';
 import { verifyImap } from '../lib/imapInbound.js';
 import { encrypt } from '../lib/encryption.js';
@@ -85,6 +86,30 @@ router.get('/status', async (req: Request, res: Response): Promise<void> => {
     } catch (err) {
         log.error({ err }, 'Connection status error');
         res.status(500).json({ error: 'Failed to check connection status' });
+    }
+});
+
+// GET /api/email-connections/health — READ-ONLY deliverability traffic-light per identity (D4)
+router.get('/health', async (req: Request, res: Response): Promise<void> => {
+    try {
+        // NB: NO .eq('is_active', true) here (unlike /status) — inactive boxes must
+        // still render, as RED. Reuses PUBLIC_COLUMNS (no secrets, no verify error).
+        const { data, error } = await supabaseAdmin
+            .from('email_connections')
+            .select(PUBLIC_COLUMNS)
+            .eq('tenant_id', req.tenantId!)
+            .order('is_default', { ascending: false })
+            .order('connected_at', { ascending: true });
+        // Supabase resolves (not throws) on a query error — surface it as a 500 rather than
+        // silently returning an empty, healthy-looking identity list.
+        if (error) throw error;
+
+        const rows = (data as unknown as DeliverabilityHealthInput[] | null) ?? [];
+        const identities = rows.map(buildDeliverabilityHealth);
+        res.json({ identities });
+    } catch (err) {
+        log.error({ err }, 'Deliverability health error');
+        res.status(500).json({ error: 'Failed to load deliverability health' });
     }
 });
 

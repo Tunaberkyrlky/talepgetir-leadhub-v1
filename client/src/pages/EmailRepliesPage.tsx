@@ -32,6 +32,7 @@ import type { CampaignsResponse } from '../types/plusvibe';
 import { useStages } from '../contexts/StagesContext';
 import { useAuth } from '../contexts/AuthContext';
 import EmailConnectionPanel from '../components/settings/EmailConnectionPanel';
+import DeliverabilityHealthPanel from '../components/settings/DeliverabilityHealthPanel';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -1316,7 +1317,10 @@ export default function EmailRepliesPage() {
                 radius="lg"
                 withCloseButton
             >
-                <EmailConnectionPanel />
+                <Stack gap="lg">
+                    <EmailConnectionPanel />
+                    <DeliverabilityHealthPanel />
+                </Stack>
             </Modal>
 
             {/* Attachment Library Modal */}

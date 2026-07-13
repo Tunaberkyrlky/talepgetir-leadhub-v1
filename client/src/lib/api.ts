@@ -23,7 +23,11 @@ api.interceptors.request.use((config) => {
     // to prevent a stale tenant from interfering with authentication or scoping.
     const isAuthEndpoint = config.url?.startsWith('/auth/');
     
-    if (activeTenantId && activeTenantId !== 'null' && !isAuthEndpoint) {
+    // Preserve an EXPLICITLY-supplied X-Tenant-Id: a React Query queryFn can pin the tenant it
+    // was keyed on (e.g. `headers: { 'X-Tenant-Id': queryKey[1] }`) so a refetch of a stale key
+    // after a tenant switch cannot cache another tenant's data under this key. Only fall back to
+    // the mutable localStorage tenant when the caller did not pin one.
+    if (activeTenantId && activeTenantId !== 'null' && !isAuthEndpoint && !config.headers['X-Tenant-Id']) {
         config.headers['X-Tenant-Id'] = activeTenantId;
     }
     return config;

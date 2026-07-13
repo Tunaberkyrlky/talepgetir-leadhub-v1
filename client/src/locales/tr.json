@@ -2444,5 +2444,32 @@
         "downloadButton": "XLSX İndir",
         "downloadSuccess": "Rapor başarıyla indirildi",
         "downloadError": "Rapor indirilemedi"
+    },
+    "deliverability": {
+        "title": "Teslim Edilebilirlik Sağlığı",
+        "description": "Bağlı gönderen kutularınızın durumunu tek bakışta görün. Bu panel yalnızca gösterir, değişiklik yapmaz.",
+        "emptyState": "Henüz bağlı gönderen kutusu yok.",
+        "loading": "Yükleniyor…",
+        "loadError": "Sağlık bilgisi yüklenemedi.",
+        "status": {
+            "green": "İyi",
+            "yellow": "Dikkat",
+            "red": "Sorunlu"
+        },
+        "reason": {
+            "active_recent": "Aktif ve yakın zamanda doğrulandı",
+            "stale_verify": "Doğrulama eskimiş",
+            "never_verified": "Henüz doğrulanmadı",
+            "verify_failed": "Son doğrulama başarısız",
+            "inactive": "Kutu pasif"
+        },
+        "dnsSpf": "SPF",
+        "dnsDkim": "DKIM",
+        "dnsDmarc": "DMARC",
+        "dns": {
+            "pass": "geçti",
+            "fail": "başarısız",
+            "unknown": "bilinmiyor"
+        }
     }
 }

@@ -2444,5 +2444,32 @@
         "downloadButton": "Download XLSX",
         "downloadSuccess": "Report downloaded successfully",
         "downloadError": "Failed to download report"
+    },
+    "deliverability": {
+        "title": "Deliverability Health",
+        "description": "See the status of your connected sending mailboxes at a glance. This panel only displays, it makes no changes.",
+        "emptyState": "No connected sending mailbox yet.",
+        "loading": "Loading…",
+        "loadError": "Could not load health info.",
+        "status": {
+            "green": "Healthy",
+            "yellow": "Attention",
+            "red": "Problem"
+        },
+        "reason": {
+            "active_recent": "Active and recently verified",
+            "stale_verify": "Verification is stale",
+            "never_verified": "Not verified yet",
+            "verify_failed": "Last verification failed",
+            "inactive": "Mailbox inactive"
+        },
+        "dnsSpf": "SPF",
+        "dnsDkim": "DKIM",
+        "dnsDmarc": "DMARC",
+        "dns": {
+            "pass": "pass",
+            "fail": "fail",
+            "unknown": "unknown"
+        }
     }
 }
