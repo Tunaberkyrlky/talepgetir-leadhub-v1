@@ -31,6 +31,7 @@ import api from '../../lib/api';
 import { showError, showErrorFromApi } from '../../lib/notifications';
 import { useAuth } from '../../contexts/AuthContext';
 import WizardShell from '../../components/research/WizardShell';
+import AiWaitScreen from '../../components/research/AiWaitScreen';
 import IcpCard, { type ResearchIcp } from '../../components/research/IcpCard';
 import IcpCountryChips from '../../components/research/IcpCountryChips';
 import { GeoCellDetail, type GeoCell } from '../../components/research/GeoCellDetail';
@@ -92,7 +93,7 @@ interface HsCodeRow {
 }
 
 const JOB_RUNNING = (s?: string) => s === 'queued' || s === 'running';
-const CRAWL_STAGES = ['crawling_website', 'crawling_social', 'summarizing'] as const;
+const CRAWL_STAGES = ['loading', 'crawling_website', 'crawling_social', 'summarizing', 'persisting'] as const;
 // Mirrors icp:generate's worker heartbeat stages (icpGenerate.ts) — narrated live in step 7,
 // same pattern as CRAWL_STAGES for step 2. No server-side heartbeats invented beyond these.
 const ICP_GEN_STAGES = ['loading', 'generating', 'persisting'] as const;
@@ -433,7 +434,6 @@ export default function ResearchFlowPage() {
     // flow_state.calibration_icp_id.
     const [calibIcpId, setCalibIcpId] = useState<string | null>(null);
     const [calibFeedbackRequested, setCalibFeedbackRequested] = useState(false);
-    const [calibReviseRequested, setCalibReviseRequested] = useState(false);
     const [calibApplyRequested, setCalibApplyRequested] = useState(false);
     const [calibMarkRequested, setCalibMarkRequested] = useState(false);
     // WP8b P1 fix (codex xhigh review, generalized round 4): a run-token for EVERY navigation
@@ -474,6 +474,20 @@ export default function ResearchFlowPage() {
     // Step 16 (one offer card at a time, WP9) — persisted cursor (flow_state.offer_card_index),
     // same shape as icpCardIndex/geoCardIndex.
     const [offerCardIndex, setOfferCardIndex] = useState(0);
+
+    // Purely a rendering signal for OfferCard's own mount-entrance animation (never read by any
+    // mutation/job-polling/state-machine logic below): WizardShell's Paper is keyed by `step`, so
+    // it only remounts (and fades the whole card in) when `step` itself changes — paging between
+    // offer cards within step 16 changes offerCardIndex, not step, so WizardShell does NOT
+    // re-animate then. usePrevious-style ref: on the render where step first becomes 16 (arriving
+    // from 15), this still holds the OLD step value, so OfferCard is told to skip its own
+    // entrance (WizardShell's fade is the only animation); on every later re-render within the
+    // same step-16 visit it already holds 16, so OfferCard's own per-card entrance plays as the
+    // sole animation for that page-in.
+    const prevStepForOfferAnimRef = useRef<number | null>(null);
+    useEffect(() => {
+        prevStepForOfferAnimRef.current = step;
+    });
 
     // Step 17 (scale & credit screen, WP9) — local mirror of research_projects.scale_target;
     // '' = "no target, run until fully covered / out of credit" (the server column is nullable).
@@ -562,7 +576,6 @@ export default function ResearchFlowPage() {
         setCalibrationCompanyIndex(0);
         setCalibIcpId(null);
         setCalibFeedbackRequested(false);
-        setCalibReviseRequested(false);
         setCalibApplyRequested(false);
         setCalibMarkRequested(false);
         setOfferGenJobId(null);
@@ -1035,6 +1048,14 @@ export default function ResearchFlowPage() {
         if (hsMatchSuccessBaselineRef.current === null || hsQuery.dataUpdatedAt <= hsMatchSuccessBaselineRef.current) return;
         if (hsRows.length > 0) return;
         if (hsMatchZeroKey) localStorage.setItem(hsMatchZeroKey, '1');
+        // Review fix (BUG 3 medium): this is a genuinely fresh landing on step 23 driven by a
+        // hs:match run that just completed — a PRIOR market:analyze success recorded in
+        // localStorage from an earlier visit (before the user went back and re-ran matching)
+        // must not silently skip analysis of whatever is approved now. `retryMarketAnalyze` is
+        // declared further down in this same component body but already initialized by the time
+        // this effect callback actually runs (effects fire after the full render completes), so
+        // referencing it here is safe.
+        retryMarketAnalyze();
         saveStepMut.mutate({ patch: {}, nextStep: 23, gate: 'step22' });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [step, hsMatchJobStatus, hsQuery.dataUpdatedAt, hsRows.length, explicitBackToStep22]);
@@ -1070,6 +1091,17 @@ export default function ResearchFlowPage() {
     });
     const marketAnalyzeJobStatus = marketAnalyzeJobQuery.data?.status;
 
+    // BUG 3 fix — same class of gap as hsMatchZeroKey above: a successful market:analyze run was
+    // otherwise only tracked via session-local React state (marketAnalyzeJobId/Requested), which
+    // resets on remount. A reload landing in the narrow window between this job reaching
+    // 'succeeded' and its step-23->7 PATCH landing would find `marketAnalyzeJobId` back at null
+    // and `marketAnalyzeRequested` back at false, and the auto-start effect below would fire a
+    // SECOND full, paid Comtrade run against the same approved HS codes. localStorage survives a
+    // same-tab reload; the flag is set the instant success is observed, mirroring hsMatchZeroKey's
+    // own persisted-completion pattern exactly (same key shape, same read/set/clear sites).
+    const marketAnalyzeDoneKey = projectId ? `research.marketAnalyzeDone.${projectId}` : null;
+    const marketAnalyzeDonePersisted = marketAnalyzeDoneKey ? localStorage.getItem(marketAnalyzeDoneKey) === '1' : false;
+
     // Auto-skip step 23 entirely when there is nothing approved to analyze — market:analyze
     // itself 409s with zero approved codes, so this must be checked BEFORE ever enqueuing.
     // Mirrors step 22's own zero-candidate skip, one hop later; `hsQuery` is already loaded by
@@ -1081,27 +1113,69 @@ export default function ResearchFlowPage() {
     }, [step, hsQuery.isSuccess, hsApprovedCount, explicitBackToStep23]);
 
     // Auto-start market:analyze once, when we land on step 23 with >=1 approved code and no run
-    // in flight yet this session (the skip effect above owns the zero-approved case).
+    // in flight yet this session (the skip effect above owns the zero-approved case). BUG 3 fix:
+    // also gated on `marketAnalyzeDonePersisted` — a reload after a completed run must resume
+    // straight through (the completion effect below re-fires its PATCH), never re-enqueue.
     useEffect(() => {
         if (step !== 23 || !projectId) return;
         if (!hsQuery.isSuccess || hsApprovedCount === 0) return;
+        if (marketAnalyzeDonePersisted) return;
         if (marketAnalyzeRequested) return;
         setMarketAnalyzeRequested(true);
         marketAnalyzeMut.mutate();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [step, projectId, hsQuery.isSuccess, hsApprovedCount, marketAnalyzeRequested]);
+    }, [step, projectId, hsQuery.isSuccess, hsApprovedCount, marketAnalyzeRequested, marketAnalyzeDonePersisted]);
 
     // Once market:analyze succeeds, advance to step 7 — same "job succeeded, no list to wait
     // for" shape as step 9's batch geo:analyze completion. A failure stays on step 23 and shows
     // the same Alert+retry pattern every other wait screen in this file uses (see the step 23
-    // JSX below) rather than silently swallowing the error and advancing anyway.
+    // JSX below) rather than silently swallowing the error and advancing anyway. BUG 3 fix: the
+    // persisted flag is set HERE, the instant success is observed — before the PATCH even fires —
+    // same ordering as hsMatchZeroKey's own set-then-mutate above, so a reload racing this exact
+    // effect still lands on a client that already knows the run completed.
+    //
+    // P1 follow-up fix: also fire from `marketAnalyzeDonePersisted` alone (not only a live
+    // `marketAnalyzeJobStatus === 'succeeded'` transition). A reload that lands after the flag
+    // was set but before this PATCH landed resets `marketAnalyzeJobId`/`marketAnalyzeJobStatus`
+    // to null (plain React state, no server hydration) and the auto-start effect above is the
+    // ONLY thing that would ever repopulate them — but that effect is itself suppressed by the
+    // same persisted flag, so `marketAnalyzeJobStatus` could otherwise never become 'succeeded'
+    // again and this effect would never re-fire, stranding the user on step 23 with no error and
+    // no reachable retry (retry is gated on an actual failure, which never happens here either).
+    //
+    // Review fix: `marketAnalyzeDonePersisted` is re-derived from localStorage on every render
+    // (not a ref), so calling `saveStepMut.mutate()` below flips `saveStepMut.isPending`, which
+    // re-renders this component and recomputes the dependency as unchanged-but-now-true only
+    // AFTER the flag write above already ran once — that re-render alone was enough to re-run
+    // this effect and fire a second overlapping PATCH. Gate on `saveStepMut.isPending` the same
+    // way step 2's crawl-success effect gates on `fetchDraftMut.isPending` above. Also suppressed
+    // by `explicitBackToStep23` (same one-shot latch the zero-approved skip effect above already
+    // honors): without it, clicking Back from step 7 lands on 23 for a single frame and this
+    // effect immediately PATCHes right back to 7, making that Back button unreachable.
+    //
+    // Finding 1 fix (review): `saveStepMut.isPending` going true->false on a FAILED PATCH (network
+    // blip, 409 gate conflict, server error) also re-runs this effect — and since the success
+    // conditions above are still true and `step` is still 23 (the failed PATCH never advanced it),
+    // the effect immediately re-fired the same `mutate()` call with no isError guard, looping
+    // forever with repeated error toasts and no escape short of leaving the step. Mirrors step 2's
+    // own crawl-success effect above, which gates on `fetchDraftMut.isPending || fetchDraftMut.isError`
+    // for the identical reason — `saveStepMut.isError` is safe to gate on here specifically because
+    // `step` can only ever BECOME 23 via a saveStepMut PATCH that already succeeded (onSuccess sets
+    // `step` from the server response), so arriving on this screen always starts with isError false;
+    // it only flips true from a failure of THIS effect's own PATCH, never a stale unrelated one. The
+    // step 23 JSX below now surfaces that failure (`stepPatchFailed`) with its own retry button that
+    // calls `saveStepMut.mutate()` directly, which resets `isError` immediately on the new attempt.
     useEffect(() => {
-        if (step !== 23 || marketAnalyzeJobStatus !== 'succeeded') return;
+        if (step !== 23 || explicitBackToStep23) return;
+        if (saveStepMut.isPending || saveStepMut.isError) return; // in flight, or user must retry explicitly
+        if (marketAnalyzeJobStatus !== 'succeeded' && !marketAnalyzeDonePersisted) return;
+        if (marketAnalyzeDoneKey && !marketAnalyzeDonePersisted) localStorage.setItem(marketAnalyzeDoneKey, '1');
         saveStepMut.mutate({ patch: {}, nextStep: 7, gate: 'step23' });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [step, marketAnalyzeJobStatus]);
+    }, [step, marketAnalyzeJobStatus, marketAnalyzeDonePersisted, explicitBackToStep23, saveStepMut.isPending, saveStepMut.isError]);
 
     const retryMarketAnalyze = () => {
+        if (marketAnalyzeDoneKey) localStorage.removeItem(marketAnalyzeDoneKey);
         setMarketAnalyzeJobId(null);
         setMarketAnalyzeRequested(false);
         marketAnalyzeMut.reset();
@@ -1625,20 +1699,17 @@ export default function ResearchFlowPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [calibFeedbackRequested, calib.feedbackMut.isSuccess]);
 
-    // Auto-fire the revision proposal once per arrival with no existing draft — mirrors the
-    // icp:generate/geo:analyze auto-START effects (not a step-mover itself). Skips firing if a
-    // revision_draft ALREADY exists (resumed, or a previous auto-fire already succeeded) so
-    // going back to step 12 to add more ratings and returning doesn't blow away an existing
-    // proposal the user hasn't reviewed yet — the step 13 render also keeps a manual "Propose
-    // revision" button (same as the Drawer) so the user can explicitly regenerate it either way.
-    useEffect(() => {
-        if (step !== 13 || !calibIcp || calibReviseRequested) return;
-        if (calib.revision) return; // already have a draft — don't blow it away automatically
-        if (calib.savedCount === 0) return; // wait for feedback to actually be persisted
-        setCalibReviseRequested(true);
-        calib.reviseMut.mutate();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [step, calibIcp, calibReviseRequested, calib.revision, calib.savedCount]);
+    // BUG 2 fix (product directive): revision generation is now something the human explicitly
+    // REQUESTS (the step 13 render's "Propose revision" button, still calling `proposeAgain` ->
+    // `calib.reviseMut.mutate()`), never an automatic consequence of landing on step 13 with
+    // feedback saved. The auto-fire effect that used to live here bumped `revision_job_id` the
+    // instant feedback was persisted — which then made mark-calibrated 409 ("apply or regenerate
+    // the pending revision first", the server's own codex #5 rule in icps.ts) for every customer
+    // who just wanted to close the loop as-is, forcing them through apply-revision, which reverts
+    // approved->draft and bumps ruleset_version (062 trigger), invalidating the very feedback that
+    // got them here and forcing a real, paid resample — a live-confirmed infinite loop (zero ICPs
+    // in the whole isolated DB ever reached calibration_state='calibrated'). See step 13's render
+    // below for the new direct "Mark calibrated" action this fix pairs with.
 
     // Advance 13 -> 14 once Apply succeeds. Same one-shot-request shape as the 12 -> 13
     // transition above — `calibApplyRequested` is only ever set true by the explicit "Uygula"
@@ -1661,22 +1732,36 @@ export default function ResearchFlowPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [calibApplyRequested, calib.applyMut.isSuccess]);
 
-    // Advance 14 -> 15 once "Mantığı onayla" (mark-calibrated) succeeds. Same one-shot-request
-    // shape again. CORRECTED (P1 fix, codex xhigh review): identical race as the 13->14
-    // transition above — step 14's onBack (and its "Sample again"/restartCalibLoop) have no
-    // isPending guard against markMut, so `calibMarkRequested` can still be armed when the user
-    // navigates away while mark is pending, and this effect would otherwise fire regardless once
-    // markMut succeeds. Step 14's onBack and restartCalibLoop below now both clear
-    // `calibMarkRequested` (restartCalibLoop was missing this reset entirely) and stamp/bump
-    // calibStepTokenRef so neither a not-yet-fired nor an already-in-flight saveStepMut(nextStep:
-    // 15) PATCH can move `step` forward after the user leaves step 14 (P1 fix, see
-    // calibStepTokenRef's own doc comment).
+    // Advance to step 15 once mark-calibrated succeeds. Same one-shot-request shape again.
+    // CORRECTED (P1 fix, codex xhigh review): identical race as the 13->14 transition above —
+    // step 14's onBack (and its "Sample again"/restartCalibLoop) have no isPending guard against
+    // markMut, so `calibMarkRequested` can still be armed when the user navigates away while mark
+    // is pending, and this effect would otherwise fire regardless once markMut succeeds. Step
+    // 14's onBack and restartCalibLoop below now both clear `calibMarkRequested` (restartCalibLoop
+    // was missing this reset entirely) and stamp/bump calibStepTokenRef so neither a not-yet-fired
+    // nor an already-in-flight saveStepMut(nextStep:15) PATCH can move `step` forward after the
+    // user leaves step 14 (P1 fix, see calibStepTokenRef's own doc comment). BUG 2 fix: this
+    // effect isn't gated on a specific `step` value, so it now ALSO drives the new direct-from-
+    // step-13 "Approve the logic" action (see step 13's own `markDirectly` above, and its onBack,
+    // which clears the same latch for the identical reason) — one transition, two entry points.
     useEffect(() => {
         if (!calibMarkRequested || !calib.markMut.isSuccess) return;
         setCalibMarkRequested(false);
         saveStepMut.mutate({ patch: {}, nextStep: 15, gate: 'step14', calibStepToken: calibStepTokenRef.current });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [calibMarkRequested, calib.markMut.isSuccess]);
+
+    // P2 fix (review, finding 2): markMut's own onError (useCalibration.ts) has no way to reach
+    // back into this component's state, so a FAILED "Approve the logic" click left
+    // `calibMarkRequested` stuck true forever (it's only ever cleared on markMut SUCCESS, on
+    // step 13/14's onBack, on restartCalibLoop, or a full wizard reset) — stranding the
+    // Propose-revision button (disabled includes `calibMarkRequested`) disabled with no direct
+    // path back short of leaving the step. Clear it the instant markMut errors, mirroring every
+    // other one-shot latch in this file.
+    useEffect(() => {
+        if (!calibMarkRequested || !calib.markMut.isError) return;
+        setCalibMarkRequested(false);
+    }, [calibMarkRequested, calib.markMut.isError]);
 
     // "Tekrar örnekle" (step 14 -> 11): reset every per-loop one-shot flag so a NEW sample/rate/
     // revise round can run, and suppress step 11's own "companies already exist -> advance"
@@ -1685,7 +1770,6 @@ export default function ResearchFlowPage() {
     // being bounced straight back to step 12 on the OLD companies list.
     const restartCalibLoop = () => {
         setCalibSampleRequested(false);
-        setCalibReviseRequested(false);
         setCalibFeedbackRequested(false);
         setCalibApplyRequested(false);
         // P1 fix (codex xhigh review): was missing entirely — "Sample again" is clickable from
@@ -2138,14 +2222,15 @@ export default function ResearchFlowPage() {
                             <Button onClick={() => fetchDraftMut.mutate()}>{t('research.wizard.step2.retry', 'Try again')}</Button>
                         </>
                     ) : (
-                        <>
-                            <Loader />
-                            <Text c="dimmed" size="sm">
-                                {crawlWasSkipped
+                        <AiWaitScreen
+                            stages={CRAWL_STAGES.map((k) => ({ key: k, label: t(`research.wizard.step2.stage.${k}`, k) }))}
+                            activeKey={crawlWasSkipped ? null : stage}
+                            label={
+                                crawlWasSkipped
                                     ? t('research.wizard.step2.inputChanged', 'Your details changed — researching again…')
-                                    : t(`research.wizard.step2.stage.${stageKey}`, 'Getting ready…')}
-                            </Text>
-                        </>
+                                    : t(`research.wizard.step2.stage.${stageKey}`, 'Getting ready…')
+                            }
+                        />
                     )}
                 </Stack>
             </WizardShell>
@@ -2380,7 +2465,15 @@ export default function ResearchFlowPage() {
                 }}
                 primaryLabel={hsMatchLoading ? undefined : t('research.wizard.next', 'Next')}
                 primaryLoading={saveStepMut.isPending}
-                onPrimary={hsMatchLoading ? undefined : () => saveStepMut.mutate({ patch: {}, nextStep: 23, gate: 'step22' })}
+                // Review fix (BUG 3 medium): same reasoning as the auto zero-candidate path
+                // above — a manual "Next" here is the user acting on whatever is approved RIGHT
+                // NOW, which may include codes added since an earlier market:analyze already
+                // succeeded and set the persisted-done flag. Reset that state first so step 23
+                // actually re-runs analysis instead of silently PATCHing straight through to 7.
+                onPrimary={hsMatchLoading ? undefined : () => {
+                    retryMarketAnalyze();
+                    saveStepMut.mutate({ patch: {}, nextStep: 23, gate: 'step22' });
+                }}
             >
                 {hsMatchFailed ? (
                     <Stack align="center" gap="md" py="lg">
@@ -2390,12 +2483,11 @@ export default function ResearchFlowPage() {
                         <Button onClick={retryHsMatch}>{t('research.wizard.step2.retry', 'Try again')}</Button>
                     </Stack>
                 ) : hsMatchLoading ? (
-                    <Stack align="center" gap="md" py="lg">
-                        <Loader />
-                        <Text c="dimmed" size="sm">
-                            {t(`research.wizard.step22.stage.${hsMatchStageKey}`, 'Matching your products to trade codes…')}
-                        </Text>
-                    </Stack>
+                    <AiWaitScreen
+                        stages={HS_MATCH_STAGES.map((k) => ({ key: k, label: t(`research.wizard.step22.stage.${k}`, k) }))}
+                        activeKey={hsMatchStage}
+                        label={t(`research.wizard.step22.stage.${hsMatchStageKey}`, 'Matching your products to trade codes…')}
+                    />
                 ) : (
                     <HsCodeCandidates candidates={hsCandidates} onChanged={() => hsQuery.refetch()} />
                 )}
@@ -2408,6 +2500,20 @@ export default function ResearchFlowPage() {
     // pattern invented, only auto-skipped (via the effects above) when nothing was approved.
     if (step === 23) {
         const marketAnalyzeFailed = marketAnalyzeMut.isError || marketAnalyzeJobStatus === 'failed' || marketAnalyzeJobStatus === 'canceled';
+        // Distinct from marketAnalyzeFailed: the market:analyze job itself succeeded, but the
+        // step23->7 completion PATCH failed (network blip, 409 gate conflict, server error) — the
+        // effect above now bails on `saveStepMut.isError` instead of looping the same failed
+        // mutate forever (finding 1 fix). Retrying here re-fires ONLY that PATCH, never the paid
+        // Comtrade run — same "distinct failure, distinct retry" shape as step 2's own
+        // `draftFetchFailed` above.
+        const stepPatchFailed = !marketAnalyzeFailed && saveStepMut.isError;
+        // P3 fix (review): this same `saveStepMut.isError` flag is ALSO set by the zero-approved-
+        // codes auto-skip effect above (fires an identical-shaped step23->7 PATCH when
+        // `hsApprovedCount === 0`, where no market:analyze job ever runs at all). Without this
+        // distinction the alert always claimed "the analysis finished", which is simply false for
+        // the auto-skip case — wording only, the retry button below does the correct thing
+        // (re-fires the same step23->7 PATCH) regardless of which path failed.
+        const zeroApprovedAutoSkip = hsApprovedCount === 0;
         const marketAnalyzeStage = typeof marketAnalyzeJobQuery.data?.progress?.stage === 'string' ? marketAnalyzeJobQuery.data.progress.stage : null;
         const marketAnalyzeStageKey = marketAnalyzeStage && (MARKET_ANALYZE_STAGES as readonly string[]).includes(marketAnalyzeStage) ? marketAnalyzeStage : 'default';
         return (
@@ -2428,13 +2534,23 @@ export default function ResearchFlowPage() {
                             </Alert>
                             <Button onClick={retryMarketAnalyze}>{t('research.wizard.step2.retry', 'Try again')}</Button>
                         </>
-                    ) : (
+                    ) : stepPatchFailed ? (
                         <>
-                            <Loader />
-                            <Text c="dimmed" size="sm">
-                                {t(`research.wizard.step23.stage.${marketAnalyzeStageKey}`, 'Checking UN Comtrade for the biggest importers…')}
-                            </Text>
+                            <Alert color="red" icon={<IconInfoCircle size={18} />} w="100%">
+                                {zeroApprovedAutoSkip
+                                    ? t('research.wizard.step23.patchFailedSkip', 'We could not move to the next step.')
+                                    : t('research.wizard.step23.patchFailed', 'The analysis finished, but we could not move to the next step.')}
+                            </Alert>
+                            <Button onClick={() => saveStepMut.mutate({ patch: {}, nextStep: 7, gate: 'step23' })}>
+                                {t('research.wizard.step2.retry', 'Try again')}
+                            </Button>
                         </>
+                    ) : (
+                        <AiWaitScreen
+                            stages={MARKET_ANALYZE_STAGES.map((k) => ({ key: k, label: t(`research.wizard.step23.stage.${k}`, k) }))}
+                            activeKey={marketAnalyzeStage}
+                            label={t(`research.wizard.step23.stage.${marketAnalyzeStageKey}`, 'Checking UN Comtrade for the biggest importers…')}
+                        />
                     )}
                 </Stack>
             </WizardShell>
@@ -2465,12 +2581,11 @@ export default function ResearchFlowPage() {
                             <Button onClick={retryIcpGen}>{t('research.wizard.step2.retry', 'Try again')}</Button>
                         </>
                     ) : (
-                        <>
-                            <Loader />
-                            <Text c="dimmed" size="sm">
-                                {t(`research.wizard.step7.stage.${icpGenStageKey}`, 'Working on it…')}
-                            </Text>
-                        </>
+                        <AiWaitScreen
+                            stages={ICP_GEN_STAGES.map((k) => ({ key: k, label: t(`research.wizard.step7.stage.${k}`, k) }))}
+                            activeKey={icpGenStage}
+                            label={t(`research.wizard.step7.stage.${icpGenStageKey}`, 'Working on it…')}
+                        />
                     )}
                 </Stack>
             </WizardShell>
@@ -2517,17 +2632,34 @@ export default function ResearchFlowPage() {
                 totalSteps={KNOWN_STEPS}
                 title={t('research.wizard.step8.title', 'Review your sub-ICP profiles')}
                 subtitle={t('research.wizard.cardOf', '{{current}} / {{total}}', { current: icpClampedIndex + 1, total: icps.length })}
-                onBack={back}
+                // BUG 1 fix: this screen had no pending-guard at all, unlike every other
+                // carousel step in this file (steps 10/12 below) — a double-click (or a Back
+                // click while a PATCH from an earlier Next click is still in flight) could fire
+                // a second, overlapping saveStepMut call whose stale onSuccess (unconditional
+                // here — this screen carries no calibStepToken) could snap `icpCardIndex`/`step`
+                // back forward out from under a Back click already applied, transiently
+                // resurrecting the previous card's screen state alongside the new one. Disabling
+                // both nav actions for the exact duration of the in-flight PATCH removes the
+                // overlap window entirely — same discipline step 12 already applies.
+                onBack={saveStepMut.isPending ? undefined : back}
                 primaryLabel={t('research.wizard.next', 'Next')}
                 primaryLoading={saveStepMut.isPending}
+                primaryDisabled={saveStepMut.isPending}
                 onPrimary={advance}
             >
                 <Stack gap="md">
                     {/* Keyed by icp.id: IcpCard seeds its own draft state from the `icp` prop only
                         at mount, so switching cards without a remount would keep showing the
-                        previous card's data. */}
+                        previous card's data. IcpCountryChips gets its OWN distinct key (prefixed,
+                        not the same literal `currentIcp.id`) — two sibling elements sharing one
+                        key confuses React's reconciliation and can leave the previous IcpCard
+                        mounted alongside the new one instead of replacing it. IcpCountryChips
+                        itself doesn't strictly need identity-based remounting (its react-query
+                        queryKey already includes icpId, so its data refetches correctly either
+                        way), but remounting also resets its local "add country" text input when
+                        switching ICPs, which is the right UX. */}
                     <IcpCard key={currentIcp.id} icp={currentIcp} />
-                    <IcpCountryChips key={currentIcp.id} icpId={currentIcp.id} />
+                    <IcpCountryChips key={`chips-${currentIcp.id}`} icpId={currentIcp.id} />
                 </Stack>
             </WizardShell>
         );
@@ -2548,14 +2680,13 @@ export default function ResearchFlowPage() {
                             <Button onClick={retryBatchAnalyze}>{t('research.wizard.step2.retry', 'Try again')}</Button>
                         </>
                     ) : (
-                        <>
-                            <Loader />
-                            <Text c="dimmed" size="sm">
-                                {total > 0
+                        <AiWaitScreen
+                            label={
+                                total > 0
                                     ? t('research.wizard.step9.progress', '{{done}} / {{total}} countries analyzed', { done: geoAnalyzeDoneCount, total })
-                                    : t('research.wizard.step9.starting', 'Starting analysis…')}
-                            </Text>
-                        </>
+                                    : t('research.wizard.step9.starting', 'Starting analysis…')
+                            }
+                        />
                     )}
                 </Stack>
             </WizardShell>
@@ -2587,7 +2718,9 @@ export default function ResearchFlowPage() {
                     step={displayStep(10)}
                     totalSteps={KNOWN_STEPS}
                     title={t('research.wizard.step10.title', 'Review each country')}
-                    onBack={() => {
+                    // Review fix (BUG 1, remaining branch) — same pending-guard gap and fix as the
+                    // populated-carousel branch below.
+                    onBack={saveStepMut.isPending ? undefined : () => {
                         // Same latch this screen's OWN existence depends on (review P1 follow-
                         // up): without setting it here too, step 9's auto-advance effect would
                         // immediately bounce this Back click straight back to this same screen.
@@ -2595,6 +2728,8 @@ export default function ResearchFlowPage() {
                         setStep(9);
                     }}
                     primaryLabel={t('research.wizard.next', 'Next')}
+                    primaryLoading={saveStepMut.isPending}
+                    primaryDisabled={saveStepMut.isPending}
                     onPrimary={() => saveStepMut.mutate({ patch: {}, nextStep: 11, gate: 'step10', geoCardIndexOverride: 0 })}
                 >
                     <Text size="sm" c="dimmed">
@@ -2630,9 +2765,11 @@ export default function ResearchFlowPage() {
                 totalSteps={KNOWN_STEPS}
                 title={t('research.wizard.step10.title', 'Review each country')}
                 subtitle={t('research.wizard.cardOf', '{{current}} / {{total}}', { current: geoClampedIndex + 1, total: allGeoCells.length })}
-                onBack={back}
+                // BUG 1 fix — same pending-guard gap and fix as step 8's carousel above.
+                onBack={saveStepMut.isPending ? undefined : back}
                 primaryLabel={t('research.wizard.next', 'Next')}
                 primaryLoading={saveStepMut.isPending}
+                primaryDisabled={saveStepMut.isPending}
                 onPrimary={advance}
             >
                 <GeoCellDetail
@@ -2761,13 +2898,10 @@ export default function ResearchFlowPage() {
                             <Button onClick={retryCalibSample}>{t('research.wizard.step2.retry', 'Try again')}</Button>
                         </>
                     ) : calib.anyRunning ? (
-                        <Group gap="xs">
-                            <Loader size="sm" />
-                            <Text size="sm" c="dimmed">
-                                {t('research.calibration.sampling', 'Sample running…')}
-                                {calib.jobQuery.data?.progress?.stage ? ` (${String(calib.jobQuery.data.progress.stage)})` : ''}
-                            </Text>
-                        </Group>
+                        <AiWaitScreen
+                            inline
+                            label={`${t('research.calibration.sampling', 'Sample running…')}${calib.jobQuery.data?.progress?.stage ? ` (${String(calib.jobQuery.data.progress.stage)})` : ''}`}
+                        />
                     ) : (
                         <Button
                             leftSection={<IconPlayerPlay size={16} />}
@@ -3038,9 +3172,37 @@ export default function ResearchFlowPage() {
         // original 409's `isError` was still sitting there true.
         const reviseFailed = calib.job?.kind === 'revise' && calib.jobStatus === 'failed';
         const proposeAgain = () => {
-            setCalibReviseRequested(true);
             calib.reviseMut.mutate();
         };
+        // BUG 2 fix — direct exit from the calibration loop (product directive): mark-calibrated
+        // is reachable HERE, right after rating, without ever going through apply-revision. The
+        // server's own gate (icps.ts POST /:id/mark-calibrated) already allows this — status
+        // approved (still true: feedback alone never changes it), >=1 saved rating at the CURRENT
+        // ruleset (guaranteed by the 12->13 transition itself, which only fires once feedbackMut
+        // succeeds), and no pending unreviewed proposal. That last condition is the only way this
+        // button can be legitimately disabled here: if the human explicitly requested a revision
+        // (the "Propose revision" button below) and it's back with a draft, the server correctly
+        // refuses "calibrated with an unreviewed revision outstanding" — the human either applies
+        // it (Apply -> step 14) or regenerates it again; nothing here forces that choice.
+        // Review fix (BUG 2 race): also require `!calib.reviseRunning` (covers both
+        // `reviseMut.isPending` and the job still running server-side) — without it, clicking
+        // "Propose revision" then immediately "Approve the logic" races the two mutations before
+        // `revision_job_id` comes back and is reflected in `live`, wasting a paid revision job.
+        const canMarkDirectly = live.status === 'approved' && calib.savedCount > 0 && !live.revision_job_id && !calib.reviseRunning;
+        const markDirectly = () => {
+            setCalibMarkRequested(true);
+            calib.markMut.mutate();
+        };
+        // P1 fix (review, finding 2 continued): the previous guard (`calibMarkRequested ||
+        // saveStepMut.isPending`) only covered the mark-calibrated request WHILE its follow-up
+        // step13->15 PATCH was in flight. If that PATCH fails, `saveStepMut.isPending` flips back
+        // to false, `calibMarkRequested` was already cleared the instant markMut succeeded, and
+        // `markMut.isPending` is also false (it succeeded) — every term in the old disabled
+        // condition goes false while `step` is still stuck at 13, re-enabling Propose-revision
+        // against an ICP the server has ALREADY marked calibrated. `markMut.isSuccess` stays true
+        // until a NEW markMut.mutate() call (never called again from this screen once marked), so
+        // gating on it closes the window permanently instead of only during the PATCH's flight.
+        const markPatchFailed = calib.markMut.isSuccess && saveStepMut.isError;
 
         return (
             <WizardShell
@@ -3056,8 +3218,12 @@ export default function ResearchFlowPage() {
                     // and bump calibStepTokenRef so an ALREADY-in-flight saveStepMut(nextStep:14)
                     // PATCH (fired a moment before this click) can't move `step` forward either
                     // once it resolves (see calibStepTokenRef's own doc comment, and the 13->14
-                    // effect's own trace above).
+                    // effect's own trace above). BUG 2 fix: this screen can now ALSO fire markMut
+                    // directly (see `markDirectly` above) — clear that latch here too, for the
+                    // exact same reason (the shared 14->15 advance effect below has no step check
+                    // and no isPending guard of its own against a Back click mid-flight).
                     setCalibApplyRequested(false);
+                    setCalibMarkRequested(false);
                     calibStepTokenRef.current += 1;
                     setStep(12);
                 }}
@@ -3069,8 +3235,45 @@ export default function ResearchFlowPage() {
                     setCalibApplyRequested(true);
                     calib.applyMut.mutate({ rulesetVersion: live.ruleset_version, revisionJobId: live.revision_job_id });
                 }}
+                secondaryActions={
+                    <Button
+                        variant="light"
+                        color="teal"
+                        leftSection={<IconChecks size={16} />}
+                        loading={calib.markMut.isPending}
+                        disabled={!canMarkDirectly}
+                        onClick={markDirectly}
+                    >
+                        {t('research.calibration.markCalibrated', 'Approve the logic')}
+                    </Button>
+                }
             >
                 <Stack gap="sm">
+                    {!canMarkDirectly && live.revision_job_id && (
+                        <Text size="xs" c="dimmed">
+                            {t('research.calibration.pendingRevisionBlocksMark', 'A proposed revision is waiting — apply it or propose a different one before marking calibrated.')}
+                        </Text>
+                    )}
+                    {markPatchFailed && (
+                        // P1 fix (review, finding 2 continued): the ICP is ALREADY marked
+                        // calibrated server-side at this point — retrying here only re-fires the
+                        // step13->15 PATCH (never markMut again), same "distinct failure, distinct
+                        // retry" shape as step 23's own `stepPatchFailed` below.
+                        <Alert color="orange" icon={<IconInfoCircle size={18} />}>
+                            <Stack gap={4}>
+                                <Text size="sm">
+                                    {t('research.calibration.markPatchFailed', 'The ICP was marked calibrated, but we could not move to the next step.')}
+                                </Text>
+                                <Button
+                                    size="xs"
+                                    variant="light"
+                                    onClick={() => saveStepMut.mutate({ patch: {}, nextStep: 15, gate: 'step14', calibStepToken: calibStepTokenRef.current })}
+                                >
+                                    {t('research.wizard.step2.retry', 'Try again')}
+                                </Button>
+                            </Stack>
+                        </Alert>
+                    )}
                     {reviseFailed ? (
                         <>
                             <Alert color="red" icon={<IconInfoCircle size={18} />}>
@@ -3079,12 +3282,33 @@ export default function ResearchFlowPage() {
                             <Button leftSection={<IconRefresh size={16} />} onClick={proposeAgain}>{t('research.wizard.step2.retry', 'Try again')}</Button>
                         </>
                     ) : calib.reviseRunning ? (
-                        <Group gap="xs">
-                            <Loader size="sm" />
-                            <Text size="sm" c="dimmed">{t('research.calibration.revising', 'Revision being generated…')}</Text>
-                        </Group>
+                        <AiWaitScreen inline label={t('research.calibration.revising', 'Revision being generated…')} />
                     ) : !revision ? (
-                        <Button leftSection={<IconSparkles size={16} />} onClick={proposeAgain} disabled={calib.savedCount === 0}>
+                        // Review fix (BUG 2 race), reverse direction: also blocked while
+                        // markMut is in flight — same mutual-exclusion reasoning as canMarkDirectly.
+                        // Finding 2 fix (review): `calib.markMut.isPending` alone leaves a window
+                        // open — the instant markMut succeeds, isPending flips false, but the
+                        // separate step13->15 saveStepMut PATCH that actually moves the wizard away
+                        // from step 13 is still in flight (no shared guard). In that window this
+                        // button would re-enable and could fire a real, paid revision job on an ICP
+                        // that is about to be (or already is) marked calibrated. Also gate on
+                        // `calibMarkRequested` (true from the "Approve the logic" click until
+                        // markMut succeeds) and `saveStepMut.isPending` (true from the instant
+                        // markMut succeeds until the 13->15 PATCH lands) — together they cover the
+                        // whole mark-calibrated request through its post-success PATCH window, the
+                        // same pair `markDirectly`'s own effect above relies on. P1 fix (review,
+                        // finding 2 continued): also gate on `calib.markMut.isSuccess` directly —
+                        // the three flags above all go false again if the follow-up step13->15
+                        // PATCH FAILS (see `markPatchFailed` above), re-enabling this button against
+                        // an ICP the server already marked calibrated. `isSuccess` stays true past
+                        // that failure (only a fresh `markMut.mutate()` call would clear it, and
+                        // this screen never calls it again once marked), so it closes the window
+                        // permanently instead of only for the PATCH's flight.
+                        <Button
+                            leftSection={<IconSparkles size={16} />}
+                            onClick={proposeAgain}
+                            disabled={calib.savedCount === 0 || calib.markMut.isPending || calib.markMut.isSuccess || calibMarkRequested || saveStepMut.isPending}
+                        >
                             {t('research.calibration.propose', 'Propose revision')}
                         </Button>
                     ) : (
@@ -3211,12 +3435,11 @@ export default function ResearchFlowPage() {
                             <Button onClick={retryOfferGen}>{t('research.wizard.step2.retry', 'Try again')}</Button>
                         </>
                     ) : (
-                        <>
-                            <Loader />
-                            <Text c="dimmed" size="sm">
-                                {t(`research.wizard.step15.stage.${offerGenStageKey}`, 'Working on it…')}
-                            </Text>
-                        </>
+                        <AiWaitScreen
+                            stages={OFFER_GEN_STAGES.map((k) => ({ key: k, label: t(`research.wizard.step15.stage.${k}`, k) }))}
+                            activeKey={offerGenStage}
+                            label={t(`research.wizard.step15.stage.${offerGenStageKey}`, 'Working on it…')}
+                        />
                     )}
                 </Stack>
             </WizardShell>
@@ -3227,6 +3450,8 @@ export default function ResearchFlowPage() {
     if (step === 16) {
         const offerClampedIndex = offers.length > 0 ? Math.min(Math.max(0, offerCardIndex), offers.length - 1) : 0;
         const currentOffer = offers[offerClampedIndex] ?? null;
+        // See prevStepForOfferAnimRef's doc comment above.
+        const isFreshStep16Arrival = prevStepForOfferAnimRef.current !== 16;
 
         if (offersQuery.isLoading) {
             return (
@@ -3300,7 +3525,13 @@ export default function ResearchFlowPage() {
             >
                 {/* Keyed by id+updated_at (offers precedent): any landed change (save/approve/
                     reject) remounts the card so its local edit state stays the same row generation. */}
-                <OfferCard key={`${currentOffer.id}:${currentOffer.updated_at}`} offer={currentOffer} stats={null} onChanged={() => offersQuery.refetch()} />
+                <OfferCard
+                    key={`${currentOffer.id}:${currentOffer.updated_at}`}
+                    offer={currentOffer}
+                    stats={null}
+                    onChanged={() => offersQuery.refetch()}
+                    skipEntranceAnimation={isFreshStep16Arrival}
+                />
             </WizardShell>
         );
     }
@@ -3435,12 +3666,7 @@ export default function ResearchFlowPage() {
                             {t('research.wizard.step18.summary', '{{matches}} matching companies found.', { matches: result?.matches ?? 0 })}
                         </Alert>
                     ) : (
-                        <Group gap="xs">
-                            <Loader size="sm" />
-                            <Text c="dimmed" size="sm">
-                                {t(`research.wizard.step18.stage.${orchestrateStageKey}`, 'Working on it…')}
-                            </Text>
-                        </Group>
+                        <AiWaitScreen inline label={t(`research.wizard.step18.stage.${orchestrateStageKey}`, 'Working on it…')} />
                     )}
                     {orchestrateCoverage && (
                         <Group gap="xs" wrap="wrap">

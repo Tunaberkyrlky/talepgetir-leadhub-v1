@@ -107,6 +107,13 @@ export default function Layout() {
     if (isLoading) return null;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
 
+    // The wizard-first entry point (exact /research, not /research/full or /research/admin)
+    // is deliberately NOT the CRM — it owns its own minimal chrome (WizardShell.tsx: logo,
+    // phase progress, quiet way back to the dashboard) instead of the full sidebar+topbar.
+    if (location.pathname === '/research' || location.pathname === '/research/') {
+        return <Outlet />;
+    }
+
     const isOpsOrAdmin = user?.role === 'superadmin' || user?.role === 'ops_agent';
 
 

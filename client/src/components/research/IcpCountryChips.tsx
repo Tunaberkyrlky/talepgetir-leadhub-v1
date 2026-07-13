@@ -9,8 +9,9 @@
  * No AI-suggested countries here: the ICP schema doesn't carry them, and icp:generate's
  * output is untouched by this WP — this is customer-driven add only.
  */
-import { useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Badge, Button, Group, Stack, Text, TextInput, Tooltip } from '@mantine/core';
+import { useReducedMotion } from '@mantine/hooks';
 import { IconSparkles, IconWorldPin } from '@tabler/icons-react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -54,6 +55,18 @@ export default function IcpCountryChips({ icpId }: { icpId: string }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
     const [country, setCountry] = useState('');
+    const reduceMotion = useReducedMotion();
+
+    // Drives ONLY the per-chip stagger below (each already-added country chip settles in
+    // left-to-right once cells are known) — NOT a container-level mount fade. WizardShell
+    // already animates each step's content swap (fade+slide) at the shell level, so a second
+    // local entrance on this whole Stack double-stacked the animation (step 8).
+    const [entered, setEntered] = useState(reduceMotion ?? false);
+    useEffect(() => {
+        if (reduceMotion) return;
+        const frame = requestAnimationFrame(() => setEntered(true));
+        return () => cancelAnimationFrame(frame);
+    }, [reduceMotion]);
 
     const cellsQuery = useQuery<{ data: GeoCellSummary[] }>({
         queryKey: ['research', 'geographies', icpId],
@@ -83,7 +96,13 @@ export default function IcpCountryChips({ icpId }: { icpId: string }) {
         onSuccess: (resp) => {
             setCountry('');
             qc.invalidateQueries({ queryKey: ['research', 'geographies', icpId] });
-            if (!resp.job && !resp.reused) {
+            // Deliberate correctness fix, not a style change: POST /research/geographies only
+            // ever omits `job` in lockstep with `reused: true` (see the route's `geography.spec
+            // != null` branch — every other branch always returns a job), so the previous
+            // `!resp.job && !resp.reused` guard could never be true and this warning never
+            // actually fired. `resp.reused` alone is the real "already added and analyzed"
+            // signal the route promises.
+            if (resp.reused) {
                 // Reused-with-existing-spec case — geo:analyze deliberately did NOT re-fire
                 // (same "never silently overwrite an analyzed cell" rule as GeographiesPanel).
                 showWarning(t('research.wizard.step8.reusedExisting', 'This country was already added and analyzed.'));
@@ -103,7 +122,7 @@ export default function IcpCountryChips({ icpId }: { icpId: string }) {
 
     return (
         <Stack gap="xs">
-            <Text size="sm" fw={500}>{t('research.wizard.step8.countries', 'Target countries')}</Text>
+            <Text size="sm" fw={600}>{t('research.wizard.step8.countries', 'Target countries')}</Text>
             {cellsQuery.isLoading ? null : cells.length === 0 ? (
                 <Text size="xs" c="dimmed">{t('research.wizard.step8.noCountries', 'No countries added yet.')}</Text>
             ) : (
@@ -115,8 +134,20 @@ export default function IcpCountryChips({ icpId }: { icpId: string }) {
                         const market = rankedMatches.length > 0
                             ? rankedMatches.reduce((best, row) => row.rank! < best.rank! ? row : best)
                             : matches[0];
+                        // Light per-chip stagger riding the same `entered` flip (no separate effect) —
+                        // each chip's own opacity/scale delays by 25ms per index, so the row settles
+                        // in left-to-right rather than as one block. This is the ONLY local motion left
+                        // in this file — the outer container's own mount fade was removed since
+                        // WizardShell already animates the whole step's content swap at the shell level.
+                        const chipStyle: CSSProperties = {
+                            opacity: reduceMotion || entered ? 1 : 0,
+                            transform: reduceMotion || entered ? 'scale(1)' : 'scale(0.92)',
+                            transition: reduceMotion
+                                ? 'none'
+                                : `opacity 220ms ease-out ${i * 25}ms, transform 220ms ease-out ${i * 25}ms`,
+                        };
                         const badge = (
-                            <Badge variant="light" color={STATUS_COLOR[c.status] ?? 'gray'}>
+                            <Badge variant="light" color={STATUS_COLOR[c.status] ?? 'gray'} style={chipStyle}>
                                 {c.country}
                             </Badge>
                         );
@@ -127,13 +158,13 @@ export default function IcpCountryChips({ icpId }: { icpId: string }) {
                                     market.rank != null
                                         ? t('research.markets.worldImportRank', 'World import rank #{{rank}}', { rank: market.rank })
                                         : null,
-                                    t('research.markets.worldImportValue', '${{value}}', { value: formatUsdCompact(market.import_value) }),
+                                    t('research.markets.worldImportValue', '{{value}}', { value: formatUsdCompact(market.import_value) }),
                                 ].filter(Boolean).join(', ')}`}
                             >
                                 {badge}
                             </Tooltip>
                         ) : (
-                            <Badge key={c.id} variant="light" color={STATUS_COLOR[c.status] ?? 'gray'}>
+                            <Badge key={c.id} variant="light" color={STATUS_COLOR[c.status] ?? 'gray'} style={chipStyle}>
                                 {c.country}
                             </Badge>
                         );

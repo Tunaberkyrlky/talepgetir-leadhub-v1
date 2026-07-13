@@ -871,13 +871,18 @@ router.post('/:id/mark-calibrated', requireWriter, async (req: Request, res: Res
         // Only a re-approved ICP can be declared calibrated — apply-revision reverts
         // approved→draft (062 trigger), so this forces the human re-approval step.
         if ((icp as { status: string }).status !== 'approved') {
-            res.status(409).json({ error: 'ICP must be approved before marking calibrated' });
+            // Finding 3 fix (review): `reason` lets the client distinguish this from the
+            // pending-revision 409 just below — both used to collapse into one hardcoded client
+            // message, which is now the WRONG one more often than not (the client already gates
+            // the direct-mark path on status==='approved' before ever firing this request, so
+            // pending-revision is the far more likely 409 in practice).
+            res.status(409).json({ error: 'ICP must be approved before marking calibrated', reason: 'not_approved' });
             return;
         }
         // A pending proposal means the loop is mid-flight — apply or regenerate it first
         // (codex #5): "calibrated with an unreviewed revision outstanding" is a contradiction.
         if ((icp as { revision_job_id: string | null }).revision_job_id) {
-            res.status(409).json({ error: 'Apply or regenerate the pending revision before marking calibrated' });
+            res.status(409).json({ error: 'Apply or regenerate the pending revision before marking calibrated', reason: 'pending_revision' });
             return;
         }
 
@@ -920,7 +925,12 @@ router.post('/:id/mark-calibrated', requireWriter, async (req: Request, res: Res
             throw new AppError('Failed to mark ICP calibrated', 500);
         }
         if (!data) {
-            res.status(409).json({ error: 'ICP must be approved before marking calibrated' });
+            // The check-then-act gates above passed, but the conditional UPDATE still matched
+            // zero rows — a concurrent write moved status/ruleset_version/revision_job_id under
+            // us between the read and the write. Generic `reason` (not `not_approved` or
+            // `pending_revision` specifically — we don't re-query to find out which precondition
+            // moved) so the client still falls back sanely instead of guessing wrong.
+            res.status(409).json({ error: 'ICP must be approved before marking calibrated', reason: 'conflict' });
             return;
         }
         res.json(data);

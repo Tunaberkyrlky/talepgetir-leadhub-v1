@@ -1,0 +1,73 @@
+.page {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--mantine-color-body);
+}
+
+.header {
+    border-bottom: 1px solid var(--mantine-color-gray-2);
+    background: var(--mantine-color-body);
+    flex: none;
+}
+
+[data-mantine-color-scheme='dark'] .header {
+    border-bottom-color: var(--mantine-color-dark-4);
+}
+
+.logo {
+    cursor: pointer;
+}
+
+.logo:hover {
+    opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .logo {
+        transition: opacity 120ms ease;
+    }
+
+    .backLink {
+        transition: transform 120ms ease, background 120ms ease;
+    }
+
+    .backLink:hover {
+        transform: translateX(2px);
+    }
+}
+
+.connector {
+    width: 16px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--mantine-color-gray-3);
+    flex: none;
+}
+
+.connector[data-done='true'] {
+    background: var(--mantine-color-violet-5);
+}
+
+[data-mantine-color-scheme='dark'] .connector {
+    background: var(--mantine-color-dark-4);
+}
+
+.main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--mantine-spacing-xl) var(--mantine-spacing-md);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .primaryButton {
+        transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+
+    .primaryButton:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: var(--mantine-shadow-sm);
+    }
+}

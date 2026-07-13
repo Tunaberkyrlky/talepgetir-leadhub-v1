@@ -294,7 +294,7 @@ export default function CompaniesPanel({ initialProjectId, initialIcpId, lockSco
     return (
         <Stack gap="md">
             {/* Scope: project → ICP; credits as lead COUNTS only */}
-            <Paper withBorder radius="md" p="md">
+            <Paper withBorder radius="md" p="md" className="fade-in">
                 <Group justify="space-between" align="flex-end" wrap="wrap">
                     {lockScope ? (
                         <Text size="sm" fw={600}>{selectedIcp?.name ?? '—'}</Text>
@@ -349,7 +349,7 @@ export default function CompaniesPanel({ initialProjectId, initialIcpId, lockSco
                 wizard's own orchestrated flow doesn't belong on a locked "review your results"
                 screen. */}
             {!lockScope && selectedIcp && (
-                <Paper withBorder radius="md" p="md">
+                <Paper withBorder radius="md" p="md" className="fade-in" style={{ animationDelay: '40ms' }}>
                     <Group align="flex-end" gap="sm" wrap="wrap">
                         {approvedGeos.length > 0 && (
                             <Select
@@ -421,7 +421,8 @@ export default function CompaniesPanel({ initialProjectId, initialIcpId, lockSco
                     </Group>
                     {runStatus === 'failed' && (
                         <Alert mt="sm" color="red" icon={<IconInfoCircle size={16} />}>
-                            {t('research.harvest.failed', 'Harvest failed')}: {runJobQuery.data?.error ?? 'unknown'}
+                            {t('research.harvest.failed', 'Harvest failed')}: {runJobQuery.data?.error ?? 'unknown'}.{' '}
+                            {t('research.harvest.failedHint', 'Try a different geography or source, or run it again.')}
                         </Alert>
                     )}
                 </Paper>
@@ -429,7 +430,7 @@ export default function CompaniesPanel({ initialProjectId, initialIcpId, lockSco
 
             {/* Companies (verdict-aware, per selected ICP) */}
             {icpId && (
-                <Paper withBorder radius="md" p="md">
+                <Paper withBorder radius="md" p="md" className="fade-in" style={{ animationDelay: '80ms' }}>
                     <Stack gap="sm">
                         <Group justify="space-between" wrap="wrap">
                             <SegmentedControl size="xs" data={statusOptions} value={status} onChange={(v) => { setStatus(v); setPage(1); }} />
@@ -468,11 +469,11 @@ export default function CompaniesPanel({ initialProjectId, initialIcpId, lockSco
                                         </Table.Tr>
                                     </Table.Thead>
                                     <Table.Tbody>
-                                        {companies.map((c) => (
-                                            <Table.Tr key={c.id}>
+                                        {companies.map((c, i) => (
+                                            <Table.Tr key={c.id} className="fade-in" style={{ animationDelay: `${Math.min(i, 20) * 15}ms` }}>
                                                 <Table.Td>
                                                     <Group gap={6} wrap="nowrap">
-                                                        <Text fw={600} size="sm">{c.name}</Text>
+                                                        <Text fw={700} size="sm">{c.name}</Text>
                                                         {c.crm_company_id && (
                                                             <Tooltip label={t('research.export.inCrmHint', 'This company is in your CRM')}>
                                                                 <Badge size="xs" variant="light" color="teal">CRM ✓</Badge>
@@ -490,17 +491,17 @@ export default function CompaniesPanel({ initialProjectId, initialIcpId, lockSco
                                                     )}
                                                 </Table.Td>
                                                 <Table.Td>
-                                                    <Text size="sm" c="dimmed">
+                                                    <Text size="xs" c="dimmed">
                                                         {[c.city, c.country].filter(Boolean).join(', ') || '—'}
                                                     </Text>
                                                 </Table.Td>
                                                 <Table.Td ta="center">
-                                                    <Badge variant="light" color={scoreColor(c.score)}>
+                                                    <Badge size="lg" variant="light" color={scoreColor(c.score)} miw={56}>
                                                         {c.score ?? '—'}
                                                     </Badge>
                                                 </Table.Td>
                                                 <Table.Td ta="center">
-                                                    <Badge variant="filled" color={STATUS_COLOR[c.status] ?? 'gray'}>
+                                                    <Badge size="lg" variant="filled" color={STATUS_COLOR[c.status] ?? 'gray'}>
                                                         {t(`research.companies.${c.status}`, c.status)}
                                                     </Badge>
                                                 </Table.Td>

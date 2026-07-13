@@ -1,0 +1,146 @@
+/* AiWaitScreen — shared "AI is working" state (Tg-Research-v2/06_WIZARD_TASARIM.md, Karar 4 +
+ * Karar 7: motion is disciplined/purposeful, and the AI-is-thinking moment gets a small,
+ * distinct violet signature instead of a bare spinner). All animation is gated by JS
+ * (useReducedMotion) at the call site AND this reduced-motion media query, same
+ * belt-and-suspenders convention as WizardShell.module.css's own .cardEnter. */
+
+.mark {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.markInline {
+    width: 22px;
+    height: 22px;
+}
+
+.markCard {
+    width: 48px;
+    height: 48px;
+}
+
+.markRing {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    border: 1.5px solid var(--mantine-color-violet-4);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .markPulse .markRing {
+        animation: aiWaitRing 1.8s ease-out infinite;
+    }
+
+    .markPulse .markIcon {
+        animation: aiWaitBreathe 1.8s ease-in-out infinite;
+    }
+}
+
+@keyframes aiWaitRing {
+    0% {
+        transform: scale(0.85);
+        opacity: 0.7;
+    }
+
+    70% {
+        transform: scale(1.35);
+        opacity: 0;
+    }
+
+    100% {
+        transform: scale(1.35);
+        opacity: 0;
+    }
+}
+
+@keyframes aiWaitBreathe {
+    0%,
+    100% {
+        opacity: 0.85;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+.stageList {
+    width: 100%;
+}
+
+.stageRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.stageIconSlot {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.stageCheck {
+    color: var(--mantine-color-violet-5);
+}
+
+.stageDot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--mantine-color-gray-4);
+}
+
+[data-mantine-color-scheme='dark'] .stageDot {
+    background: var(--mantine-color-dark-3);
+}
+
+.stageDotActive {
+    background: var(--mantine-color-violet-6);
+    width: 9px;
+    height: 9px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .stageDotActive {
+        animation: aiWaitDot 1.4s ease-in-out infinite;
+    }
+}
+
+@keyframes aiWaitDot {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 var(--mantine-color-violet-3);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px transparent;
+    }
+}
+
+.stageLabel {
+    color: var(--mantine-color-gray-5);
+}
+
+[data-mantine-color-scheme='dark'] .stageLabel {
+    color: var(--mantine-color-dark-2);
+}
+
+.stageLabelDone {
+    color: var(--mantine-color-gray-6);
+    text-decoration: none;
+}
+
+[data-mantine-color-scheme='dark'] .stageLabelDone {
+    color: var(--mantine-color-dark-1);
+}
+
+.stageLabelActive {
+    color: var(--mantine-color-text);
+    font-weight: 600;
+}

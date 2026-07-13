@@ -26,7 +26,7 @@ export async function hsMatchHandler({ job, heartbeat }: HandlerContext): Promis
 
     const { data: project, error: projErr } = await researchSupabaseAdmin
         .from('research_projects')
-        .select('id, profile')
+        .select('id, profile, flow_state')
         .eq('id', projectId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
@@ -34,10 +34,16 @@ export async function hsMatchHandler({ job, heartbeat }: HandlerContext): Promis
     if (!project) throw new Error(`research project ${projectId} not found for tenant ${tenantId}`);
 
     const profile = (project.profile ?? {}) as Record<string, unknown>;
+    const flowState = (project.flow_state ?? {}) as Record<string, unknown>;
+    // 'step4' lands in completed_gates the moment the human saves the products/services step
+    // (see ResearchFlowPage.tsx), even if they explicitly cleared the list to empty. That gate
+    // is the only reliable signal that profile.products is a real human decision rather than a
+    // field the project simply hasn't reached yet — an empty array alone is ambiguous.
+    const step4Completed = Array.isArray(flowState.completed_gates) && flowState.completed_gates.includes('step4');
     let products = Array.isArray(profile.products)
         ? profile.products.filter((p): p is string => typeof p === 'string' && !!p.trim())
         : [];
-    if (products.length === 0) {
+    if (products.length === 0 && !step4Completed) {
         // Fallback for a project that has not reached the human-edited step 4 yet.
         const aiDraft = profile.ai_draft && typeof profile.ai_draft === 'object' && !Array.isArray(profile.ai_draft)
             ? profile.ai_draft as Record<string, unknown>

@@ -63,7 +63,9 @@ export async function marketAnalyzeHandler({ job, heartbeat }: HandlerContext): 
     let worldImportRows = 0;
     let bilateralRows = 0;
     // Approximate admin-only COGS/budget visibility at our Comtrade-call granularity; this
-    // is not billable dollars (COMTRADE_PER_REQUEST_USD ships as 0) and excludes retries.
+    // is not billable dollars (COMTRADE_PER_REQUEST_USD ships as 0). requestsMade/hadFailure
+    // come straight from comtrade.ts so every real tradePoint() HTTP call — including
+    // prior-year ranking calls and bilateral fallback-year retries — is tallied.
     let comtradeRequests = 0;
     let comtradeFailed = 0;
 
@@ -75,7 +77,7 @@ export async function marketAnalyzeHandler({ job, heartbeat }: HandlerContext): 
                 year: COMTRADE_YEAR,
                 priorYear: COMTRADE_PRIOR_YEAR,
             });
-            comtradeRequests += ranking.ranked.length + ranking.failed.length;
+            comtradeRequests += ranking.requestsMade;
             comtradeFailed += ranking.failed.length;
 
             // A total outage (every reporter call failed) must NOT wipe prior good evidence —
@@ -125,15 +127,15 @@ export async function marketAnalyzeHandler({ job, heartbeat }: HandlerContext): 
             const bilateralCandidates = ranking.ranked.slice(0, 15);
             await heartbeat({ stage: 'bilateral', hs_code: hsRow.code });
 
-            // Collect new bilateral rows before touching the table: getBilateralTrade returns
-            // null for both "no such trade" and "the call failed", so we cannot tell those apart
-            // per-partner. But we CAN avoid wiping existing evidence outright — only delete+
-            // replace the slice when at least one partner call actually produced a new row
-            // (mirrors the world-import guard above; a total per-code failure leaves prior rows).
+            // Collect new bilateral rows before touching the table: getBilateralTrade returns a
+            // null result for both "no such trade" and "the call failed" (hadFailure tells the
+            // COGS counters apart, but the row itself is still absent either way). We CAN avoid
+            // wiping existing evidence outright — only delete+replace the slice when at least one
+            // partner call actually produced a new row (mirrors the world-import guard above; a
+            // total per-code failure leaves prior rows).
             const bilateralInserts: Record<string, unknown>[] = [];
             for (const entry of bilateralCandidates) {
-                comtradeRequests++;
-                const bilateral = await getBilateralTrade({
+                const { result: bilateral, requestsMade, hadFailure } = await getBilateralTrade({
                     reporter: companyCountry,
                     partner: entry.iso2,
                     hsCode: hsRow.code,
@@ -141,6 +143,8 @@ export async function marketAnalyzeHandler({ job, heartbeat }: HandlerContext): 
                     year: COMTRADE_YEAR,
                     priorYear: COMTRADE_PRIOR_YEAR,
                 });
+                comtradeRequests += requestsMade;
+                if (hadFailure) comtradeFailed++;
                 if (!bilateral) continue;
 
                 // import_value intentionally holds the seller country's EXPORT value to this partner.

@@ -8,9 +8,10 @@
  */
 import { useState } from 'react';
 import {
-    Alert, Badge, Button, Divider, Group, NumberInput, Rating, Stack, TagsInput, Table, Text, Textarea, Tooltip,
+    Alert, Badge, Button, Collapse, Divider, Group, NumberInput, Rating, Stack, TagsInput, Table, Text, Textarea, Tooltip, UnstyledButton,
 } from '@mantine/core';
-import { IconInfoCircle, IconRefresh, IconSparkles } from '@tabler/icons-react';
+import { useReducedMotion } from '@mantine/hooks';
+import { IconChevronDown, IconInfoCircle, IconRefresh, IconSparkles } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
@@ -278,7 +279,13 @@ export function GeoCellDetail({
     onChanged: (row?: GeoCell) => void;
 }) {
     const { t } = useTranslation();
+    const reduceMotion = useReducedMotion();
     const spec = cell?.spec ?? null;
+
+    // No local mount-entrance here — WizardShell already animates each step's content swap
+    // (fade+slide) at the shell level; a second local fade on top of that double-stacked the
+    // animation (step 10). GeoCellDetail is also rendered inside a Drawer by GeographiesPanel,
+    // which has no shell-level transition of its own, so this component intentionally owns none.
 
     // Seeded from the current spec; the parent remounts this component (key) when a
     // re-analysis lands.
@@ -290,6 +297,10 @@ export function GeoCellDetail({
     const [marketNotes, setMarketNotes] = useState(spec?.market_notes ?? '');
     const [estimate, setEstimate] = useState<number | null>(spec?.estimate ?? null);
     const [score, setScore] = useState<number>(cell?.human_score ?? 0);
+    // Closed by default (Tg-Research-v2/06_WIZARD_TASARIM.md, Karar 5): the raw signal/rule
+    // chip editors are config, not a decision — the estimate, score and trade evidence below
+    // are what this screen is actually for, so they stay in the primary, non-collapsed view.
+    const [detailsOpen, setDetailsOpen] = useState(false);
 
     // A spec write validates the FULL schema server-side and demotes the cell to draft.
     const saveMut = useMutation({
@@ -391,72 +402,6 @@ export function GeoCellDetail({
                 </Alert>
             ) : (
                 <Stack gap="sm">
-                    <TagsInput
-                        label={t('research.geographies.localTerms', 'Local search terms')}
-                        value={localTerms} onChange={setLocalTerms}
-                    />
-                    <TagsInput
-                        label={t('research.geographies.localizedSignals', 'Localized signals')}
-                        value={signals} onChange={setSignals}
-                    />
-                    <TagsInput
-                        label={t('research.geographies.localizedNegativeSignals', 'Localized negative signals')}
-                        value={negatives} onChange={setNegatives}
-                    />
-                    <TagsInput
-                        label={t('research.geographies.buyerTitles', 'Buyer titles')}
-                        value={buyerTitles} onChange={setBuyerTitles}
-                    />
-                    <TagsInput
-                        label={t('research.geographies.certifications', 'Certifications')}
-                        value={certifications} onChange={setCertifications}
-                    />
-                    <Textarea
-                        label={t('research.geographies.marketNotes', 'Market structure notes')}
-                        autosize minRows={3}
-                        value={marketNotes}
-                        onChange={(e) => setMarketNotes(e.currentTarget.value)}
-                    />
-
-                    {spec.channels.length > 0 && (
-                        <div>
-                            <Text size="sm" fw={600}>{t('research.geographies.channels', 'Key channels')}</Text>
-                            <Stack gap={4} mt={4}>
-                                {spec.channels.map((ch, i) => (
-                                    <Group key={i} gap="xs" wrap="nowrap">
-                                        <Badge size="xs" variant="light" color="violet">
-                                            {t(`research.geographies.channelType.${ch.type}`, ch.type)}
-                                        </Badge>
-                                        {ch.url ? (
-                                            <Text size="xs" c="blue" component="a" href={externalHref(ch.url)} target="_blank" rel="noreferrer">
-                                                {ch.name}
-                                            </Text>
-                                        ) : (
-                                            <Text size="xs">{ch.name}</Text>
-                                        )}
-                                    </Group>
-                                ))}
-                            </Stack>
-                        </div>
-                    )}
-
-                    {spec.directories.length > 0 && (
-                        <div>
-                            <Text size="sm" fw={600}>{t('research.geographies.directories', 'Directories')}</Text>
-                            <Stack gap={4} mt={4}>
-                                {spec.directories.map((d, i) => (
-                                    d.url ? (
-                                        <Text key={i} size="xs" c="blue" component="a" href={externalHref(d.url)} target="_blank" rel="noreferrer">
-                                            {d.name}
-                                        </Text>
-                                    ) : (
-                                        <Text key={i} size="xs">{d.name}</Text>
-                                    )
-                                ))}
-                            </Stack>
-                        </div>
-                    )}
-
                     <Group align="flex-end" gap="sm">
                         <NumberInput
                             label={t('research.geographies.estimateLabel', 'Estimated target firms')}
@@ -473,6 +418,96 @@ export function GeoCellDetail({
                             {t('research.geographies.estimateBasis', 'Estimate basis')}: {spec.estimate_basis}
                         </Text>
                     )}
+
+                    <UnstyledButton
+                        onClick={() => setDetailsOpen((v) => !v)}
+                        style={{ alignSelf: 'flex-start' }}
+                        aria-expanded={detailsOpen}
+                        aria-controls={`geo-details-${cell.id}`}
+                    >
+                        <Group gap={4} c="dimmed" wrap="nowrap">
+                            <Text size="xs" fw={600}>
+                                {detailsOpen ? t('research.geographies.hideDetails', 'Hide details') : t('research.geographies.showDetails', 'Details')}
+                            </Text>
+                            <IconChevronDown
+                                size={13}
+                                style={{
+                                    transition: reduceMotion ? 'none' : 'transform 160ms ease',
+                                    transform: detailsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                                }}
+                            />
+                        </Group>
+                    </UnstyledButton>
+
+                    <Collapse id={`geo-details-${cell.id}`} in={detailsOpen} transitionDuration={reduceMotion ? 0 : 200} transitionTimingFunction="ease">
+                        <Stack gap="sm" pt={2}>
+                            <TagsInput
+                                label={t('research.geographies.localTerms', 'Local search terms')}
+                                value={localTerms} onChange={setLocalTerms}
+                            />
+                            <TagsInput
+                                label={t('research.geographies.localizedSignals', 'Localized signals')}
+                                value={signals} onChange={setSignals}
+                            />
+                            <TagsInput
+                                label={t('research.geographies.localizedNegativeSignals', 'Localized negative signals')}
+                                value={negatives} onChange={setNegatives}
+                            />
+                            <TagsInput
+                                label={t('research.geographies.buyerTitles', 'Buyer titles')}
+                                value={buyerTitles} onChange={setBuyerTitles}
+                            />
+                            <TagsInput
+                                label={t('research.geographies.certifications', 'Certifications')}
+                                value={certifications} onChange={setCertifications}
+                            />
+                            <Textarea
+                                label={t('research.geographies.marketNotes', 'Market structure notes')}
+                                autosize minRows={3}
+                                value={marketNotes}
+                                onChange={(e) => setMarketNotes(e.currentTarget.value)}
+                            />
+
+                            {spec.channels.length > 0 && (
+                                <div>
+                                    <Text size="sm" fw={600}>{t('research.geographies.channels', 'Key channels')}</Text>
+                                    <Stack gap={4} mt={4}>
+                                        {spec.channels.map((ch, i) => (
+                                            <Group key={i} gap="xs" wrap="nowrap">
+                                                <Badge size="xs" variant="light" color="violet">
+                                                    {t(`research.geographies.channelType.${ch.type}`, ch.type)}
+                                                </Badge>
+                                                {ch.url ? (
+                                                    <Text size="xs" c="blue" component="a" href={externalHref(ch.url)} target="_blank" rel="noreferrer">
+                                                        {ch.name}
+                                                    </Text>
+                                                ) : (
+                                                    <Text size="xs">{ch.name}</Text>
+                                                )}
+                                            </Group>
+                                        ))}
+                                    </Stack>
+                                </div>
+                            )}
+
+                            {spec.directories.length > 0 && (
+                                <div>
+                                    <Text size="sm" fw={600}>{t('research.geographies.directories', 'Directories')}</Text>
+                                    <Stack gap={4} mt={4}>
+                                        {spec.directories.map((d, i) => (
+                                            d.url ? (
+                                                <Text key={i} size="xs" c="blue" component="a" href={externalHref(d.url)} target="_blank" rel="noreferrer">
+                                                    {d.name}
+                                                </Text>
+                                            ) : (
+                                                <Text key={i} size="xs">{d.name}</Text>
+                                            )
+                                        ))}
+                                    </Stack>
+                                </div>
+                            )}
+                        </Stack>
+                    </Collapse>
 
                     <Group justify="space-between" align="center">
                         <Text size="xs" c="dimmed">
@@ -516,7 +551,7 @@ export function GeoCellDetail({
                                 worldImport.rank != null
                                     ? t('research.markets.worldImportRank', 'World import rank #{{rank}}', { rank: worldImport.rank })
                                     : null,
-                                t('research.markets.worldImportValue', '${{value}}', { value: formatUsdCompact(worldImport.import_value) }),
+                                t('research.markets.worldImportValue', '{{value}}', { value: formatUsdCompact(worldImport.import_value) }),
                                 worldImport.growth_pct != null
                                     ? t('research.markets.growth', '{{pct}}% YoY', { pct: formatSignedPct(worldImport.growth_pct) })
                                     : null,
@@ -527,7 +562,7 @@ export function GeoCellDetail({
                         <Text size="xs">
                             {[
                                 t('research.markets.bilateralExport', '{{country}} exports here', { country: bilateralExport.reporter_country ?? '' }),
-                                t('research.markets.worldImportValue', '${{value}}', { value: formatUsdCompact(bilateralExport.import_value) }),
+                                t('research.markets.worldImportValue', '{{value}}', { value: formatUsdCompact(bilateralExport.import_value) }),
                                 bilateralExport.growth_pct != null
                                     ? t('research.markets.growth', '{{pct}}% YoY', { pct: formatSignedPct(bilateralExport.growth_pct) })
                                     : null,

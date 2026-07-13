@@ -74,6 +74,8 @@ export interface WorldImportRankingResult {
     ranked: WorldImportRankingEntry[];
     /** ISO2 reporters omitted because a requested Comtrade call failed, not merely had no data. */
     failed: string[];
+    /** Every real fetch() attempt across all tradePoint() calls, including prior-year calls and internal 429 retries. */
+    requestsMade: number;
 }
 
 export interface BilateralTradeConfig {
@@ -99,6 +101,14 @@ export interface BilateralTradeResult {
     primaryValueUsd: number;
     priorPrimaryValueUsd: number | null;
     growthPct: number | null;
+}
+
+export interface BilateralTradeOutcome {
+    result: BilateralTradeResult | null;
+    /** Every real fetch() attempt across all tradePoint() calls for this lookup, including the fallback-year retry and internal 429 retries. */
+    requestsMade: number;
+    /** True when at least one of those calls came back as an HTTP/parse failure (not merely "no data"). */
+    hadFailure: boolean;
 }
 
 interface HsReferenceRow {
@@ -141,9 +151,9 @@ interface TradeResponse {
 }
 
 type TradePointOutcome =
-    | { kind: 'value'; value: number }
-    | { kind: 'missing' }
-    | { kind: 'failed' };
+    | { kind: 'value'; value: number; attempts: number }
+    | { kind: 'missing'; attempts: number }
+    | { kind: 'failed'; attempts: number };
 
 let hsCodesPromise: Promise<Set<string>> | null = null;
 let reportersPromise: Promise<CountryReferenceRow[]> | null = null;
@@ -389,7 +399,7 @@ async function tradePoint(
             });
         } catch (err) {
             log.warn({ ...context, attempt, err: errorMessage(err) }, 'comtrade data request failed');
-            return { kind: 'failed' };
+            return { kind: 'failed', attempts: attempt };
         } finally {
             clearTimeout(timer);
         }
@@ -404,11 +414,11 @@ async function tradePoint(
             if (attempt < MAX_ATTEMPTS) {
                 continue;
             }
-            return { kind: 'failed' };
+            return { kind: 'failed', attempts: attempt };
         }
         if (!res.ok) {
             log.warn({ ...context, attempt, status: res.status }, 'comtrade data response non-ok');
-            return { kind: 'failed' };
+            return { kind: 'failed', attempts: attempt };
         }
 
         let json: TradeResponse;
@@ -416,18 +426,18 @@ async function tradePoint(
             json = (await res.json()) as TradeResponse;
         } catch (err) {
             log.warn({ ...context, attempt, err: errorMessage(err) }, 'comtrade data response was not JSON');
-            return { kind: 'failed' };
+            return { kind: 'failed', attempts: attempt };
         }
         const rows = Array.isArray(json.data)
             ? json.data.filter((row) => typeof row.primaryValue === 'number' && Number.isFinite(row.primaryValue))
             : [];
-        if (rows.length === 0) return { kind: 'missing' };
+        if (rows.length === 0) return { kind: 'missing', attempts: attempt };
         // motCode/customsCode still permits a duplicate distinguished only by partner2Code.
         // Values are identical; selecting one (never summing) prevents double-counting.
         const representative = rows.find((row) => row.partner2Code === 0) ?? rows[0];
-        return { kind: 'value', value: representative.primaryValue as number };
+        return { kind: 'value', value: representative.primaryValue as number, attempts: attempt };
     }
-    return { kind: 'failed' };
+    return { kind: 'failed', attempts: MAX_ATTEMPTS };
 }
 
 function growth(current: number, prior: number | null): number | null {
@@ -443,6 +453,7 @@ export async function getWorldImportRanking(config: WorldImportRankingConfig): P
         priorYear: config.priorYear ?? null,
         ranked: [],
         failed: [],
+        requestsMade: 0,
     });
     if (!validYear(config.year) || (config.priorYear !== undefined && !validYear(config.priorYear))) {
         log.warn({ year: config.year, priorYear: config.priorYear }, 'comtrade ranking received invalid year');
@@ -455,6 +466,7 @@ export async function getWorldImportRanking(config: WorldImportRankingConfig): P
 
     const ranked: Omit<WorldImportRankingEntry, 'rank'>[] = [];
     const failed: string[] = [];
+    let requestsMade = 0;
     for (const iso2 of MAJOR_TRADING_ECONOMIES.slice(0, MAX_REPORTERS)) {
         const reporter = await resolveCountry(iso2, 'reporter');
         if (!reporter) {
@@ -462,6 +474,7 @@ export async function getWorldImportRanking(config: WorldImportRankingConfig): P
             continue;
         }
         const current = await tradePoint(reporter.code, 0, config.year, hsCode, 'M', iso2);
+        requestsMade += current.attempts;
         if (current.kind === 'failed') {
             failed.push(iso2);
             continue;
@@ -471,6 +484,7 @@ export async function getWorldImportRanking(config: WorldImportRankingConfig): P
         let priorValue: number | null = null;
         if (config.priorYear !== undefined) {
             const prior = await tradePoint(reporter.code, 0, config.priorYear, hsCode, 'M', iso2);
+            requestsMade += prior.attempts;
             if (prior.kind === 'failed') {
                 failed.push(iso2);
                 continue;
@@ -494,24 +508,25 @@ export async function getWorldImportRanking(config: WorldImportRankingConfig): P
         priorYear: config.priorYear ?? null,
         ranked: ranked.map((row, index) => ({ ...row, rank: index + 1 })),
         failed,
+        requestsMade,
     };
 }
 
-/** Fetch one reporter-to-partner product flow; missing and failed points return null softly. */
-export async function getBilateralTrade(config: BilateralTradeConfig): Promise<BilateralTradeResult | null> {
+/** Fetch one reporter-to-partner product flow; missing and failed points return a null result softly. */
+export async function getBilateralTrade(config: BilateralTradeConfig): Promise<BilateralTradeOutcome> {
     const hsCode = normalizeHsCode(config.hsCode);
     const context = { reporter: config.reporter, partner: config.partner, hsCode, flow: config.flow };
     if (!validYear(config.year) || (config.priorYear !== undefined && !validYear(config.priorYear))) {
         log.warn({ ...context, year: config.year, priorYear: config.priorYear }, 'comtrade bilateral received invalid year');
-        return null;
+        return { result: null, requestsMade: 0, hadFailure: false };
     }
     if (config.flow !== 'M' && config.flow !== 'X') {
         log.warn(context, 'comtrade bilateral received invalid flow');
-        return null;
+        return { result: null, requestsMade: 0, hadFailure: false };
     }
     if (!(await validateHsCode(hsCode))) {
         log.warn(context, 'comtrade bilateral rejected unverified HS code');
-        return null;
+        return { result: null, requestsMade: 0, hadFailure: false };
     }
 
     const [reporter, partner] = await Promise.all([
@@ -520,10 +535,16 @@ export async function getBilateralTrade(config: BilateralTradeConfig): Promise<B
     ]);
     if (!reporter || !partner) {
         log.warn({ ...context, reporterResolved: !!reporter, partnerResolved: !!partner }, 'comtrade bilateral country resolution failed');
-        return null;
+        return { result: null, requestsMade: 0, hadFailure: false };
     }
 
+    let requestsMade = 0;
+    let hadFailure = false;
+    const fail = (): BilateralTradeOutcome => ({ result: null, requestsMade, hadFailure });
+
     let current = await tradePoint(reporter.code, partner.code, config.year, hsCode, config.flow, `${reporter.iso2}:${partner.iso2}`);
+    requestsMade += current.attempts;
+    if (current.kind === 'failed') hadFailure = true;
     let actualYear = config.year;
     if (current.kind === 'missing' && config.priorYear !== undefined) {
         log.info(
@@ -531,45 +552,53 @@ export async function getBilateralTrade(config: BilateralTradeConfig): Promise<B
             'comtrade bilateral current value missing; trying fallback year',
         );
         const fallback = await tradePoint(reporter.code, partner.code, config.priorYear, hsCode, config.flow, `${reporter.iso2}:${partner.iso2}`);
+        requestsMade += fallback.attempts;
         if (fallback.kind === 'value') {
             current = fallback;
             actualYear = config.priorYear;
         } else {
+            if (fallback.kind === 'failed') hadFailure = true;
             log.warn(
                 { ...context, requestedYear: config.year, fallbackYear: config.priorYear, outcome: fallback.kind },
                 'comtrade bilateral fallback value unavailable',
             );
-            return null;
+            return fail();
         }
     }
     if (current.kind !== 'value') {
         log.warn({ ...context, year: config.year, outcome: current.kind }, 'comtrade bilateral current value unavailable');
-        return null;
+        return fail();
     }
 
     let priorValue: number | null = null;
     if (actualYear === config.year && config.priorYear !== undefined) {
         const prior = await tradePoint(reporter.code, partner.code, config.priorYear, hsCode, config.flow, `${reporter.iso2}:${partner.iso2}`);
+        requestsMade += prior.attempts;
         if (prior.kind === 'failed') {
+            hadFailure = true;
             log.warn({ ...context, priorYear: config.priorYear }, 'comtrade bilateral prior value failed');
-            return null;
+            return fail();
         }
         if (prior.kind === 'value') priorValue = prior.value;
         else log.warn({ ...context, priorYear: config.priorYear }, 'comtrade bilateral prior value missing');
     }
 
     return {
-        hsCode,
-        flow: config.flow,
-        year: config.year,
-        actualYear,
-        priorYear: config.priorYear ?? null,
-        reporter: reporter.description,
-        reporterCode: reporter.code,
-        partner: partner.description,
-        partnerCode: partner.code,
-        primaryValueUsd: current.value,
-        priorPrimaryValueUsd: priorValue,
-        growthPct: growth(current.value, priorValue),
+        result: {
+            hsCode,
+            flow: config.flow,
+            year: config.year,
+            actualYear,
+            priorYear: config.priorYear ?? null,
+            reporter: reporter.description,
+            reporterCode: reporter.code,
+            partner: partner.description,
+            partnerCode: partner.code,
+            primaryValueUsd: current.value,
+            priorPrimaryValueUsd: priorValue,
+            growthPct: growth(current.value, priorValue),
+        },
+        requestsMade,
+        hadFailure,
     };
 }

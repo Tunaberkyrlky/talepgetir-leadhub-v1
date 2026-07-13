@@ -57,8 +57,8 @@ export function diffArrays(current: string[], proposed: string[]) {
 }
 
 export function httpInfo(err: unknown) {
-    const resp = (err as { response?: { status?: number; data?: { job_id?: string } } }).response;
-    return { status: resp?.status, jobId: resp?.data?.job_id };
+    const resp = (err as { response?: { status?: number; data?: { job_id?: string; reason?: string } } }).response;
+    return { status: resp?.status, jobId: resp?.data?.job_id, reason: resp?.data?.reason };
 }
 
 /**
@@ -387,11 +387,34 @@ export function useCalibration(icp: ResearchIcp | null, enabled: boolean, resetK
             invalidateIcp();
         },
         onError: (err: unknown) => {
-            if (httpInfo(err).status === 409) {
+            const info = httpInfo(err);
+            if (info.status === 409) {
+                // Finding 3 fix (review): the server returns 409 for two different reasons — not
+                // approved, and a pending revision already outstanding (icps.ts POST
+                // mark-calibrated). Since the client already gates the direct-mark path on
+                // status==='approved' before ever firing this mutation, `pending_revision` is the
+                // far more likely 409 in practice — branch on the `reason` the server now sends
+                // instead of always showing the not-approved message.
+                if (info.reason === 'pending_revision') {
+                    showError(t('research.calibration.pendingRevisionBlocksMark', 'A proposed revision is waiting — apply it before marking calibrated.'));
+                    return;
+                }
+                // P3 fix (review): the third 409 site (icps.ts's check-then-act conditional
+                // UPDATE matching 0 rows) sends `reason: 'conflict'` specifically because the
+                // server deliberately does NOT re-query which precondition moved (approval status,
+                // ruleset version, or a concurrent revision) between the read and the write — so
+                // it's wrong to collapse this into the generic "must be approved" message, which
+                // actively misleads a user whose ICP IS approved and just lost a narrow race.
+                // Reload the latest state so the UI reflects whatever actually moved.
+                if (info.reason === 'conflict') {
+                    showError(t('research.calibration.markConflict', 'The ICP changed in the meantime — reload and try again.'));
+                    invalidateIcp();
+                    return;
+                }
                 showError(t('research.calibration.needApprovedFinish', 'The ICP must be approved before you can mark it calibrated.'));
                 return;
             }
-            if (httpInfo(err).status === 400) {
+            if (info.status === 400) {
                 showError(t('research.calibration.needFeedbackFinish', 'Rate at least one sampled company at the current ruleset before finishing.'));
                 return;
             }

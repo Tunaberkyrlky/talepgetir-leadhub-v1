@@ -7,9 +7,13 @@ function t(key: string): string {
     return i18n.t(key);
 }
 
-/** Show a green success notification */
-export function showSuccess(message: string) {
-    notifications.show({ message, color: 'green' });
+/** Show a green success notification.
+ *  Pass `options.id` for actions that can legitimately repeat in quick succession (e.g.
+ *  approving several cards in a row) — Mantine's notifications store no-ops a `show()` call
+ *  whose id already has a notification on screen, so a stable id replaces re-stacking with a
+ *  single toast instead of piling up N identical ones. */
+export function showSuccess(message: string, options?: { id?: string }) {
+    notifications.show({ message, color: 'green', ...options });
 }
 
 /** Show a blue info notification */

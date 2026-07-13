@@ -2,11 +2,24 @@
  * IcpCard — review/edit/score one ICP draft (B5).
  * Structured fields are the editable final; the customer scores /10 and approves.
  * The original AI draft is preserved server-side (ai_draft) for eval.
+ *
+ * Visual hierarchy (Tg-Research-v2/06_WIZARD_TASARIM.md, Karar 5 — Stage 2): the human-readable
+ * synthesis (name, segment description, plain-language qualifying signals) is the dominant
+ * surface; the raw signals/negative_signals/elimination_rules/lookalike_companies chip editors
+ * live behind a closed-by-default "Details" disclosure, matching OfferCard.tsx's pattern exactly.
+ *
+ * State-init contract (do not change): `draft` seeds from the `icp` prop via useState with NO
+ * prop-sync effect — this card relies on the caller remounting it via a changing `key` whenever
+ * the underlying ICP meaningfully changes (ResearchFlowPage.tsx keys it by `icp.id` at step 8 and
+ * by `id:ruleset_version:status` at step 14). Adding a useEffect to re-sync `draft` from `icp`
+ * would silently overwrite in-progress edits on every parent re-render instead.
  */
 import { useState } from 'react';
 import {
-    Card, Stack, Group, TextInput, Textarea, TagsInput, Slider, Button, Badge, Text, Divider, Tooltip,
+    Badge, Button, Card, Collapse, Group, Slider, Stack, TagsInput, Text, Textarea, TextInput, Tooltip, UnstyledButton,
 } from '@mantine/core';
+import { useReducedMotion } from '@mantine/hooks';
+import { IconChevronDown } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
@@ -43,9 +56,12 @@ const CALIBRATION_COLOR: Record<ResearchIcp['calibration_state'], string> = {
     none: 'gray', sampling: 'blue', feedback: 'yellow', revised: 'grape', calibrated: 'green',
 };
 
+const MAX_SIGNAL_CHIPS = 4;
+
 export default function IcpCard({ icp }: { icp: ResearchIcp }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
+    const reduceMotion = useReducedMotion();
 
     // WP5: campaign outcome aggregate (counts only) — the reply-rate badge. Empty until the
     // daily feedback:aggregate has data for this ICP; cached long (stats move daily).
@@ -58,6 +74,7 @@ export default function IcpCard({ icp }: { icp: ResearchIcp }) {
 
     const [draft, setDraft] = useState<ResearchIcp>(icp);
     const [calibrationOpen, setCalibrationOpen] = useState(false);
+    const [detailsOpen, setDetailsOpen] = useState(false);
     const score = draft.human_score ?? 5;
 
     // Invalidates BOTH the list key (step 8's own cards, ResearchPage's advanced view) AND the
@@ -106,19 +123,22 @@ export default function IcpCard({ icp }: { icp: ResearchIcp }) {
         onError: (err: unknown) => showErrorFromApi(err),
     });
 
+    const visibleSignals = draft.signals.slice(0, MAX_SIGNAL_CHIPS);
+    const hiddenSignalCount = draft.signals.length - visibleSignals.length;
+
     return (
         <Card withBorder radius="md" padding="lg">
             <Stack gap="sm">
-                <Group justify="space-between" align="flex-start">
+                <Group justify="space-between" align="flex-start" wrap="nowrap">
                     <TextInput
                         style={{ flex: 1 }}
                         value={draft.name}
                         onChange={(e) => setDraft({ ...draft, name: e.currentTarget.value })}
                         variant="unstyled"
-                        size="md"
-                        fw={600}
+                        size="lg"
+                        fw={700}
                     />
-                    <Group gap="xs">
+                    <Group gap={6} wrap="nowrap">
                         {outcomeTotal && outcomeTotal.sent > 0 && (
                             <Tooltip label={t('research.outcomes.tooltip', '{{replies}} replies / {{sent}} sent ({{positive}} positive)', { replies: outcomeTotal.replies, sent: outcomeTotal.sent, positive: outcomeTotal.positive })}>
                                 <Badge variant="light" color={outcomeTotal.replies > 0 ? 'teal' : 'gray'}>
@@ -134,46 +154,45 @@ export default function IcpCard({ icp }: { icp: ResearchIcp }) {
                     </Group>
                 </Group>
 
-                <Textarea
-                    label={t('research.icp.segment', 'Segment')}
-                    autosize minRows={1}
-                    value={draft.segment ?? ''}
-                    onChange={(e) => setDraft({ ...draft, segment: e.currentTarget.value })}
-                />
+                <Stack gap={4}>
+                    <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('research.icp.segment', 'Segment')}</Text>
+                    <Textarea
+                        variant="unstyled"
+                        autosize minRows={1}
+                        placeholder={t('research.icp.segmentPh', 'Describe this segment in plain language…')}
+                        value={draft.segment ?? ''}
+                        onChange={(e) => setDraft({ ...draft, segment: e.currentTarget.value })}
+                        styles={{ input: { fontSize: 'var(--mantine-font-size-md)', fontWeight: 500, lineHeight: 1.35, padding: 0 } }}
+                    />
+                </Stack>
 
-                <TagsInput
-                    label={t('research.icp.signals', 'Signals (fits if…)')}
-                    value={draft.signals}
-                    onChange={(v) => setDraft({ ...draft, signals: v })}
-                />
-                <TagsInput
-                    label={t('research.icp.negativeSignals', 'Negative signals')}
-                    value={draft.negative_signals}
-                    onChange={(v) => setDraft({ ...draft, negative_signals: v })}
-                />
-                <TagsInput
-                    label={t('research.icp.eliminationRules', 'Elimination rules')}
-                    value={draft.elimination_rules}
-                    onChange={(v) => setDraft({ ...draft, elimination_rules: v })}
-                />
-                <TagsInput
-                    label={t('research.icp.lookalikes', 'Lookalike companies')}
-                    value={draft.lookalike_companies}
-                    onChange={(v) => setDraft({ ...draft, lookalike_companies: v })}
-                />
+                {visibleSignals.length > 0 ? (
+                    <Group gap={6} wrap="wrap">
+                        {visibleSignals.map((signal) => (
+                            <Badge key={signal} variant="dot" color="grape" size="sm" radius="sm" tt="none" fw={500}>
+                                {signal}
+                            </Badge>
+                        ))}
+                        {hiddenSignalCount > 0 && (
+                            <Badge variant="outline" color="gray" size="sm" radius="sm" tt="none" fw={500}>
+                                +{hiddenSignalCount}
+                            </Badge>
+                        )}
+                    </Group>
+                ) : (
+                    <Text size="sm" c="dimmed">{t('research.icp.noSignals', 'No qualifying signals yet — add them in Details.')}</Text>
+                )}
 
-                <Divider my="xs" />
-
-                <Text size="sm" fw={500}>
-                    {t('research.icp.score', 'Your score')}: {score}/10
-                </Text>
-                <Slider
-                    min={0} max={10} step={1}
-                    marks={[{ value: 0, label: '0' }, { value: 5, label: '5' }, { value: 10, label: '10' }]}
-                    value={score}
-                    onChange={(v) => setDraft({ ...draft, human_score: v })}
-                    mb="md"
-                />
+                <div>
+                    <Text size="sm" fw={600}>{t('research.icp.score', 'Your score')}: {score}/10</Text>
+                    <Slider
+                        min={0} max={10} step={1}
+                        marks={[{ value: 0, label: '0' }, { value: 5, label: '5' }, { value: 10, label: '10' }]}
+                        value={score}
+                        onChange={(v) => setDraft({ ...draft, human_score: v })}
+                        mb="md"
+                    />
+                </div>
                 <Textarea
                     label={t('research.icp.note', 'Note')}
                     autosize minRows={1}
@@ -197,6 +216,51 @@ export default function IcpCard({ icp }: { icp: ResearchIcp }) {
                         {t('research.icp.approve', 'Approve')}
                     </Button>
                 </Group>
+
+                <UnstyledButton
+                    onClick={() => setDetailsOpen((v) => !v)}
+                    style={{ alignSelf: 'flex-start' }}
+                    aria-expanded={detailsOpen}
+                    aria-controls={`icp-details-${icp.id}`}
+                >
+                    <Group gap={4} c="dimmed" wrap="nowrap">
+                        <Text size="xs" fw={600}>
+                            {detailsOpen ? t('research.icp.hideDetails', 'Hide details') : t('research.icp.showDetails', 'Details')}
+                        </Text>
+                        <IconChevronDown
+                            size={13}
+                            style={{
+                                transition: reduceMotion ? 'none' : 'transform 160ms ease',
+                                transform: detailsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                            }}
+                        />
+                    </Group>
+                </UnstyledButton>
+
+                <Collapse id={`icp-details-${icp.id}`} in={detailsOpen} transitionDuration={reduceMotion ? 0 : 200} transitionTimingFunction="ease">
+                    <Stack gap="sm" pt={2}>
+                        <TagsInput
+                            label={t('research.icp.signals', 'Signals (fits if…)')}
+                            value={draft.signals}
+                            onChange={(v) => setDraft({ ...draft, signals: v })}
+                        />
+                        <TagsInput
+                            label={t('research.icp.negativeSignals', 'Negative signals')}
+                            value={draft.negative_signals}
+                            onChange={(v) => setDraft({ ...draft, negative_signals: v })}
+                        />
+                        <TagsInput
+                            label={t('research.icp.eliminationRules', 'Elimination rules')}
+                            value={draft.elimination_rules}
+                            onChange={(v) => setDraft({ ...draft, elimination_rules: v })}
+                        />
+                        <TagsInput
+                            label={t('research.icp.lookalikes', 'Lookalike companies')}
+                            value={draft.lookalike_companies}
+                            onChange={(v) => setDraft({ ...draft, lookalike_companies: v })}
+                        />
+                    </Stack>
+                </Collapse>
 
                 {/* Renders in a portal; mounted per card so its job polling survives closing. */}
                 <CalibrationDrawer icp={icp} opened={calibrationOpen} onClose={() => setCalibrationOpen(false)} />

@@ -231,7 +231,7 @@ export default function EnrichmentPanel({ initialProjectId, initialIcpId, lockSc
     return (
         <Stack gap="md">
             {/* Scope + credits (counts only) */}
-            <Paper withBorder radius="md" p="md">
+            <Paper withBorder radius="md" p="md" className="fade-in">
                 <Group justify="space-between" align="flex-end" wrap="wrap">
                     {lockScope ? (
                         <Text size="sm" fw={600}>{icps.find((i) => i.id === icpId)?.name ?? '—'}</Text>
@@ -268,7 +268,7 @@ export default function EnrichmentPanel({ initialProjectId, initialIcpId, lockSc
 
             {/* Enrichment config — bucket ORDER = priority */}
             {icpId && (
-                <Paper withBorder radius="md" p="md">
+                <Paper withBorder radius="md" p="md" className="fade-in" style={{ animationDelay: '40ms' }}>
                     <Stack gap="sm">
                         <Group align="flex-end" gap="sm" wrap="wrap">
                             <MultiSelect
@@ -306,6 +306,11 @@ export default function EnrichmentPanel({ initialProjectId, initialIcpId, lockSc
                             >
                                 {t('research.enrich.run', 'Find contacts')}
                             </Button>
+                            {selectedIds.length === 0 && !running && (
+                                <Text size="sm" c="dimmed">
+                                    {t('research.enrich.needSelection', 'Select at least one company below to enable this.')}
+                                </Text>
+                            )}
                         </Group>
                         {buckets.length > 0 && (
                             <Group gap={6}>
@@ -357,7 +362,8 @@ export default function EnrichmentPanel({ initialProjectId, initialIcpId, lockSc
                         )}
                         {runStatus === 'failed' && (
                             <Alert color="red" icon={<IconInfoCircle size={16} />}>
-                                {t('research.enrich.failed', 'Enrichment failed')}: {runJobQuery.data?.error ?? 'unknown'}
+                                {t('research.enrich.failed', 'Enrichment failed')}: {runJobQuery.data?.error ?? 'unknown'}.{' '}
+                                {t('research.enrich.failedHint', 'Try again with a smaller selection, or run it again.')}
                             </Alert>
                         )}
                     </Stack>
@@ -366,7 +372,7 @@ export default function EnrichmentPanel({ initialProjectId, initialIcpId, lockSc
 
             {/* MATCH companies with selection + enriched badges */}
             {icpId && (
-                <Paper withBorder radius="md" p="md">
+                <Paper withBorder radius="md" p="md" className="fade-in" style={{ animationDelay: '80ms' }}>
                     <Stack gap="sm">
                         <Group justify="space-between">
                             <Text size="sm" c="dimmed">
@@ -405,20 +411,25 @@ export default function EnrichmentPanel({ initialProjectId, initialIcpId, lockSc
                                         </Table.Tr>
                                     </Table.Thead>
                                     <Table.Tbody>
-                                        {companies.map((c) => {
+                                        {companies.map((c, i) => {
                                             const enrichedCount = enrichedById.get(c.id);
                                             return (
-                                                <Table.Tr key={c.id}>
+                                                <Table.Tr key={c.id} className="fade-in" style={{ animationDelay: `${Math.min(i, 20) * 15}ms` }}>
                                                     <Table.Td>
-                                                        <Checkbox
-                                                            size="xs"
-                                                            checked={selected.has(c.id)}
-                                                            onChange={() => toggle(c.id)}
-                                                            disabled={!c.domain}
-                                                        />
+                                                        <Tooltip
+                                                            label={t('research.enrich.noDomainHint', 'No website domain — enrichment needs a strict domain match')}
+                                                            disabled={!!c.domain}
+                                                        >
+                                                            <Checkbox
+                                                                size="xs"
+                                                                checked={selected.has(c.id)}
+                                                                onChange={() => toggle(c.id)}
+                                                                disabled={!c.domain}
+                                                            />
+                                                        </Tooltip>
                                                     </Table.Td>
                                                     <Table.Td>
-                                                        <Text fw={600} size="sm">{c.name}</Text>
+                                                        <Text fw={700} size="sm">{c.name}</Text>
                                                     </Table.Td>
                                                     <Table.Td>
                                                         {c.domain ? (
@@ -432,12 +443,12 @@ export default function EnrichmentPanel({ initialProjectId, initialIcpId, lockSc
                                                         )}
                                                     </Table.Td>
                                                     <Table.Td>
-                                                        <Text size="sm" c="dimmed">{[c.city, c.country].filter(Boolean).join(', ') || '—'}</Text>
+                                                        <Text size="xs" c="dimmed">{[c.city, c.country].filter(Boolean).join(', ') || '—'}</Text>
                                                     </Table.Td>
                                                     <Table.Td ta="center">
                                                         {enrichedCount != null ? (
                                                             <Button
-                                                                size="compact-xs" variant="light" color="teal"
+                                                                size="compact-sm" variant="light" color="teal"
                                                                 leftSection={<IconUsers size={14} />}
                                                                 onClick={() => setContactsFor(c)}
                                                             >
@@ -480,7 +491,9 @@ export default function EnrichmentPanel({ initialProjectId, initialIcpId, lockSc
                 {contactsQuery.isLoading ? (
                     <Group justify="center" py="xl"><Loader /></Group>
                 ) : contacts.length === 0 ? (
-                    <Text c="dimmed" ta="center" py="xl">{t('research.enrich.noContacts', 'No contacts stored for this company.')}</Text>
+                    <Text c="dimmed" ta="center" py="xl">
+                        {t('research.enrich.noContacts', 'This company was enriched but no contacts were found — try widening the priority titles or check the domain manually.')}
+                    </Text>
                 ) : (
                     <Stack gap="sm">
                         {contactsFor?.domain && (

@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { diffArrays, RULESET_KEYS, RULESET_LABEL, useCalibration, type CompanyRow } from '../../lib/useCalibration';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ResearchIcp } from './IcpCard';
+import styles from './CalibrationDrawer.module.css';
 
 const CALIBRATION_COLOR: Record<ResearchIcp['calibration_state'], string> = {
     none: 'gray', sampling: 'blue', feedback: 'yellow', revised: 'grape', calibrated: 'green',
@@ -28,8 +29,23 @@ const VERDICT_COLOR: Record<CompanyRow['status'], string> = {
     match: 'green', partial: 'yellow', eliminated: 'red', review: 'gray',
 };
 
+// Human-readable step title leads, hint stays quiet underneath (Karar 5). The
+// "1. " / "2. " prefix already baked into the translated strings becomes a
+// small violet number badge instead of plain inline text, purely a display
+// transform — the translation keys and their values are untouched.
 function StepHeader({ title, hint }: { title: string; hint: string }) {
-    return <div><Text fw={600} size="sm">{title}</Text><Text size="xs" c="dimmed">{hint}</Text></div>;
+    const match = /^(\d+)\.\s*(.*)$/.exec(title);
+    const num = match?.[1];
+    const label = match?.[2] || title;
+    return (
+        <Group gap="sm" align="flex-start" wrap="nowrap">
+            {num && <span className={styles.stepBadge}>{num}</span>}
+            <div>
+                <Text fw={700} size="md">{label}</Text>
+                <Text size="xs" c="dimmed">{hint}</Text>
+            </div>
+        </Group>
+    );
 }
 
 export default function CalibrationDrawer({
@@ -59,15 +75,15 @@ export default function CalibrationDrawer({
             opened={opened} onClose={onClose} position="right" size="xl"
             title={
                 <Group gap="xs">
-                    <Text fw={600}>{live.name}</Text>
+                    <Text fw={700} size="lg">{live.name}</Text>
                     <Badge variant="light" color={CALIBRATION_COLOR[state]}>{t(`research.calibration.state.${state}`, state)}</Badge>
                 </Group>
             }
         >
             <Stack gap="lg">
                 {/* Step 1 — small capped sample harvest (caps are server-side, never customer input) */}
-                <Paper withBorder radius="md" p="md">
-                    <Stack gap="sm">
+                <Paper withBorder radius="md" p="lg" className="fade-in" style={{ animationDelay: '0ms' }}>
+                    <Stack gap="md">
                         <StepHeader title={t('research.calibration.step1', '1. Sample')} hint={t('research.calibration.step1Hint', 'Run a small capped harvest for one geography to test the ICP logic.')} />
                         <Group align="flex-end" gap="sm" wrap="wrap">
                             <TextInput
@@ -100,7 +116,10 @@ export default function CalibrationDrawer({
                             </Group>
                         )}
                         {live.status !== 'approved' && (
-                            <Text size="sm" c="dimmed">{t('research.calibration.notApproved', 'The ICP must be approved before sampling.')}</Text>
+                            <Group gap={6} wrap="nowrap">
+                                <IconInfoCircle size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                                <Text size="sm" c="dimmed">{t('research.calibration.notApproved', 'The ICP must be approved before sampling.')}</Text>
+                            </Group>
                         )}
                         {calib.job?.kind === 'sample' && jobStatus === 'failed' && (
                             <Alert color="red" icon={<IconInfoCircle size={16} />}>{t('research.calibration.sampleFailed', 'Sample failed')}: {jobQuery.data?.error ?? 'unknown'}</Alert>
@@ -109,8 +128,8 @@ export default function CalibrationDrawer({
                 </Paper>
 
                 {/* Step 2 — rate the sampled companies good/bad at the current ruleset */}
-                <Paper withBorder radius="md" p="md">
-                    <Stack gap="sm">
+                <Paper withBorder radius="md" p="lg" className="fade-in" style={{ animationDelay: '60ms' }}>
+                    <Stack gap="md">
                         <StepHeader title={t('research.calibration.step2', '2. Rate')} hint={t('research.calibration.step2Hint', 'Mark each sampled company as good or bad; add a short note if helpful.')} />
                         {companiesQuery.isLoading ? (
                             <Group justify="center" py="md"><Loader size="sm" /></Group>
@@ -158,10 +177,10 @@ export default function CalibrationDrawer({
                                                     </Table.Td>
                                                     <Table.Td ta="center">
                                                         <Group gap={4} justify="center" wrap="nowrap">
-                                                            <ActionIcon variant={r?.rating === 'good' ? 'filled' : 'subtle'} color="teal" onClick={() => setRating(c.id, 'good')} aria-label={t('research.calibration.good', 'Good')}>
+                                                            <ActionIcon className={styles.thumbIcon} variant={r?.rating === 'good' ? 'filled' : 'subtle'} color="teal" onClick={() => setRating(c.id, 'good')} aria-label={t('research.calibration.good', 'Good')}>
                                                                 <IconThumbUp size={16} />
                                                             </ActionIcon>
-                                                            <ActionIcon variant={r?.rating === 'bad' ? 'filled' : 'subtle'} color="red" onClick={() => setRating(c.id, 'bad')} aria-label={t('research.calibration.bad', 'Bad')}>
+                                                            <ActionIcon className={styles.thumbIcon} variant={r?.rating === 'bad' ? 'filled' : 'subtle'} color="red" onClick={() => setRating(c.id, 'bad')} aria-label={t('research.calibration.bad', 'Bad')}>
                                                                 <IconThumbDown size={16} />
                                                             </ActionIcon>
                                                         </Group>
@@ -189,15 +208,18 @@ export default function CalibrationDrawer({
                 </Paper>
 
                 {/* Step 3 — model-proposed revision: set-diff vs the live arrays, then apply (CAS) */}
-                <Paper withBorder radius="md" p="md">
-                    <Stack gap="sm">
+                <Paper withBorder radius="md" p="lg" className="fade-in" style={{ animationDelay: '120ms' }}>
+                    <Stack gap="md">
                         <StepHeader title={t('research.calibration.step3', '3. Revision')} hint={t('research.calibration.step3Hint', 'The strategy model proposes an ICP revision from your ratings.')} />
                         <Group gap="sm">
                             <Button leftSection={<IconSparkles size={16} />} onClick={() => reviseMut.mutate()} disabled={savedCount === 0 || anyRunning} loading={reviseRunning}>
                                 {t('research.calibration.propose', 'Propose revision')}
                             </Button>
                             {savedCount === 0 && (
-                                <Text size="sm" c="dimmed">{t('research.calibration.needFeedback', 'Save at least one rating before requesting a revision.')}</Text>
+                                <Group gap={6} wrap="nowrap">
+                                    <IconInfoCircle size={14} color="var(--mantine-color-dimmed)" />
+                                    <Text size="sm" c="dimmed">{t('research.calibration.needFeedback', 'Save at least one rating before requesting a revision.')}</Text>
+                                </Group>
                             )}
                         </Group>
                         {reviseRunning && (
@@ -207,30 +229,42 @@ export default function CalibrationDrawer({
                             <Alert color="red" icon={<IconInfoCircle size={16} />}>{t('research.calibration.reviseFailed', 'Revision failed')}: {jobQuery.data?.error ?? 'unknown'}</Alert>
                         )}
                         {revision && (
-                            <Stack gap="sm">
+                            <Stack gap="sm" className="fade-in">
                                 <Divider />
-                                {RULESET_KEYS.map((key) => {
-                                    const { added, removed } = diffArrays(live[key] ?? [], revision[key] ?? []);
-                                    return (
-                                        <div key={key}>
-                                            <Text size="sm" fw={600}>{t(`research.calibration.${RULESET_LABEL[key].key}`, RULESET_LABEL[key].fallback)}</Text>
-                                            {added.length === 0 && removed.length === 0 ? (
-                                                <Text size="xs" c="dimmed">{t('research.calibration.noChange', 'No change')}</Text>
-                                            ) : (
-                                                <Stack gap={2}>
-                                                    {removed.map((s) => <Text key={`-${s}`} size="xs" c="red" td="line-through">− {s}</Text>)}
-                                                    {added.map((s) => <Text key={`+${s}`} size="xs" c="green">+ {s}</Text>)}
-                                                </Stack>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                                <Text size="sm" fw={600}>{t('research.calibration.changes', 'What changed')}</Text>
-                                <List size="sm" spacing={2}>
-                                    {revision.changes_summary.map((s, i) => <List.Item key={i}>{s}</List.Item>)}
-                                </List>
-                                <Text size="sm" fw={600}>{t('research.calibration.rationale', 'Rationale')}</Text>
-                                <Text size="sm" c="dimmed">{revision.rationale}</Text>
+                                {/* Signature "AI proposal" panel (Karar 7) — the model's evidence/rationale
+                                    is visually set apart from the customer's own ratings above. */}
+                                <div className={styles.aiPanel}>
+                                    <Group gap={6} mb="xs">
+                                        <IconSparkles size={14} color="var(--mantine-color-violet-6)" />
+                                        <Text size="xs" fw={700} c="violet" tt="uppercase" style={{ letterSpacing: 0.4 }}>
+                                            {t('research.calibration.aiProposal', 'AI proposal')}
+                                        </Text>
+                                    </Group>
+                                    <Stack gap="sm">
+                                        {RULESET_KEYS.map((key) => {
+                                            const { added, removed } = diffArrays(live[key] ?? [], revision[key] ?? []);
+                                            return (
+                                                <div key={key}>
+                                                    <Text size="sm" fw={600}>{t(`research.calibration.${RULESET_LABEL[key].key}`, RULESET_LABEL[key].fallback)}</Text>
+                                                    {added.length === 0 && removed.length === 0 ? (
+                                                        <Text size="xs" c="dimmed">{t('research.calibration.noChange', 'No change')}</Text>
+                                                    ) : (
+                                                        <Stack gap={2}>
+                                                            {removed.map((s) => <Text key={`-${s}`} size="xs" c="red" td="line-through">− {s}</Text>)}
+                                                            {added.map((s) => <Text key={`+${s}`} size="xs" c="green">+ {s}</Text>)}
+                                                        </Stack>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                        <Text size="sm" fw={600}>{t('research.calibration.changes', 'What changed')}</Text>
+                                        <List size="sm" spacing={2}>
+                                            {revision.changes_summary.map((s, i) => <List.Item key={i}>{s}</List.Item>)}
+                                        </List>
+                                        <Text size="sm" fw={600}>{t('research.calibration.rationale', 'Rationale')}</Text>
+                                        <Text size="sm" c="dimmed">{revision.rationale}</Text>
+                                    </Stack>
+                                </div>
                                 <Group justify="flex-end">
                                     <Button
                                         color="grape"
@@ -247,20 +281,26 @@ export default function CalibrationDrawer({
                 </Paper>
 
                 {/* Step 4 — mark the (re-approved) logic calibrated */}
-                <Paper withBorder radius="md" p="md">
-                    <Stack gap="sm">
+                <Paper withBorder radius="md" p="lg" className="fade-in" style={{ animationDelay: '180ms' }}>
+                    <Stack gap="md">
                         <StepHeader title={t('research.calibration.step4', '4. Finish')} hint={t('research.calibration.step4Hint', 'Once the re-approved ICP samples well, mark the logic calibrated.')} />
                         <Group justify="space-between" align="center">
                             {live.calibrated_at ? (
-                                <Text size="sm" c="teal">
-                                    {t('research.calibration.calibratedAt', 'Calibrated: {{date}}', { date: new Date(live.calibrated_at).toLocaleString() })}
-                                </Text>
+                                <Group gap={6} wrap="nowrap">
+                                    <IconChecks size={16} color="var(--mantine-color-teal-6)" />
+                                    <Text size="sm" fw={600} c="teal">
+                                        {t('research.calibration.calibratedAt', 'Calibrated: {{date}}', { date: new Date(live.calibrated_at).toLocaleString() })}
+                                    </Text>
+                                </Group>
+                            ) : live.status !== 'approved' ? (
+                                <Group gap={6} wrap="nowrap">
+                                    <IconInfoCircle size={14} color="var(--mantine-color-dimmed)" />
+                                    <Text size="sm" c="dimmed">
+                                        {t('research.calibration.needApprovedFinish', 'The ICP must be approved before you can mark it calibrated.')}
+                                    </Text>
+                                </Group>
                             ) : (
-                                <Text size="sm" c="dimmed">
-                                    {live.status !== 'approved'
-                                        ? t('research.calibration.needApprovedFinish', 'The ICP must be approved before you can mark it calibrated.')
-                                        : ''}
-                                </Text>
+                                <span />
                             )}
                             <Button color="green" leftSection={<IconChecks size={16} />} onClick={() => markMut.mutate()} loading={markMut.isPending} disabled={live.status !== 'approved'}>
                                 {t('research.calibration.markCalibrated', 'Approve the logic')}
