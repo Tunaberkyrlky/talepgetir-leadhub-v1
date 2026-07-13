@@ -4,7 +4,7 @@ import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { translateTexts } from '../lib/deepl.js';
-import { validateBody, createContactSchema, updateContactSchema } from '../lib/validation.js';
+import { validateBody, createContactSchema, updateContactSchema, BUYING_ROLES, RELATIONSHIP_STATUSES } from '../lib/validation.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import posthog from '../lib/posthog.js';
@@ -104,6 +104,33 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const filterCountries = req.query.countries
             ? (req.query.countries as string).split(',').filter(Boolean)
             : [];
+        // Contact-intelligence filters (migration 134). Applied on the no-search path;
+        // the search_contacts RPC does not yet project these columns (see route notes).
+        // Validate defensively: a repeated query param arrives as an array (no .split),
+        // and values must be within the known enum — reject with 400 otherwise.
+        const parseEnumFilter = (
+            raw: unknown,
+            allowed: readonly string[],
+        ): { ok: true; values: string[] } | { ok: false } => {
+            if (raw === undefined) return { ok: true, values: [] };
+            if (typeof raw !== 'string') return { ok: false };
+            const values = raw.split(',').map((s) => s.trim()).filter(Boolean);
+            if (values.some((v) => !allowed.includes(v))) return { ok: false };
+            return { ok: true, values };
+        };
+
+        const buyingRolesParsed = parseEnumFilter(req.query.buying_roles, BUYING_ROLES);
+        if (!buyingRolesParsed.ok) {
+            res.status(400).json({ error: 'Invalid buying_roles filter' });
+            return;
+        }
+        const relationshipStatusesParsed = parseEnumFilter(req.query.relationship_statuses, RELATIONSHIP_STATUSES);
+        if (!relationshipStatusesParsed.ok) {
+            res.status(400).json({ error: 'Invalid relationship_statuses filter' });
+            return;
+        }
+        const filterBuyingRoles = buyingRolesParsed.values;
+        const filterRelationshipStatuses = relationshipStatusesParsed.values;
 
         const allowedSortFields = ['first_name', 'last_name', 'email', 'country', 'seniority', 'created_at', 'updated_at'];
         const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'updated_at';
@@ -164,6 +191,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             .from('contacts')
             .select(
                 `id, first_name, last_name, email, phone_e164, title, country, seniority,
+                 buying_role, relationship_status, preferred_channel,
                  is_primary, linkedin, created_at, updated_at,
                  companies(id, name, stage)`,
                 { count: 'exact' }
@@ -173,6 +201,8 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         if (filterCompanyIds.length > 0) query = query.in('company_id', filterCompanyIds);
         if (filterSeniorities.length > 0) query = query.in('seniority', filterSeniorities);
         if (filterCountries.length > 0) query = query.in('country', filterCountries);
+        if (filterBuyingRoles.length > 0) query = query.in('buying_role', filterBuyingRoles);
+        if (filterRelationshipStatuses.length > 0) query = query.in('relationship_status', filterRelationshipStatuses);
 
         // nullsFirst: false ensures NULLs always go to end regardless of sort direction
         query = query
@@ -243,7 +273,7 @@ router.post(
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
-            const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary } = req.body;
+            const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, buying_role, relationship_status, preferred_channel, is_primary } = req.body;
 
             const { data: company } = await supabaseAdmin
                 .from('companies')
@@ -283,6 +313,9 @@ router.post(
                 country: country || null,
                 seniority: seniority || null,
                 department: department || null,
+                buying_role: buying_role || null,
+                relationship_status: relationship_status || null,
+                preferred_channel: preferred_channel || null,
                 is_primary: is_primary || false,
             };
 
@@ -326,7 +359,7 @@ router.put(
             const tenantId = req.tenantId!;
             const { id } = req.params;
 
-            const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, is_primary } = req.body;
+            const { company_id, first_name, last_name, title, email, phone_e164, linkedin, country, seniority, department, buying_role, relationship_status, preferred_channel, is_primary } = req.body;
 
             // Validate company_id belongs to the same tenant
             if (company_id !== undefined) {
@@ -353,6 +386,9 @@ router.put(
             if (country !== undefined) updateData.country = country;
             if (seniority !== undefined) updateData.seniority = seniority;
             if (department !== undefined) updateData.department = department;
+            if (buying_role !== undefined) updateData.buying_role = buying_role;
+            if (relationship_status !== undefined) updateData.relationship_status = relationship_status;
+            if (preferred_channel !== undefined) updateData.preferred_channel = preferred_channel;
             if (is_primary !== undefined) updateData.is_primary = is_primary;
 
             // Ensure at most one primary per company — unset others before this update

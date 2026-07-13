@@ -2519,5 +2519,31 @@
             "fail": "fail",
             "unknown": "unknown"
         }
+    },
+    "contactIntel": {
+        "buyingRole": "Buying Role",
+        "relationshipStatus": "Relationship",
+        "preferredChannel": "Preferred Channel",
+        "filterBuyingRole": "Filter by buying role...",
+        "committeeGap": "No decision maker identified among active contacts. Map the buying committee to move this deal forward.",
+        "buyingRoles": {
+            "decision_maker": "Decision Maker",
+            "influencer": "Influencer",
+            "champion": "Champion",
+            "user": "User",
+            "blocker": "Blocker"
+        },
+        "relationshipStatuses": {
+            "active": "Active",
+            "passive": "Passive",
+            "left_company": "Left Company"
+        },
+        "preferredChannels": {
+            "email": "Email",
+            "phone": "Phone",
+            "whatsapp": "WhatsApp",
+            "linkedin": "LinkedIn",
+            "other": "Other"
+        }
     }
 }

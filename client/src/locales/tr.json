@@ -2519,5 +2519,31 @@
             "fail": "başarısız",
             "unknown": "bilinmiyor"
         }
+    },
+    "contactIntel": {
+        "buyingRole": "Satın Alma Rolü",
+        "relationshipStatus": "İlişki Durumu",
+        "preferredChannel": "Tercih Edilen Kanal",
+        "filterBuyingRole": "Satın alma rolüne göre filtrele...",
+        "committeeGap": "Aktif kişiler arasında karar verici belirlenmemiş. Bu fırsatı ilerletmek için satın alma komitesini haritalayabilirsiniz.",
+        "buyingRoles": {
+            "decision_maker": "Karar Verici",
+            "influencer": "Etkileyici",
+            "champion": "Destekçi",
+            "user": "Kullanıcı",
+            "blocker": "Engelleyici"
+        },
+        "relationshipStatuses": {
+            "active": "Aktif",
+            "passive": "Pasif",
+            "left_company": "Şirketten Ayrıldı"
+        },
+        "preferredChannels": {
+            "email": "E-posta",
+            "phone": "Telefon",
+            "whatsapp": "WhatsApp",
+            "linkedin": "LinkedIn",
+            "other": "Diğer"
+        }
     }
 }

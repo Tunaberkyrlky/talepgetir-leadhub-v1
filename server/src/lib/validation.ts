@@ -67,6 +67,17 @@ export const loginSchema = z.object({
 
 // ── Contact schemas ──
 
+// Sales-context vocabularies (migration 134). Closed enums, nullable + optional so
+// existing callers that never send them stay valid; DB CHECK constraints mirror these.
+export const BUYING_ROLES = ['decision_maker', 'influencer', 'champion', 'user', 'blocker'] as const;
+export const RELATIONSHIP_STATUSES = ['active', 'passive', 'left_company'] as const;
+export const PREFERRED_CHANNELS = ['email', 'phone', 'whatsapp', 'linkedin', 'other'] as const;
+
+// Enum field that coerces empty strings (a cleared Select in the contact forms) to
+// null before validation — otherwise '' would fail the enum. Mirrors emailField/urlField.
+const nullableEnumField = <T extends readonly [string, ...string[]]>(values: T) =>
+    z.preprocess((v) => (v === '' ? null : v), z.enum(values).optional().nullable());
+
 export const createContactSchema = z.object({
     company_id: uuidField('Invalid company_id'),
     first_name: z.string().min(1, 'First name is required').max(255),
@@ -78,6 +89,9 @@ export const createContactSchema = z.object({
     country: z.string().max(100).optional().nullable(),
     seniority: z.string().max(100).optional().nullable(),
     department: z.string().max(255).optional().nullable(),
+    buying_role: nullableEnumField(BUYING_ROLES),
+    relationship_status: nullableEnumField(RELATIONSHIP_STATUSES),
+    preferred_channel: nullableEnumField(PREFERRED_CHANNELS),
     is_primary: z.boolean().optional().default(false),
 });
 
@@ -92,6 +106,9 @@ export const updateContactSchema = z.object({
     country: z.string().max(100).optional().nullable(),
     seniority: z.string().max(100).optional().nullable(),
     department: z.string().max(255).optional().nullable(),
+    buying_role: nullableEnumField(BUYING_ROLES),
+    relationship_status: nullableEnumField(RELATIONSHIP_STATUSES),
+    preferred_channel: nullableEnumField(PREFERRED_CHANNELS),
     is_primary: z.boolean().optional(),
 });
 

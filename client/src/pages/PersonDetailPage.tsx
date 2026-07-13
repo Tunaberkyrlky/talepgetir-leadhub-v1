@@ -50,6 +50,9 @@ interface ContactDetail {
     email: string | null;
     phone_e164: string | null;
     linkedin: string | null;
+    buying_role: string | null;
+    relationship_status: string | null;
+    preferred_channel: string | null;
     is_primary: boolean;
     translations: { title?: string; translated_at?: string } | null;
     updated_at: string;
@@ -302,6 +305,9 @@ export default function PersonDetailPage() {
                     email: contact.email,
                     phone_e164: contact.phone_e164,
                     linkedin: contact.linkedin,
+                    buying_role: contact.buying_role,
+                    relationship_status: contact.relationship_status,
+                    preferred_channel: contact.preferred_channel,
                     is_primary: contact.is_primary,
                 }}
             />

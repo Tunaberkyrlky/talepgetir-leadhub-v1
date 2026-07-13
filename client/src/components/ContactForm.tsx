@@ -26,6 +26,11 @@ interface Contact {
     email: string | null;
     phone_e164: string | null;
     linkedin: string | null;
+    // Optional so callers that pass a partial contact (e.g. PersonDetailPage, which
+    // does not project these) still satisfy the type; the form falls back to '' below.
+    buying_role?: string | null;
+    relationship_status?: string | null;
+    preferred_channel?: string | null;
     is_primary: boolean;
     companies?: { id?: string; name: string } | null;
 }
@@ -41,6 +46,12 @@ interface ContactFormProps {
 const SENIORITY_OPTIONS = [
     'C-Suite', 'VP', 'Director', 'Manager', 'Senior', 'Mid-Level', 'Junior', 'Intern', 'Other',
 ];
+
+// Contact-intelligence enum values (migration 134). Labels are resolved via i18n
+// (contactIntel.*) at render time so the raw enum value is what gets persisted.
+const BUYING_ROLE_VALUES = ['decision_maker', 'influencer', 'champion', 'user', 'blocker'];
+const RELATIONSHIP_STATUS_VALUES = ['active', 'passive', 'left_company'];
+const PREFERRED_CHANNEL_VALUES = ['email', 'phone', 'whatsapp', 'linkedin', 'other'];
 
 export default function ContactForm({ opened, onClose, contact, defaultCompanyId }: ContactFormProps) {
     const { t } = useTranslation();
@@ -75,6 +86,9 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
             email: '',
             phone_e164: '',
             linkedin: '',
+            buying_role: '',
+            relationship_status: '',
+            preferred_channel: '',
             is_primary: false,
         },
         validate: {
@@ -96,6 +110,9 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
                     email: contact.email || '',
                     phone_e164: contact.phone_e164 || '',
                     linkedin: contact.linkedin || '',
+                    buying_role: contact.buying_role || '',
+                    relationship_status: contact.relationship_status || '',
+                    preferred_channel: contact.preferred_channel || '',
                     is_primary: contact.is_primary || false,
                 });
             } else {
@@ -109,8 +126,11 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
 
     const mutation = useMutation({
         mutationFn: (values: typeof form.values) => {
-            const payload = {
-                ...values,
+            // Intel fields are handled explicitly below, so keep them out of the spread.
+            const { buying_role, relationship_status, preferred_channel, ...rest } = values;
+            void buying_role; void relationship_status; void preferred_channel;
+            const payload: Record<string, unknown> = {
+                ...rest,
                 last_name: values.last_name || null,
                 title: values.title || null,
                 seniority: values.seniority || null,
@@ -119,6 +139,16 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
                 phone_e164: values.phone_e164 || null,
                 linkedin: values.linkedin || null,
             };
+            // Contact-intelligence fields (migration 134): when editing a contact whose
+            // prop did NOT carry a field (e.g. opened from search_contacts / a partial
+            // caller — `undefined`) and the user left the (blank) input untouched, OMIT
+            // the field entirely so the PUT does not overwrite the existing DB value with
+            // null. Otherwise send the value (a defined prop, or an explicit user edit).
+            const intelFields = ['buying_role', 'relationship_status', 'preferred_channel'] as const;
+            for (const f of intelFields) {
+                if (isEdit && contact?.[f] === undefined && values[f] === '') continue;
+                payload[f] = values[f] || null;
+            }
             if (isEdit) {
                 return api.put(`/contacts/${contact!.id}`, payload);
             }
@@ -182,6 +212,27 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
                         <TextInput
                             label={t('contact.country')}
                             {...form.getInputProps('country')}
+                        />
+                        <Select
+                            label={t('contactIntel.buyingRole')}
+                            data={BUYING_ROLE_VALUES.map((v) => ({ value: v, label: t(`contactIntel.buyingRoles.${v}`) }))}
+                            clearable
+                            {...form.getInputProps('buying_role')}
+                        />
+                    </SimpleGrid>
+
+                    <SimpleGrid cols={2}>
+                        <Select
+                            label={t('contactIntel.relationshipStatus')}
+                            data={RELATIONSHIP_STATUS_VALUES.map((v) => ({ value: v, label: t(`contactIntel.relationshipStatuses.${v}`) }))}
+                            clearable
+                            {...form.getInputProps('relationship_status')}
+                        />
+                        <Select
+                            label={t('contactIntel.preferredChannel')}
+                            data={PREFERRED_CHANNEL_VALUES.map((v) => ({ value: v, label: t(`contactIntel.preferredChannels.${v}`) }))}
+                            clearable
+                            {...form.getInputProps('preferred_channel')}
                         />
                     </SimpleGrid>
 

@@ -84,8 +84,23 @@ interface Contact {
     linkedin: string | null;
     country: string | null;
     seniority: string | null;
+    buying_role: string | null;
+    relationship_status: string | null;
+    preferred_channel: string | null;
     is_primary: boolean;
 }
+
+// Contact-intelligence enum values (migration 134). Labels come from i18n (contactIntel.*).
+const BUYING_ROLE_VALUES = ['decision_maker', 'influencer', 'champion', 'user', 'blocker'];
+const RELATIONSHIP_STATUS_VALUES = ['active', 'passive', 'left_company'];
+const PREFERRED_CHANNEL_VALUES = ['email', 'phone', 'whatsapp', 'linkedin', 'other'];
+
+const BUYING_ROLE_COLORS: Record<string, string> = {
+    decision_maker: 'grape', influencer: 'blue', champion: 'teal', user: 'gray', blocker: 'red',
+};
+const RELATIONSHIP_STATUS_COLORS: Record<string, string> = {
+    active: 'green', passive: 'yellow', left_company: 'gray',
+};
 
 interface Company {
     id: string;
@@ -177,6 +192,16 @@ function ContactCard({ contact, canEdit, isSuperadmin, onNavigate, onEdit, onDel
                             </Text>
                             {contact.seniority && (
                                 <Badge size="xs" variant="outline" color="gray">{contact.seniority}</Badge>
+                            )}
+                            {contact.buying_role && (
+                                <Badge size="xs" variant="light" color={BUYING_ROLE_COLORS[contact.buying_role] || 'gray'}>
+                                    {t(`contactIntel.buyingRoles.${contact.buying_role}`)}
+                                </Badge>
+                            )}
+                            {contact.relationship_status && (
+                                <Badge size="xs" variant="dot" color={RELATIONSHIP_STATUS_COLORS[contact.relationship_status] || 'gray'}>
+                                    {t(`contactIntel.relationshipStatuses.${contact.relationship_status}`)}
+                                </Badge>
                             )}
                         </Group>
                         <Group gap="xs" mt={2}>
@@ -361,6 +386,9 @@ export default function CompanyDetailPage() {
             linkedin: '',
             country: '',
             seniority: '',
+            buying_role: '',
+            relationship_status: '',
+            preferred_channel: '',
             is_primary: false,
         },
         validate: {
@@ -433,6 +461,9 @@ export default function CompanyDetailPage() {
             linkedin: contact.linkedin || '',
             country: contact.country || '',
             seniority: contact.seniority || '',
+            buying_role: contact.buying_role || '',
+            relationship_status: contact.relationship_status || '',
+            preferred_channel: contact.preferred_channel || '',
             is_primary: contact.is_primary,
         });
         open();
@@ -886,8 +917,19 @@ export default function CompanyDetailPage() {
                                 companyId: company.id,
                                 companyName: company.name,
                             };
+                            // Buying-committee gap: warn when there ARE engaged contacts
+                            // (anyone not marked as having left the company) yet none of
+                            // them is flagged as the decision maker.
+                            const activeContacts = company.contacts.filter((c) => c.relationship_status !== 'left_company');
+                            const showCommitteeGap = activeContacts.length > 0
+                                && !activeContacts.some((c) => c.buying_role === 'decision_maker');
                             return (
                                 <Stack gap="sm">
+                                    {showCommitteeGap && (
+                                        <Alert icon={<IconAlertCircle size={16} />} color="orange" variant="light" radius="md">
+                                            {t('contactIntel.committeeGap')}
+                                        </Alert>
+                                    )}
                                     {company.contacts.map((c) => (
                                         <ContactCard key={c.id} contact={c} {...cardProps} />
                                     ))}
@@ -1037,6 +1079,31 @@ export default function CompanyDetailPage() {
                                 {...contactForm.getInputProps('seniority')}
                             />
                             <TextInput label={t('contact.country')} radius="md" {...contactForm.getInputProps('country')} />
+                        </Group>
+                        <Group grow>
+                            <Select
+                                label={t('contactIntel.buyingRole')}
+                                radius="md"
+                                data={BUYING_ROLE_VALUES.map((v) => ({ value: v, label: t(`contactIntel.buyingRoles.${v}`) }))}
+                                clearable
+                                {...contactForm.getInputProps('buying_role')}
+                            />
+                            <Select
+                                label={t('contactIntel.relationshipStatus')}
+                                radius="md"
+                                data={RELATIONSHIP_STATUS_VALUES.map((v) => ({ value: v, label: t(`contactIntel.relationshipStatuses.${v}`) }))}
+                                clearable
+                                {...contactForm.getInputProps('relationship_status')}
+                            />
+                        </Group>
+                        <Group grow>
+                            <Select
+                                label={t('contactIntel.preferredChannel')}
+                                radius="md"
+                                data={PREFERRED_CHANNEL_VALUES.map((v) => ({ value: v, label: t(`contactIntel.preferredChannels.${v}`) }))}
+                                clearable
+                                {...contactForm.getInputProps('preferred_channel')}
+                            />
                         </Group>
                         <TextInput label={t('contact.email')} radius="md" {...contactForm.getInputProps('email')} />
                         <TextInput label={t('contact.phone')} radius="md" {...contactForm.getInputProps('phone_e164')} />

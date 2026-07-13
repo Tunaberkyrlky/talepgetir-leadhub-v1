@@ -81,6 +81,9 @@ interface Contact {
     email: string | null;
     phone_e164: string | null;
     linkedin: string | null;
+    buying_role: string | null;
+    relationship_status: string | null;
+    preferred_channel: string | null;
     is_primary: boolean;
     company_id: string;
     created_at: string;
@@ -113,6 +116,7 @@ type SortKey = 'first_name' | 'last_name' | 'email' | 'updated_at' | 'created_at
 type ColumnKey =
     | 'full_name' | 'company' | 'title_dept' | 'email' | 'phone'
     | 'seniority' | 'country' | 'linkedin' | 'is_primary'
+    | 'buying_role' | 'relationship_status'
     | 'updated_at' | 'created_at';
 
 interface ColumnDef {
@@ -120,7 +124,13 @@ interface ColumnDef {
     visible: boolean;
 }
 
-const COLUMNS_STORAGE_KEY = 'people_columns_v1';
+// Bumped to _v2 so the new contact-intelligence columns appear for users who
+// already have a persisted _v1 layout (loadColumnConfig only appends columns
+// missing from stored config, but a fresh key guarantees sane defaults).
+const COLUMNS_STORAGE_KEY = 'people_columns_v2';
+// Previous key. On first load under v2 we migrate a v1 layout forward (preserving
+// the user's order + visibility) instead of silently resetting to defaults.
+const COLUMNS_STORAGE_KEY_V1 = 'people_columns_v1';
 
 const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'full_name', visible: true },
@@ -128,13 +138,25 @@ const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'title_dept', visible: true },
     { key: 'email', visible: true },
     { key: 'seniority', visible: true },
+    { key: 'buying_role', visible: true },
     { key: 'country', visible: true },
     { key: 'updated_at', visible: true },
+    { key: 'relationship_status', visible: false },
     { key: 'phone', visible: false },
     { key: 'linkedin', visible: false },
     { key: 'is_primary', visible: false },
     { key: 'created_at', visible: false },
 ];
+
+// Contact-intelligence enum values + badge colors (migration 134). Labels come
+// from i18n (contactIntel.*).
+const BUYING_ROLE_VALUES = ['decision_maker', 'influencer', 'champion', 'user', 'blocker'];
+const BUYING_ROLE_COLORS: Record<string, string> = {
+    decision_maker: 'grape', influencer: 'blue', champion: 'teal', user: 'gray', blocker: 'red',
+};
+const RELATIONSHIP_STATUS_COLORS: Record<string, string> = {
+    active: 'green', passive: 'yellow', left_company: 'gray',
+};
 
 const SORTABLE_COLUMNS: Record<string, SortKey> = {
     full_name: 'first_name',
@@ -145,14 +167,29 @@ const SORTABLE_COLUMNS: Record<string, SortKey> = {
     seniority: 'seniority',
 };
 
+// Merge a stored layout forward: keep the user's stored columns (order + visibility),
+// dropping any keys no longer known, then append any DEFAULT_COLUMNS not yet present.
+function mergeWithDefaults(parsed: ColumnDef[]): ColumnDef[] {
+    const knownKeys = new Set(DEFAULT_COLUMNS.map(c => c.key));
+    const kept = parsed.filter(c => knownKeys.has(c.key));
+    const keptKeys = new Set(kept.map(c => c.key));
+    const missing = DEFAULT_COLUMNS.filter(c => !keptKeys.has(c.key));
+    return [...kept, ...missing];
+}
+
 function loadColumnConfig(): ColumnDef[] {
     try {
         const stored = localStorage.getItem(COLUMNS_STORAGE_KEY);
         if (stored) {
-            const parsed = JSON.parse(stored) as ColumnDef[];
-            const keys = parsed.map(c => c.key);
-            const missing = DEFAULT_COLUMNS.filter(c => !keys.includes(c.key));
-            return [...parsed, ...missing];
+            return mergeWithDefaults(JSON.parse(stored) as ColumnDef[]);
+        }
+        // No v2 layout yet: migrate a v1 layout forward (preserve the user's
+        // order/visibility, add the new contact-intelligence columns) and persist it.
+        const v1 = localStorage.getItem(COLUMNS_STORAGE_KEY_V1);
+        if (v1) {
+            const migrated = mergeWithDefaults(JSON.parse(v1) as ColumnDef[]);
+            localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(migrated));
+            return migrated;
         }
     } catch {}
     return DEFAULT_COLUMNS;
@@ -219,6 +256,7 @@ export default function PeoplePage() {
     const [filterCompanies, setFilterCompanies] = useState<string[]>([]);
     const [filterSeniorities, setFilterSeniorities] = useState<string[]>([]);
     const [filterCountries, setFilterCountries] = useState<string[]>([]);
+    const [filterBuyingRoles, setFilterBuyingRoles] = useState<string[]>([]);
 
     const [formOpened, { open: openForm, close: closeForm }] = useDisclosure(false);
     const [editContact, setEditContact] = useState<Contact | null>(null);
@@ -238,6 +276,8 @@ export default function PeoplePage() {
         email: t('contact.email'),
         phone: t('contact.phone'),
         seniority: t('people.seniority'),
+        buying_role: t('contactIntel.buyingRole'),
+        relationship_status: t('contactIntel.relationshipStatus'),
         country: t('people.country'),
         linkedin: t('contact.linkedin'),
         is_primary: t('contact.isPrimary'),
@@ -277,7 +317,7 @@ export default function PeoplePage() {
     // Reset page when filters change
     useEffect(() => {
         setPage(1);
-    }, [debouncedSearch, filterCompanies, filterSeniorities, filterCountries]);
+    }, [debouncedSearch, filterCompanies, filterSeniorities, filterCountries, filterBuyingRoles]);
 
     // Fetch filter options
     const { data: filterOptionsData } = useQuery<{ data: FilterOptions }>({
@@ -297,12 +337,13 @@ export default function PeoplePage() {
         if (filterCompanies.length) params.set('company_ids', filterCompanies.join(','));
         if (filterSeniorities.length) params.set('seniorities', filterSeniorities.join(','));
         if (filterCountries.length) params.set('countries', filterCountries.join(','));
+        if (filterBuyingRoles.length) params.set('buying_roles', filterBuyingRoles.join(','));
         return params.toString();
-    }, [page, sortBy, sortOrder, debouncedSearch, filterCompanies, filterSeniorities, filterCountries]);
+    }, [page, sortBy, sortOrder, debouncedSearch, filterCompanies, filterSeniorities, filterCountries, filterBuyingRoles]);
 
     // Fetch contacts
     const { data, isLoading, error } = useQuery<PaginatedResponse>({
-        queryKey: ['people', page, debouncedSearch, sortBy, sortOrder, filterCompanies, filterSeniorities, filterCountries],
+        queryKey: ['people', page, debouncedSearch, sortBy, sortOrder, filterCompanies, filterSeniorities, filterCountries, filterBuyingRoles],
         queryFn: async () => {
             const res = await api.get(`/contacts?${buildQueryParams()}`);
             return res.data;
@@ -340,13 +381,14 @@ export default function PeoplePage() {
         });
     };
 
-    const hasActiveFilters = debouncedSearch || filterCompanies.length || filterSeniorities.length || filterCountries.length;
+    const hasActiveFilters = debouncedSearch || filterCompanies.length || filterSeniorities.length || filterCountries.length || filterBuyingRoles.length;
 
     const clearAllFilters = () => {
         setSearch('');
         setFilterCompanies([]);
         setFilterSeniorities([]);
         setFilterCountries([]);
+        setFilterBuyingRoles([]);
     };
 
     // Sort header component
@@ -478,6 +520,26 @@ export default function PeoplePage() {
                         ) : <Text size="sm">—</Text>}
                     </Table.Td>
                 );
+            case 'buying_role':
+                return (
+                    <Table.Td key="buying_role" style={{ whiteSpace: 'nowrap' }}>
+                        {contact.buying_role ? (
+                            <Badge size="sm" variant="light" color={BUYING_ROLE_COLORS[contact.buying_role] || 'gray'}>
+                                {t(`contactIntel.buyingRoles.${contact.buying_role}`)}
+                            </Badge>
+                        ) : <Text size="sm">—</Text>}
+                    </Table.Td>
+                );
+            case 'relationship_status':
+                return (
+                    <Table.Td key="relationship_status" style={{ whiteSpace: 'nowrap' }}>
+                        {contact.relationship_status ? (
+                            <Badge size="sm" variant="dot" color={RELATIONSHIP_STATUS_COLORS[contact.relationship_status] || 'gray'}>
+                                {t(`contactIntel.relationshipStatuses.${contact.relationship_status}`)}
+                            </Badge>
+                        ) : <Text size="sm">—</Text>}
+                    </Table.Td>
+                );
             case 'country':
                 return <Table.Td key="country"><TruncatedText size="sm">{contact.country}</TruncatedText></Table.Td>;
             case 'linkedin':
@@ -583,6 +645,16 @@ export default function PeoplePage() {
                         data={filterOptions?.countries || []}
                         value={filterCountries}
                         onChange={setFilterCountries}
+                        clearable
+                        radius="md"
+                        maxDropdownHeight={200}
+                        style={{ minWidth: 200 }}
+                    />
+                    <MultiSelect
+                        placeholder={filterBuyingRoles.length === 0 ? t('contactIntel.filterBuyingRole') : undefined}
+                        data={BUYING_ROLE_VALUES.map((v) => ({ value: v, label: t(`contactIntel.buyingRoles.${v}`) }))}
+                        value={filterBuyingRoles}
+                        onChange={setFilterBuyingRoles}
                         clearable
                         radius="md"
                         maxDropdownHeight={200}
