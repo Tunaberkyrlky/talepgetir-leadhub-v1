@@ -15,25 +15,34 @@
  */
 import { supabaseAdmin } from '../supabase.js';
 import { createLogger } from '../logger.js';
+import { asSourceValue } from './memory.js';
+import type { AssembledContext } from './assemble.js';
 
 const log = createLogger('lib:context:snapshots');
 
 /** Human decision recorded on a snapshot (mirrors approval_state CHECK in mig 128). */
 export type ApprovalState = 'draft' | 'pending' | 'approved' | 'rejected' | 'edited' | 'sent';
 
-/** Everything writeSnapshot persists. Links are all optional (a bare audit row still inserts). */
+/**
+ * Everything writeSnapshot persists. The assembled §10.5 context is the single source of truth
+ * for the lead/memory links and the assembled slices (P2-3) — a caller can no longer supply a
+ * loose bag of ids/turns that might mix tenants or bypass the assemble-time injection guard.
+ * Only the produced-message metadata (which message/action it became, recipe versions, the human
+ * decision) is carried separately.
+ */
 export interface SnapshotInput {
   tenantId: string;
+  /** The deterministically-assembled context this snapshot records. context.tenant_id MUST equal
+   *  tenantId; lead_id / memory_id / selected_memory_fact_ids / recent_turns / open_commitments are
+   *  DERIVED from it, never from separate caller fields. */
+  context: AssembledContext;
   messageId?: string | null;
   automationActionId?: string | null;
-  leadId?: string | null;
-  memoryId?: string | null;
   promptRecipeVersion?: string | null;
-  selectedMemoryFactIds?: string[];
-  recentTurns?: unknown[];
   meetingSummaryVersion?: string | null;
+  /** Extra source-data NOT part of the assembled context (e.g. asset-open telemetry). Passed
+   *  through the SAME injection guard (asSourceValue) before persist. */
   assetEngagement?: Record<string, unknown>;
-  openCommitments?: unknown[];
   generatedMessage?: string | null;
   humanEditDiff?: Record<string, unknown>;
   approvalState?: ApprovalState;
@@ -49,22 +58,40 @@ export interface WriteSnapshotResult {
  * Insert one immutable snapshot. Never updates (the generative columns are trigger-protected).
  * Returns the new id; a write miss returns { ok:false } — the caller decides whether an audit
  * gap is tolerable (it never affects the send itself, which does not happen at night).
+ *
+ * P2-3 trust boundary: the lead/memory links and assembled slices are DERIVED from the passed
+ * AssembledContext (not from loose caller fields), and the context's tenant must match input's,
+ * so a caller cannot staple tenant-A ids onto a tenant-B context or bypass the assemble-time
+ * injection guard. The mig-129 DB fence additionally validates every selected fact id is in-tenant.
  */
 export async function writeSnapshot(input: SnapshotInput): Promise<WriteSnapshotResult> {
+  const ctx = input.context;
+  // The snapshot tenant and the assembled context MUST agree — a mismatch means a caller tried to
+  // record a tenant-B context under tenant A. Refuse (never persist a cross-tenant audit row).
+  if (ctx.tenant_id !== input.tenantId) {
+    log.warn(
+      { tenantId: input.tenantId, contextTenantId: ctx.tenant_id },
+      'writeSnapshot: refused — context tenant does not match input tenant',
+    );
+    return { ok: false, id: null, reason: 'tenant mismatch between context and input' };
+  }
   const { data, error } = await supabaseAdmin
     .from('generation_context_snapshots')
     .insert({
       tenant_id: input.tenantId,
       message_id: input.messageId ?? null,
       automation_action_id: input.automationActionId ?? null,
-      lead_id: input.leadId ?? null,
-      memory_id: input.memoryId ?? null,
+      // Links + assembled slices come from the trusted context, not loose caller fields — no
+      // cross-tenant id substitution and no bypass of the assemble-time guard is possible.
+      lead_id: ctx.lead_id ?? null,
+      memory_id: ctx.memory_id ?? null,
       prompt_recipe_version: input.promptRecipeVersion ?? null,
-      selected_memory_fact_ids: input.selectedMemoryFactIds ?? [],
-      recent_turns: input.recentTurns ?? [],
+      selected_memory_fact_ids: ctx.selected_memory_fact_ids ?? [],
+      recent_turns: ctx.recent_turns ?? [],
       meeting_summary_version: input.meetingSummaryVersion ?? null,
-      asset_engagement: input.assetEngagement ?? {},
-      open_commitments: input.openCommitments ?? [],
+      // Extra caller source-data still passes the SAME injection guard before persist.
+      asset_engagement: asSourceValue(input.assetEngagement ?? {}) as Record<string, unknown>,
+      open_commitments: ctx.open_commitments ?? { ours: [], theirs: [] },
       generated_message: input.generatedMessage ?? null,
       human_edit_diff: input.humanEditDiff ?? {},
       approval_state: input.approvalState ?? 'draft',
@@ -92,7 +119,9 @@ export interface GenerationContextSnapshot {
   recent_turns: unknown[];
   meeting_summary_version: string | null;
   asset_engagement: Record<string, unknown>;
-  open_commitments: unknown[];
+  // Derived from AssembledContext.open_commitments ({ ours, theirs }); a bare [] only for a
+  // legacy/empty row. JSONB tolerates either shape.
+  open_commitments: { ours: unknown[]; theirs: unknown[] } | unknown[];
   generated_message: string | null;
   human_edit_diff: Record<string, unknown>;
   approval_state: ApprovalState;

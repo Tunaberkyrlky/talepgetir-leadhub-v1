@@ -27,7 +27,7 @@
  */
 import { supabaseAdmin } from '../supabase.js';
 import { createLogger } from '../logger.js';
-import { getMemory, getMemoryFacts, asSourceData, asSourceValue, type MemoryFact } from './memory.js';
+import { getMemory, getMemoryFacts, asSourceData, asSourceValue, truncateCodePoints, type MemoryFact } from './memory.js';
 
 // The injection guard is the SAME primitive the fold uses — re-exported here so existing
 // `import { asSourceData } from './assemble.js'` callers (and tests) keep working.
@@ -41,6 +41,12 @@ const DEFAULT_BUDGET_CHARS = 6000;
 const RECENT_TURN_SCAN = 40;
 /** Cap on how many memory fact ids pin a generation snapshot (pinned-first). Prevents bloat. */
 const MAX_SELECTED_FACTS = 50;
+/**
+ * Outbound delivery states that count as an actually-accepted/delivered reply (P2-10). A queued/
+ * failed/skipped (or draft) outbound row does NOT answer an inbound. Mirrors the
+ * messages.delivery_state domain (mig 127: queued|sent|delivered|read|replied|failed|skipped).
+ */
+const ANSWERED_DELIVERY_STATES = new Set(['sent', 'delivered', 'read', 'replied']);
 
 /** A message ledger row (subset used for turn assembly). */
 interface MessageRow {
@@ -99,6 +105,9 @@ export interface AssembledContext {
   assembled_at: string;
   /** True when this lead has no read-model / no history yet (a cold assemble). */
   cold: boolean;
+  /** Deterministic residual notes when low-priority context was trimmed to fit the char budget
+   *  (field label + dropped count only — never lead PII). Empty when everything fit (P2-8/L7). */
+  openQuestions: string[];
 }
 
 export interface AssembleOptions {
@@ -128,44 +137,121 @@ export async function assembleContext(
     loadRecentMessages(tenantId, leadId),
   ]);
 
-  // 1. Last inbound + unanswered/question detection. "Unanswered" = no outbound turn exists
-  //    after the newest inbound (messages are ordered newest-first).
+  // ── ONE priority-ordered char budget (§10.5), P2-8/L7. Higher-priority context claims the budget
+  //    FIRST; each lower-priority block is TRIMMED to whatever remains — textual blocks truncate at
+  //    the boundary (surrogate-safe), structured blocks keep whole entries that still fit and drop
+  //    the rest (a structured entry cannot be mid-JSON truncated the way a string can). Nothing is
+  //    admitted whole once the budget is spent, so `remaining` never goes negative and used_chars
+  //    (= budgetLimit - remaining) reflects the ACTUAL retained size instead of under-reporting.
+  //    This replaces the old scheme that merely ACCOUNTED commitments / objections / stable facts
+  //    (returning them intact even when over budget) and admitted the first turn even when it alone
+  //    exceeded the limit. Dropped low-priority entries are recorded in openQuestions. `remaining`
+  //    is threaded through the build in §10.5 order:
+  //    last_inbound → commitments/objections → meeting summary → recent turns → stable facts.
+  let remaining = budgetLimit;
+  // Residual notes (deterministic; field label + dropped count only, never lead PII) — records the
+  // low-priority context dropped to honour the budget, so a caller sees the slice was trimmed.
+  const openQuestions: string[] = [];
+  // Spend budget on a lead-text string, truncating (surrogate-safe) to what is left — never admit an
+  // over-budget string whole. Charges only the length actually retained (a surrogate back-off can
+  // leave remaining=1; harmless — every consumer guards remaining<=0). Returns the included text.
+  const spendString = (raw: string): { text: string; truncated: boolean } => {
+    if (raw.length === 0) return { text: '', truncated: false };
+    if (remaining <= 0) return { text: '', truncated: true };
+    if (raw.length <= remaining) {
+      remaining -= raw.length;
+      return { text: raw, truncated: false };
+    }
+    const text = truncateCodePoints(raw, remaining);
+    remaining -= text.length;
+    return { text, truncated: true };
+  };
+  // Spend budget on a structured array in §10.5 priority order: keep each whole entry that still
+  // FITS the remaining budget, then stop and drop the boundary entry + the rest (deterministic —
+  // input order preserved, first-N kept). Charges only the entries retained, so used_chars stays
+  // honest; a drop count is recorded in openQuestions.
+  const spendEntries = (entries: unknown[], label: string): unknown[] => {
+    const keptEntries: unknown[] = [];
+    let dropped = 0;
+    for (const entry of entries) {
+      const cost = JSON.stringify(entry ?? null).length;
+      if (dropped === 0 && cost <= remaining) {
+        remaining -= cost;
+        keptEntries.push(entry);
+      } else {
+        dropped += 1;
+      }
+    }
+    if (dropped > 0) openQuestions.push(`${label}: dropped ${dropped} over-budget entr${dropped === 1 ? 'y' : 'ies'}`);
+    return keptEntries;
+  };
+  // Same, keyed: admit preference keys (Object.entries order) only while budget remains. Returns a
+  // null-prototype object (matches asSourceValue) so a lead-authored "__proto__" key stays inert.
+  const spendPreferences = (prefs: Record<string, unknown>, label: string): Record<string, unknown> => {
+    const out: Record<string, unknown> = Object.create(null);
+    let dropped = 0;
+    for (const [k, v] of Object.entries(prefs)) {
+      const cost = JSON.stringify({ [k]: v ?? null }).length;
+      if (dropped === 0 && cost <= remaining) {
+        remaining -= cost;
+        out[k] = v;
+      } else {
+        dropped += 1;
+      }
+    }
+    if (dropped > 0) openQuestions.push(`${label}: dropped ${dropped} over-budget preference${dropped === 1 ? '' : 's'}`);
+    return out;
+  };
+
+  // 1. Last inbound (highest priority) — claims budget first. "Unanswered" = no ACCEPTED outbound
+  //    turn exists after the newest inbound (messages are newest-first). has_question is computed
+  //    on the FULL text so a budget truncation can never hide a trailing question mark.
   const lastInboundMsg = messages.find((m) => m.direction === 'inbound') ?? null;
   let lastInbound: AssembledContext['last_inbound'] = null;
   if (lastInboundMsg) {
-    const source = asSourceData(lastInboundMsg.body ?? lastInboundMsg.subject);
+    const rawSource = asSourceData(lastInboundMsg.body ?? lastInboundMsg.subject);
+    const { text: source } = spendString(rawSource);
+    // P2-10: only an outbound in an ACCEPTED delivery state answers the inbound — a queued /
+    //        failed / skipped (or draft) outbound row does NOT count as a reply.
     const answeredAfter = messages.some(
-      (m) => m.direction === 'outbound' && m.created_at > lastInboundMsg.created_at,
+      (m) =>
+        m.direction === 'outbound' &&
+        ANSWERED_DELIVERY_STATES.has(m.delivery_state) &&
+        m.created_at > lastInboundMsg.created_at,
     );
     lastInbound = {
       message_id: lastInboundMsg.id,
       at: lastInboundMsg.created_at,
       source_data: source,
-      has_question: looksLikeQuestion(source),
+      // Read '?' straight off the RAW body/subject (looksLikeQuestion = a cheap includes('?')
+      // single scan). This covers a '?' past the 2000-char source cap WITHOUT the full-string
+      // sanitiser allocations an uncapped asSourceData pass would trigger on a huge inbound body.
+      // It only reads (returns a bool), never emits — no injection surface; the emitted
+      // source_data above stays sanitised + capped.
+      has_question: looksLikeQuestion(lastInboundMsg.body ?? lastInboundMsg.subject ?? ''),
       unanswered: !answeredAfter,
     };
   }
 
-  // 2-5. Read-model derived slices. These fields were folded from lead-authored memory_facts,
-  //       so — even though the fold already sanitises on persist — re-run the SAME injection
-  //       guard here (defense in depth: a row persisted before the guard existed, or written by
-  //       another path, still emerges inert). No lead text becomes an instruction.
+  // 2. Open commitments + objections (priority 2). These fields were folded from lead-authored
+  //    memory_facts, so — even though the fold already sanitises on persist — re-run the SAME
+  //    injection guard here (defense in depth; a row written by another path still emerges inert).
+  //    Trimmed to the remaining budget in priority order (whole entries kept while they fit; the
+  //    rest dropped and recorded in openQuestions).
   const openCommitments = {
-    ours: asSourceValue(memory?.our_commitments ?? []) as unknown[],
-    theirs: asSourceValue(memory?.their_commitments ?? []) as unknown[],
+    ours: spendEntries(asSourceValue(memory?.our_commitments ?? []) as unknown[], 'open_commitments.ours'),
+    theirs: spendEntries(asSourceValue(memory?.their_commitments ?? []) as unknown[], 'open_commitments.theirs'),
   };
-  const openObjections = asSourceValue(memory?.objections ?? []) as unknown[];
-  const lastMeetingSummary = memory?.last_meeting_summary ? asSourceData(memory.last_meeting_summary) : null;
-  const stableFacts = {
-    goals: asSourceValue(memory?.goals ?? []) as unknown[],
-    pain_points: asSourceValue(memory?.pain_points ?? []) as unknown[],
-    preferences: asSourceValue(memory?.preferences ?? {}) as Record<string, unknown>,
-    forbidden_topics: asSourceValue(memory?.forbidden_topics ?? []) as unknown[],
-    tone_language: memory?.tone_language ? asSourceData(memory.tone_language) : null,
-  };
+  const openObjections = spendEntries(asSourceValue(memory?.objections ?? []) as unknown[], 'open_objections');
 
-  // 4 + 6. Recent meaningful turns, trimmed to the budget (drop OLDEST first — §10.5 "old /
-  //        closed topics truncated"). Each turn's lead text is inert source-data.
+  // 3. Last meeting summary (priority 3) — truncated to the remaining budget.
+  const rawMeeting = memory?.last_meeting_summary ? asSourceData(memory.last_meeting_summary) : null;
+  const lastMeetingSummary = rawMeeting ? spendString(rawMeeting).text || null : null;
+
+  // 4 + 6. Recent meaningful turns (priority 4), spending the remaining budget. Older turns beyond
+  //         the budget are the dropped "old / closed topics" (§10.5 #6); the boundary turn is
+  //         TRUNCATED to what remains — not admitted whole, not dropped whole. Messages are
+  //         newest-first; the last inbound is intentionally re-listed and so is charged again.
   const candidateTurns: AssembledTurn[] = messages.map((m) => {
     const source = asSourceData(m.body ?? m.subject);
     return {
@@ -177,9 +263,26 @@ export async function assembleContext(
       truncated: (m.body ?? m.subject ?? '').length > source.length,
     };
   });
-  const { kept, droppedTurns, usedChars } = trimToBudget(candidateTurns, budgetLimit);
+  const kept: AssembledTurn[] = [];
+  for (const t of candidateTurns) {
+    if (remaining <= 0) break;
+    const { text, truncated } = spendString(t.source_data);
+    if (text.length === 0 && t.source_data.length > 0) break; // no budget left to include even a slice
+    kept.push({ ...t, source_data: text, truncated: t.truncated || truncated });
+  }
+  const droppedTurns = candidateTurns.length - kept.length;
   // Present kept turns oldest→newest for a natural reading order.
   kept.reverse();
+
+  // 5. Stable facts (priority 5) — trimmed last (budget may already be exhausted): array facts keep
+  //    whole entries while budget remains, preferences trim by key, tone_language spends what's left.
+  const stableFacts = {
+    goals: spendEntries(asSourceValue(memory?.goals ?? []) as unknown[], 'stable_facts.goals'),
+    pain_points: spendEntries(asSourceValue(memory?.pain_points ?? []) as unknown[], 'stable_facts.pain_points'),
+    preferences: spendPreferences(asSourceValue(memory?.preferences ?? {}) as Record<string, unknown>, 'stable_facts.preferences'),
+    forbidden_topics: spendEntries(asSourceValue(memory?.forbidden_topics ?? []) as unknown[], 'stable_facts.forbidden_topics'),
+    tone_language: memory?.tone_language ? (spendString(asSourceData(memory.tone_language)).text || null) : null,
+  };
 
   const selectedFactIds = pickFactIds(facts);
 
@@ -193,10 +296,13 @@ export async function assembleContext(
     recent_turns: kept,
     stable_facts: stableFacts,
     selected_memory_fact_ids: selectedFactIds,
-    budget: { limit_chars: budgetLimit, used_chars: usedChars, dropped_turns: droppedTurns },
+    // used_chars now reflects the ACTUAL retained size of the WHOLE context (every block trimmed to
+    // fit), not just recent_turns, and never under-reports (P2-8/L7).
+    budget: { limit_chars: budgetLimit, used_chars: budgetLimit - remaining, dropped_turns: droppedTurns },
     memory_id: memory?.id ?? null,
     assembled_at: new Date().toISOString(),
     cold: !memory && messages.length === 0,
+    openQuestions,
   };
 }
 
@@ -207,32 +313,20 @@ async function loadRecentMessages(tenantId: string, leadId: string): Promise<Mes
     .select('id, direction, channel, subject, body, delivery_state, created_at')
     .eq('tenant_id', tenantId)
     .eq('lead_id', leadId)
+    // L4: id DESC tiebreak so rows sharing created_at order deterministically — the
+    // RECENT_TURN_SCAN cap and downstream last_inbound / recent_turns / answered detection stay
+    // reproducible instead of depending on PostgreSQL's arbitrary tied-row order.
     .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .limit(RECENT_TURN_SCAN);
   if (error) {
+    // L2: a read FAILURE propagates (not a silent [] degrade) so assembleContext's Promise.all
+    // rejects — parity with getMemory / getMemoryFacts, which throw. A "" degrade would make a live
+    // lead look cold and an inbound look unanswered. Sibling reads are tenant-scoped, so no leak.
     log.warn({ err: error, tenantId, leadId }, 'assembleContext: message read failed');
-    return [];
+    throw new Error(`loadRecentMessages: read failed for tenant ${tenantId} lead ${leadId}: ${error.message}`);
   }
   return (data as MessageRow[] | null) ?? [];
-}
-
-/**
- * Keep newest turns until the char budget is exhausted; the remaining (oldest) turns are the
- * dropped "old / closed topics". `turns` arrives newest-first, so we walk forward and stop.
- */
-function trimToBudget(
-  turns: AssembledTurn[],
-  budgetChars: number,
-): { kept: AssembledTurn[]; droppedTurns: number; usedChars: number } {
-  const kept: AssembledTurn[] = [];
-  let used = 0;
-  for (const t of turns) {
-    const cost = t.source_data.length + 32; // small per-turn overhead for direction/channel/at
-    if (used + cost > budgetChars && kept.length > 0) break;
-    kept.push(t);
-    used += cost;
-  }
-  return { kept, droppedTurns: turns.length - kept.length, usedChars: used };
 }
 
 /**
@@ -243,8 +337,17 @@ function trimToBudget(
  */
 function pickFactIds(facts: MemoryFact[]): string[] {
   const pinned = facts.filter((f) => f.human_pinned);
+  // L1: a valid TOTAL order — confidence DESC, observed_at DESC, then id ASC as the final
+  // deterministic tiebreak. The old comparator returned -1 for equal confidence+observed_at in BOTH
+  // directions (not antisymmetric), so V8 could reverse tied input and make the 50-item cutoff
+  // nondeterministic. Mirrors the fold order in memory.ts rebuildMemory.
   const rest = facts
     .filter((f) => !f.human_pinned)
-    .sort((a, b) => b.confidence - a.confidence || (a.observed_at < b.observed_at ? 1 : -1));
+    .sort(
+      (a, b) =>
+        b.confidence - a.confidence ||
+        (a.observed_at < b.observed_at ? 1 : a.observed_at > b.observed_at ? -1 : 0) ||
+        a.id.localeCompare(b.id),
+    );
   return [...pinned, ...rest].slice(0, MAX_SELECTED_FACTS).map((f) => f.id);
 }

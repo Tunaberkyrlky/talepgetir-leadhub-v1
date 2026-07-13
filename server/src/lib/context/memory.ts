@@ -24,6 +24,22 @@ const log = createLogger('lib:context:memory');
 export const MAX_SOURCE_FIELD_CHARS = 2000;
 
 /**
+ * Code-point-safe truncation (L3). A raw String.slice can cut an astral character's UTF-16
+ * surrogate pair, leaving a lone surrogate that Postgres JSONB may reject. When the boundary
+ * lands right after a high surrogate (U+D800–U+DBFF), back off one code unit so we never emit a
+ * half character. Shared by asSourceData (the source-field cap) and assemble.ts's char budget so
+ * both truncate identically; the caller charges only the length actually retained.
+ */
+export function truncateCodePoints(str: string, max: number): string {
+  if (max <= 0) return '';
+  if (str.length <= max) return str;
+  let end = max;
+  const boundary = str.charCodeAt(end - 1);
+  if (boundary >= 0xd800 && boundary <= 0xdbff) end -= 1; // boundary split a surrogate pair
+  return str.slice(0, end);
+}
+
+/**
  * INJECTION GUARD (canonical). Normalise a piece of lead-authored text into inert source-data:
  * coerce to string, strip control chars / bidi-override / format chars, collapse whitespace, and
  * cap length. The result is DATA to be shown/stored, NEVER concatenated into an instruction.
@@ -34,28 +50,45 @@ export const MAX_SOURCE_FIELD_CHARS = 2000;
 export function asSourceData(input: unknown, maxChars = MAX_SOURCE_FIELD_CHARS): string {
   if (input == null) return '';
   const raw = typeof input === 'string' ? input : String(input);
-  // Strip C0 (U+0000-U+001F) + DEL + C1 (U+007F-U+009F) control chars, and the Unicode
-  // bidi/format overrides (U+202A-U+202E embedding/override, U+2066-U+2069 isolates) that can
-  // visually reorder or spoof text → space; then collapse whitespace. eslint no-control-regex is
-  // intentional (that IS the guard).
-  // eslint-disable-next-line no-control-regex
-  const cleaned = raw.replace(/[\u0000-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim();
-  return cleaned.length > maxChars ? cleaned.slice(0, maxChars) : cleaned;
+  // Strip C0 (U+0000-U+001F) + DEL + C1 (U+007F-U+009F) control chars, then EVERY Unicode bidi
+  // control (\p{Bidi_Control}: ALM U+061C, LRM U+200E, RLM U+200F, the U+202A-U+202E embedding/
+  // overrides and the U+2066-U+2069 isolates) that can visually reorder or spoof text → space;
+  // then collapse whitespace. The property escape (u flag) also catches ALM/LRM/RLM, which the
+  // old explicit ranges missed. eslint no-control-regex is intentional (that IS the guard).
+  const cleaned = raw
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001F\u007F-\u009F]/gu, ' ')
+    .replace(/\p{Bidi_Control}/gu, ' ')
+    // Replace any UNPAIRED UTF-16 surrogate with U+FFFD — a high surrogate not followed by a low
+    // one, or a low surrogate not preceded by a high one, is malformed and can break a downstream
+    // JSONB write. Well-formed astral pairs are left intact; truncateCodePoints below never splits
+    // a valid pair, so the returned string stays well-formed. (No u flag: matches raw code units.)
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '�')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return truncateCodePoints(cleaned, maxChars);
 }
 
 /**
  * Deep variant: run asSourceData over every STRING leaf of an arbitrary structured value
  * (a memory_facts normalized_value object, a folded array entry, a preferences map). Numbers,
- * booleans and null pass through untouched; object keys are preserved. Used so a fact's raw
- * normalized_value can never smuggle control chars / unbounded text into the read-model.
+ * booleans and null pass through untouched. Object KEYS are lead-authored too, so they run
+ * through the SAME guard (P2-1) — a key can no longer smuggle bidi/control chars into the
+ * read-model. The result is a null-prototype object so a lead-controlled "__proto__"/
+ * "constructor" key cannot pollute a prototype, and two keys that collide AFTER sanitizing are
+ * folded deterministically (first-seen in Object.entries order wins; later dupes are dropped).
  */
 export function asSourceValue(v: unknown, maxChars = MAX_SOURCE_FIELD_CHARS): unknown {
   if (v == null) return v;
   if (typeof v === 'string') return asSourceData(v, maxChars);
   if (Array.isArray(v)) return v.map((x) => asSourceValue(x, maxChars));
   if (typeof v === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = asSourceValue(val, maxChars);
+    const out: Record<string, unknown> = Object.create(null);
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      const sk = asSourceData(k);
+      if (sk in out) continue; // deterministic collision handling: keep the first-seen key
+      out[sk] = asSourceValue(val, maxChars);
+    }
     return out;
   }
   return v;
@@ -137,7 +170,12 @@ export interface DerivedMemory {
   source_event_watermark: string | null;
 }
 
-/** Read the current read-model row for a (tenant, lead). Null when none built yet. */
+/**
+ * Read the current read-model row for a (tenant, lead). Returns null ONLY when no row exists
+ * (never built yet). A DB read FAILURE throws (P2-4): a transient error must not masquerade as
+ * "no memory" — that would let a persist path overwrite valid memory, or assembly treat a live
+ * lead as cold. Callers distinguish "no rows" (null) from "read failed" (throw).
+ */
 export async function getMemory(tenantId: string, leadId: string): Promise<ConversationMemory | null> {
   const { data, error } = await supabaseAdmin
     .from('conversation_memory')
@@ -147,7 +185,7 @@ export async function getMemory(tenantId: string, leadId: string): Promise<Conve
     .maybeSingle();
   if (error) {
     log.warn({ err: error, tenantId, leadId }, 'getMemory: read failed');
-    return null;
+    throw new Error(`getMemory: read failed for tenant ${tenantId} lead ${leadId}: ${error.message}`);
   }
   return (data as ConversationMemory | null) ?? null;
 }
@@ -174,10 +212,17 @@ export async function getMemoryFacts(
   // NEWEST facts; the caller (pickFactIds) then applies the pinned-first priority + final cap.
   // The fold path deliberately passes no limit so a full rebuild folds every current fact.
   if (opts.limit != null) q = q.limit(Math.max(1, opts.limit));
-  const { data, error } = await q.order('observed_at', { ascending: false });
+  // Total, deterministic order (P2-6): observed_at DESC, then id ASC as the final tiebreak so
+  // facts sharing an observed_at never reorder between reads (the JS fold applies human_pinned
+  // DESC on top of this). facts[0] is still the max observed_at, so the watermark logic holds.
+  const { data, error } = await q
+    .order('observed_at', { ascending: false })
+    .order('id', { ascending: true });
   if (error) {
+    // P2-4: a read FAILURE propagates — never silently degrade to an empty fact set, which would
+    // let a persisted rebuild erase valid memory or a fold drop real facts on a transient error.
     log.warn({ err: error, tenantId, leadId }, 'getMemoryFacts: read failed');
-    return [];
+    throw new Error(`getMemoryFacts: read failed for tenant ${tenantId} lead ${leadId}: ${error.message}`);
   }
   return (data as MemoryFact[] | null) ?? [];
 }
@@ -198,8 +243,9 @@ const ARRAY_TARGETS: Partial<Record<FactType, keyof DerivedMemory>> = {
  * DETERMINISTICALLY fold the current facts of a lead into the read-model shape. NO LLM,
  * NO generation — a pure grouping of observed facts (human-pinned first, then by recency).
  *
- * Incremental: pass the memory's existing source_event_watermark to fold only NEWER facts
- * on top of the prior read-model (the caller supplies `base`). A full rebuild passes no base.
+ * Always a FULL, authoritative fold of the lead's CURRENT facts (no incremental base path):
+ * the derived read-model reflects exactly the facts that exist now, so a retraction (deleted
+ * facts) correctly clears the corresponding fields rather than leaving stale values behind.
  *
  * persist=false (DEFAULT): return the derived shape WITHOUT touching the DB. This is the
  * night-safe default — nothing writes unless a caller explicitly opts in. rebuildMemory is
@@ -210,39 +256,52 @@ export async function rebuildMemory(
   leadId: string,
   opts: { persist?: boolean; base?: ConversationMemory | null } = {},
 ): Promise<DerivedMemory> {
-  // P3-4: an incremental fold (base + sinceObservedAt) folds only NEWER facts on top of the
-  // prior read-model, so it CANNOT retract base entries whose fact was later superseded → stale /
-  // duplicate rows. That is only a persistence hazard, so a WRITE always does a clean full rebuild
-  // (base=null ⇒ no sinceObservedAt ⇒ fold every current, not-superseded fact). Incremental stays
-  // available for a read-only preview (persist=false), which never writes.
-  const base = opts.persist ? null : (opts.base ?? null);
-  // Incremental: only fold facts observed after the last watermark on top of the base row.
-  const facts = await getMemoryFacts(tenantId, leadId, {
-    sinceObservedAt: base?.source_event_watermark ?? null,
-  });
+  // P3-4 + L8: a rebuild ALWAYS does a clean FULL fold (base=null ⇒ no sinceObservedAt ⇒ fold every
+  // current, not-superseded fact). The old persist=false "incremental preview" (fold only NEWER
+  // facts on top of opts.base) is dropped for two reasons: an incremental fold cannot retract a base
+  // entry whose fact was later superseded → stale/duplicate rows (P3-4), and an incremental base
+  // carries no per-key provenance, so a newly-observed pinned/newest preference could not replace an
+  // old base value (L8). Full-folding previews too keeps the pinned/newest-wins rule uniform. opts.base
+  // is accepted for signature compatibility but no longer consulted.
+  // A rebuild always folds every current fact from empty (no base, no sinceObservedAt) — see the
+  // L8/P3-4 rationale above. opts.base is accepted for signature compatibility but not consulted.
+  const facts = await getMemoryFacts(tenantId, leadId, { sinceObservedAt: null });
 
   const derived: DerivedMemory = {
-    relationship_summary: base?.relationship_summary ?? null,
-    goals: [...(base?.goals ?? [])],
-    pain_points: [...(base?.pain_points ?? [])],
-    objections: [...(base?.objections ?? [])],
-    preferences: { ...(base?.preferences ?? {}) },
-    forbidden_topics: [...(base?.forbidden_topics ?? [])],
-    past_qa: [...(base?.past_qa ?? [])],
-    our_commitments: [...(base?.our_commitments ?? [])],
-    their_commitments: [...(base?.their_commitments ?? [])],
-    last_meeting_summary: base?.last_meeting_summary ?? null,
-    open_tasks: [...(base?.open_tasks ?? [])],
-    last_meaningful_touch_at: base?.last_meaningful_touch_at ?? null,
-    tone_language: base?.tone_language ?? null,
-    source_event_watermark: base?.source_event_watermark ?? null,
+    relationship_summary: null,
+    goals: [],
+    pain_points: [],
+    objections: [],
+    preferences: {},
+    forbidden_topics: [],
+    past_qa: [],
+    our_commitments: [],
+    their_commitments: [],
+    last_meeting_summary: null,
+    open_tasks: [],
+    last_meaningful_touch_at: null,
+    tone_language: null,
+    source_event_watermark: null,
   };
 
-  // Human-pinned facts fold first (they always survive); then newest-observed. getMemoryFacts
-  // already returns observed_at DESC, so a stable sort on human_pinned preserves that order.
-  const ordered = [...facts].sort((a, b) => Number(b.human_pinned) - Number(a.human_pinned));
+  // TOTAL order (P2-6) so ties never reorder across rebuilds and scalar winners never flip:
+  // human_pinned DESC (operator-curated first), then observed_at DESC (newest), then id ASC as
+  // the final deterministic tiebreak. This matches the getMemoryFacts ORDER BY, so the fold is
+  // reproducible regardless of sort stability.
+  const ordered = [...facts].sort(
+    (a, b) =>
+      Number(b.human_pinned) - Number(a.human_pinned) ||
+      (a.observed_at < b.observed_at ? 1 : a.observed_at > b.observed_at ? -1 : 0) ||
+      a.id.localeCompare(b.id),
+  );
 
   for (const f of ordered) {
+    // P2-9: advance the meaningful-touch marker for EVERY fact type BEFORE the array-target
+    // branch — a lead with only goals/objections/commitments/QA/tasks (all array targets, which
+    // `continue` below) must still get a correct last_meaningful_touch_at, not a null/stale one.
+    if (!derived.last_meaningful_touch_at || f.observed_at > derived.last_meaningful_touch_at) {
+      derived.last_meaningful_touch_at = f.observed_at;
+    }
     const target = ARRAY_TARGETS[f.fact_type];
     if (target) {
       // P2-1: the raw normalized_value is lead-sourced data — run it through the SAME injection
@@ -260,9 +319,14 @@ export async function rebuildMemory(
     // Scalar / merge targets: the first fact in `ordered` (pinned, else newest) wins.
     switch (f.fact_type) {
       case 'preference':
+        // P2-7: facts are processed highest-priority first, so spread the NEW (lower-priority)
+        // fact UNDER the already-accumulated prefs — the earlier (pinned/newest) value wins each
+        // key. (The old order spread the new fact ON TOP, letting the LAST-processed, lowest-
+        // priority fact clobber a preferred value.) Spread uses [[Define]], so a lead-authored
+        // "__proto__" key stays an inert own property and cannot pollute a prototype.
         derived.preferences = {
-          ...derived.preferences,
           ...(asSourceValue(f.normalized_value ?? {}) as Record<string, unknown>),
+          ...derived.preferences,
         };
         break;
       case 'meeting_summary':
@@ -275,10 +339,7 @@ export async function rebuildMemory(
         if (!derived.tone_language) derived.tone_language = sanitizedStringValue(f.normalized_value);
         break;
     }
-    // Track the most-recent observation as the meaningful-touch marker.
-    if (!derived.last_meaningful_touch_at || f.observed_at > derived.last_meaningful_touch_at) {
-      derived.last_meaningful_touch_at = f.observed_at;
-    }
+    // (last_meaningful_touch_at is advanced at the top of the loop for every fact type — P2-9.)
   }
 
   // Advance the watermark to the newest fact folded (facts are observed_at DESC ⇒ [0] is max).
@@ -292,6 +353,19 @@ export async function rebuildMemory(
   if (opts.persist) {
     // Persist path exists for a FUTURE, explicitly-enabled rebuild job. It is never called at
     // night (no scheduler wiring) and defaults off, so this branch does not run at rest.
+    //
+    // rebuildMemory is a FULL, authoritative fold of the lead's CURRENT facts, so the derived
+    // read-model is written UNCONDITIONALLY. A watermark-ORDERING guard cannot gate this: a
+    // legitimate retraction (the newest facts were deleted) folds to a LOWER-or-null watermark,
+    // and skipping that write on `next < stored` (or `next IS NULL`) would strand the deleted
+    // facts in the read-model. getMemoryFacts already THROWS on a read failure (P2-4), so a
+    // transient DB error aborts the fold BEFORE this point — an empty fold here means the facts
+    // really are gone and the read-model must reflect that.
+    //
+    // BACKLOG TODO (P2-5): concurrent full rebuilds are last-writer-wins. A fully race-free
+    // version needs a tenant+lead-scoped RPC doing read/fold/upsert under an advisory lock (or a
+    // conditional `ON CONFLICT ... WHERE` upsert, which PostgREST cannot express). persist is
+    // false + unwired today, so last-writer-wins is acceptable until that RPC exists.
     const { error } = await supabaseAdmin
       .from('conversation_memory')
       .upsert(
