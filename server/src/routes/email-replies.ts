@@ -24,8 +24,9 @@ import { buildAttachmentCardsHtml, plainTextToParagraphs } from '../lib/emailHtm
 import { injectTracking, isTrackingConfigured } from '../lib/mailTracking.js';
 import { sendMail, willSupportAttachments } from '../lib/mail/router.js';
 import { resolveThreadMailbox } from '../lib/mail/resolveThreadMailbox.js';
+import { resolveLiveSenderMailbox } from '../lib/plusvibeSenderMailbox.js';
 import { getConnectionByEmail, getDefaultConnection } from '../lib/emailConnections.js';
-import type { CanonicalAttachment, MailChannel, MailProviderName } from '../lib/mail/types.js';
+import type { CanonicalAttachment, CanonicalSendRequest, MailChannel, MailProviderName, SendResult } from '../lib/mail/types.js';
 
 const log = createLogger('route:email-replies');
 const router = Router();
@@ -147,6 +148,55 @@ function buildAttachmentWarning(
     const failed = dropped ?? [];
     if (!failed.length && missing <= 0) return undefined;
     return { failed, missingCount: Math.max(0, missing) };
+}
+
+/** PlusVibe rejects a send from a rotated-out / deleted mailbox with this exact 400. */
+function isDeletedMailboxError(err: unknown): boolean {
+    return err instanceof AppError && /email account has been deleted/i.test(err.message);
+}
+
+export interface MailboxNotice { previous: string; current: string }
+
+/**
+ * Send a PlusVibe reply/forward, healing the "sending mailbox was deleted" case.
+ *
+ * Cold-email domains rotate: PlusVibe deletes burned mailboxes, so a thread's
+ * stored sending mailbox may no longer exist. On that specific 400 we swap in a
+ * live campaign account (same person when possible) and retry ONCE. A second
+ * failure means the thread can't be answered via PlusVibe at all (reply_to_id is
+ * likely bound to the deleted account) — we surface a clear error rather than
+ * looping through every account. Returns the mailbox actually used plus a notice
+ * to show the user when a substitution happened.
+ */
+async function sendPlusvibeWithMailboxHeal(
+    req: CanonicalSendRequest,
+    campaignId: string,
+): Promise<{ result: SendResult; accountEmail: string; mailboxNotice?: MailboxNotice }> {
+    const desired = req.accountEmail!;
+    try {
+        const result = await sendMail(req);
+        return { result, accountEmail: desired };
+    } catch (err) {
+        if (!isDeletedMailboxError(err)) throw err;
+
+        const live = await resolveLiveSenderMailbox(campaignId, desired);
+        if (!live.substituted) throw err; // desired reported live — nothing to swap, rethrow original
+
+        try {
+            const result = await sendMail({ ...req, accountEmail: live.email });
+            log.info({ campaignId, previous: desired, current: live.email }, 'Reply sent after healing deleted mailbox');
+            return { result, accountEmail: live.email, mailboxNotice: { previous: desired, current: live.email } };
+        } catch (retryErr) {
+            log.error(
+                { err: retryErr, campaignId, previous: desired, current: live.email },
+                'PlusVibe send failed even after substituting a live mailbox',
+            );
+            throw new AppError(
+                'This conversation cannot be answered via PlusVibe: the original sending mailbox was deleted and the fallback mailbox also failed.',
+                409,
+            );
+        }
+    }
 }
 
 // GET /api/email-replies — threaded list (latest email per sender+campaign)
@@ -949,13 +999,15 @@ router.post(
 
             // Canonical "our mailbox" for this thread (account_email column → fallback to resolver).
             // This fixes replies going out from the wrong (sender_emails[0]) mailbox.
-            const accountEmail = resolveThreadMailbox(emailReply) ?? context.fromAddress;
+            // This is the DESIRED sender; the heal wrapper below may swap it for a live
+            // campaign account if PlusVibe reports it deleted (cold-email domain rotation).
+            const desiredMailbox = resolveThreadMailbox(emailReply) ?? context.fromAddress;
 
             // Real file where the channel supports it (PlusVibe reply does), link
             // card otherwise. Cards must be appended BEFORE tracking wraps links.
             const { cardsHtml, attachments, missing: missingAttachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
                 channel: 'reply',
-                accountEmail,
+                accountEmail: desiredMailbox,
                 originProvider: 'plusvibe',
                 inReplyToMessageId: context.plusvibeEmailId,
             });
@@ -966,19 +1018,21 @@ router.post(
             const { outId, html: trackedHtml, trackedMarker } = prepareOutboundTracking(htmlBody);
             htmlBody = trackedHtml;
 
-            // Send via the canonical mail router (reply → PlusVibe for a PlusVibe thread)
-            const sendResult = await sendMail({
+            // Send via the canonical mail router (reply → PlusVibe for a PlusVibe thread).
+            // The heal wrapper auto-substitutes a live mailbox if the stored one was
+            // deleted; `accountEmail` is therefore the mailbox actually sent from.
+            const { result: sendResult, accountEmail, mailboxNotice } = await sendPlusvibeWithMailboxHeal({
                 channel: 'reply',
                 tenantId,
                 originProvider: 'plusvibe',
                 inReplyToMessageId: context.plusvibeEmailId,
-                accountEmail,
+                accountEmail: desiredMailbox,
                 to: emailReply.sender_email,
                 subject,
                 bodyHtml: htmlBody,
                 ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
                 ...(attachments.length && { attachments }),
-            });
+            }, emailReply.campaign_id);
 
             // Some selected attachments may not have made it onto the sent mail.
             const warning = buildAttachmentWarning(missingAttachments, sendResult.droppedAttachments);
@@ -1026,7 +1080,7 @@ router.post(
                 log.error({ err: insertErr }, 'Failed to store outbound reply');
                 // Reply was sent via PlusVibe successfully, but local storage failed
                 // Return success with warning
-                res.json({ sent: true, stored: false, plusvibe_id: sendResult.providerMessageId, ...(warning && { attachmentWarning: warning }) });
+                res.json({ sent: true, stored: false, plusvibe_id: sendResult.providerMessageId, ...(warning && { attachmentWarning: warning }), ...(mailboxNotice && { mailboxNotice }) });
                 return;
             }
 
@@ -1041,7 +1095,7 @@ router.post(
             if (draftDelErr) log.warn({ err: draftDelErr }, 'Draft cleanup after send failed (non-critical)');
 
             log.info({ replyId: id, outboundId: inserted.id, to: emailReply.sender_email }, 'Reply sent via PlusVibe');
-            res.json({ sent: true, stored: true, data: inserted, ...(warning && { attachmentWarning: warning }) });
+            res.json({ sent: true, stored: true, data: inserted, ...(warning && { attachmentWarning: warning }), ...(mailboxNotice && { mailboxNotice }) });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Send reply error');
@@ -1104,13 +1158,14 @@ router.post(
             // Note becomes the body PlusVibe appends ABOVE the forwarded message
             let htmlBody = plainTextToParagraphs(note);
 
-            const accountEmail = resolveThreadMailbox(emailReply) ?? context.fromAddress;
+            // Desired sender; heal wrapper swaps for a live account if it was deleted.
+            const desiredMailbox = resolveThreadMailbox(emailReply) ?? context.fromAddress;
 
             // PlusVibe forward has no attachment API → everything degrades to a
             // link card (real attachment only on channels that support forward).
             const { cardsHtml, attachments, missing: missingAttachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
                 channel: 'forward',
-                accountEmail,
+                accountEmail: desiredMailbox,
                 originProvider: 'plusvibe',
                 inReplyToMessageId: context.plusvibeEmailId,
             });
@@ -1119,18 +1174,18 @@ router.post(
             const { outId, html: trackedHtml, trackedMarker } = prepareOutboundTracking(htmlBody);
             htmlBody = trackedHtml;
 
-            const sendResult = await sendMail({
+            const { result: sendResult, accountEmail, mailboxNotice } = await sendPlusvibeWithMailboxHeal({
                 channel: 'forward',
                 tenantId,
                 originProvider: 'plusvibe',
                 inReplyToMessageId: context.plusvibeEmailId,
-                accountEmail,
+                accountEmail: desiredMailbox,
                 to,
                 subject: context.subject,
                 bodyHtml: htmlBody,
                 ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
                 ...(attachments.length && { attachments }),
-            });
+            }, emailReply.campaign_id);
 
             // Some selected attachments may not have made it onto the sent mail.
             const warning = buildAttachmentWarning(missingAttachments, sendResult.droppedAttachments);
@@ -1177,12 +1232,12 @@ router.post(
 
             if (insertErr) {
                 log.error({ err: insertErr }, 'Failed to store outbound forward');
-                res.json({ sent: true, stored: false, plusvibe_id: sendResult.providerMessageId, ...(warning && { attachmentWarning: warning }) });
+                res.json({ sent: true, stored: false, plusvibe_id: sendResult.providerMessageId, ...(warning && { attachmentWarning: warning }), ...(mailboxNotice && { mailboxNotice }) });
                 return;
             }
 
             log.info({ replyId: id, outboundId: inserted.id, forwardedTo: to }, 'Email forwarded via PlusVibe');
-            res.json({ sent: true, stored: true, data: inserted, ...(warning && { attachmentWarning: warning }) });
+            res.json({ sent: true, stored: true, data: inserted, ...(warning && { attachmentWarning: warning }), ...(mailboxNotice && { mailboxNotice }) });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Forward error');

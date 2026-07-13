@@ -106,6 +106,29 @@ export function notifyAttachmentWarning(data: unknown): boolean {
     return true;
 }
 
+/** Shape the send endpoints return when the sending mailbox was auto-substituted. */
+export interface MailboxNotice {
+    previous: string; // the deleted mailbox we replaced
+    current: string;  // the live mailbox the mail actually went out from
+}
+
+/**
+ * After a SUCCESSFUL send, tell the user when the sending mailbox was swapped —
+ * the thread's original mailbox was deleted in PlusVibe (cold-email domain
+ * rotation), so the reply went out from a live account instead. Informational
+ * (blue), shown alongside the success toast rather than replacing it.
+ */
+export function notifyMailboxNotice(data: unknown): void {
+    const n = (data as { mailboxNotice?: MailboxNotice } | null | undefined)?.mailboxNotice;
+    if (!n?.current) return;
+    notifications.show({
+        message: i18n.t('emailReplies.mailbox.substituted', { previous: n.previous, current: n.current }),
+        color: 'blue',
+        autoClose: 12000,
+        withCloseButton: true,
+    });
+}
+
 /** Convenience: show an error notification from an Axios/unknown error */
 export function showErrorFromApi(error: unknown, fallback?: string) {
     const message = getErrorMessage(error, fallback);

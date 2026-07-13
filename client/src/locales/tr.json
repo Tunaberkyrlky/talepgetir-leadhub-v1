@@ -901,6 +901,9 @@
             "deliveryLink": "Link",
             "emptyLibrary": "Henüz kayıtlı ek yok. Aşağıdan dosya yükleyin ya da link ekleyin."
         },
+        "mailbox": {
+            "substituted": "Gönderim kutusu ({{previous}}) silinmiş; domain kalitesini korumak için yanıtınız {{current}} adresinden gönderildi."
+        },
         "attachmentLibrary": {
             "button": "Mail eki ve CC adresi",
             "title": "Mail Ekleri ve CC Adresleri",

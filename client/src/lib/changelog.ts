@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.8',
+        date: '2026-07-13',
+        type: 'fix',
+        area: 'mail',
+        title: { tr: 'Silinen Kutuya Yanıt Düzeltmesi', en: 'Reply-to-Deleted-Mailbox Fix' },
+        about: {
+            tr: 'Yanıt vermek istediğiniz konuşmanın gönderim kutusu kapatılmışsa yanıtınız artık otomatik olarak aktif bir kutudan gönderilir.',
+            en: 'If the sending mailbox of the conversation you are replying to has been closed, your reply is now sent automatically from an active mailbox.',
+        },
+        notes: {
+            tr: 'Gönderim adresi değiştiğinde bir bilgi mesajıyla haberdar edilirsiniz; hiçbir aktif kutu kalmadıysa yanıt gönderilemez.',
+            en: 'You are notified when the sending address changes; if no active mailbox remains, the reply cannot be sent.',
+        },
+    },
+    {
         version: '1.19.7',
         date: '2026-07-10',
         type: 'fix',

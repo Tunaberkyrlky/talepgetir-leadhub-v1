@@ -901,6 +901,9 @@
             "deliveryLink": "Link",
             "emptyLibrary": "No saved attachments yet. Upload a file or add a link below."
         },
+        "mailbox": {
+            "substituted": "The sending mailbox ({{previous}}) was deleted, so to protect domain quality your reply was sent from {{current}}."
+        },
         "attachmentLibrary": {
             "button": "Attachments & CC",
             "title": "Email Attachments & CC Addresses",
