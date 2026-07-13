@@ -46,13 +46,23 @@ export async function geoAnalyzeHandler({ job, heartbeat }: HandlerContext): Pro
 
     const { data: geo, error: geoErr } = await researchSupabaseAdmin
         .from('research_geographies')
-        .select('id, project_id, icp_id, country, region')
+        .select('id, project_id, icp_id, country, region, status')
         .eq('id', geoId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
     if (geoErr) throw geoErr;
     if (!geo) throw new Error(`geo:analyze: geography ${geoId} not found for tenant ${tenantId}`);
     if (!geo.icp_id) throw new Error(`geo:analyze: geography ${geoId} has no icp_id — a sub-ICP cell needs an ICP`);
+
+    // Reject-race EARLY-EXIT (cheap, pre-spend): the customer may have rejected this cell after
+    // the job was enqueued but before it ran. Correctness against resurrection is guaranteed at
+    // the DB level — research_persist_geo_analysis (migration 131) writes 'draft' only WHERE
+    // status IS DISTINCT FROM 'rejected' (atomic CAS). This read is purely an optimization: bail
+    // before wasting the LLM COGS when the cell is already visibly rejected. NOT a guarantee.
+    if (geo.status === 'rejected') {
+        log.warn({ jobId: job.id, geoId, country: geo.country }, 'geo:analyze skipped — cell already rejected before analysis');
+        return { geo_id: geoId, country: geo.country, skipped: 'rejected' as const };
+    }
 
     const { data: icp, error: icpErr } = await researchSupabaseAdmin
         .from('research_icps')
@@ -152,6 +162,32 @@ export async function geoAnalyzeHandler({ job, heartbeat }: HandlerContext): Pro
         const { value, result } = metered.result;
 
         await heartbeat({ stage: 'persisting', channels: value.channels.length });
+
+        // Reject-race EARLY-EXIT (post-spend, pre-persist): re-read the cell's CURRENT status
+        // before writing. This is NOT the correctness guard — that lives in the persist RPC's
+        // atomic CAS (migration 131: UPDATE ... WHERE status IS DISTINCT FROM 'rejected'), which
+        // closes the TOCTOU window between this read and the RPC call that a plain app-level
+        // read-then-write cannot. This check only buys a clean skip result + log in the common
+        // case (COGS already spent, still reported below) instead of a silent DB-side no-op.
+        const { data: fresh, error: freshErr } = await researchSupabaseAdmin
+            .from('research_geographies')
+            .select('status')
+            .eq('id', geoId)
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+        if (freshErr) throw freshErr;
+        if (fresh?.status === 'rejected') {
+            log.warn({ jobId: job.id, geoId, country: geo.country }, 'geo:analyze skipped persist — cell rejected mid-flight');
+            return {
+                geo_id: geoId,
+                country: geo.country,
+                skipped: 'rejected' as const,
+                provider: result.provider,
+                model: result.model,
+                usage_raw: usage,
+                cost_usd: costFromUsageSummary(usage),
+            };
+        }
 
         // Fenced persistence (086, 063 pattern): only the attempt that still holds the job lease
         // may write — a reaped, stale attempt can't clobber a newer one. The RPC stores the WHOLE

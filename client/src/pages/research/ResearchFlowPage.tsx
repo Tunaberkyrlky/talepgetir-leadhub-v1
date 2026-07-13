@@ -1267,11 +1267,15 @@ export default function ResearchFlowPage() {
         enabled: icps.length > 0 && step >= 9,
     });
     const allGeoCells = allGeoCellsQuery.data ?? [];
+    // Rejected cells are no longer part of the ICP: they must not be (re-)analyzed in step 9
+    // nor shown as reviewable cards in step 10's active flow. IcpCountryChips still renders
+    // them in red elsewhere — this filter only scopes the wizard's own step 9/10 flow.
+    const activeGeoCells = allGeoCells.filter((c) => c.status !== 'rejected');
 
     const startBatchAnalyzeMut = useMutation({
         mutationFn: async () => {
             const startedForTenant = activeTenantIdRef.current;
-            const unanalyzed = allGeoCells.filter((c) => !c.spec);
+            const unanalyzed = activeGeoCells.filter((c) => !c.spec);
             if (unanalyzed.length === 0) return { jobIds: [] as string[], total: 0, startedForTenant };
             // Independent per cell (allSettled): a 402/409 on one cell must not block the
             // others — collect whichever jobs actually started and poll only those.
@@ -2695,8 +2699,8 @@ export default function ResearchFlowPage() {
 
     // ── Step 10 — one geo cell card at a time (GeoCellDetail reused, no Drawer chrome) ──
     if (step === 10) {
-        const geoClampedIndex = allGeoCells.length > 0 ? Math.min(Math.max(0, geoCardIndex), allGeoCells.length - 1) : 0;
-        const currentCell = allGeoCells[geoClampedIndex] ?? null;
+        const geoClampedIndex = activeGeoCells.length > 0 ? Math.min(Math.max(0, geoCardIndex), activeGeoCells.length - 1) : 0;
+        const currentCell = activeGeoCells[geoClampedIndex] ?? null;
 
         if (allGeoCellsQuery.isLoading) {
             return (
@@ -2741,7 +2745,7 @@ export default function ResearchFlowPage() {
 
         const advance = () => {
             const next = geoClampedIndex + 1;
-            if (next >= allGeoCells.length) {
+            if (next >= activeGeoCells.length) {
                 saveStepMut.mutate({ patch: {}, nextStep: 11, gate: 'step10', geoCardIndexOverride: 0 });
             } else {
                 saveStepMut.mutate({ patch: {}, nextStep: 10, gate: 'step10', geoCardIndexOverride: next });
@@ -2764,7 +2768,7 @@ export default function ResearchFlowPage() {
                 step={displayStep(10)}
                 totalSteps={KNOWN_STEPS}
                 title={t('research.wizard.step10.title', 'Review each country')}
-                subtitle={t('research.wizard.cardOf', '{{current}} / {{total}}', { current: geoClampedIndex + 1, total: allGeoCells.length })}
+                subtitle={t('research.wizard.cardOf', '{{current}} / {{total}}', { current: geoClampedIndex + 1, total: activeGeoCells.length })}
                 // BUG 1 fix — same pending-guard gap and fix as step 8's carousel above.
                 onBack={saveStepMut.isPending ? undefined : back}
                 primaryLabel={t('research.wizard.next', 'Next')}

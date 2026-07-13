@@ -355,6 +355,18 @@ export function GeoCellDetail({
         },
     });
 
+    // Soft-reject (status='rejected'): drops the cell from NEW harvest scoping but keeps every
+    // already-harvested company/channel (server re-checks status at run time). onChanged seeds
+    // the fresh row, same refresh path as save/approve.
+    const rejectMut = useMutation({
+        mutationFn: async () => (await api.post(`/research/geographies/${cell!.id}/reject`, {})).data as GeoCell,
+        onSuccess: (row) => {
+            showSuccess(t('research.geographies.rejectedToast', 'Geography removed — it is no longer part of this ICP.'));
+            onChanged(row);
+        },
+        onError: (err: unknown) => showErrorFromApi(err),
+    });
+
     // Geography-scoped evidence (WP11) — resolved reporter/partner country names + approved-HS
     // filtering happen server-side (loadMarketEvidenceForGeoCountry), so this must go through
     // the geography's own /markets route rather than the raw project-wide one: a naive string
@@ -526,16 +538,29 @@ export function GeoCellDetail({
                             <Text size="sm" fw={600}>{t('research.geographies.yourScore', 'Your score')}: {score}/10</Text>
                             <Rating count={10} value={score} onChange={setScore} />
                         </div>
-                        <Tooltip label={t('research.geographies.approveHint', 'Approved cells become selectable in the harvest launcher.')}>
+                        <Group gap="xs">
                             <Button
-                                color="teal"
-                                onClick={() => approveMut.mutate()}
-                                loading={approveMut.isPending}
-                                disabled={cell.status === 'approved'}
+                                variant="light" color="red"
+                                onClick={() => {
+                                    if (!window.confirm(t('research.geographies.rejectConfirm', 'Remove this country from the ICP? Approved cells stop scoping new harvests; already-found companies are kept.'))) return;
+                                    rejectMut.mutate();
+                                }}
+                                loading={rejectMut.isPending}
+                                disabled={cell.status === 'rejected'}
                             >
-                                {t('research.geographies.approve', 'Approve')}
+                                {t('research.geographies.reject', 'Remove')}
                             </Button>
-                        </Tooltip>
+                            <Tooltip label={t('research.geographies.approveHint', 'Approved cells become selectable in the harvest launcher.')}>
+                                <Button
+                                    color="teal"
+                                    onClick={() => approveMut.mutate()}
+                                    loading={approveMut.isPending}
+                                    disabled={cell.status === 'approved'}
+                                >
+                                    {t('research.geographies.approve', 'Approve')}
+                                </Button>
+                            </Tooltip>
+                        </Group>
                     </Group>
                 </Stack>
             )}
