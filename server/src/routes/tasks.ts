@@ -151,7 +151,9 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         }
         if (asOf && Number.isNaN(Date.parse(asOf))) throw new AppError('Invalid as_of', 400);
         if (overdue) {
-            const overdueRef = asOf || new Date().toISOString();
+            // Canonicalise as_of to a normalised ISO-8601 instant before it reaches PostgREST — a
+            // permissive Date.parse input (e.g. an out-of-range day) must not be forwarded raw.
+            const overdueRef = asOf ? new Date(asOf).toISOString() : new Date().toISOString();
             query = query.eq('status', 'pending').lt('due_at', overdueRef);
         }
 
