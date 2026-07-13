@@ -73,7 +73,7 @@ Mevcut durum tek cümle: **Motor + "akıl katmanı" TAMAM ve DEPLOY'LU (WP1-WP5 
 
 ---
 
-### WP12 — Wizard'a geri-dönüş: kurulum yarım kalırsa keşfedilebilirlik — **YENİ, henüz implemente edilmedi** (2026-07-13, insan incelemesi bulgusu)
+### WP12 — Wizard'a geri-dönüş: kurulum yarım kalırsa keşfedilebilirlik — ✅ **BİTTİ → SHIP** (2026-07-13, insan incelemesi bulgusu; commit `bf4ea08` worktree `ssalihyetim/TG-Research-wp12-13`, henüz ana branch'e merge edilmedi, detay `04_ILERLEME.md §4.35`)
 > Kaynak: kullanıcının wizard'ı elle incelemesi (2026-07-13) — "Research wizardı TgCore arayüzünde herhangi bir butonla veya widgetla göremiyoruz. Wizard tamamlanmadan dashboard'a geçildiğinde tekrar nasıl geçilecek planda bu belli mi?"
 
 **Kod-doğrulanmış teşhis:** `RootRedirect.tsx` (WP6) yalnız `/` yolunda ve yalnız BİR KEZ iş görüyor: `hasProject = research_projects.length > 0` false ise `/research`'e, true ise `/dashboard`'a yönlendiriyor. `hasProject` "proje TAMAMLANDI mı" değil "proje VAR mı" sorusuna bakıyor — wizard adım 1'de oluşturulan proje satırı bunu sonsuza kadar `true` yapıyor. Adım 5'te ayrılıp sonra login olan bir müşteri bir daha ASLA otomatik `/research`'e düşmüyor. Geri dönüşün tek yolu `Layout.tsx` navItems'ındaki sabit "Research" linki (`Layout.tsx:134`, tüm rollere açık ama hiçbir koşulla vurgulanmıyor/rozetlenmiyor) — CompaniesPanel/Pipeline gibi sıradan bir modül linki gibi duruyor, "kurulumunuz yarım" demiyor. Wizard'ın kendisi doğru adımdan resume ediyor (`flow_state`, WP6 kabul kriteri zaten kanıtlı) — sorun SADECE oraya geri götüren giriş noktasında.
@@ -88,7 +88,7 @@ Mevcut durum tek cümle: **Motor + "akıl katmanı" TAMAM ve DEPLOY'LU (WP1-WP5 
 
 **Kabul:** yeni tenant login → wizard'a iner (mevcut davranış, değişmez) → adım 5'te ayrılıp `/dashboard`'a git → dashboard'da nudge + nav'da rozet görünür → "Research"e tıkla → wizard tam adım 5'te açılır (flow_state resume, zaten çalışıyor) → kalibre et → nudge/rozet kaybolur.
 
-### WP13 — "Company Knowledge": wizard dışı manuel + AI-promptlu revizyon yüzeyi — **YENİ, henüz implemente edilmedi** (2026-07-13, kullanıcı talebi; kapsam aynı gün 4 paralel agent'lı TAM domain denetimiyle genişletildi, kanıt `04_ILERLEME.md §4.33`)
+### WP13 — "Company Knowledge": wizard dışı manuel + AI-promptlu revizyon yüzeyi — ✅ **BİTTİ → SHIP** (2026-07-13, kullanıcı talebi; kapsam aynı gün 4 paralel agent'lı TAM domain denetimiyle genişletildi, kanıt `04_ILERLEME.md §4.33`; implementasyon+3-tur codex review detayı `04_ILERLEME.md §4.35`, commit'ler `7cc9ba5`/`fb27aec`/`689244d` worktree `ssalihyetim/TG-Research-wp12-13`, henüz ana branch'e merge edilmedi)
 > Kaynak: kullanıcı talebi (2026-07-13) — "daha önce tanımlanmış bilgi alanları SADECE wizard üzerinden değil company knowledge diye göstereceğimiz bi' alan üzerinden de elle revize ve ai'a promptla revize edilebilir olmalı." + takip şartı: "Bunların hepsi tek tek geliyor mu?... onaylanması, manuel veya AI'ye prompt yazdırarak yeniden düzenlenmesi... Her birinden emin ol, benim düşünmediğim eksik... alan varsa onu da ekle." **Karar (2026-07-13): yüzey `/research/full`'un yeniden çerçevelenmesi olacak, yeni bir route DEĞİL.**
 
 **Wizard'ın 8 veri domain'i tek tek, kod-kanıtlı denetlendi (dosya:satır kanıtları `04 §4.33`):**
