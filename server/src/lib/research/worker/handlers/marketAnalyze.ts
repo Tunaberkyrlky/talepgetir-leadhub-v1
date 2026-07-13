@@ -27,6 +27,60 @@ const COMTRADE_PRIOR_YEAR = envNum('RESEARCH_COMTRADE_PRIOR_YEAR', COMTRADE_YEAR
 // unbounded approved-code counts would make runs very long and risk the free daily budget.
 const MAX_HS_CODES_PER_RUN = 5;
 
+/**
+ * Fast advisory staleness pre-check against a concurrent PATCH /research/hs/:id. A run loads
+ * the approved codes once, but Comtrade calls take a while, so a customer can edit a code's
+ * `code` (or reject it) mid-run. This is a cheap early-out ONLY — the authoritative guard is
+ * research_persist_market_slice's atomic (code, updated_at) CAS, which cannot be raced. On a
+ * read error we FAIL CLOSED (return false → skip persisting): a transient blip must never let
+ * a possibly-stale write through, and a skipped code just gets re-evidenced on the next run.
+ */
+async function hsRowStillCurrent(
+    tenantId: string,
+    projectId: string,
+    hsRow: { id: string; code: string },
+): Promise<boolean> {
+    const { data, error } = await researchSupabaseAdmin
+        .from('research_hs_codes')
+        .select('code, status')
+        .eq('id', hsRow.id)
+        .eq('tenant_id', tenantId)
+        .eq('project_id', projectId)
+        .maybeSingle();
+    if (error) {
+        log.warn({ hsCodeId: hsRow.id, err: error.message }, 'market:analyze staleness pre-check failed — skipping persist (fail-closed)');
+        return false;
+    }
+    return !!data && data.code === hsRow.code && data.status === 'approved';
+}
+
+/**
+ * Atomic evidence writer: replaces this (hs_code_id, kind) slice only if the HS row STILL
+ * carries the exact (code, updated_at, approved) snapshot the worker loaded before its slow
+ * Comtrade calls. Serializes on a FOR UPDATE lock against research_update_hs_code, so a
+ * concurrent code edit cannot slip between a check and this write. Returns the inserted count,
+ * or -1 when the CAS rejected the write (the code changed/was rejected mid-run — leave evidence).
+ */
+async function persistMarketSlice(
+    tenantId: string,
+    projectId: string,
+    hsRow: { id: string; code: string; updated_at: string },
+    kind: 'world_import' | 'bilateral_export',
+    rows: Record<string, unknown>[],
+): Promise<number> {
+    const { data, error } = await researchSupabaseAdmin.rpc('research_persist_market_slice', {
+        p_tenant: tenantId,
+        p_project: projectId,
+        p_hs_code_id: hsRow.id,
+        p_expected_code: hsRow.code,
+        p_expected_updated_at: hsRow.updated_at,
+        p_kind: kind,
+        p_rows: rows,
+    });
+    if (error) throw error;
+    return typeof data === 'number' ? data : Number(data);
+}
+
 export async function marketAnalyzeHandler({ job, heartbeat }: HandlerContext): Promise<Record<string, unknown>> {
     const projectId = job.project_id;
     if (!projectId) throw new Error('market:analyze requires a project_id');
@@ -48,7 +102,9 @@ export async function marketAnalyzeHandler({ job, heartbeat }: HandlerContext): 
 
     const { data: approvedRows, error: hsErr } = await researchSupabaseAdmin
         .from('research_hs_codes')
-        .select('id, code, description')
+        // updated_at is the CAS baseline: persistMarketSlice only writes if the row still
+        // carries this exact (code, updated_at) at persist time (guards concurrent edits).
+        .select('id, code, description, updated_at')
         .eq('project_id', projectId)
         .eq('tenant_id', tenantId)
         .eq('status', 'approved')
@@ -85,37 +141,32 @@ export async function marketAnalyzeHandler({ job, heartbeat }: HandlerContext): 
             // not "the true ranking is empty". Only replace when we actually have something (or
             // a genuinely empty result with no failures behind it) to replace it with.
             const worldRefreshFailed = ranking.ranked.length === 0 && ranking.failed.length > 0;
-            if (!worldRefreshFailed) {
-                // No lease/fence columns exist here: replace only this HS/kind slice so a re-run
-                // cannot touch another code's ranking or this code's bilateral evidence.
-                const { error: deleteWorldErr } = await researchSupabaseAdmin
-                    .from('research_markets')
-                    .delete()
-                    .eq('tenant_id', tenantId)
-                    .eq('project_id', projectId)
-                    .eq('hs_code_id', hsRow.id)
-                    .eq('kind', 'world_import');
-                if (deleteWorldErr) throw deleteWorldErr;
-
-                if (ranking.ranked.length > 0) {
-                    const { error: insertWorldErr } = await researchSupabaseAdmin
-                        .from('research_markets')
-                        .insert(ranking.ranked.map((entry) => ({
-                            tenant_id: tenantId,
-                            project_id: projectId,
-                            hs_code_id: hsRow.id,
-                            hs_code: hsRow.code,
-                            country: entry.country,
-                            import_value: entry.importValueUsd,
-                            growth_pct: entry.growthPct,
-                            rank: entry.rank,
-                            source: 'comtrade',
-                            kind: 'world_import',
-                            reporter_country: null,
-                            raw: entry,
-                        })));
-                    if (insertWorldErr) throw insertWorldErr;
-                    worldImportRows += ranking.ranked.length;
+            if (!worldRefreshFailed && !(await hsRowStillCurrent(tenantId, projectId, hsRow))) {
+                log.warn(
+                    { jobId: job.id, projectId, hsCode: hsRow.code },
+                    'market:analyze: HS code changed/removed mid-run — skipping world-import persist to avoid stale evidence'
+                );
+            } else if (!worldRefreshFailed) {
+                // Replace only this HS/kind slice, gated by the atomic (code, updated_at) CAS so a
+                // concurrent code edit can't have its purge undone by this write (returns -1 = skipped).
+                const worldRows = ranking.ranked.map((entry) => ({
+                    hs_code: hsRow.code,
+                    country: entry.country,
+                    import_value: entry.importValueUsd,
+                    growth_pct: entry.growthPct,
+                    rank: entry.rank,
+                    source: 'comtrade',
+                    reporter_country: null,
+                    raw: entry,
+                }));
+                const inserted = await persistMarketSlice(tenantId, projectId, hsRow, 'world_import', worldRows);
+                if (inserted < 0) {
+                    log.warn(
+                        { jobId: job.id, projectId, hsCode: hsRow.code },
+                        'market:analyze: HS code changed/removed mid-run (CAS) — world-import persist skipped'
+                    );
+                } else {
+                    worldImportRows += inserted;
                 }
             } else {
                 log.warn(
@@ -149,38 +200,34 @@ export async function marketAnalyzeHandler({ job, heartbeat }: HandlerContext): 
 
                 // import_value intentionally holds the seller country's EXPORT value to this partner.
                 bilateralInserts.push({
-                    tenant_id: tenantId,
-                    project_id: projectId,
-                    hs_code_id: hsRow.id,
                     hs_code: hsRow.code,
                     country: bilateral.partner,
                     import_value: bilateral.primaryValueUsd,
                     growth_pct: bilateral.growthPct,
                     rank: null,
                     source: 'comtrade',
-                    kind: 'bilateral_export',
                     reporter_country: companyCountry,
                     raw: bilateral,
                 });
             }
 
-            if (bilateralInserts.length > 0 || bilateralCandidates.length === 0) {
-                // Re-run safety mirrors the world-import slice: only this HS code's bilateral rows.
-                const { error: deleteBilateralErr } = await researchSupabaseAdmin
-                    .from('research_markets')
-                    .delete()
-                    .eq('tenant_id', tenantId)
-                    .eq('project_id', projectId)
-                    .eq('hs_code_id', hsRow.id)
-                    .eq('kind', 'bilateral_export');
-                if (deleteBilateralErr) throw deleteBilateralErr;
-
-                if (bilateralInserts.length > 0) {
-                    const { error: insertBilateralErr } = await researchSupabaseAdmin
-                        .from('research_markets')
-                        .insert(bilateralInserts);
-                    if (insertBilateralErr) throw insertBilateralErr;
-                    bilateralRows += bilateralInserts.length;
+            const bilateralHasWork = bilateralInserts.length > 0 || bilateralCandidates.length === 0;
+            if (bilateralHasWork && !(await hsRowStillCurrent(tenantId, projectId, hsRow))) {
+                log.warn(
+                    { jobId: job.id, projectId, hsCode: hsRow.code },
+                    'market:analyze: HS code changed/removed mid-run — skipping bilateral persist to avoid stale evidence'
+                );
+            } else if (bilateralHasWork) {
+                // Re-run safety mirrors the world-import slice: only this HS code's bilateral rows,
+                // gated by the same atomic (code, updated_at) CAS (returns -1 = skipped as stale).
+                const inserted = await persistMarketSlice(tenantId, projectId, hsRow, 'bilateral_export', bilateralInserts);
+                if (inserted < 0) {
+                    log.warn(
+                        { jobId: job.id, projectId, hsCode: hsRow.code },
+                        'market:analyze: HS code changed/removed mid-run (CAS) — bilateral persist skipped'
+                    );
+                } else {
+                    bilateralRows += inserted;
                 }
             } else {
                 log.warn(

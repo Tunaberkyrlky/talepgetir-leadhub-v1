@@ -1,4 +1,5 @@
-import { Badge, Button, Card, Group, Stack, Text } from '@mantine/core';
+import { useState } from 'react';
+import { Badge, Button, Card, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
@@ -9,6 +10,63 @@ export interface HsCodeCandidateRow {
     code: string;
     description: string;
     status: 'candidate' | 'approved' | 'rejected';
+}
+
+/** Modal edit control shared by candidate rows and the panel's decided section. */
+export function EditHsCodeButton({ row, onChanged }: { row: HsCodeCandidateRow; onChanged: () => void }) {
+    const { t } = useTranslation();
+    const [opened, setOpened] = useState(false);
+    const [code, setCode] = useState(row.code);
+    const [description, setDescription] = useState(row.description ?? '');
+
+    const mut = useMutation({
+        mutationFn: async () =>
+            (await api.patch(`/research/hs/${row.id}`, { code: code.trim(), description: description.trim() || null })).data,
+        onSuccess: () => {
+            showSuccess(t('research.hs.editToast', 'Code updated.'));
+            setOpened(false);
+            onChanged();
+        },
+        onError: (err: unknown) => showErrorFromApi(err),
+    });
+
+    const open = () => {
+        setCode(row.code);
+        setDescription(row.description ?? '');
+        setOpened(true);
+    };
+
+    return (
+        <>
+            <Button size="xs" variant="subtle" onClick={open}>
+                {t('research.hs.edit', 'Edit')}
+            </Button>
+            <Modal opened={opened} onClose={() => setOpened(false)} title={t('research.hs.editHeading', 'Edit HS code')} centered>
+                <Stack gap="sm">
+                    <TextInput
+                        label={t('research.hs.code', 'HS code')}
+                        placeholder={t('research.hs.codePlaceholder', 'e.g. 847130')}
+                        value={code}
+                        onChange={(e) => setCode(e.currentTarget.value)}
+                    />
+                    <TextInput
+                        label={t('research.hs.description', 'Description')}
+                        placeholder={t('research.hs.descriptionPlaceholder', 'What the code covers')}
+                        value={description}
+                        onChange={(e) => setDescription(e.currentTarget.value)}
+                    />
+                    <Group justify="flex-end" gap="xs">
+                        <Button variant="subtle" onClick={() => setOpened(false)} disabled={mut.isPending}>
+                            {t('research.hs.cancel', 'Cancel')}
+                        </Button>
+                        <Button onClick={() => mut.mutate()} loading={mut.isPending} disabled={code.trim().length === 0}>
+                            {t('research.hs.save', 'Save')}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
+        </>
+    );
 }
 
 export default function HsCodeCandidates({ candidates, onChanged }: { candidates: HsCodeCandidateRow[]; onChanged: () => void }) {
@@ -41,6 +99,7 @@ export default function HsCodeCandidates({ candidates, onChanged }: { candidates
                                 <Text size="sm">{row.description}</Text>
                             </Group>
                             <Group gap="xs" wrap="nowrap">
+                                <EditHsCodeButton row={row} onChanged={onChanged} />
                                 <Button
                                     size="xs" variant="subtle" color="red"
                                     onClick={() => mut.mutate({ id: row.id, status: 'rejected' })}
