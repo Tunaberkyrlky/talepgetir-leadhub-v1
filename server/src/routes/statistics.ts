@@ -5,6 +5,7 @@ import { requireTier, requireRole } from '../middleware/auth.js';
 import { createLogger } from '../lib/logger.js';
 import { htmlToPlainText as stripHtml } from '../lib/htmlText.js';
 import { getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
+import { resolveUsers, ownerDisplayName } from '../lib/userResolver.js';
 
 const log = createLogger('route:statistics');
 
@@ -146,6 +147,71 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
     } catch (err) {
         log.error({ err }, 'Statistics overview error');
         res.status(500).json({ error: 'Failed to fetch statistics' });
+    }
+});
+
+// ─── Ops metrics cache (per tenant+window, 30s TTL) ───
+const opsCache = new Map<string, CachedOverview>();
+
+/** Invalidate ops-metrics cache for a tenant (call after task/owner/stage changes). */
+export function invalidateOpsCache(tenantId: string) {
+    for (const key of opsCache.keys()) {
+        if (key.startsWith(tenantId)) opsCache.delete(key);
+    }
+}
+
+interface OpsOwnerLoad {
+    owner_id: string | null;
+    open: number;
+    overdue: number;
+}
+
+// GET /api/statistics/ops — Operations metrics for the dashboard (tenant-scoped, single RPC).
+// Non-financial team-workload signal, so tenant-scope only (no role gate) matches /overview.
+router.get('/ops', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+
+        // Window in days: the client sends 7/30/90; clamp defensively (the RPC clamps too).
+        const daysRaw = Number.parseInt(String(req.query.days ?? '30'), 10);
+        const days = Number.isFinite(daysRaw) ? Math.min(365, Math.max(1, daysRaw)) : 30;
+
+        const cacheKey = `${tenantId}:${days}`;
+        const cached = opsCache.get(cacheKey);
+        if (cached && Date.now() - cached.ts < OVERVIEW_TTL) {
+            res.json(cached.data);
+            return;
+        }
+
+        const { data, error } = await supabaseAdmin.rpc('get_ops_metrics', {
+            p_tenant_id: tenantId,
+            p_days: days,
+        });
+
+        if (error) {
+            log.error({ err: error }, 'Ops metrics RPC error');
+            res.status(500).json({ error: 'Failed to fetch operations metrics' });
+            return;
+        }
+
+        // Resolve owner UUIDs to display names — the client never receives a raw UUID.
+        const metrics = (data || {}) as Record<string, unknown>;
+        const ownerLoad = Array.isArray(metrics.owner_load) ? (metrics.owner_load as OpsOwnerLoad[]) : [];
+        const users = await resolveUsers(ownerLoad.map((o) => o.owner_id || '').filter(Boolean));
+        const ownerLoadResolved = ownerLoad.map((o) => ({
+            ...o,
+            owner_name: o.owner_id ? ownerDisplayName(users.get(o.owner_id) || null) : null,
+        }));
+
+        const result = { ...metrics, owner_load: ownerLoadResolved };
+
+        if (opsCache.size >= MAX_STATS_CACHE_SIZE) opsCache.clear();
+        opsCache.set(cacheKey, { data: result, ts: Date.now() });
+
+        res.json(result);
+    } catch (err) {
+        log.error({ err }, 'Ops metrics error');
+        res.status(500).json({ error: 'Failed to fetch operations metrics' });
     }
 });
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
     ActionIcon,
     Anchor,
@@ -132,8 +132,18 @@ export default function TasksPage() {
     const canEdit = canWrite(user?.role || '');
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
 
-    const [activeTab, setActiveTab] = useState<TaskTab>('overdue');
-    const [assigneeScope, setAssigneeScope] = useState<AssigneeScope>('me');
+    // Initial tab/scope may come from a dashboard drill-down URL param (e.g. /tasks?tab=overdue&scope=all).
+    // We validate against the allowed unions so a bad param falls back to the defaults, then let normal
+    // UI state take over (params are read once on mount, not kept in sync).
+    const [searchParams] = useSearchParams();
+    const [activeTab, setActiveTab] = useState<TaskTab>(() => {
+        const p = searchParams.get('tab');
+        return p === 'overdue' || p === 'today' || p === 'upcoming' || p === 'completed' ? p : 'overdue';
+    });
+    const [assigneeScope, setAssigneeScope] = useState<AssigneeScope>(() => {
+        const p = searchParams.get('scope');
+        return p === 'me' || p === 'created' || p === 'all' ? p : 'me';
+    });
     const [priorityFilter, setPriorityFilter] = useState('');
     const [companyFilter, setCompanyFilter] = useState<{ id: string; name: string } | null>(null);
     const companyFilterId = companyFilter?.id ?? '';

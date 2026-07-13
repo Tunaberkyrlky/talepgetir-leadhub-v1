@@ -2545,5 +2545,36 @@
             "linkedin": "LinkedIn",
             "other": "Other"
         }
+    },
+    "opsAnalytics": {
+        "title": "Operations",
+        "subtitle": "How the team is working right now — tasks, ownership and stage velocity.",
+        "days7": "7 days",
+        "days30": "30 days",
+        "days90": "90 days",
+        "openTasks": "Open Tasks",
+        "openTasksDesc": "Tasks still pending (not yet completed or cancelled). Click to open Tasks.",
+        "overdueTasks": "Overdue",
+        "overdueTasksDesc": "Pending tasks whose due date has passed. Click to review overdue tasks.",
+        "completionRate": "Completion Rate",
+        "completionRateDesc": "Of the tasks that fell due in the last {{days}} days, the share now completed.",
+        "unownedActive": "Unassigned",
+        "unownedActiveDesc": "Active pipeline companies with no owner. Click to open the unassigned queue.",
+        "staleContact": "No contact {{days}}d+",
+        "staleContactDesc": "Active companies with no logged contact in the last {{days}} days.",
+        "filterComingSoon": "Filter coming soon.",
+        "unknownUser": "Unknown user",
+        "ownerLoad": "Workload by Owner",
+        "ownerLoadDesc": "Open and overdue pending tasks per owner.",
+        "owner": "Owner",
+        "open": "Open",
+        "overdue": "Overdue",
+        "unassignedOwner": "Unassigned",
+        "noOpenTasks": "No open tasks.",
+        "stageDwell": "Time in Stage",
+        "stageDwellDesc": "How long active companies have sat in their current stage. Click a stage to open the pipeline.",
+        "dwellValue": "avg {{avg}}d · median {{median}}d",
+        "noActiveCompanies": "No active companies.",
+        "loadError": "Could not load operations metrics."
     }
 }

@@ -377,7 +377,8 @@ export default function LeadsPage() {
     const [locationSearchValue, setLocationSearchValue] = useState('');
     const [selectedProducts, setSelectedProducts] = useState<string[]>(() => savedState?.selectedProducts ?? []);
     // Owner filter: '' (all), 'me', 'unassigned', or a member UUID.
-    const [ownerFilter, setOwnerFilter] = useState<string>(() => savedState?.owner ?? '');
+    // A ?owner= URL param (e.g. dashboard Operations "unowned" card) wins over saved state on entry.
+    const [ownerFilter, setOwnerFilter] = useState<string>(() => searchParams.get('owner') || savedState?.owner || '');
     const { data: membersData } = useMembers();
     const [periodType, setPeriodType] = useState<PeriodType>(() => savedState?.periodType ?? 'all');
     const [periodAnchor, setPeriodAnchor] = useState<Date>(() =>

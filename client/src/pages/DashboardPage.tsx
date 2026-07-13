@@ -16,6 +16,8 @@ import {
     ThemeIcon,
     ActionIcon,
     ScrollArea,
+    Table,
+    Badge,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
@@ -26,6 +28,13 @@ import {
     IconTrophy,
     IconPercentage,
     IconChartBar,
+    IconListCheck,
+    IconAlertCircle,
+    IconCheck,
+    IconUser,
+    IconUsers,
+    IconClock,
+    IconClockPause,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
@@ -33,6 +42,7 @@ import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { useIsOnboardingComplete } from '../lib/researchProjects';
 import { useAuth } from '../contexts/AuthContext';
+import { useStages } from '../contexts/StagesContext';
 import { hasTierAccess, type Tier } from '../lib/permissions';
 import StatCard from '../components/StatCard';
 import StageVerticalBar from '../components/charts/StageVerticalBar';
@@ -57,18 +67,50 @@ interface PipelineData {
     terminal: { stage: string; count: number }[];
 }
 
+interface OpsOwnerLoad {
+    owner_id: string | null;
+    owner_name: string | null;
+    open: number;
+    overdue: number;
+}
+
+interface OpsStageDwell {
+    stage: string;
+    count: number;
+    avg_days: number;
+    median_days: number;
+}
+
+interface OpsMetrics {
+    days: number;
+    stale_days: number;
+    open_tasks: number;
+    overdue_tasks: number;
+    completed_tasks: number;
+    due_in_window: number;
+    completed_in_window: number;
+    completion_rate: number | null;
+    unowned_active: number;
+    stale_contact: number;
+    owner_load: OpsOwnerLoad[];
+    stage_dwell: OpsStageDwell[];
+}
+
 type DashboardPeriod = DatePeriod | 'all' | 'custom';
 
 export default function DashboardPage() {
     const { t, i18n } = useTranslation();
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
     const navigate = useNavigate();
-    const { user, activeTenantTier } = useAuth();
+    const { user, activeTenantTier, activeTenantId } = useAuth();
     const role = user?.role || '';
     const tier = (activeTenantTier || 'basic') as Tier;
     const isAdvanced = hasTierAccess(role, tier, 'advanced_stats');
+    const { getStageLabel, getStageColor } = useStages();
 
     const [period, setPeriod] = useState<DashboardPeriod>('month');
+    // Operations window (days): 7 / 30 / 90.
+    const [opsDays, setOpsDays] = useState<number>(30);
     const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date());
     const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null]);
 
@@ -233,6 +275,24 @@ export default function DashboardPage() {
     useEffect(() => {
         if (pipelineError) showErrorFromApi(pipelineError, t('dashboard.pipelineError'));
     }, [pipelineError, t]);
+
+    // Operations metrics — team workload snapshot (single RPC, tenant-scoped, all tiers).
+    // Tenant-scoped key so switching tenants (internal roles switch via X-Tenant-Id) refetches
+    // and never shows a previous tenant's cached ops metrics; enabled guards a no-tenant query.
+    const { data: ops, isLoading: opsLoading } = useQuery<OpsMetrics>({
+        queryKey: ['statistics', 'ops', activeTenantId, opsDays],
+        queryFn: async ({ queryKey, signal }) => {
+            // Pin the tenant to the KEY being fetched (not the mutable localStorage/closure): a
+            // refetch of a stale key after a tenant switch then targets the right tenant, so tenant
+            // B's data can never be cached under tenant A's key. The interceptor preserves this header.
+            const tid = queryKey[2] as string;
+            return (await api.get(`/statistics/ops?days=${opsDays}`, { headers: { 'X-Tenant-Id': tid }, signal })).data;
+        },
+        enabled: !!activeTenantId,
+        staleTime: 30_000,
+        refetchOnWindowFocus: true,
+        refetchInterval: 5 * 60_000,
+    });
 
     if (overviewError) {
         return (
@@ -400,6 +460,162 @@ export default function DashboardPage() {
                 </Paper>
                 <UpcomingAgendaWidget />
             </SimpleGrid>
+
+            {/* Operations — team workload signal (open/overdue tasks, completion, ownership, dwell) */}
+            <Paper shadow="sm" radius="lg" p="lg" withBorder mb="lg">
+                <Group justify="space-between" align="center" mb="md" wrap="wrap" gap="sm">
+                    <div>
+                        <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                            {t('opsAnalytics.title')}
+                        </Text>
+                        <Text size="xs" c="dimmed">{t('opsAnalytics.subtitle')}</Text>
+                    </div>
+                    <SegmentedControl
+                        value={String(opsDays)}
+                        onChange={(v) => setOpsDays(Number(v))}
+                        data={[
+                            { label: t('opsAnalytics.days7'), value: '7' },
+                            { label: t('opsAnalytics.days30'), value: '30' },
+                            { label: t('opsAnalytics.days90'), value: '90' },
+                        ]}
+                        size="xs"
+                    />
+                </Group>
+
+                {opsLoading ? (
+                    <Center py="xl"><Loader color="violet" /></Center>
+                ) : ops ? (
+                    <>
+                        <SimpleGrid cols={{ base: 1, xs: 2, md: 5 }} mb="md">
+                            <StatCard
+                                compact
+                                title={t('opsAnalytics.openTasks')}
+                                value={ops.open_tasks}
+                                icon={<IconListCheck size={20} />}
+                                color="blue"
+                                description={t('opsAnalytics.openTasksDesc')}
+                                onClick={() => navigate('/tasks?tab=today&scope=all')}
+                            />
+                            <StatCard
+                                compact
+                                title={t('opsAnalytics.overdueTasks')}
+                                value={ops.overdue_tasks}
+                                icon={<IconAlertCircle size={20} />}
+                                color="red"
+                                description={t('opsAnalytics.overdueTasksDesc')}
+                                onClick={() => navigate('/tasks?tab=overdue&scope=all')}
+                            />
+                            <StatCard
+                                compact
+                                title={t('opsAnalytics.completionRate')}
+                                value={ops.completion_rate == null ? '—' : `${ops.completion_rate}%`}
+                                icon={<IconCheck size={20} />}
+                                color="green"
+                                description={t('opsAnalytics.completionRateDesc', { days: ops.days })}
+                            />
+                            <StatCard
+                                compact
+                                title={t('opsAnalytics.unownedActive')}
+                                value={ops.unowned_active}
+                                icon={<IconUser size={20} />}
+                                color="orange"
+                                description={t('opsAnalytics.unownedActiveDesc')}
+                                onClick={() => navigate('/companies?owner=unassigned')}
+                            />
+                            <StatCard
+                                compact
+                                title={t('opsAnalytics.staleContact', { days: ops.stale_days })}
+                                value={ops.stale_contact}
+                                icon={<IconClockPause size={20} />}
+                                color="grape"
+                                // No server-side "stale contact" company filter yet, so this card is
+                                // intentionally not clickable — the tooltip flags the filter as upcoming.
+                                description={`${t('opsAnalytics.staleContactDesc', { days: ops.stale_days })} ${t('opsAnalytics.filterComingSoon')}`}
+                            />
+                        </SimpleGrid>
+
+                        <SimpleGrid cols={{ base: 1, md: 2 }}>
+                            {/* Owner workload */}
+                            <div>
+                                <Group gap={6} mb="xs">
+                                    <IconUsers size={16} />
+                                    <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                                        {t('opsAnalytics.ownerLoad')}
+                                    </Text>
+                                </Group>
+                                <Text size="xs" c="dimmed" mb="xs">{t('opsAnalytics.ownerLoadDesc')}</Text>
+                                {ops.owner_load.length === 0 ? (
+                                    <Text c="dimmed" size="sm" fs="italic" py="sm">{t('opsAnalytics.noOpenTasks')}</Text>
+                                ) : (
+                                    <ScrollArea.Autosize mah={220} offsetScrollbars>
+                                        <Table verticalSpacing="xs" fz="sm" striped>
+                                            <Table.Thead>
+                                                <Table.Tr>
+                                                    <Table.Th>{t('opsAnalytics.owner')}</Table.Th>
+                                                    <Table.Th ta="right">{t('opsAnalytics.open')}</Table.Th>
+                                                    <Table.Th ta="right">{t('opsAnalytics.overdue')}</Table.Th>
+                                                </Table.Tr>
+                                            </Table.Thead>
+                                            <Table.Tbody>
+                                                {ops.owner_load.map((o, i) => (
+                                                    <Table.Tr key={o.owner_id ?? `unassigned-${i}`}>
+                                                        <Table.Td>{o.owner_name || t(o.owner_id ? 'opsAnalytics.unknownUser' : 'opsAnalytics.unassignedOwner')}</Table.Td>
+                                                        <Table.Td ta="right">{o.open}</Table.Td>
+                                                        <Table.Td ta="right">
+                                                            {o.overdue > 0
+                                                                ? <Badge color="red" variant="light" size="sm">{o.overdue}</Badge>
+                                                                : <Text span c="dimmed" size="sm">0</Text>}
+                                                        </Table.Td>
+                                                    </Table.Tr>
+                                                ))}
+                                            </Table.Tbody>
+                                        </Table>
+                                    </ScrollArea.Autosize>
+                                )}
+                            </div>
+
+                            {/* Per-stage dwell time */}
+                            <div>
+                                <Group gap={6} mb="xs">
+                                    <IconClock size={16} />
+                                    <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                                        {t('opsAnalytics.stageDwell')}
+                                    </Text>
+                                </Group>
+                                <Text size="xs" c="dimmed" mb="xs">{t('opsAnalytics.stageDwellDesc')}</Text>
+                                {ops.stage_dwell.length === 0 ? (
+                                    <Text c="dimmed" size="sm" fs="italic" py="sm">{t('opsAnalytics.noActiveCompanies')}</Text>
+                                ) : (
+                                    <ScrollArea.Autosize mah={220} offsetScrollbars>
+                                        <Stack gap={2}>
+                                            {ops.stage_dwell.map((s) => (
+                                                <Group
+                                                    key={s.stage}
+                                                    justify="space-between"
+                                                    wrap="nowrap"
+                                                    gap="sm"
+                                                    style={{ cursor: 'pointer', borderRadius: 8, padding: '4px 8px' }}
+                                                    onClick={() => handleStageClick(s.stage)}
+                                                >
+                                                    <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+                                                        <Badge color={getStageColor(s.stage)} variant="light" size="sm">{s.count}</Badge>
+                                                        <Text size="sm" fw={500} truncate>{getStageLabel(s.stage)}</Text>
+                                                    </Group>
+                                                    <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+                                                        {t('opsAnalytics.dwellValue', { avg: s.avg_days, median: s.median_days })}
+                                                    </Text>
+                                                </Group>
+                                            ))}
+                                        </Stack>
+                                    </ScrollArea.Autosize>
+                                )}
+                            </div>
+                        </SimpleGrid>
+                    </>
+                ) : (
+                    <Text c="dimmed" size="sm" ta="center" py="md">{t('opsAnalytics.loadError')}</Text>
+                )}
+            </Paper>
 
 {/* World Map — Pro tier / Internal only */}
             {isAdvanced ? (
