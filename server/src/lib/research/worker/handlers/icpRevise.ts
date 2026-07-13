@@ -53,7 +53,7 @@ export async function icpReviseHandler({ job, heartbeat }: HandlerContext): Prom
 
     const { data: icp, error: icpErr } = await researchSupabaseAdmin
         .from('research_icps')
-        .select('id, project_id, name, code, segment, signals, negative_signals, neutral_signals, elimination_rules, ruleset_version')
+        .select('id, project_id, name, code, segment, note, signals, negative_signals, neutral_signals, elimination_rules, ruleset_version')
         .eq('id', icpId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
