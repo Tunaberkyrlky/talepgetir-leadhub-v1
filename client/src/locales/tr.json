@@ -475,6 +475,7 @@
         "activities": "Aktiviteler",
         "emailReplies": "Email Yanıtları",
         "research": "Araştırma",
+        "companyKnowledge": "Şirket Bilgisi",
         "coldCall": "Cold Call",
         "researchAdmin": "Araştırma COGS",
         "campaigns": "Kampanyalar",
@@ -681,8 +682,8 @@
         "healthNoDataHint": "Son 7 günde 10'dan az bağlantı denemesi var"
     },
     "research": {
-        "title": "Araştırma",
-        "subtitle": "Firmanızı tanımlayın; asistan, puanlayıp düzenleyebileceğiniz ideal alıcı profilleri önersin.",
+        "title": "Şirket Bilginiz",
+        "subtitle": "Asistanın şirketiniz hakkında bildiği her şey. Güncel tutarsanız, alıcı profilleriniz, teklifleriniz ve adaylarınız bunun üzerine kurulur.",
         "tabs": {
             "icp": "ICP Master",
             "hs": "HS Kodları",
@@ -692,6 +693,19 @@
             "linkedin": "LinkedIn",
             "offers": "Offer açıları",
             "enrichment": "Kişiler"
+        },
+        "aiRevise": {
+            "button": "AI ile yeniden yaz",
+            "title": "AI ile yeniden yaz",
+            "instructionLabel": "Bunu nasıl yeniden yazalım?",
+            "instructionPlaceholder": "örn. daha kısa ve somut olsun",
+            "generate": "Taslak üret",
+            "generating": "Üretiliyor…",
+            "currentLabel": "Mevcut",
+            "draftLabel": "AI taslağı",
+            "apply": "Uygula",
+            "cancel": "İptal",
+            "emptyDraft": "(boş)"
         },
         "linkedin": {
             "heading": "LinkedIn Hesapları",
@@ -1007,6 +1021,9 @@
             "yourScore": "Puanınız",
             "approve": "Onayla",
             "approvedToast": "Coğrafya onaylandı.",
+            "reject": "Kaldır",
+            "rejectConfirm": "Bu ülkeyi ICP'den kaldırmak istiyor musunuz? Onaylı hücreler yeni taramaları kapsamaktan çıkar, bulunmuş şirketler korunur.",
+            "rejectedToast": "Coğrafya kaldırıldı, artık bu ICP'nin parçası değil.",
             "approveHint": "Onaylı hücreleri tarama başlatırken seçebilirsiniz.",
             "needSpec": "Onaylamadan önce hücre için analiz çalıştırmanız gerekir.",
             "staleApprove": "Bu coğrafya siz açtıktan sonra değişti, güncel içeriği inceleyip yeniden onaylayabilirsiniz.",
@@ -1059,7 +1076,9 @@
             "showDetails": "Detaylar",
             "hideDetails": "Detayları gizle",
             "pain": "Ağrı hipotezi",
+            "painReviseLabel": "Ağrıyı AI ile yeniden yaz",
             "valueProp": "Değer önerisi",
+            "valuePropReviseLabel": "Sunuşu AI ile yeniden yaz",
             "proofPoints": "Kanıt noktaları",
             "objections": "Olası itirazlar",
             "language": "Dil",
@@ -1094,7 +1113,19 @@
             "decidedHeading": "Daha önce incelendi",
             "noProject": "HS kodlarını görmek için bir proje seçin.",
             "approved": "Onaylandı",
-            "rejected": "Reddedildi"
+            "rejected": "Reddedildi",
+            "addHeading": "Elle kod ekleyin",
+            "code": "HS kodu",
+            "codePlaceholder": "örn. 847130",
+            "description": "Açıklama",
+            "descriptionPlaceholder": "Kodun kapsadığı içerik",
+            "add": "Ekle",
+            "addToast": "Kod eklendi.",
+            "edit": "Düzenle",
+            "editHeading": "HS kodunu düzenleyin",
+            "save": "Kaydet",
+            "cancel": "İptal",
+            "editToast": "Kod güncellendi."
         },
         "markets": {
             "source": "UN Comtrade",
@@ -1163,7 +1194,20 @@
             "products": "Ürünler / hizmetler",
             "targetMarkets": "Hedef pazarlar (ülkeler)",
             "exclusions": "Hariç tutun (alıcı OLMAYANLAR)",
-            "count": "Kaç ICP"
+            "count": "Kaç ICP",
+            "moreDetails": "Şirketiniz hakkında daha fazlası",
+            "moq": "Minimum sipariş miktarı (MOQ)",
+            "leadTime": "Tedarik / teslim süresi",
+            "capacity": "Üretim kapasitesi",
+            "certifications": "Sertifikalar",
+            "references": "Referans müşteriler",
+            "languages": "Konuşulan diller",
+            "lookalikeCustomers": "En iyi mevcut müşterileriniz",
+            "scaleTarget": "Hedef şirket sayısı",
+            "scaleTargetHint": "Tam kapsama kadar çalışması için boş bırakabilirsiniz.",
+            "save": "Kaydet",
+            "loadingProject": "Projeniz yükleniyor…",
+            "loadProjectFailed": "Bağlı proje yüklenemedi. Kopya oluşmaması için bu yüklenene kadar ICP üretimi devre dışı."
         },
         "icp": {
             "heading": "ICP taslakları",
@@ -1539,6 +1583,10 @@
         "back": "Geri Dön"
     },
     "dashboard": {
+        "onboardingNudge": {
+            "message": "Bir araştırma projesi başlattınız ancak ideal müşteri profilinizi henüz tamamlamadınız.",
+            "cta": "Kuruluma devam et"
+        },
         "totalCompanies": "Toplam Şirket",
         "totalContacts": "Toplam Kişi",
         "activeDeals": "Aktif Fırsatlar",

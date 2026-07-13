@@ -59,3 +59,40 @@ export function useLatestResearchProject() {
         queryFn: fetchLatestResearchProject,
     });
 }
+
+// Threshold for "the tenant finished onboarding": at least one ICP reached the terminal
+// 'calibrated' state (server sets it in routes/research/icps.ts mark-calibrated). Structural
+// type on purpose — this lib must not import ResearchIcp from the IcpCard component file.
+export function isOnboardingComplete(
+    icps: ReadonlyArray<{ calibration_state: string }> | null | undefined,
+): boolean {
+    return !!icps?.some((i) => i.calibration_state === 'calibrated');
+}
+
+/**
+ * Onboarding-completion gate composed on top of the tenant's latest project and that
+ * project's ICPs. The ICP query REUSES ResearchFlowPage's exact key + URL so the cache
+ * is shared, never duplicated (same class of stale-cache bug the file header warns about).
+ * Loading/error are folded across both queries; consumers should fail open on isError
+ * per the RootRedirect convention so a network hiccup never strands a calibrated tenant.
+ */
+export function useIsOnboardingComplete() {
+    const { activeTenantId } = useAuth();
+    const latest = useLatestResearchProject();
+    const projectId = latest.data?.data?.[0]?.id ?? null;
+
+    const icpsQuery = useQuery<{ data: Array<{ calibration_state: string }> }>({
+        queryKey: ['research', 'icps', projectId, activeTenantId],
+        queryFn: async () => (await api.get(`/research/icps?project_id=${projectId}`)).data,
+        enabled: !!projectId,
+    });
+
+    const hasProject = !!projectId;
+    return {
+        hasProject,
+        isComplete: hasProject && isOnboardingComplete(icpsQuery.data?.data),
+        // Never report isComplete=false while ICPs are still loading for an existing project.
+        isLoading: latest.isLoading || (hasProject && icpsQuery.isLoading),
+        isError: latest.isError || icpsQuery.isError,
+    };
+}

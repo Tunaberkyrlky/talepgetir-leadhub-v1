@@ -1,16 +1,16 @@
 /**
  * IcpCountryChips — WP8a wizard step 8's "which countries does this sub-ICP target" control.
- * Shows the ICP's already-added geography cells as status-colored chips (read-only — the
- * existing geographies routes have no delete/reject path for a cell, so there is nothing
- * genuine to remove a chip TO; a country the customer no longer wants simply never gets
- * analyzed/approved in step 9/10) and a small add-country form that mirrors
+ * Shows the ICP's already-added geography cells as status-colored chips; each non-rejected chip
+ * now carries a remove affordance (soft-reject via POST /research/geographies/:id/reject, which
+ * flips status to 'rejected' — the cell stops scoping new harvests but keeps any companies
+ * already found), and a small add-country form that mirrors
  * GeographiesPanel's own (create-or-reuse via POST /research/geographies, which also
  * auto-enqueues geo:analyze — the wizard's step 9 picks up any cell still missing a spec).
  * No AI-suggested countries here: the ICP schema doesn't carry them, and icp:generate's
  * output is untouched by this WP — this is customer-driven add only.
  */
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Badge, Button, Group, Stack, Text, TextInput, Tooltip } from '@mantine/core';
+import { Badge, Button, CloseButton, Group, Stack, Text, TextInput, Tooltip } from '@mantine/core';
 import { useReducedMotion } from '@mantine/hooks';
 import { IconSparkles, IconWorldPin } from '@tabler/icons-react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -118,6 +118,14 @@ export default function IcpCountryChips({ icpId }: { icpId: string }) {
         },
     });
 
+    // Soft-reject a chip: flips the cell to 'rejected' (kept, red, non-removable) — the shared
+    // ['research','geographies', icpId] key refreshes both this control and GeographiesPanel.
+    const rejectMut = useMutation({
+        mutationFn: async (geoId: string) => (await api.post(`/research/geographies/${geoId}/reject`, {})).data as GeoCellSummary,
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['research', 'geographies', icpId] }),
+        onError: (err: unknown) => showErrorFromApi(err),
+    });
+
     const canAdd = country.trim().length >= 2 && !addMut.isPending;
 
     return (
@@ -146,8 +154,21 @@ export default function IcpCountryChips({ icpId }: { icpId: string }) {
                                 ? 'none'
                                 : `opacity 220ms ease-out ${i * 25}ms, transform 220ms ease-out ${i * 25}ms`,
                         };
+                        // Rejected chips stay red and non-removable; every other status carries a
+                        // small remove (soft-reject) affordance.
+                        const removeSection = c.status !== 'rejected' ? (
+                            <CloseButton
+                                size="xs"
+                                aria-label={t('research.geographies.reject', 'Remove')}
+                                disabled={rejectMut.isPending && rejectMut.variables === c.id}
+                                onClick={() => {
+                                    if (!window.confirm(t('research.geographies.rejectConfirm', 'Remove this country from the ICP? Approved cells stop scoping new harvests; already-found companies are kept.'))) return;
+                                    rejectMut.mutate(c.id);
+                                }}
+                            />
+                        ) : undefined;
                         const badge = (
-                            <Badge variant="light" color={STATUS_COLOR[c.status] ?? 'gray'} style={chipStyle}>
+                            <Badge variant="light" color={STATUS_COLOR[c.status] ?? 'gray'} style={chipStyle} rightSection={removeSection}>
                                 {c.country}
                             </Badge>
                         );
@@ -164,7 +185,7 @@ export default function IcpCountryChips({ icpId }: { icpId: string }) {
                                 {badge}
                             </Tooltip>
                         ) : (
-                            <Badge key={c.id} variant="light" color={STATUS_COLOR[c.status] ?? 'gray'} style={chipStyle}>
+                            <Badge key={c.id} variant="light" color={STATUS_COLOR[c.status] ?? 'gray'} style={chipStyle} rightSection={removeSection}>
                                 {c.country}
                             </Badge>
                         );

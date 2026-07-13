@@ -24,13 +24,34 @@ const router = Router();
 const HS_STATUSES = ['candidate', 'approved', 'rejected'] as const;
 const requireWriter = requireRole('superadmin', 'ops_agent', 'client_admin');
 
+// HS6 canonical is six digits; allow 4–10 to cover chapter/subheading granularity.
+const HS_CODE_MIN_DIGITS = 4;
+const HS_CODE_MAX_DIGITS = 10;
+// Match hsMatch.ts:81 so a hand-typed '8471.30' collapses to '847130' and hits the
+// (tenant_id, project_id, code) unique index (migration 122) instead of silently duplicating.
+const normalizeHsCode = (raw: string): string => raw.trim().replace(/\D/g, '');
+
 const projectSchema = z.object({
     project_id: uuidField('Invalid project ID'),
 });
 
-const updateHsSchema = z.object({
-    status: z.enum(['approved', 'rejected']),
+const addHsSchema = z.object({
+    project_id: uuidField('Invalid project ID'),
+    code: z.string().trim().min(1),
+    description: z.string().trim().max(500).optional().nullable(),
 });
+
+// All-optional so callers can edit code/description independently of status; the refine
+// keeps an empty PATCH from silently no-op'ing.
+const updateHsSchema = z
+    .object({
+        status: z.enum(['approved', 'rejected']).optional(),
+        code: z.string().trim().min(1).optional(),
+        description: z.string().trim().max(500).optional().nullable(),
+    })
+    .refine((v) => v.status !== undefined || v.code !== undefined || v.description !== undefined, {
+        message: 'At least one field is required',
+    });
 
 const idParamSchema = z.object({ id: uuidField('Invalid HS code ID') });
 
@@ -174,7 +195,62 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
     }
 });
 
-// ── PATCH /api/research/hs/:id — approve or reject a candidate ──────────────
+// ── POST /api/research/hs — customer adds a code by hand (pre-approved) ──────
+router.post('/', requireWriter, validateBody(addHsSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const { project_id, code: rawCode, description } = req.body as z.infer<typeof addHsSchema>;
+        const code = normalizeHsCode(rawCode);
+        if (code.length < HS_CODE_MIN_DIGITS || code.length > HS_CODE_MAX_DIGITS) {
+            res.status(400).json({ error: 'HS code must be 4–10 digits' });
+            return;
+        }
+
+        const { data: project, error: projErr } = await researchSupabaseAdmin
+            .from('research_projects')
+            .select('id')
+            .eq('id', project_id)
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+        if (projErr) {
+            log.error({ err: projErr }, 'project lookup failed');
+            throw new AppError('Failed to add HS code', 500);
+        }
+        if (!project) {
+            res.status(404).json({ error: 'Research project not found' });
+            return;
+        }
+
+        const { data, error } = await researchSupabaseAdmin
+            .from('research_hs_codes')
+            .insert({
+                tenant_id: tenantId,
+                project_id,
+                code,
+                description: description ?? null,
+                source: 'manual',
+                status: 'approved',
+            })
+            .select()
+            .single();
+        if (error) {
+            // Duplicate on idx_research_hs_codes_project_code (migration 122) → friendly 409.
+            if ((error as { code?: string })?.code === '23505') {
+                res.status(409).json({ error: 'HS code already exists for this project' });
+                return;
+            }
+            log.error({ err: error }, 'insert hs code failed');
+            throw new AppError('Failed to add HS code', 500);
+        }
+        res.status(201).json(data);
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'add hs code error');
+        next(new AppError('Failed to add HS code', 500));
+    }
+});
+
+// ── PATCH /api/research/hs/:id — edit code/description and/or approve/reject ─
 router.patch('/:id', requireWriter, validateBody(updateHsSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const parsed = idParamSchema.safeParse(req.params);
@@ -183,16 +259,43 @@ router.patch('/:id', requireWriter, validateBody(updateHsSchema), async (req: Re
             return;
         }
         const tenantId = req.tenantId!;
-        const { status } = req.body as z.infer<typeof updateHsSchema>;
+        const body = req.body as z.infer<typeof updateHsSchema>;
 
+        // Normalize the incoming code up front (length-validate before hitting the DB).
+        let newCode: string | undefined;
+        if (body.code !== undefined) {
+            const code = normalizeHsCode(body.code);
+            if (code.length < HS_CODE_MIN_DIGITS || code.length > HS_CODE_MAX_DIGITS) {
+                res.status(400).json({ error: 'HS code must be 4–10 digits' });
+                return;
+            }
+            newCode = code;
+        }
+
+        // Atomic edit: research_update_hs_code applies the code/status/description change AND,
+        // when `code` actually moves, purges the now-stale research_markets evidence for this
+        // hs_code_id in the SAME transaction (holding a FOR UPDATE lock on the HS row). That
+        // closes the TOCTOU where the market:analyze worker could re-seed the exact evidence
+        // this edit purged: the worker's CAS writer (research_persist_market_slice) serializes
+        // on the same lock and re-checks (code, updated_at) before persisting.
         const { data, error } = await researchSupabaseAdmin
-            .from('research_hs_codes')
-            .update({ status })
-            .eq('id', parsed.data.id)
-            .eq('tenant_id', tenantId)
-            .select()
+            .rpc('research_update_hs_code', {
+                p_tenant: tenantId,
+                p_id: parsed.data.id,
+                p_set_status: body.status !== undefined,
+                p_status: body.status ?? null,
+                p_set_code: newCode !== undefined,
+                p_code: newCode ?? null,
+                p_set_description: body.description !== undefined,
+                p_description: body.description ?? null,
+            })
             .maybeSingle();
         if (error) {
+            // Editing a code onto an existing one collides with the unique index → 409.
+            if ((error as { code?: string })?.code === '23505') {
+                res.status(409).json({ error: 'HS code already exists for this project' });
+                return;
+            }
             log.error({ err: error }, 'update hs code failed');
             throw new AppError('Failed to update HS code', 500);
         }
@@ -200,6 +303,7 @@ router.patch('/:id', requireWriter, validateBody(updateHsSchema), async (req: Re
             res.status(404).json({ error: 'HS code not found' });
             return;
         }
+
         res.json(data);
     } catch (err) {
         if (err instanceof AppError) return next(err);

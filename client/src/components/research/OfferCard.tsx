@@ -18,6 +18,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showErrorFromApi, showSuccess, showWarning } from '../../lib/notifications';
+import { AiReviseButton } from './AiReviseButton';
 
 export interface OfferRow {
     id: string;
@@ -240,16 +241,34 @@ export function OfferCard({
 
                 <Collapse in={detailsOpen} transitionDuration={reduceMotion ? 0 : 200} transitionTimingFunction="ease">
                     <Stack gap="sm" pt={2}>
-                        <Textarea
-                            label={t('research.offers.pain', 'Pain hypothesis')}
-                            autosize minRows={2}
-                            value={pain} onChange={(e) => setPain(e.currentTarget.value)}
-                        />
-                        <Textarea
-                            label={t('research.offers.valueProp', 'Value proposition')}
-                            autosize minRows={2}
-                            value={valueProp} onChange={(e) => setValueProp(e.currentTarget.value)}
-                        />
+                        <Stack gap={4}>
+                            <Textarea
+                                label={t('research.offers.pain', 'Pain hypothesis')}
+                                autosize minRows={2}
+                                value={pain} onChange={(e) => setPain(e.currentTarget.value)}
+                            />
+                            <Group justify="flex-end">
+                                <AiReviseButton
+                                    entity="offer" id={offer.id} field="pain_hypothesis"
+                                    currentValue={pain} onApply={setPain}
+                                    label={t('research.offers.painReviseLabel', 'Rewrite pain with AI')}
+                                />
+                            </Group>
+                        </Stack>
+                        <Stack gap={4}>
+                            <Textarea
+                                label={t('research.offers.valueProp', 'Value proposition')}
+                                autosize minRows={2}
+                                value={valueProp} onChange={(e) => setValueProp(e.currentTarget.value)}
+                            />
+                            <Group justify="flex-end">
+                                <AiReviseButton
+                                    entity="offer" id={offer.id} field="value_prop"
+                                    currentValue={valueProp} onApply={setValueProp}
+                                    label={t('research.offers.valuePropReviseLabel', 'Rewrite pitch with AI')}
+                                />
+                            </Group>
+                        </Stack>
                         <TagsInput
                             label={t('research.offers.proofPoints', 'Proof points')}
                             value={proofPoints} onChange={setProofPoints}

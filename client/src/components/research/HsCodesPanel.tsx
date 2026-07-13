@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Badge, Button, Group, Loader, Paper, Select, Stack, Text } from '@mantine/core';
+import { Badge, Button, Group, Loader, Paper, Select, Stack, Text, TextInput } from '@mantine/core';
 import { IconBarcode } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showError, showErrorFromApi, showSuccess } from '../../lib/notifications';
-import HsCodeCandidates, { type HsCodeCandidateRow } from './HsCodeCandidates';
+import HsCodeCandidates, { EditHsCodeButton, type HsCodeCandidateRow } from './HsCodeCandidates';
 
 interface ResearchProject { id: string; name: string }
 
@@ -24,6 +24,8 @@ export default function HsCodesPanel() {
     const [projectId, setProjectId] = useState<string | null>(null);
     const [jobId, setJobId] = useState<string | null>(null);
     const [jobProjectId, setJobProjectId] = useState<string | null>(null);
+    const [addCode, setAddCode] = useState('');
+    const [addDescription, setAddDescription] = useState('');
 
     const projectsQuery = useQuery<{ data: ResearchProject[] }>({
         queryKey: ['research', 'projects'],
@@ -51,6 +53,22 @@ export default function HsCodesPanel() {
             setJobId(job.id);
             setJobProjectId(pid);
             showSuccess(t('research.hs.matchStarted', 'HS matching started.'));
+        },
+        onError: (err: unknown) => showErrorFromApi(err),
+    });
+
+    const addMut = useMutation({
+        mutationFn: async () =>
+            (await api.post('/research/hs', {
+                project_id: projectId,
+                code: addCode.trim(),
+                description: addDescription.trim() || null,
+            })).data,
+        onSuccess: () => {
+            showSuccess(t('research.hs.addToast', 'Code added.'));
+            setAddCode('');
+            setAddDescription('');
+            qc.invalidateQueries({ queryKey: ['research', 'hs', projectId] });
         },
         onError: (err: unknown) => showErrorFromApi(err),
     });
@@ -103,6 +121,37 @@ export default function HsCodesPanel() {
                 </Group>
             </Paper>
 
+            {projectId && (
+                <Paper withBorder radius="md" p="md">
+                    <Stack gap="sm">
+                        <Text fw={600} size="sm">{t('research.hs.addHeading', 'Add a code manually')}</Text>
+                        <Group align="flex-end" gap="sm" wrap="wrap">
+                            <TextInput
+                                label={t('research.hs.code', 'HS code')}
+                                placeholder={t('research.hs.codePlaceholder', 'e.g. 847130')}
+                                value={addCode}
+                                onChange={(e) => setAddCode(e.currentTarget.value)}
+                                w={160}
+                            />
+                            <TextInput
+                                label={t('research.hs.description', 'Description')}
+                                placeholder={t('research.hs.descriptionPlaceholder', 'What the code covers')}
+                                value={addDescription}
+                                onChange={(e) => setAddDescription(e.currentTarget.value)}
+                                style={{ flex: 1, minWidth: 200 }}
+                            />
+                            <Button
+                                onClick={() => addMut.mutate()}
+                                loading={addMut.isPending}
+                                disabled={addCode.trim().length === 0}
+                            >
+                                {t('research.hs.add', 'Add')}
+                            </Button>
+                        </Group>
+                    </Stack>
+                </Paper>
+            )}
+
             {!projectId && (
                 <Text c="dimmed" size="sm" ta="center" py="lg">
                     {t('research.hs.noProject', 'Pick a project to see its HS codes.')}
@@ -123,14 +172,17 @@ export default function HsCodesPanel() {
                     <Text fw={600} size="sm">{t('research.hs.decidedHeading', 'Already reviewed')}</Text>
                     {[...approved, ...rejected].map((row) => (
                         <Paper key={row.id} withBorder radius="sm" p="xs">
-                            <Group gap="sm" wrap="nowrap">
-                                <Badge color={row.status === 'approved' ? 'teal' : 'red'} variant="light">
-                                    {row.status === 'approved'
-                                        ? t('research.hs.approved', 'Approved')
-                                        : t('research.hs.rejected', 'Rejected')}
-                                </Badge>
-                                <Badge variant="outline" ff="monospace">{row.code}</Badge>
-                                <Text size="sm">{row.description}</Text>
+                            <Group gap="sm" wrap="nowrap" justify="space-between">
+                                <Group gap="sm" wrap="nowrap">
+                                    <Badge color={row.status === 'approved' ? 'teal' : 'red'} variant="light">
+                                        {row.status === 'approved'
+                                            ? t('research.hs.approved', 'Approved')
+                                            : t('research.hs.rejected', 'Rejected')}
+                                    </Badge>
+                                    <Badge variant="outline" ff="monospace">{row.code}</Badge>
+                                    <Text size="sm">{row.description}</Text>
+                                </Group>
+                                <EditHsCodeButton row={row} onChanged={() => hsQuery.refetch()} />
                             </Group>
                         </Paper>
                     ))}

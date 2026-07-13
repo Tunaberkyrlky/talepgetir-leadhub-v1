@@ -493,4 +493,42 @@ router.post('/:id/approve', requireWriter, validateBody(approveGeoSchema), async
     }
 });
 
+// ── POST /api/research/geographies/:id/reject — soft-remove a cell ────────────
+// Soft reject (status='rejected'), never a hard DELETE. Safe even for an approved cell: every
+// downstream consumer re-checks status==='approved' at run time (harvest enqueue gate,
+// orchestrate, channelsDiscover, harvestRun), so a rejected cell simply stops scoping NEW
+// harvests. Already-harvested companies/channels/chunks keep their geo_id rows — the status
+// flip deletes nothing, so there is no FK/referential break. Reactivation is implicit: editing
+// the spec or Re-analyze demotes back to draft (same as offers).
+router.post('/:id/reject', requireWriter, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const parsed = idParamSchema.safeParse(req.params);
+        if (!parsed.success) {
+            res.status(400).json({ error: 'Invalid geography ID' });
+            return;
+        }
+        const tenantId = req.tenantId!;
+        const { data, error } = await researchSupabaseAdmin
+            .from('research_geographies')
+            .update({ status: 'rejected' })
+            .eq('id', parsed.data.id)
+            .eq('tenant_id', tenantId)
+            .select()
+            .maybeSingle();
+        if (error) {
+            log.error({ err: error }, 'reject geography failed');
+            throw new AppError('Failed to reject geography', 500);
+        }
+        if (!data) {
+            res.status(404).json({ error: 'Geography not found' });
+            return;
+        }
+        res.json(data);
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'reject geography error');
+        next(new AppError('Failed to reject geography', 500));
+    }
+});
+
 export default router;

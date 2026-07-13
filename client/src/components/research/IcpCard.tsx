@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showSuccess, showErrorFromApi } from '../../lib/notifications';
 import CalibrationDrawer from './CalibrationDrawer';
+import { AiReviseButton } from './AiReviseButton';
 
 export interface ResearchIcp {
     id: string;
@@ -155,7 +156,10 @@ export default function IcpCard({ icp }: { icp: ResearchIcp }) {
                 </Group>
 
                 <Stack gap={4}>
-                    <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('research.icp.segment', 'Segment')}</Text>
+                    <Group justify="space-between" align="center" wrap="nowrap">
+                        <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('research.icp.segment', 'Segment')}</Text>
+                        <AiReviseButton entity="icp" id={icp.id} field="segment" currentValue={draft.segment ?? ''} onApply={(v) => setDraft({ ...draft, segment: v })} />
+                    </Group>
                     <Textarea
                         variant="unstyled"
                         autosize minRows={1}
@@ -193,12 +197,17 @@ export default function IcpCard({ icp }: { icp: ResearchIcp }) {
                         mb="md"
                     />
                 </div>
-                <Textarea
-                    label={t('research.icp.note', 'Note')}
-                    autosize minRows={1}
-                    value={draft.note ?? ''}
-                    onChange={(e) => setDraft({ ...draft, note: e.currentTarget.value })}
-                />
+                <Stack gap={4}>
+                    <Group justify="space-between" align="center" wrap="nowrap">
+                        <Text size="sm" fw={500}>{t('research.icp.note', 'Note')}</Text>
+                        <AiReviseButton entity="icp" id={icp.id} field="note" currentValue={draft.note ?? ''} onApply={(v) => setDraft({ ...draft, note: v })} />
+                    </Group>
+                    <Textarea
+                        autosize minRows={1}
+                        value={draft.note ?? ''}
+                        onChange={(e) => setDraft({ ...draft, note: e.currentTarget.value })}
+                    />
+                </Stack>
 
                 <Group justify="flex-end" mt="xs">
                     <Button variant="light" onClick={() => setCalibrationOpen(true)}>
