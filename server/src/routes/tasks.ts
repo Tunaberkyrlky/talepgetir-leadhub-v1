@@ -86,6 +86,22 @@ async function assertAssignableUser(tenantId: string, userId: string | null | un
     if (!data) throw new AppError('Task owner is not an active member of this workspace', 422);
 }
 
+// A deal-scoped task (v2 Phase 5) must point at a deal in the same tenant AND the
+// same company as the task. tasks.deal_id has no DB fence (shared table), so this
+// app-layer check is the only guard against cross-company / cross-tenant linkage.
+async function assertDealForCompany(tenantId: string, dealId: string, companyId: string) {
+    const { data, error } = await supabaseAdmin
+        .from('deals')
+        .select('company_id')
+        .eq('id', dealId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+
+    if (error) throw new AppError('Failed to validate deal', 500);
+    if (!data) throw new AppError('Deal not found in this workspace', 422);
+    if (data.company_id !== companyId) throw new AppError('Deal does not belong to the selected company', 422);
+}
+
 router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
@@ -100,6 +116,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         const companyId = typeof req.query.company_id === 'string' ? req.query.company_id : '';
         const contactId = typeof req.query.contact_id === 'string' ? req.query.contact_id : '';
+        const dealId = typeof req.query.deal_id === 'string' ? req.query.deal_id : '';
         const assignedTo = typeof req.query.assigned_to === 'string' ? req.query.assigned_to : '';
         const createdBy = typeof req.query.created_by === 'string' ? req.query.created_by : '';
         const status = typeof req.query.status === 'string' ? req.query.status : '';
@@ -118,6 +135,10 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         if (contactId) {
             if (!UUID_RE.test(contactId)) throw new AppError('Invalid contact_id', 400);
             query = query.eq('contact_id', contactId);
+        }
+        if (dealId) {
+            if (!UUID_RE.test(dealId)) throw new AppError('Invalid deal_id', 400);
+            query = query.eq('deal_id', dealId);
         }
         if (assignedTo === 'me') query = query.eq('assigned_to', req.user!.id);
         else if (assignedTo) {
@@ -190,6 +211,7 @@ router.post('/', writeRoles, validateBody(createTaskSchema), async (req: Request
         const assignedTo = req.body.assigned_to || req.user!.id;
         await assertCompanyAndContact(tenantId, req.body.company_id, req.body.contact_id);
         await assertAssignableUser(tenantId, assignedTo, req.user!.id);
+        if (req.body.deal_id) await assertDealForCompany(tenantId, req.body.deal_id, req.body.company_id);
 
         const { data, error } = await supabaseAdmin
             .from('tasks')
@@ -197,6 +219,7 @@ router.post('/', writeRoles, validateBody(createTaskSchema), async (req: Request
                 tenant_id: tenantId,
                 company_id: req.body.company_id,
                 contact_id: req.body.contact_id || null,
+                deal_id: req.body.deal_id || null,
                 title: req.body.title,
                 detail: req.body.detail || null,
                 priority: req.body.priority,
@@ -239,6 +262,10 @@ router.put('/:id', writeRoles, validateBody(updateTaskSchema), async (req: Reque
         }
         if (req.body.assigned_to !== undefined) {
             await assertAssignableUser(tenantId, req.body.assigned_to, req.user!.id);
+        }
+        // deal_id null = unlink (allowed); a real deal must be in this tenant + company.
+        if (req.body.deal_id !== undefined && req.body.deal_id !== null) {
+            await assertDealForCompany(tenantId, req.body.deal_id, existing.company_id);
         }
 
         const { data, error } = await supabaseAdmin

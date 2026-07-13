@@ -254,6 +254,8 @@ export const TASK_PRIORITIES = ['low', 'normal', 'high'] as const;
 export const createTaskSchema = z.object({
     company_id: uuidField('Invalid company_id'),
     contact_id: uuidField('Invalid contact_id').optional().nullable(),
+    // Optional deal link (v2 Phase 5). Route validates the deal is in the same tenant + company.
+    deal_id: uuidField('Invalid deal_id').optional().nullable(),
     title: z.string().trim().min(1, 'Title is required').max(1000),
     detail: z.string().max(5000).optional().nullable(),
     priority: z.enum(TASK_PRIORITIES).optional().default('normal'),
@@ -263,6 +265,7 @@ export const createTaskSchema = z.object({
 
 export const updateTaskSchema = z.object({
     contact_id: uuidField('Invalid contact_id').optional().nullable(),
+    deal_id: uuidField('Invalid deal_id').optional().nullable(),
     title: z.string().trim().min(1).max(1000).optional(),
     detail: z.string().max(5000).optional().nullable(),
     priority: z.enum(TASK_PRIORITIES).optional(),
@@ -278,6 +281,83 @@ export const completeTaskSchema = z.object({
     (d) => !d.create_activity || !!d.result_summary,
     { message: 'result_summary is required when create_activity is true' },
 );
+
+// ── Deal schemas (v2 Phase 5) ──
+// Deals live on the shared staging `deals` table (see migration 133): `stage`
+// (NOT NULL slug, composite FK to pipeline_stages) is populated by the route from
+// stage_id; `currency` is NOT NULL DEFAULT 'USD' with a 3-letter ISO CHECK.
+
+export const DEAL_STATUSES = ['open', 'won', 'lost'] as const;
+// A deal is closed only TO a terminal status — never closed "to open".
+export const DEAL_CLOSE_STATUSES = ['won', 'lost'] as const;
+export const DEAL_CONTACT_ROLES = ['decision_maker', 'influencer', 'champion', 'user', 'blocker'] as const;
+
+// 3-letter uppercase ISO 4217 code (matches the deals.currency CHECK).
+const currencyField = z.string().regex(/^[A-Z]{3}$/, 'Currency must be a 3-letter ISO code');
+// `expected_close` is a DATE column; require a strict calendar date, coerce '' -> null.
+// `.optional()` is the OUTERMOST node so an absent key is omitted from the parsed
+// object (keeps the update-schema "at least one field" refine + `!== undefined`
+// checks honest); null/'' are accepted and normalized to null.
+const dealDateField = z.preprocess(
+    (val) => (val === '' ? null : val),
+    z.string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format')
+        .refine((v) => {
+            // Reject impossible calendar dates (e.g. 2026-02-31): parse as a UTC
+            // instant and require the ISO round-trip to reproduce the input exactly,
+            // so JS's silent month/day overflow is caught.
+            const parsed = new Date(`${v}T00:00:00Z`);
+            return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === v;
+        }, { message: 'Invalid calendar date' })
+        .nullable(),
+).optional();
+
+export const dealCreateSchema = z.object({
+    company_id: uuidField('Invalid company_id'),
+    // Optional primary contact; the route requires it to be a contact of the company.
+    contact_id: uuidField('Invalid contact_id').optional().nullable(),
+    // Required: the pipeline stage the deal opens in (resolved to a slug for `stage`).
+    stage_id: uuidField('Invalid stage_id'),
+    title: z.string().trim().min(1, 'Title is required').max(500),
+    description: z.string().max(5000).optional().nullable(),
+    amount: z.number().nonnegative('Amount must be zero or positive').nullable().optional(),
+    currency: currencyField.optional().default('USD'),
+    expected_close: dealDateField,
+    // Owner (A2 contract): omitted -> creator, explicit null -> unassigned, uuid -> validated member.
+    owner: uuidField('Invalid owner').optional().nullable(),
+});
+
+export const dealUpdateSchema = z.object({
+    contact_id: uuidField('Invalid contact_id').optional().nullable(),
+    stage_id: uuidField('Invalid stage_id').optional(),
+    title: z.string().trim().min(1).max(500).optional(),
+    description: z.string().max(5000).optional().nullable(),
+    amount: z.number().nonnegative('Amount must be zero or positive').nullable().optional(),
+    currency: currencyField.optional(),
+    expected_close: dealDateField,
+    owner: uuidField('Invalid owner').optional().nullable(),
+    // status is NOT editable here — use /close and /reopen.
+}).refine((d) => Object.keys(d).length > 0, { message: 'At least one field must be provided' });
+
+export const dealCloseSchema = z.object({
+    status: z.enum(DEAL_CLOSE_STATUSES),
+    loss_reason: z.string().trim().max(2000).optional().nullable(),
+}).refine(
+    (d) => d.status !== 'lost' || !!(d.loss_reason && d.loss_reason.trim()),
+    { message: 'loss_reason is required when closing a deal as lost' },
+);
+
+// Reopen accepts an optional rationale (bare POST is valid). Persisted as a
+// timeline note only once deal timeline lands; recorded in the audit log for now.
+export const dealReopenSchema = z.preprocess(
+    (v) => (v == null ? {} : v),
+    z.object({ reason: z.string().trim().max(2000).optional().nullable() }),
+);
+
+export const dealContactSchema = z.object({
+    contact_id: uuidField('Invalid contact_id'),
+    role: z.enum(DEAL_CONTACT_ROLES).optional().nullable(),
+});
 
 // ── Email Reply query filter schema ──
 
