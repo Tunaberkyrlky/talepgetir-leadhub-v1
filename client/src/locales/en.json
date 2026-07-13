@@ -475,6 +475,7 @@
         "activities": "Activities",
         "emailReplies": "Email Replies",
         "research": "Research",
+        "companyKnowledge": "Company Knowledge",
         "coldCall": "Cold Call",
         "researchAdmin": "Research COGS",
         "campaigns": "Campaigns",
@@ -681,8 +682,8 @@
         "healthNoDataHint": "Fewer than 10 connected attempts in the last 7 days"
     },
     "research": {
-        "title": "Research",
-        "subtitle": "Describe your company; the assistant proposes ideal buyer profiles you score and refine.",
+        "title": "Company Knowledge",
+        "subtitle": "Everything the assistant knows about your company. Keep it current — your buyer profiles, offers and leads all build on it.",
         "tabs": {
             "icp": "ICP Master",
             "hs": "HS Codes",
@@ -692,6 +693,19 @@
             "linkedin": "LinkedIn",
             "offers": "Offer angles",
             "enrichment": "Contacts"
+        },
+        "aiRevise": {
+            "button": "Rewrite with AI",
+            "title": "Rewrite with AI",
+            "instructionLabel": "How should we rewrite this?",
+            "instructionPlaceholder": "e.g. make it shorter and more concrete",
+            "generate": "Generate draft",
+            "generating": "Generating…",
+            "currentLabel": "Current",
+            "draftLabel": "AI draft",
+            "apply": "Apply",
+            "cancel": "Cancel",
+            "emptyDraft": "(empty)"
         },
         "linkedin": {
             "heading": "LinkedIn Accounts",
@@ -1007,6 +1021,9 @@
             "yourScore": "Your score",
             "approve": "Approve",
             "approvedToast": "Geography approved.",
+            "reject": "Remove",
+            "rejectConfirm": "Remove this country from the ICP? Approved cells stop scoping new harvests; companies already found are kept.",
+            "rejectedToast": "Geography removed — it is no longer part of this ICP.",
             "approveHint": "Approved cells become selectable in the harvest launcher.",
             "needSpec": "Run the analysis first — the cell needs a spec before approval.",
             "staleApprove": "This geography changed since you opened it — review the latest spec and approve again.",
@@ -1059,7 +1076,9 @@
             "showDetails": "Details",
             "hideDetails": "Hide details",
             "pain": "Pain hypothesis",
+            "painReviseLabel": "Rewrite pain with AI",
             "valueProp": "Value proposition",
+            "valuePropReviseLabel": "Rewrite pitch with AI",
             "proofPoints": "Proof points",
             "objections": "Likely objections",
             "language": "Language",
@@ -1094,7 +1113,19 @@
             "decidedHeading": "Already reviewed",
             "noProject": "Pick a project to see its HS codes.",
             "approved": "Approved",
-            "rejected": "Rejected"
+            "rejected": "Rejected",
+            "addHeading": "Add a code manually",
+            "code": "HS code",
+            "codePlaceholder": "e.g. 847130",
+            "description": "Description",
+            "descriptionPlaceholder": "What the code covers",
+            "add": "Add",
+            "addToast": "Code added.",
+            "edit": "Edit",
+            "editHeading": "Edit HS code",
+            "save": "Save",
+            "cancel": "Cancel",
+            "editToast": "Code updated."
         },
         "markets": {
             "source": "UN Comtrade",
@@ -1163,7 +1194,20 @@
             "products": "Products / services",
             "targetMarkets": "Target markets (countries)",
             "exclusions": "Exclude (who is NOT a buyer)",
-            "count": "How many ICPs"
+            "count": "How many ICPs",
+            "moreDetails": "More about your company",
+            "moq": "Minimum order quantity (MOQ)",
+            "leadTime": "Lead / delivery time",
+            "capacity": "Production capacity",
+            "certifications": "Certifications",
+            "references": "Reference customers",
+            "languages": "Languages spoken",
+            "lookalikeCustomers": "Your best current customers",
+            "scaleTarget": "Target number of companies",
+            "scaleTargetHint": "Leave empty to run until fully covered.",
+            "save": "Save",
+            "loadingProject": "Loading your project…",
+            "loadProjectFailed": "Could not load the linked project. To avoid creating a duplicate, generating ICPs is disabled until this loads."
         },
         "icp": {
             "heading": "ICP drafts",
@@ -1539,6 +1583,10 @@
         "back": "Back"
     },
     "dashboard": {
+        "onboardingNudge": {
+            "message": "You've started a research project but haven't finished setting up your ideal customer profile yet.",
+            "cta": "Continue setup"
+        },
         "totalCompanies": "Total Companies",
         "totalContacts": "Total Contacts",
         "activeDeals": "Active Deals",
