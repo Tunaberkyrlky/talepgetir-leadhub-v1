@@ -16,7 +16,7 @@ import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { validateBody, smtpConnectionSchema, uuidField } from '../lib/validation.js';
-import { listConnections, PUBLIC_COLUMNS } from '../lib/emailConnections.js';
+import { listConnections, recordSmtpVerify, PUBLIC_COLUMNS } from '../lib/emailConnections.js';
 import { verifySmtp } from '../lib/mail/smtpAdapter.js';
 import { verifyImap } from '../lib/imapInbound.js';
 import { encrypt } from '../lib/encryption.js';
@@ -108,14 +108,22 @@ router.post('/smtp', validateBody(smtpConnectionSchema), async (req: Request, re
         // Verify SMTP credentials BEFORE saving — catch typos/wrong password early.
         // Return a generic message: the raw connection error leaks whether arbitrary
         // host:port pairs are reachable (information oracle). Detail stays in the log.
+        // verifiedAt is captured the MOMENT verifySmtp settles (not at persist time) so
+        // recordSmtpVerify can keep the LATEST verify when two attempts for the same box race.
+        let smtpVerifiedAt: string;
         try {
             await verifySmtp({
                 host: b.smtp_host, port: b.smtp_port, secure: b.smtp_secure,
                 username: b.username, password: b.password,
                 allowInvalidCert: b.allow_invalid_cert,
             });
+            smtpVerifiedAt = new Date().toISOString();
         } catch (verifyErr) {
+            const failedAt = new Date().toISOString();
             log.warn({ err: verifyErr, host: b.smtp_host }, 'SMTP verify failed');
+            // Persist the failure freshness signal (best-effort; a no-op for a brand-new
+            // box with no row yet — that's fine, there's nothing to attach it to).
+            await recordSmtpVerify(tenantId, b.email_address, false, verifyErr instanceof Error ? verifyErr.message : String(verifyErr), failedAt);
             res.status(422).json({ error: 'SMTP bağlantısı doğrulanamadı. Sunucu, port, kullanıcı adı ve şifreyi kontrol edin.' });
             return;
         }
@@ -173,6 +181,10 @@ router.post('/smtp', validateBody(smtpConnectionSchema), async (req: Request, re
         } else {
             await ensureDefault(tenantId, data.id);
         }
+
+        // Both SMTP (and IMAP, if configured) verified above and the row now exists —
+        // persist the verify freshness signal (best-effort; never blocks the response).
+        await recordSmtpVerify(tenantId, b.email_address, true, null, smtpVerifiedAt);
 
         log.info({ tenantId, email: b.email_address, host: b.smtp_host }, 'SMTP connection saved');
         res.json({ connected: true, email: b.email_address });

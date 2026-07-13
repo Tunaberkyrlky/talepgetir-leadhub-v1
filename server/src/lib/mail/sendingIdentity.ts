@@ -52,7 +52,8 @@ export type IdentityTransport = 'owner_mailbox' | 'resend' | 'campaign_mailbox';
  * Minimum identity health, read ONLY from the persisted record / env — no live
  * verify. `ok` = the identity is present and usable (mailbox row is active, or
  * Resend env is configured). `unknown` = present but no freshness signal we can
- * trust (SMTP verify status isn't persisted; only IMAP populates lastPolledAt).
+ * trust. SMTP verify status IS now persisted (migration 130) and surfaced via
+ * lastVerifiedAt / lastVerifyOk below; IMAP-backed boxes also populate lastPolledAt.
  */
 export type IdentityHealthStatus = 'ok' | 'unknown';
 
@@ -60,6 +61,10 @@ export interface IdentityHealth {
     status: IdentityHealthStatus;
     /** Last IMAP poll — freshness hint; null for SMTP-only / Nango mailboxes. */
     lastPolledAt?: string | null;
+    /** Last SMTP connection-verify time (migration 130); null for never-verified / Nango boxes. */
+    lastVerifiedAt?: string | null;
+    /** Whether that last SMTP verify succeeded; null when never verified. */
+    lastVerifyOk?: boolean | null;
     /** brand_transactional only: whether RESEND_API_KEY + RESEND_FROM_EMAIL are set. */
     configured?: boolean;
 }
@@ -183,9 +188,17 @@ export function defaultSendClassForChannel(channel: MailChannel): SendClass {
 
 /** Health of a mailbox connection, read from the row only (no re-verify). */
 function mailboxHealth(conn: EmailConnection): IdentityHealth {
-    // Lookups already filter is_active=true, so a returned row is active. SMTP
-    // verify status isn't persisted; IMAP-backed boxes carry last_polled_at.
-    return { status: 'ok', lastPolledAt: conn.last_polled_at };
+    // Lookups already filter is_active=true, so a returned row is active. IMAP-backed
+    // boxes carry last_polled_at; SMTP verify freshness now lands in last_verified_at /
+    // last_verify_ok (migration 130). Status stays 'ok' for an active row — flipping it
+    // to 'unknown' on a stale/failed verify is a resolver-semantics change (D4's health
+    // panel consumes these new freshness fields; D3 only exposes them).
+    return {
+        status: 'ok',
+        lastPolledAt: conn.last_polled_at,
+        lastVerifiedAt: conn.last_verified_at,
+        lastVerifyOk: conn.last_verify_ok,
+    };
 }
 
 /**
