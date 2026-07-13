@@ -944,6 +944,7 @@
             "running": "Tarama sürüyor…",
             "done": "Tarama bitti: {{matches}} uygun firma ({{billed}} yeni lead kotadan düştü)",
             "failed": "Tarama başarısız oldu",
+            "failedHint": "Farklı bir coğrafya veya kaynak deneyebilir, ya da yeniden çalıştırabilirsiniz.",
             "needApproved": "Bu ICP ile tarama için önce onaylamanız gerekir.",
             "noCredits": "Lead kotanız kalmadı, tarama için kota yüklemeniz gerekir.",
             "source": "Kaynak",
@@ -1010,7 +1011,9 @@
             "needSpec": "Onaylamadan önce hücre için analiz çalıştırmanız gerekir.",
             "staleApprove": "Bu coğrafya siz açtıktan sonra değişti, güncel içeriği inceleyip yeniden onaylayabilirsiniz.",
             "cell": "Onaylı coğrafya",
-            "freeText": "Serbest metin"
+            "freeText": "Serbest metin",
+            "showDetails": "Detaylar",
+            "hideDetails": "Detayları gizle"
         },
         "channels": {
             "title": "Kanallar ve kapsama",
@@ -1052,6 +1055,9 @@
             "noCredits": "Araştırma krediniz yok, açı üretmeden önce bakiye yükleyebilirsiniz.",
             "approveIcpFirst": "Açı üretmeden önce ICP'yi onaylamanız gerekir.",
             "empty": "Henüz açı yok, offer haritasını başlatmak için taslak üretebilirsiniz.",
+            "noValueProp": "Henüz bir pitch yazılmadı, Detaylar'dan ekleyebilirsiniz.",
+            "showDetails": "Detaylar",
+            "hideDetails": "Detayları gizle",
             "pain": "Ağrı hipotezi",
             "valueProp": "Değer önerisi",
             "proofPoints": "Kanıt noktaları",
@@ -1093,7 +1099,7 @@
         "markets": {
             "source": "UN Comtrade",
             "worldImportRank": "Dünya ithalat sırası #{{rank}}",
-            "worldImportValue": "${{value}}",
+            "worldImportValue": "{{value}}",
             "growth": "+{{pct}}% yıllık",
             "bilateralExport": "{{country}} buraya ihracat yapıyor"
         },
@@ -1162,6 +1168,10 @@
         "icp": {
             "heading": "ICP taslakları",
             "segment": "Segment",
+            "segmentPh": "Bu segmenti sade bir dille tarif edin…",
+            "noSignals": "Henüz nitelik sinyali yok — Detaylar'dan ekleyebilirsiniz.",
+            "showDetails": "Detaylar",
+            "hideDetails": "Detayları gizle",
             "signals": "Sinyaller (uyuyorsa…)",
             "negativeSignals": "Negatif sinyaller",
             "eliminationRules": "Eleme kuralları",
@@ -1218,6 +1228,7 @@
             "rated": "{{count}} değerlendirildi",
             "step3": "3. Revizyon",
             "step3Hint": "Strateji modeli, değerlendirmelerinizden yola çıkarak bir ICP revizyonu önerir.",
+            "aiProposal": "AI önerisi",
             "propose": "Revizyon öner",
             "revising": "Revizyon hazırlanıyor…",
             "reviseDone": "Revizyon önerisi hazır, değişiklikleri aşağıdan inceleyebilirsiniz.",
@@ -1241,7 +1252,10 @@
             "marked": "ICP kalibre edildi olarak işaretlendi.",
             "needApprovedFinish": "Kalibre işareti için ICP'nin onaylı olması gerekir.",
             "needFeedbackFinish": "Bitirmeden önce güncel kural setinde en az bir örneklem firmasını değerlendirmeniz gerekir.",
-            "feedbackStale": "Değerlendirme sırasında ICP değişti, sayfa yenilendi, lütfen tekrar değerlendirin."
+            "feedbackStale": "Değerlendirme sırasında ICP değişti, sayfa yenilendi, lütfen tekrar değerlendirin.",
+            "pendingRevisionBlocksMark": "Bekleyen bir revizyon önerisi var — kalibre olarak işaretlemeden önce uygulayın.",
+            "markPatchFailed": "ICP kalibre edildi olarak işaretlendi ancak bir sonraki adıma geçemedik.",
+            "markConflict": "ICP bu sırada değişti — sayfayı yenileyip tekrar deneyin."
         },
         "outcomes": {
             "replyRate": "Yanıt %{{pct}}",
@@ -1265,6 +1279,8 @@
             "freeRerun": "{{count}} firma zaten zengin (ücretsiz)",
             "running": "Zenginleştirme çalışıyor…",
             "failed": "Zenginleştirme başarısız",
+            "failedHint": "Daha küçük bir seçimle ya da yeniden deneyebilirsiniz.",
+            "needSelection": "Bunu etkinleştirmek için aşağıdan en az bir firma seçebilirsiniz.",
             "matchesTotal": "{{count}} MATCH firma",
             "selectPage": "Sayfayı seç",
             "empty": "Bu ICP için henüz MATCH firma yok, önce lead araması çalıştırın.",
@@ -1274,7 +1290,7 @@
             "noDomain": "domain yok",
             "pickHint": "Bir proje ve ICP seçin, sonra karar vericilerini bulmak için MATCH firmaları işaretleyin.",
             "contactsTitle": "Kişiler",
-            "noContacts": "Bu firma için kayıtlı kişi yok.",
+            "noContacts": "Bu firma zenginleştirildi ama kişi bulunamadı — öncelikli unvanları genişletebilir veya alan adını elle kontrol edebilirsiniz.",
             "domainMatch": "Domain eşleşmesi",
             "person": "Kişi",
             "title": "Unvan",
@@ -1284,6 +1300,19 @@
             "promoteHint": "Yukarı taşımak için tıklayın"
         },
         "wizard": {
+            "brand": "TG Research",
+            "saving": "Kaydediliyor…",
+            "backToDashboard": "Dashboard'a dön",
+            "phaseOf": "Faz {{index}}/{{total}}",
+            "phase": {
+                "setup": "Kurulum",
+                "profile": "Profil",
+                "product": "Ürün/HS",
+                "icp": "ICP",
+                "calibration": "Kalibrasyon",
+                "scale": "Coğrafya/Ölçek",
+                "results": "Sonuçlar"
+            },
             "stepOf": "Adım {{step}} / {{total}}",
             "back": "Geri",
             "next": "İleri",
@@ -1311,9 +1340,11 @@
                 "researchAgain": "Yeniden araştır",
                 "retry": "Tekrar deneyin",
                 "stage": {
+                    "loading": "Hazırlanıyor…",
                     "crawling_website": "Web siteniz inceleniyor…",
                     "crawling_social": "Sosyal medya hesaplarınız taranıyor…",
                     "summarizing": "Firmanız özetleniyor…",
+                    "persisting": "Sonuçlar kaydediliyor…",
                     "default": "Hazırlanıyor…"
                 }
             },
@@ -1359,6 +1390,8 @@
             "step23": {
                 "title": "Dünya pazarları analiz ediliyor",
                 "failed": "Pazar analizi başarısız oldu.",
+                "patchFailed": "Analiz tamamlandı ancak bir sonraki adıma geçemedik.",
+                "patchFailedSkip": "Bir sonraki adıma geçemedik.",
                 "stage": {
                     "loading": "Onaylı ürün kodlarınız yükleniyor…",
                     "world_import": "Dünyanın en büyük ithalatçıları sıralanıyor…",
@@ -1721,7 +1754,6 @@
         "deleted": "Aktivite silindi",
         "loadMore": "Daha fazla yükle",
         "ownerChanged": "Sahip değişikliği: {{from}} → {{to}}",
-        "unassigned": "Sahipsiz",
         "types": {
             "not": "Not",
             "meeting": "Toplantı",

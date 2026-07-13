@@ -944,6 +944,7 @@
             "running": "Harvest running…",
             "done": "Harvest finished: {{matches}} match ({{billed}} new lead billed)",
             "failed": "Harvest failed",
+            "failedHint": "Try a different geography or source, or run it again.",
             "needApproved": "Approve this ICP first to harvest leads for it.",
             "noCredits": "No lead quota available — top up to run a harvest.",
             "source": "Source",
@@ -1010,7 +1011,9 @@
             "needSpec": "Run the analysis first — the cell needs a spec before approval.",
             "staleApprove": "This geography changed since you opened it — review the latest spec and approve again.",
             "cell": "Approved geography",
-            "freeText": "Free text"
+            "freeText": "Free text",
+            "showDetails": "Details",
+            "hideDetails": "Hide details"
         },
         "channels": {
             "title": "Channels & coverage",
@@ -1052,6 +1055,9 @@
             "noCredits": "You do not have research credits — top up before generating angles.",
             "approveIcpFirst": "Approve the ICP before generating angles.",
             "empty": "No angles yet — generate drafts to start the offer map.",
+            "noValueProp": "No pitch written yet — add one in Details.",
+            "showDetails": "Details",
+            "hideDetails": "Hide details",
             "pain": "Pain hypothesis",
             "valueProp": "Value proposition",
             "proofPoints": "Proof points",
@@ -1093,7 +1099,7 @@
         "markets": {
             "source": "UN Comtrade",
             "worldImportRank": "World import rank #{{rank}}",
-            "worldImportValue": "${{value}}",
+            "worldImportValue": "{{value}}",
             "growth": "+{{pct}}% YoY",
             "bilateralExport": "{{country}} exports here"
         },
@@ -1162,6 +1168,10 @@
         "icp": {
             "heading": "ICP drafts",
             "segment": "Segment",
+            "segmentPh": "Describe this segment in plain language…",
+            "noSignals": "No qualifying signals yet — add them in Details.",
+            "showDetails": "Details",
+            "hideDetails": "Hide details",
             "signals": "Signals (fits if…)",
             "negativeSignals": "Negative signals",
             "eliminationRules": "Elimination rules",
@@ -1218,6 +1228,7 @@
             "rated": "{{count}} rated",
             "step3": "3. Revision",
             "step3Hint": "The strategy model proposes an ICP revision from your ratings.",
+            "aiProposal": "AI proposal",
             "propose": "Propose revision",
             "revising": "Revision being generated…",
             "reviseDone": "Revision proposal is ready — review the changes below.",
@@ -1241,7 +1252,10 @@
             "marked": "ICP marked as calibrated.",
             "needApprovedFinish": "The ICP must be approved before you can mark it calibrated.",
             "needFeedbackFinish": "Rate at least one sampled company at the current ruleset before finishing.",
-            "feedbackStale": "The ICP changed since you rated these companies — reloaded, review and rate again."
+            "feedbackStale": "The ICP changed since you rated these companies — reloaded, review and rate again.",
+            "pendingRevisionBlocksMark": "A proposed revision is waiting — apply it before marking calibrated.",
+            "markPatchFailed": "The ICP was marked calibrated, but we could not move to the next step.",
+            "markConflict": "The ICP changed in the meantime — reload and try again."
         },
         "outcomes": {
             "replyRate": "Reply {{pct}}%",
@@ -1265,6 +1279,8 @@
             "freeRerun": "{{count}} already enriched (free)",
             "running": "Enrichment running…",
             "failed": "Enrichment failed",
+            "failedHint": "Try again with a smaller selection, or run it again.",
+            "needSelection": "Select at least one company below to enable this.",
             "matchesTotal": "{{count}} MATCH companies",
             "selectPage": "Select page",
             "empty": "No MATCH companies yet for this ICP — harvest leads first.",
@@ -1274,7 +1290,7 @@
             "noDomain": "no domain",
             "pickHint": "Pick a project and an ICP, then select MATCH companies to find their decision makers.",
             "contactsTitle": "Contacts",
-            "noContacts": "No contacts stored for this company.",
+            "noContacts": "This company was enriched but no contacts were found — try widening the priority titles or check the domain manually.",
             "domainMatch": "Domain match",
             "person": "Person",
             "title": "Title",
@@ -1284,6 +1300,19 @@
             "promoteHint": "Click to move up"
         },
         "wizard": {
+            "brand": "TG Research",
+            "saving": "Saving…",
+            "backToDashboard": "Back to dashboard",
+            "phaseOf": "Phase {{index}}/{{total}}",
+            "phase": {
+                "setup": "Setup",
+                "profile": "Profile",
+                "product": "Product/HS",
+                "icp": "ICP",
+                "calibration": "Calibration",
+                "scale": "Geography/Scale",
+                "results": "Results"
+            },
             "stepOf": "Step {{step}} / {{total}}",
             "back": "Back",
             "next": "Next",
@@ -1311,9 +1340,11 @@
                 "researchAgain": "Research again",
                 "retry": "Try again",
                 "stage": {
+                    "loading": "Getting ready…",
                     "crawling_website": "Reading your website…",
                     "crawling_social": "Scanning your social accounts…",
                     "summarizing": "Summarizing your company…",
+                    "persisting": "Saving the results…",
                     "default": "Getting ready…"
                 }
             },
@@ -1359,6 +1390,8 @@
             "step23": {
                 "title": "Analyzing world markets",
                 "failed": "Market analysis failed.",
+                "patchFailed": "The analysis finished, but we could not move to the next step.",
+                "patchFailedSkip": "We could not move to the next step.",
                 "stage": {
                     "loading": "Loading your approved product codes…",
                     "world_import": "Ranking the world's biggest importers…",
@@ -1721,7 +1754,6 @@
         "deleted": "Activity deleted",
         "loadMore": "Load more",
         "ownerChanged": "Owner changed: {{from}} → {{to}}",
-        "unassigned": "Unassigned",
         "types": {
             "not": "Note",
             "meeting": "Meeting",
