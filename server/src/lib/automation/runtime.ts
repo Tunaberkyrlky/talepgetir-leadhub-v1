@@ -44,6 +44,15 @@ const log = createLogger('lib:automation:runtime');
 /** A run's lease is reclaimable after this idle window (crashed-stepper recovery). */
 const LEASE_TTL_MS = 5 * 60 * 1000;
 
+/** Hard upper bound on a SINGLE executor.execute. INVARIANT: strictly < LEASE_TTL_MS,
+ *  with comfortable headroom for the finalize+advance DB writes that follow execute — so
+ *  a LIVE stepper ALWAYS aborts+finalizes and releases its lease before that lease can be
+ *  reclaimed as stale by a second stepper. This preserves the run-level lease concurrency
+ *  guarantee (a slow executor can no longer outlive the reclaim window) and makes C2R-1's
+ *  pending-reconcile provably safe. No lease heartbeat is required because EXECUTOR_TIMEOUT_MS
+ *  < LEASE_TTL_MS already forces release before reclaim. */
+const EXECUTOR_TIMEOUT_MS = 2 * 60 * 1000;
+
 /** Reserved run.context key holding per-run automation meta (actor, stop, goal). */
 interface RunMeta {
   actor_id: string | null;
@@ -299,8 +308,34 @@ export async function stepRun(runId: string): Promise<{ status: string; node?: s
     };
     let result: NodeResult;
     try {
-      result = await executor.execute(ctx);
+      // Bound a single execute so a LIVE stepper can NEVER hold the run past LEASE_TTL_MS
+      // (EXECUTOR_TIMEOUT_MS < LEASE_TTL_MS). The timer is unref'd + always cleared so a fast
+      // node leaves nothing keeping the event loop alive. Promise.race does not cancel the
+      // underlying execute — a timed-out node runs to completion in the background; that is
+      // inherent to the at-most-once contract (side effect may fire, cursor does not advance).
+      let timer: NodeJS.Timeout | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('executor_timeout')), EXECUTOR_TIMEOUT_MS);
+        timer.unref?.();
+      });
+      // Hold the execute() promise so that if the TIMEOUT wins the race, the still-pending execute
+      // does not reject with NO handler attached — that would be an unhandledRejection that can crash
+      // a live worker. A detached no-op catch swallows a post-timeout-loss late rejection; if execute
+      // instead loses by rejecting FIRST, Promise.race still surfaces that rejection to the try/catch
+      // below (the extra catch just also observes it, harmlessly).
+      // Promise.resolve().then(...) converts a SYNCHRONOUS throw from execute() into a promise
+      // rejection, so it flows through the race + the timer-clearing finally below (a bare
+      // executor.execute(ctx) that threw synchronously would skip the finally, leaking an armed
+      // timer whose timeout promise later rejects with no handler → unhandledRejection).
+      const running = Promise.resolve().then(() => executor.execute(ctx));
+      running.catch(() => {}); // swallow a late rejection after a timeout loss (no unhandled rejection)
+      try {
+        result = await Promise.race([running, timeout]);
+      } finally {
+        if (timer) clearTimeout(timer); // clear on BOTH success and reject — no dangling timer
+      }
     } catch (err) {
+      // A timeout rejects Error('executor_timeout') → this same path → retryReason='executor_timeout'.
       const message = err instanceof Error ? err.message : String(err);
       await finalizeAction(run, nodeKey, idemKey, { status: 'failed', retryReason: message, output: { error: message } }, null);
       await failRun(run.id, `node_threw:${message}`);
@@ -348,9 +383,26 @@ async function advanceFromLedger(
     .eq('run_id', run.id)
     .eq('node_key', nodeKey)
     .maybeSingle();
-  if (!action || action.status === 'pending') {
-    // Still in flight (or unreadable) — do not re-run; leave the cursor as-is.
+  if (!action) {
+    // Transient read miss / unreadable — do NOT reconcile or wedge; leave the cursor as-is.
     return { status: run.status };
+  }
+  if (action.status === 'pending') {
+    // Reached ONLY via the 23505 ledger collision while THIS stepper holds the run-level
+    // lease. Given EXECUTOR_TIMEOUT_MS < LEASE_TTL_MS (C2R-2), a live-but-slow stepper always
+    // aborts+finalizes (failed) before its lease is reclaimable, so a still-'pending' row under
+    // a freshly-claimed lease means the stepper that inserted it is provably DEAD pre-finalize.
+    // The NodeResult is unrecoverable and the side effect MAY have fired — do NOT re-run the
+    // executor. Reconcile deterministically: mark the action failed and fail the run so it stops
+    // WEDGING. (A fully-atomic finalize+advance RPC is the future hardening; this reconcile is the
+    // correct at-most-once-safe close for the crash window.)
+    await supabaseAdmin
+      .from('automation_actions')
+      .update({ status: 'failed', retry_reason: 'stepper_crashed_pre_finalize', completed_at: new Date().toISOString() })
+      .eq('run_id', run.id)
+      .eq('node_key', nodeKey);
+    await failRun(run.id, `action_interrupted:${nodeKey}`);
+    return { status: 'failed' };
   }
   const out = (action.output as Record<string, unknown>) ?? {};
   const node = graph.nodes[nodeKey];
