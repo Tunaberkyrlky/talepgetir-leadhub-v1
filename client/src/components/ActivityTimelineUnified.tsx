@@ -271,7 +271,7 @@ const ActivityTimelineUnified = forwardRef<ActivityTimelineHandle, ActivityTimel
                             const isCampaign = e.kind === 'campaign_email';
                             const outcomeColor = OUTCOME_COLORS[e.outcome || ''] || 'gray';
                             const unreadEmail = isEmail && e.read_status === 'unread';
-                            const ownerChange = parseOwnerChange(e.kind, e.detail);
+                            const ownerChange = parseOwnerChange(e.kind, e.detail, t('activity.unassigned'));
                             const title = ownerChange
                                 ? t('activity.ownerChanged', ownerChange)
                                 : e.summary || e.sender_email || t(`activity.types.${e.kind}`);

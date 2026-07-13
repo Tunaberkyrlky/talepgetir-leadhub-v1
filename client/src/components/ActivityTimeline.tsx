@@ -181,7 +181,7 @@ const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProp
                         const isStatusChange = activity.type === 'status_change';
                         const isCampaignEmail = activity.type === 'campaign_email';
                         const outcomeColor = OUTCOME_COLORS[activity.outcome || ''] || 'gray';
-                        const ownerChange = parseOwnerChange(activity.type, activity.detail);
+                        const ownerChange = parseOwnerChange(activity.type, activity.detail, t('activity.unassigned'));
 
                         return (
                             <div key={activity.id}>

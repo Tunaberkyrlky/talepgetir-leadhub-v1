@@ -179,6 +179,10 @@ async function recordOwnerChanges(
             if (!id) return OWNER_UNASSIGNED_LABEL;
             return ownerDisplayName(users.get(id) || null) || OWNER_UNASSIGNED_LABEL;
         };
+        // For the STRUCTURED payload the client localizes, an unassigned owner is a locale-neutral
+        // null (the client renders null as a localized "unassigned" via parseOwnerChange). The
+        // Turkish OWNER_UNASSIGNED_LABEL survives ONLY in the legacy `summary` fallback below.
+        const nameOrNull = (id: string | null) => (id ? ownerDisplayName(users.get(id) || null) || null : null);
         const now = new Date().toISOString();
         const rows = changes.map((c) => ({
             tenant_id: tenantId,
@@ -187,7 +191,7 @@ async function recordOwnerChanges(
             // Human-readable Turkish fallback for legacy / non-localized views.
             summary: `Sahip değişikliği: ${label(c.oldOwner)} → ${label(c.newOwner)}`,
             // Structured payload the client renders as a localized line — resolved names only.
-            detail: JSON.stringify({ k: 'owner_change', from: label(c.oldOwner), to: label(c.newOwner) }),
+            detail: JSON.stringify({ k: 'owner_change', from: nameOrNull(c.oldOwner), to: nameOrNull(c.newOwner) }),
             // Stays 'internal' per the 2026-07-11 product decision (reassign is an ops audit line).
             // The timeline already shows internal rows to client roles (with a badge); this slice
             // only localizes the text, it does NOT reclassify the row's visibility.

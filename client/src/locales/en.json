@@ -1721,6 +1721,7 @@
         "deleted": "Activity deleted",
         "loadMore": "Load more",
         "ownerChanged": "Owner changed: {{from}} → {{to}}",
+        "unassigned": "Unassigned",
         "types": {
             "not": "Note",
             "meeting": "Meeting",

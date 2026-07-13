@@ -193,7 +193,7 @@ function ActivityCard({ activity, navigate, t, locale, canEdit, canDeleteItem, o
     const isStatusChange = activity.type === 'status_change';
     const isClosingReport = activity.type === 'sonlandirma_raporu';
     const showMenu = (canEdit && !isStatusChange && !isClosingReport) || canDeleteItem;
-    const ownerChange = parseOwnerChange(activity.type, activity.detail);
+    const ownerChange = parseOwnerChange(activity.type, activity.detail, t('activity.unassigned'));
 
     return (
         <Paper key={activity.id} p="md" radius="md" withBorder>

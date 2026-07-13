@@ -90,12 +90,20 @@ export interface OwnerChangeMeta {
     [key: string]: string;
 }
 
-export function parseOwnerChange(type: string, detail: string | null | undefined): OwnerChangeMeta | null {
+export function parseOwnerChange(
+    type: string,
+    detail: string | null | undefined,
+    unassignedLabel: string,
+): OwnerChangeMeta | null {
     if (type !== 'status_change' || !detail) return null;
     try {
         const parsed = JSON.parse(detail);
-        if (parsed && parsed.k === 'owner_change' && typeof parsed.from === 'string' && typeof parsed.to === 'string') {
-            return { from: parsed.from, to: parsed.to };
+        if (parsed && parsed.k === 'owner_change' && 'from' in parsed && 'to' in parsed) {
+            // A null / empty from|to means "unassigned": the server stores a locale-neutral null so
+            // the label is localized HERE (an EN user no longer sees the Turkish "Sahipsiz"). Legacy
+            // rows stored a resolved name string, which is kept as-is.
+            const norm = (v: unknown) => (typeof v === 'string' && v.length > 0 ? v : unassignedLabel);
+            return { from: norm(parsed.from), to: norm(parsed.to) };
         }
     } catch {
         // Legacy / non-JSON detail — not an owner-change payload.

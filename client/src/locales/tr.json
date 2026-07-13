@@ -1721,6 +1721,7 @@
         "deleted": "Aktivite silindi",
         "loadMore": "Daha fazla yükle",
         "ownerChanged": "Sahip değişikliği: {{from}} → {{to}}",
+        "unassigned": "Sahipsiz",
         "types": {
             "not": "Not",
             "meeting": "Toplantı",
