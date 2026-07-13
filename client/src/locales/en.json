@@ -2576,5 +2576,22 @@
         "dwellValue": "avg {{avg}}d · median {{median}}d",
         "noActiveCompanies": "No active companies.",
         "loadError": "Could not load operations metrics."
+    },
+    "commandMenu": {
+        "open": "Command menu",
+        "placeholder": "Search or type a command...",
+        "sections": {
+            "navigate": "Go to",
+            "companies": "Companies",
+            "create": "Quick create"
+        },
+        "newTask": "New task",
+        "newCompany": "New company",
+        "newContact": "New contact",
+        "noResults": "No results",
+        "loadError": "Couldn't load companies",
+        "hintNavigate": "navigate",
+        "hintSelect": "select",
+        "hintClose": "close"
     }
 }

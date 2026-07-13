@@ -62,7 +62,7 @@ export default function TaskForm({
     onSuccess,
 }: TaskFormProps) {
     const { t } = useTranslation();
-    const { user } = useAuth();
+    const { user, activeTenantId } = useAuth();
     const queryClient = useQueryClient();
     const isMobile = useMediaQuery('(max-width: 48em)') ?? false;
     const isEdit = !!task;
@@ -85,13 +85,14 @@ export default function TaskForm({
     const { data: companyOptions, isLoading: companyOptionsLoading } = useQuery<{
         data: { id: string; name: string }[];
     }>({
-        queryKey: ['task-company-picker', debouncedCompanySearch],
-        queryFn: async () => {
+        queryKey: ['task-company-picker', activeTenantId, debouncedCompanySearch],
+        queryFn: async ({ queryKey, signal }) => {
+            const tid = queryKey[1] as string;
             const params: Record<string, string> = { limit: '20' };
             if (debouncedCompanySearch.trim()) params.search = debouncedCompanySearch.trim();
-            return (await api.get('/companies', { params })).data;
+            return (await api.get('/companies', { params, headers: { 'X-Tenant-Id': tid }, signal })).data;
         },
-        enabled: showCompanyPicker && companyDropdownOpened,
+        enabled: showCompanyPicker && companyDropdownOpened && !!activeTenantId,
         staleTime: 30_000,
     });
 

@@ -16,6 +16,7 @@ import {
     Tooltip,
     Burger,
     Indicator,
+    Kbd,
 } from '@mantine/core';
 import { useDisclosure, useHotkeys, useMediaQuery } from '@mantine/hooks';
 import {
@@ -39,8 +40,10 @@ import {
     IconCoin,
     IconPhoneCall,
     IconDatabase,
+    IconSearch,
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
+import CommandPalette from './CommandPalette';
 import FeedbackModal from './FeedbackModal';
 import ChangelogModal, { getHasNewChangelog, markChangelogSeen } from './ChangelogModal';
 import { useTranslation } from 'react-i18next';
@@ -65,6 +68,7 @@ export default function Layout() {
     const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
     const [navbarOpened, { toggle: toggleNavbar, close: closeNavbar }] = useDisclosure(false);
     const [feedbackOpened, { open: openFeedback, close: closeFeedback }] = useDisclosure(false);
+    const [paletteOpened, { open: openPalette, close: closePalette }] = useDisclosure(false);
     const [feedbackPrefill, setFeedbackPrefill] = useState<ReturnType<typeof buildFeedbackPrefill>>(null);
     const [changelogOpened, setChangelogOpened] = useState(false);
     const [hasNewChangelog, setHasNewChangelog] = useState(getHasNewChangelog);
@@ -222,6 +226,32 @@ export default function Layout() {
 
                     {/* Right side */}
                     <Group gap="md">
+                        {/* Command palette (Cmd/Ctrl+K) launcher */}
+                        <UnstyledButton
+                            onClick={openPalette}
+                            aria-label={t('commandMenu.open', 'Komut menüsü')}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '5px 10px',
+                                borderRadius: 8,
+                                border: '1px solid rgba(255,255,255,0.18)',
+                                background: 'rgba(255,255,255,0.06)',
+                                color: 'rgba(255,255,255,0.85)',
+                                fontSize: '0.8rem',
+                                fontWeight: 500,
+                                transition: 'background 0.15s',
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.12)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+                        >
+                            <IconSearch size={16} />
+                            <Kbd style={{ background: 'rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.9)', border: 'none' }} visibleFrom="sm">
+                                {/Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '') ? '⌘K' : 'Ctrl K'}
+                            </Kbd>
+                        </UnstyledButton>
+
                         {/* Feedback button */}
                         <UnstyledButton
                             onClick={openFeedback}
@@ -393,6 +423,7 @@ export default function Layout() {
                 <Outlet />
             </AppShell.Main>
 
+            <CommandPalette opened={paletteOpened} onOpen={openPalette} onClose={closePalette} navItems={navItems} />
             <SettingsModal opened={settingsOpened} onClose={closeSettings} defaultTab={settingsDefaultTab} />
             <FeedbackModal opened={feedbackOpened} onClose={handleFeedbackClose} prefill={feedbackPrefill ?? undefined} />
             <ChangelogModal opened={changelogOpened} onClose={() => setChangelogOpened(false)} />

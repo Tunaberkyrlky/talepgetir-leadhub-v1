@@ -14,6 +14,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Contact {
     id: string;
@@ -55,14 +56,22 @@ const PREFERRED_CHANNEL_VALUES = ['email', 'phone', 'whatsapp', 'linkedin', 'oth
 
 export default function ContactForm({ opened, onClose, contact, defaultCompanyId }: ContactFormProps) {
     const { t } = useTranslation();
+    const { activeTenantId } = useAuth();
     const queryClient = useQueryClient();
     const isEdit = !!contact;
 
-    // Fetch company list for the selector
+    // Fetch company list for the selector. Tenant pinned to the query KEY (not the mutable
+    // closure) so switching tenants refetches and never leaks a previous tenant's companies.
     const { data: companiesData } = useQuery({
-        queryKey: ['companies-list-simple'],
-        queryFn: () => api.get('/companies?limit=100&sortBy=name&sortOrder=asc').then((r) => r.data),
-        enabled: opened,
+        queryKey: ['companies-list-simple', activeTenantId],
+        queryFn: async ({ queryKey, signal }) => {
+            const tid = queryKey[1] as string;
+            return (await api.get('/companies?limit=100&sortBy=name&sortOrder=asc', {
+                headers: { 'X-Tenant-Id': tid },
+                signal,
+            })).data;
+        },
+        enabled: opened && !!activeTenantId,
     });
 
     const companyOptions = (() => {

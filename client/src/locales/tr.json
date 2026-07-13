@@ -2576,5 +2576,22 @@
         "dwellValue": "ort. {{avg}}g · medyan {{median}}g",
         "noActiveCompanies": "Aktif firma yok.",
         "loadError": "Operasyon metrikleri yüklenemedi."
+    },
+    "commandMenu": {
+        "open": "Komut menüsü",
+        "placeholder": "Ara ya da bir komut yaz...",
+        "sections": {
+            "navigate": "Git",
+            "companies": "Firmalar",
+            "create": "Hızlı oluştur"
+        },
+        "newTask": "Yeni görev",
+        "newCompany": "Yeni firma",
+        "newContact": "Yeni kişi",
+        "noResults": "Sonuç yok",
+        "loadError": "Firmalar yüklenemedi",
+        "hintNavigate": "gez",
+        "hintSelect": "seç",
+        "hintClose": "kapat"
     }
 }
