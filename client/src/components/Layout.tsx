@@ -15,6 +15,7 @@ import {
     Stack,
     Tooltip,
     Burger,
+    Indicator,
 } from '@mantine/core';
 import { useDisclosure, useHotkeys, useMediaQuery } from '@mantine/hooks';
 import {
@@ -37,12 +38,14 @@ import {
     IconTargetArrow,
     IconCoin,
     IconPhoneCall,
+    IconDatabase,
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
 import FeedbackModal from './FeedbackModal';
 import ChangelogModal, { getHasNewChangelog, markChangelogSeen } from './ChangelogModal';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
+import { useIsOnboardingComplete } from '../lib/researchProjects';
 import { hasRolePermission } from '../lib/permissions';
 import { FEEDBACK_OPEN_EVENT, buildFeedbackPrefill, clearLastError } from '../lib/lastError';
 
@@ -104,6 +107,12 @@ export default function Layout() {
     const isMobile = useMediaQuery('(max-width: 768px)');
     const isIconOnly = useMediaQuery('(max-width: 992px)') && !isMobile;
 
+    // Half-setup badge on the Research nav item. Fail open: no dot while loading or on error.
+    const onboarding = useIsOnboardingComplete();
+    // Only nudge a tenant that HAS a project but hasn't finished setup. No project at all
+    // means nothing to resume, so a badge there would just mislead.
+    const showResearchBadge = onboarding.hasProject && !onboarding.isLoading && !onboarding.isError && !onboarding.isComplete;
+
     if (isLoading) return null;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
 
@@ -131,7 +140,19 @@ export default function Layout() {
         { path: '/assets', label: t('nav.assets', 'Asset Stüdyosu'), icon: <IconFileText size={20} /> },
         { path: '/activities', label: t('nav.activities'), icon: <IconActivity size={20} /> },
         { path: '/email-replies', label: t('nav.emailReplies'), icon: <IconMail size={20} /> },
-        { path: '/research', label: t('nav.research', 'Research'), icon: <IconTargetArrow size={20} /> },
+        {
+            path: '/research',
+            label: t('nav.research', 'Research'),
+            // Exact-match only: /research/full and /research/admin are their own items, so a
+            // startsWith highlight here would light up two nav rows at once.
+            exact: true,
+            icon: (
+                <Indicator disabled={!showResearchBadge} size={8} color="violet" offset={4}>
+                    <IconTargetArrow size={20} />
+                </Indicator>
+            ),
+        },
+        { path: '/research/full', label: t('nav.companyKnowledge', 'Company Knowledge'), icon: <IconDatabase size={20} /> },
         { path: '/cold-call', label: t('nav.coldCall', 'Cold Call'), icon: <IconPhoneCall size={20} /> },
         ...(['superadmin', 'ops_agent'].includes(user?.role || '')
             ? [
@@ -317,9 +338,12 @@ export default function Layout() {
             <AppShell.Navbar p="xs" style={{ display: 'flex', flexDirection: 'column' }}>
                 <Stack gap={4} style={{ flex: 1 }}>
                     {navItems.map((item) => {
-                        const active = location.pathname === item.path ||
-                            (item.path !== '/dashboard' && location.pathname.startsWith(item.path)) ||
-                            (item.matchPaths?.some((p) => location.pathname.startsWith(p)) ?? false);
+                        const isExact = 'exact' in item && item.exact;
+                        const active = isExact
+                            ? location.pathname === item.path
+                            : location.pathname === item.path ||
+                              (item.path !== '/dashboard' && location.pathname.startsWith(item.path)) ||
+                              (item.matchPaths?.some((p) => location.pathname.startsWith(p)) ?? false);
                         if (isIconOnly) {
                             return (
                                 <Tooltip key={item.path} label={item.label} position="right" withArrow>

@@ -31,6 +31,7 @@ import { notifications } from '@mantine/notifications';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
+import { useIsOnboardingComplete } from '../lib/researchProjects';
 import { useAuth } from '../contexts/AuthContext';
 import { hasTierAccess, type Tier } from '../lib/permissions';
 import StatCard from '../components/StatCard';
@@ -70,6 +71,9 @@ export default function DashboardPage() {
     const [period, setPeriod] = useState<DashboardPeriod>('month');
     const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date());
     const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null]);
+
+    // Nudge tenants who started a research project but never calibrated an ICP (W0 helper).
+    const onboarding = useIsOnboardingComplete();
 
     const dateParams = useMemo(() => {
         if (period === 'all') return null;
@@ -320,6 +324,19 @@ export default function DashboardPage() {
                     )}
                 </Group>
             </Group>
+
+            {onboarding.hasProject && !onboarding.isComplete && !onboarding.isLoading && !onboarding.isError && (
+                <Paper withBorder radius="lg" p="md" mb="lg">
+                    <Group justify="space-between" align="center" wrap="wrap" gap="sm">
+                        <Text size="sm" c="dimmed">
+                            {t('dashboard.onboardingNudge.message')}
+                        </Text>
+                        <Button size="xs" color="violet" onClick={() => navigate('/research')}>
+                            {t('dashboard.onboardingNudge.cta')}
+                        </Button>
+                    </Group>
+                </Paper>
+            )}
 
             {/* Stat Cards — always visible */}
             <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} mb="lg">
