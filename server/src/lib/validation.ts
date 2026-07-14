@@ -724,3 +724,41 @@ export const assetEventSchema = z.object({
         })
         .optional(),
 });
+
+// ── Saved views + favorites + recents schemas (E11) ──
+
+// Which list a view / favorite / recent belongs to. 'companies' is the only live
+// surface today; 'contacts' is reserved so the API is forward-compatible.
+export const VIEW_ENTITY_TYPES = ['companies', 'contacts'] as const;
+
+// filters/columns are stored verbatim as JSONB. They are forward-compatible bags:
+// unknown keys are accepted here and simply ignored by the client on apply. The
+// only guard is an overall size cap so a client can't stuff arbitrary large blobs.
+const jsonBag = (maxChars: number) =>
+    z.record(z.string().max(120), z.unknown())
+        .refine((v) => JSON.stringify(v).length <= maxChars, { message: 'Payload too large' });
+
+export const savedViewCreateSchema = z.object({
+    name: z.string().trim().min(1, 'Name is required').max(200),
+    entity_type: z.enum(VIEW_ENTITY_TYPES).optional().default('companies'),
+    filters: jsonBag(8000).optional().default({}),
+    columns: jsonBag(8000).optional().default({}),
+    is_shared: z.boolean().optional().default(false),
+});
+
+export const savedViewUpdateSchema = z.object({
+    name: z.string().trim().min(1).max(200).optional(),
+    filters: jsonBag(8000).optional(),
+    columns: jsonBag(8000).optional(),
+    is_shared: z.boolean().optional(),
+}).refine((d) => Object.keys(d).length > 0, { message: 'At least one field must be provided' });
+
+export const favoriteToggleSchema = z.object({
+    entity_type: z.enum(VIEW_ENTITY_TYPES).optional().default('companies'),
+    entity_id: uuidField('Invalid entity_id'),
+});
+
+export const recentVisitSchema = z.object({
+    entity_type: z.enum(VIEW_ENTITY_TYPES).optional().default('companies'),
+    entity_id: uuidField('Invalid entity_id'),
+});

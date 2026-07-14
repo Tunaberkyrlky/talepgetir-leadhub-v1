@@ -29,6 +29,7 @@ import {
     Alert,
     SegmentedControl,
     ScrollArea,
+    Switch,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure, useHotkeys } from '@mantine/hooks';
 import { showSuccess, showInfo, showErrorFromApi } from '../lib/notifications';
@@ -56,6 +57,12 @@ import {
     IconCalendar,
     IconChevronLeft,
     IconChevronRight,
+    IconStar,
+    IconStarFilled,
+    IconDownload,
+    IconDeviceFloppy,
+    IconBookmark,
+    IconShare,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { DatePickerInput } from '@mantine/dates';
@@ -142,6 +149,57 @@ interface FilterOptions {
     countries: string[];
 }
 
+// ─── Saved views + favorites/recents (E11) ────────────────────────────────────
+
+// Serialized filter set stored in saved_views.filters. Forward-compatible: unknown
+// keys are ignored on apply, and `tags` is a placeholder for the later E4 tag wave.
+interface SavedViewFilters {
+    search?: string;
+    stages?: string[];
+    industries?: string[];
+    locations?: string[];
+    countries?: string[];
+    products?: string[];
+    owner?: string;
+    periodType?: PeriodType;
+    periodAnchor?: string;
+    customRange?: [string | null, string | null];
+    tags?: string[];
+}
+
+interface SavedViewColumns {
+    visible?: ColumnDef[];
+    sortBy?: SortKey;
+    sortOrder?: 'asc' | 'desc';
+}
+
+interface SavedView {
+    id: string;
+    name: string;
+    entity_type: string;
+    filters: SavedViewFilters;
+    columns: SavedViewColumns;
+    is_shared: boolean;
+    is_owner: boolean;
+    user_id: string;
+    created_at: string;
+    updated_at: string;
+}
+
+// A favorited / recently-visited company, enriched with display fields by the API.
+interface EntityRef {
+    entity_id: string;
+    name: string | null;
+    stage: string | null;
+    created_at?: string;
+    last_visited_at?: string;
+}
+
+// Hard cap on CSV export so a huge filtered set can't fan out into hundreds of
+// paginated requests. 50 pages × 100 rows.
+const CSV_EXPORT_PAGE_SIZE = 100;
+const CSV_EXPORT_MAX_PAGES = 50;
+
 // Sortable columns
 type SortKey = 'name' | 'stage' | 'industry' | 'location' | 'updated_at' | 'created_at' | 'employee_size' | 'contact_count';
 
@@ -216,6 +274,9 @@ const SORTABLE_COLUMNS: Set<string> = new Set([
 ]);
 
 const VALID_COLUMN_KEYS = new Set<string>(DEFAULT_COLUMNS.map(c => c.key));
+
+// Validates the owner field of an (untrusted) shared saved view before it hits state.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function loadColumnConfig(): ColumnDef[] {
     try {
@@ -336,7 +397,7 @@ function formatPeriodLabel(type: PeriodType, anchor: Date, locale: string): stri
 export default function LeadsPage() {
     const { t, i18n } = useTranslation();
     const locale = i18n.language === 'en' ? 'en-US' : 'tr-TR';
-    const { user } = useAuth();
+    const { user, activeTenantId } = useAuth();
     const { allStages, getStageColor, getStageLabel, terminalStageSlugs } = useStages();
     const queryClient = useQueryClient();
     const navigate = useNavigate();
@@ -421,6 +482,12 @@ export default function LeadsPage() {
     } | null>(null);
     const [reopenLoading, setReopenLoading] = useState(false);
 
+    // ── Saved views + CSV export (E11) ────────────────────────────────────────
+    const [saveViewOpened, { open: openSaveView, close: closeSaveView }] = useDisclosure(false);
+    const [newViewName, setNewViewName] = useState('');
+    const [newViewShared, setNewViewShared] = useState(false);
+    const [exporting, setExporting] = useState(false);
+
     const canEdit = canWrite(user?.role || '');
 
     const periodLabel = formatPeriodLabel(periodType, periodAnchor, locale);
@@ -460,13 +527,9 @@ export default function LeadsPage() {
         navigate(`/companies/${id}`);
     }, [page, search, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, periodType, periodAnchor, customRange, sortBy, sortOrder, navigate]);
 
-    // Build query params (moved up so useQuery can be before handleRowSelect)
-    const buildQueryParams = useCallback(() => {
-        const params = new URLSearchParams();
-        params.set('page', String(page));
-        params.set('limit', '25');
-        params.set('sortBy', sortBy);
-        params.set('sortOrder', sortOrder);
+    // Single source of truth for the active filter set — used by the live query AND
+    // by CSV export, so an export always matches exactly what's on screen.
+    const appendFilterParams = useCallback((params: URLSearchParams) => {
         if (debouncedSearch) params.set('search', debouncedSearch);
         if (selectedStages.length) params.set('stages', selectedStages.join(','));
         if (selectedIndustries.length) params.set('industries', selectedIndustries.join(','));
@@ -476,8 +539,18 @@ export default function LeadsPage() {
         if (ownerFilter) params.set('owner', ownerFilter);
         if (dateParams?.dateFrom) params.set('dateFrom', dateParams.dateFrom);
         if (dateParams?.dateTo) params.set('dateTo', dateParams.dateTo);
+    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, dateParams]);
+
+    // Build query params (moved up so useQuery can be before handleRowSelect)
+    const buildQueryParams = useCallback(() => {
+        const params = new URLSearchParams();
+        params.set('page', String(page));
+        params.set('limit', '25');
+        params.set('sortBy', sortBy);
+        params.set('sortOrder', sortOrder);
+        appendFilterParams(params);
         return params.toString();
-    }, [page, sortBy, sortOrder, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, dateParams]);
+    }, [page, sortBy, sortOrder, appendFilterParams]);
 
     // Fetch companies (moved up so data is available for handleRowSelect and useHotkeys)
     const { data, isLoading, error } = useQuery<PaginatedResponse>({
@@ -746,6 +819,258 @@ export default function LeadsPage() {
         setPeriodType('all');
         setPeriodAnchor(new Date());
         setCustomRange([null, null]);
+    };
+
+    // ── Saved views + favorites/recents data (E11) ────────────────────────────
+    // All three lists are per-tenant (views also include team-shared ones). They
+    // share their query cache with CompanyDetailPage, so a star toggled there
+    // reflects here without a manual refetch.
+    // D4 tenant-isolation pattern: key on activeTenantId, don't fetch until a tenant
+    // is resolved, and PIN the tenant into the request header from the tenant this
+    // query was keyed on — so a refetch of a stale key (right after a tenant switch)
+    // can't read another tenant's rows. `signal` lets React Query abort in-flight
+    // requests when the key changes.
+    const { data: savedViewsData } = useQuery<{ data: SavedView[] }>({
+        queryKey: ['saved-views', 'companies', activeTenantId],
+        enabled: !!activeTenantId,
+        queryFn: async ({ signal }) =>
+            (await api.get('/views/saved?entity_type=companies', { headers: { 'X-Tenant-Id': activeTenantId! }, signal })).data,
+    });
+    const savedViews = savedViewsData?.data ?? [];
+    const myViews = savedViews.filter((v) => v.is_owner);
+    const sharedViews = savedViews.filter((v) => !v.is_owner && v.is_shared);
+
+    const { data: favoritesData } = useQuery<{ data: EntityRef[] }>({
+        queryKey: ['favorites', 'companies', activeTenantId],
+        enabled: !!activeTenantId,
+        queryFn: async ({ signal }) =>
+            (await api.get('/views/favorites?entity_type=companies', { headers: { 'X-Tenant-Id': activeTenantId! }, signal })).data,
+    });
+    const favorites = useMemo(() => favoritesData?.data ?? [], [favoritesData]);
+    const favoriteIds = useMemo(() => new Set(favorites.map((f) => f.entity_id)), [favorites]);
+
+    const { data: recentsData } = useQuery<{ data: EntityRef[] }>({
+        queryKey: ['recents', 'companies', activeTenantId],
+        enabled: !!activeTenantId,
+        queryFn: async ({ signal }) =>
+            (await api.get('/views/recents?entity_type=companies', { headers: { 'X-Tenant-Id': activeTenantId! }, signal })).data,
+    });
+    const recents = recentsData?.data ?? [];
+
+    const favoriteToggle = useMutation({
+        mutationFn: async (entityId: string) =>
+            (await api.post('/views/favorites/toggle', { entity_type: 'companies', entity_id: entityId })).data,
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['favorites', 'companies', activeTenantId] }),
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    // Serialize the current filter/column set into the forward-compatible bags the
+    // saved_views table stores. `search` (not the debounced copy) captures exactly
+    // what the user typed at save time.
+    const buildViewFilters = useCallback((): SavedViewFilters => ({
+        ...(search ? { search } : {}),
+        ...(selectedStages.length ? { stages: selectedStages } : {}),
+        ...(selectedIndustries.length ? { industries: selectedIndustries } : {}),
+        ...(selectedLocations.length ? { locations: selectedLocations } : {}),
+        ...(selectedCountries.length ? { countries: selectedCountries } : {}),
+        ...(selectedProducts.length ? { products: selectedProducts } : {}),
+        ...(ownerFilter ? { owner: ownerFilter } : {}),
+        periodType,
+        periodAnchor: periodAnchor.toISOString(),
+        customRange: [customRange[0]?.toISOString() ?? null, customRange[1]?.toISOString() ?? null],
+    }), [search, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, periodType, periodAnchor, customRange]);
+
+    const saveViewMutation = useMutation({
+        mutationFn: async () =>
+            (await api.post('/views/saved', {
+                name: newViewName.trim(),
+                entity_type: 'companies',
+                filters: buildViewFilters(),
+                columns: { visible: columns, sortBy, sortOrder } satisfies SavedViewColumns,
+                is_shared: newViewShared,
+            })).data,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['saved-views', 'companies', activeTenantId] });
+            showSuccess(t('savedViews.savedToast'));
+            closeSaveView();
+            setNewViewName('');
+            setNewViewShared(false);
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    const handleSaveView = () => {
+        if (!newViewName.trim()) {
+            showInfo(t('savedViews.nameRequired'));
+            return;
+        }
+        saveViewMutation.mutate();
+    };
+
+    const shareToggleMutation = useMutation({
+        mutationFn: async (view: { id: string; is_shared: boolean }) =>
+            (await api.put(`/views/saved/${view.id}`, { is_shared: view.is_shared })).data,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['saved-views', 'companies', activeTenantId] });
+            showSuccess(t('savedViews.updatedToast'));
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    const deleteViewMutation = useMutation({
+        mutationFn: async (viewId: string) => { await api.delete(`/views/saved/${viewId}`); },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['saved-views', 'companies', activeTenantId] });
+            showSuccess(t('savedViews.deletedToast'));
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    // Re-validate a stored column bag against the current schema: drop unknown keys,
+    // append any columns added since the view was saved (mirrors loadColumnConfig).
+    const sanitizeSavedColumns = (visible: unknown): ColumnDef[] | null => {
+        if (!Array.isArray(visible)) return null;
+        const valid = visible.filter(
+            (c): c is ColumnDef => !!c && typeof c === 'object' && VALID_COLUMN_KEYS.has((c as ColumnDef).key),
+        );
+        if (valid.length === 0) return null;
+        const keys = valid.map((c) => c.key);
+        const missing = DEFAULT_COLUMNS.filter((c) => !keys.includes(c.key));
+        return [...valid.map((c) => ({ key: c.key, visible: !!c.visible })), ...missing];
+    };
+
+    // Apply a saved view — forward-compatible AND untrusting. A SHARED view's filter
+    // bag is authored by another user, so every field is validated against a
+    // whitelist/type before it touches state: unknown keys are ignored, malformed
+    // fields fall back to their default. Nothing here can crash or inject a bad value.
+    const applyView = (v: SavedView) => {
+        const f: SavedViewFilters = (v.filters && typeof v.filters === 'object' && !Array.isArray(v.filters))
+            ? v.filters
+            : {};
+        // Array filters → string[] with a sane per-field size cap (drops non-strings,
+        // over-long entries, and caps count so a hostile bag can't balloon state).
+        const MAX_ITEMS = 200;
+        const MAX_ITEM_LEN = 500;
+        const asStrings = (x: unknown): string[] =>
+            Array.isArray(x)
+                ? x.filter((s): s is string => typeof s === 'string' && s.length <= MAX_ITEM_LEN).slice(0, MAX_ITEMS)
+                : [];
+        // A finite, parseable date string → its ISO form, else null.
+        const asDate = (x: unknown): Date | null => {
+            if (typeof x !== 'string' || x.length === 0) return null;
+            const d = new Date(x);
+            return Number.isFinite(d.getTime()) ? d : null;
+        };
+        setSearch(typeof f.search === 'string' ? f.search.slice(0, MAX_ITEM_LEN) : '');
+        setSelectedStages(asStrings(f.stages));
+        setSelectedIndustries(asStrings(f.industries));
+        setSelectedLocations(asStrings(f.locations));
+        setSelectedCountries(asStrings(f.countries));
+        setSelectedProducts(asStrings(f.products));
+        // Owner filter is '' (all), 'me', 'unassigned', or a member UUID — nothing else.
+        const owner = typeof f.owner === 'string' ? f.owner : '';
+        setOwnerFilter(owner === 'me' || owner === 'unassigned' || UUID_RE.test(owner) ? owner : '');
+        const validPeriods: PeriodType[] = ['all', 'day', 'week', 'month', 'custom'];
+        setPeriodType(validPeriods.includes(f.periodType as PeriodType) ? (f.periodType as PeriodType) : 'all');
+        setPeriodAnchor(asDate(f.periodAnchor) ?? new Date());
+        if (Array.isArray(f.customRange)) {
+            setCustomRange([asDate(f.customRange[0]), asDate(f.customRange[1])]);
+        } else {
+            setCustomRange([null, null]);
+        }
+        const savedCols = sanitizeSavedColumns(v.columns?.visible);
+        if (savedCols) saveColumns(savedCols);
+        const savedSortBy = v.columns?.sortBy;
+        if (savedSortBy && SORTABLE_COLUMNS.has(savedSortBy)) setSortBy(savedSortBy);
+        const savedSortOrder = v.columns?.sortOrder;
+        if (savedSortOrder === 'asc' || savedSortOrder === 'desc') setSortOrder(savedSortOrder);
+        setPage(1);
+        showInfo(t('savedViews.appliedToast'));
+    };
+
+    // Plain-text value for a single CSV cell, mirroring what the on-screen column shows.
+    const csvCellValue = (company: Company, key: ColumnKey): string => {
+        switch (key) {
+            case 'name': return company.name ?? '';
+            case 'website': return company.website ?? '';
+            case 'stage': return getStageLabel(company.stage);
+            case 'industry': return company.industry ?? '';
+            case 'location': return company.location ?? '';
+            case 'employee_size': return company.employee_size ?? '';
+            case 'product_services': return (company.product_services ?? []).join('; ');
+            case 'product_portfolio': return (company.product_portfolio ?? []).join('; ');
+            case 'linkedin': return company.linkedin ?? '';
+            case 'company_phone': return company.company_phone ?? '';
+            case 'company_email': return company.company_email ?? '';
+            case 'company_summary': return company.company_summary ?? '';
+            case 'next_step': return company.next_step ?? '';
+            case 'assigned_to': return company.assigned_user?.name || company.assigned_user?.email || '';
+            case 'contact_count': return String(company.contact_count ?? 0);
+            case 'fit_score': return company.fit_score ?? '';
+            case 'custom_field_1': return company.custom_field_1 ?? '';
+            case 'custom_field_2': return company.custom_field_2 ?? '';
+            case 'custom_field_3': return company.custom_field_3 ?? '';
+            case 'created_at': return company.created_at ?? '';
+            case 'updated_at': return company.updated_at ?? '';
+            default: return '';
+        }
+    };
+
+    // Export the ACTIVE filtered set (matching the on-screen filters + sort + visible
+    // columns) as CSV. Pages the same /companies endpoint the table uses, capped so a
+    // huge set can't fan out into hundreds of requests.
+    const handleExportCsv = async () => {
+        setExporting(true);
+        try {
+            const rows: Company[] = [];
+            let capped = false;
+            for (let p = 1; p <= CSV_EXPORT_MAX_PAGES; p++) {
+                const params = new URLSearchParams();
+                params.set('page', String(p));
+                params.set('limit', String(CSV_EXPORT_PAGE_SIZE));
+                params.set('sortBy', sortBy);
+                params.set('sortOrder', sortOrder);
+                appendFilterParams(params);
+                const res = await api.get(`/companies?${params.toString()}`);
+                const batch: Company[] = res.data?.data ?? [];
+                rows.push(...batch);
+                const total: number = res.data?.pagination?.total ?? rows.length;
+                if (batch.length < CSV_EXPORT_PAGE_SIZE || rows.length >= total) break;
+                if (p === CSV_EXPORT_MAX_PAGES && rows.length < total) capped = true;
+            }
+            if (rows.length === 0) {
+                showInfo(t('savedViews.exportEmpty'));
+                return;
+            }
+            const cols = visibleColumns;
+            // Neutralize CSV/spreadsheet formula injection: a cell whose (optionally
+            // whitespace-led) first char is =, +, - or @ gets a leading apostrophe so
+            // Excel/Sheets treat it as text, NOT a formula. Then apply standard quoting.
+            const escape = (val: string) => {
+                const guarded = /^[\s]*[=+\-@]/.test(val) ? `'${val}` : val;
+                return /[",\n\r]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
+            };
+            const lines = [cols.map((c) => escape(columnLabels[c.key])).join(',')];
+            for (const company of rows) {
+                lines.push(cols.map((c) => escape(csvCellValue(company, c.key))).join(','));
+            }
+            // Prefix a UTF-8 BOM so Excel opens Turkish characters correctly.
+            const csv = '\ufeff' + lines.join('\r\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `companies-${toLocalDateStr(new Date())}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            if (capped) showInfo(t('savedViews.exportCapped', { count: CSV_EXPORT_MAX_PAGES * CSV_EXPORT_PAGE_SIZE }));
+        } catch (err) {
+            showErrorFromApi(err);
+        } finally {
+            setExporting(false);
+        }
     };
 
     // Sort header component
@@ -1156,28 +1481,187 @@ export default function LeadsPage() {
             {/* Header */}
             <Flex justify="space-between" align="center" mb="lg">
                 <CompaniesPeopleToggle />
-                {canEdit && (
-                    <Group>
-                        <Button
-                            leftSection={<IconFileImport size={18} />}
-                            onClick={() => navigate('/import')}
-                            variant="light"
-                            color="violet"
-                            radius="md"
-                        >
-                            {t('leads.importData')}
-                        </Button>
-                        <Button
-                            leftSection={<IconPlus size={18} />}
-                            onClick={handleCreate}
-                            gradient={{ from: '#6c63ff', to: '#3b82f6', deg: 135 }}
-                            variant="gradient"
-                            radius="md"
-                        >
-                            {t('leads.addCompany')}
-                        </Button>
-                    </Group>
-                )}
+                <Group gap="xs" justify="flex-end" wrap="wrap">
+                    {/* Saved views (E11) — apply is open to everyone; save/share/delete gated */}
+                    <Popover position="bottom-end" shadow="md" width={300} withinPortal>
+                        <Popover.Target>
+                            <Button
+                                variant="default"
+                                radius="md"
+                                leftSection={<IconBookmark size={16} />}
+                                rightSection={<IconChevronDown size={14} />}
+                            >
+                                {t('savedViews.menu')}
+                            </Button>
+                        </Popover.Target>
+                        <Popover.Dropdown p="sm">
+                            {canEdit && (
+                                <>
+                                    <Button
+                                        fullWidth
+                                        size="xs"
+                                        variant="light"
+                                        color="violet"
+                                        leftSection={<IconDeviceFloppy size={14} />}
+                                        onClick={() => { setNewViewName(''); setNewViewShared(false); openSaveView(); }}
+                                    >
+                                        {t('savedViews.save')}
+                                    </Button>
+                                    <Divider my="xs" />
+                                </>
+                            )}
+                            {savedViews.length === 0 ? (
+                                <Text size="xs" c="dimmed" ta="center" py="xs">{t('savedViews.empty')}</Text>
+                            ) : (
+                                <Stack gap={4}>
+                                    {myViews.length > 0 && (
+                                        <>
+                                            <Text size="xs" fw={700} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.5px' }}>
+                                                {t('savedViews.mine')}
+                                            </Text>
+                                            {myViews.map((v) => (
+                                                <Group key={v.id} gap={4} wrap="nowrap" justify="space-between">
+                                                    <UnstyledButton style={{ flex: 1, minWidth: 0 }} onClick={() => applyView(v)}>
+                                                        <Text size="sm" truncate>{v.name}</Text>
+                                                    </UnstyledButton>
+                                                    <Group gap={2} wrap="nowrap">
+                                                        <Tooltip label={t('savedViews.shareToggle')} withArrow>
+                                                            <ActionIcon
+                                                                variant="subtle"
+                                                                size="sm"
+                                                                color={v.is_shared ? 'violet' : 'gray'}
+                                                                onClick={() => shareToggleMutation.mutate({ id: v.id, is_shared: !v.is_shared })}
+                                                            >
+                                                                <IconShare size={14} />
+                                                            </ActionIcon>
+                                                        </Tooltip>
+                                                        <Tooltip label={t('savedViews.delete')} withArrow>
+                                                            <ActionIcon
+                                                                variant="subtle"
+                                                                size="sm"
+                                                                color="red"
+                                                                onClick={() => deleteViewMutation.mutate(v.id)}
+                                                            >
+                                                                <IconTrash size={14} />
+                                                            </ActionIcon>
+                                                        </Tooltip>
+                                                    </Group>
+                                                </Group>
+                                            ))}
+                                        </>
+                                    )}
+                                    {sharedViews.length > 0 && (
+                                        <>
+                                            {myViews.length > 0 && <Divider my={4} />}
+                                            <Text size="xs" fw={700} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.5px' }}>
+                                                {t('savedViews.shared')}
+                                            </Text>
+                                            {sharedViews.map((v) => (
+                                                <Group key={v.id} gap={4} wrap="nowrap" justify="space-between">
+                                                    <UnstyledButton style={{ flex: 1, minWidth: 0 }} onClick={() => applyView(v)}>
+                                                        <Text size="sm" truncate>{v.name}</Text>
+                                                    </UnstyledButton>
+                                                    <Badge size="xs" variant="light" color="violet">{t('savedViews.sharedBadge')}</Badge>
+                                                </Group>
+                                            ))}
+                                        </>
+                                    )}
+                                </Stack>
+                            )}
+                        </Popover.Dropdown>
+                    </Popover>
+
+                    {/* Favorites + recently viewed (E11) — personal, multi-device */}
+                    <Popover position="bottom-end" shadow="md" width={300} withinPortal>
+                        <Popover.Target>
+                            <Button
+                                variant="default"
+                                radius="md"
+                                leftSection={<IconStar size={16} />}
+                                rightSection={<IconChevronDown size={14} />}
+                            >
+                                {t('savedViews.favorites')}
+                            </Button>
+                        </Popover.Target>
+                        <Popover.Dropdown p="sm">
+                            <Text size="xs" fw={700} c="dimmed" tt="uppercase" mb={4} style={{ letterSpacing: '0.5px' }}>
+                                {t('savedViews.favorites')}
+                            </Text>
+                            {favorites.length === 0 ? (
+                                <Text size="xs" c="dimmed" py={4}>{t('savedViews.favoritesEmpty')}</Text>
+                            ) : (
+                                <Stack gap={2} mb="xs">
+                                    {favorites.map((f) => (
+                                        <Group key={f.entity_id} gap={4} wrap="nowrap" justify="space-between">
+                                            <UnstyledButton style={{ flex: 1, minWidth: 0 }} onClick={() => handleCompanyClick(f.entity_id)}>
+                                                <Text size="sm" truncate>{f.name ?? '—'}</Text>
+                                            </UnstyledButton>
+                                            <Tooltip label={t('savedViews.removeFavorite')} withArrow>
+                                                <ActionIcon
+                                                    variant="subtle"
+                                                    size="sm"
+                                                    color="yellow"
+                                                    onClick={() => favoriteToggle.mutate(f.entity_id)}
+                                                >
+                                                    <IconStarFilled size={14} />
+                                                </ActionIcon>
+                                            </Tooltip>
+                                        </Group>
+                                    ))}
+                                </Stack>
+                            )}
+                            <Divider my="xs" />
+                            <Text size="xs" fw={700} c="dimmed" tt="uppercase" mb={4} style={{ letterSpacing: '0.5px' }}>
+                                {t('savedViews.recents')}
+                            </Text>
+                            {recents.length === 0 ? (
+                                <Text size="xs" c="dimmed" py={4}>{t('savedViews.recentsEmpty')}</Text>
+                            ) : (
+                                <Stack gap={2}>
+                                    {recents.map((r) => (
+                                        <UnstyledButton key={r.entity_id} onClick={() => handleCompanyClick(r.entity_id)}>
+                                            <Text size="sm" truncate>{r.name ?? '—'}</Text>
+                                        </UnstyledButton>
+                                    ))}
+                                </Stack>
+                            )}
+                        </Popover.Dropdown>
+                    </Popover>
+
+                    {/* Export the active filtered set as CSV (E11) */}
+                    <Button
+                        variant="default"
+                        radius="md"
+                        leftSection={<IconDownload size={16} />}
+                        loading={exporting}
+                        onClick={handleExportCsv}
+                    >
+                        {t('savedViews.exportCsv')}
+                    </Button>
+
+                    {canEdit && (
+                        <>
+                            <Button
+                                leftSection={<IconFileImport size={18} />}
+                                onClick={() => navigate('/import')}
+                                variant="light"
+                                color="violet"
+                                radius="md"
+                            >
+                                {t('leads.importData')}
+                            </Button>
+                            <Button
+                                leftSection={<IconPlus size={18} />}
+                                onClick={handleCreate}
+                                gradient={{ from: '#6c63ff', to: '#3b82f6', deg: 135 }}
+                                variant="gradient"
+                                radius="md"
+                            >
+                                {t('leads.addCompany')}
+                            </Button>
+                        </>
+                    )}
+                </Group>
             </Flex>
 
             {/* Search & Filters */}
@@ -1558,6 +2042,17 @@ export default function LeadsPage() {
                                         </Table.Td>
                                         {visibleColumns.map(col => renderColumnCell(col.key, company))}
                                         <Table.Td style={{ padding: '0 4px' }}>
+                                            <Group gap={2} wrap="nowrap" justify="flex-end">
+                                            <Tooltip label={t(favoriteIds.has(company.id) ? 'savedViews.removeFavorite' : 'savedViews.addFavorite')} withArrow>
+                                                <ActionIcon
+                                                    variant="subtle"
+                                                    color={favoriteIds.has(company.id) ? 'yellow' : 'gray'}
+                                                    onClick={(e) => { e.stopPropagation(); favoriteToggle.mutate(company.id); }}
+                                                    aria-label={t(favoriteIds.has(company.id) ? 'savedViews.removeFavorite' : 'savedViews.addFavorite')}
+                                                >
+                                                    {favoriteIds.has(company.id) ? <IconStarFilled size={16} /> : <IconStar size={16} />}
+                                                </ActionIcon>
+                                            </Tooltip>
                                             {canEdit && (
                                                 <Menu withinPortal position="bottom-end" shadow="sm">
                                                     <Menu.Target>
@@ -1594,6 +2089,7 @@ export default function LeadsPage() {
                                                     </Menu.Dropdown>
                                                 </Menu>
                                             )}
+                                            </Group>
                                         </Table.Td>
                                     </Table.Tr>
                                 ))}
@@ -1680,6 +2176,45 @@ export default function LeadsPage() {
                             onClick={() => deleteModalCompany && deleteMutation.mutate(deleteModalCompany.id)}
                         >
                             {t('common.delete', 'Kalıcı Olarak Sil')}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
+
+            {/* Save current view modal (E11) */}
+            <Modal
+                opened={saveViewOpened}
+                onClose={closeSaveView}
+                title={t('savedViews.saveTitle')}
+                radius="lg"
+                centered
+                size="sm"
+            >
+                <Stack gap="md">
+                    <TextInput
+                        label={t('savedViews.namePlaceholder')}
+                        placeholder={t('savedViews.namePlaceholder')}
+                        value={newViewName}
+                        onChange={(e) => setNewViewName(e.currentTarget.value)}
+                        data-autofocus
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSaveView(); }}
+                    />
+                    <Switch
+                        label={t('savedViews.shareToggle')}
+                        description={t('savedViews.shareHint')}
+                        checked={newViewShared}
+                        onChange={(e) => setNewViewShared(e.currentTarget.checked)}
+                    />
+                    <Group justify="flex-end">
+                        <Button variant="default" onClick={closeSaveView}>
+                            {t('common.cancel')}
+                        </Button>
+                        <Button
+                            leftSection={<IconDeviceFloppy size={16} />}
+                            loading={saveViewMutation.isPending}
+                            onClick={handleSaveView}
+                        >
+                            {t('savedViews.create')}
                         </Button>
                     </Group>
                 </Stack>

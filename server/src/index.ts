@@ -30,6 +30,7 @@ import settingsRoutes from './routes/settings.js';
 import activitiesRoutes from './routes/activities.js';
 import tasksRoutes from './routes/tasks.js';
 import dealsRoutes from './routes/deals.js';
+import viewsRoutes from './routes/views.js';
 import leadsRoutes from './routes/leads/index.js';
 import leadIntakeRoutes from './routes/leads/intake.js';
 import assetsRoutes from './routes/assets/index.js';
@@ -255,6 +256,9 @@ app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
 app.use('/api/tasks', authMiddleware, tasksRoutes);
 app.use('/api/deals', authMiddleware, dealsRoutes);
+// Saved views + personal favorites/recents (E11). dataFilter masks any enriched
+// company fields for viewer roles, matching the companies/activities mounts.
+app.use('/api/views', authMiddleware, dataFilter, viewsRoutes);
 app.use('/api/leads', authMiddleware, leadsRoutes);
 app.use('/api/assets', authMiddleware, assetsRoutes);
 // Automation run inspector (read-only). The runtime worker stays flag-gated OFF;

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useNavigateBack } from '../hooks/useNavigateBack';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -44,6 +44,7 @@ import {
     IconMailOpened,
     IconPhone,
     IconStar,
+    IconStarFilled,
     IconBrandLinkedin,
     IconWorld,
     IconUsers,
@@ -266,7 +267,7 @@ export default function CompanyDetailPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const goBack = useNavigateBack();
-    const { user } = useAuth();
+    const { user, activeTenantId } = useAuth();
     const { getStageColor, getStageLabel, allStages, terminalStageSlugs } = useStages();
     const queryClient = useQueryClient();
     const [opened, { open, close }] = useDisclosure(false);
@@ -363,6 +364,36 @@ export default function CompanyDetailPage() {
         },
         enabled: !!id,
     });
+
+    // ── Favorites + recents (E11) ──────────────────────────────────────────────
+    // Personal and multi-device (DB-backed): any authenticated member — viewers
+    // included — may star a company, and visiting this page records a "recently
+    // viewed" entry. Both share their query cache with the Leads list.
+    // D4 tenant-isolation pattern (mirrors LeadsPage): key on activeTenantId, gate the
+    // fetch on a resolved tenant, and pin that tenant into the request header + pass
+    // the abort signal, so a stale-key refetch can't read another tenant's favorites.
+    const { data: favoritesData } = useQuery<{ data: { entity_id: string }[] }>({
+        queryKey: ['favorites', 'companies', activeTenantId],
+        enabled: !!activeTenantId,
+        queryFn: async ({ signal }) =>
+            (await api.get('/views/favorites?entity_type=companies', { headers: { 'X-Tenant-Id': activeTenantId! }, signal })).data,
+    });
+    const isFavorited = !!favoritesData?.data?.some((f) => f.entity_id === id);
+    const favoriteMutation = useMutation({
+        mutationFn: async () =>
+            (await api.post('/views/favorites/toggle', { entity_type: 'companies', entity_id: id })).data,
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['favorites', 'companies', activeTenantId] }),
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    // Record the visit only once the company is confirmed loaded, so we never POST
+    // an id the caller can't actually access. Fire-and-forget; refresh the list.
+    useEffect(() => {
+        if (!company?.id) return;
+        api.post('/views/recents', { entity_type: 'companies', entity_id: company.id })
+            .then(() => queryClient.invalidateQueries({ queryKey: ['recents', 'companies', activeTenantId] }))
+            .catch(() => { /* recents are best-effort */ });
+    }, [company?.id, queryClient, activeTenantId]);
 
     // Single stage-change path for the header menu (drag-drop lives in PipelinePage). Terminal
     // targets and reopens are gated by the caller; reopenReason is forwarded when present.
@@ -563,8 +594,19 @@ export default function CompanyDetailPage() {
                 <Group justify="space-between" align="flex-start">
                     {/* Left: name + stage + employee_size + location */}
                     <div>
-                        <Group gap="xs" align="baseline">
+                        <Group gap="xs" align="center">
                             <Title order={2} fw={700}>{company.name}</Title>
+                            <Tooltip label={t(isFavorited ? 'savedViews.removeFavorite' : 'savedViews.addFavorite')} withArrow>
+                                <ActionIcon
+                                    variant="subtle"
+                                    color={isFavorited ? 'yellow' : 'gray'}
+                                    onClick={() => favoriteMutation.mutate()}
+                                    loading={favoriteMutation.isPending}
+                                    aria-label={t(isFavorited ? 'savedViews.removeFavorite' : 'savedViews.addFavorite')}
+                                >
+                                    {isFavorited ? <IconStarFilled size={18} /> : <IconStar size={18} />}
+                                </ActionIcon>
+                            </Tooltip>
                             {company.industry && (
                                 <Text size="sm" c="dimmed" fw={400}>— {company.industry}</Text>
                             )}
