@@ -6,8 +6,8 @@
  * "internal sees dollars" must therefore use the EFFECTIVE role from here, which re-verifies an
  * internal claim against the source of truth on every request:
  *   • 'ops_agent'   → must hold an is_active ops_agent membership RIGHT NOW (DB read, no cache);
- *   • 'superadmin'  → re-read auth.users app_metadata via the admin API (the cached getUser body
- *                     is what went stale).
+ *   • 'superadmin'  → re-read the SAME sources main auth grants it from: auth.users app_metadata
+ *                     (admin API) OR an active platform-wide superadmin membership. Either confirms.
  * A claim that fails verification degrades to 'client_viewer' (sanitized view / 403 on admin).
  * Customer roles pass through untouched — no extra reads on the hot customer path.
  */
@@ -34,9 +34,23 @@ export async function effectiveCostRole(
 
     try {
         if (role === 'superadmin') {
+            // Main auth (middleware/auth.ts) grants 'superadmin' from EITHER source, and superadmin is
+            // platform-wide (tenant-independent). Re-verify against BOTH so we don't 403 a legitimate
+            // superadmin whose status comes from a membership (not the app_metadata flag) — while still
+            // failing CLOSED if neither source confirms it (a fully-demoted superadmin).
             const { data, error } = await supabaseAdmin.auth.admin.getUserById(user.id);
             if (error) throw error;
-            return data?.user?.app_metadata?.is_superadmin === true ? 'superadmin' : 'client_viewer';
+            if (data?.user?.app_metadata?.is_superadmin === true) return 'superadmin';
+            const { data: sa, error: saErr } = await supabaseAdmin
+                .from('memberships')
+                .select('id')
+                .eq('user_id', user.id)
+                .eq('role', 'superadmin')
+                .eq('is_active', true)
+                .limit(1)
+                .maybeSingle();
+            if (saErr) throw saErr;
+            return sa ? 'superadmin' : 'client_viewer';
         }
         // ops_agent — must hold an ACTIVE ops membership in the request's effective tenant.
         if (!tenantId) return 'client_viewer';
