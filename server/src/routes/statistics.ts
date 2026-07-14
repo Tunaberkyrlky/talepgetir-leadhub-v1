@@ -219,6 +219,55 @@ router.get('/ops', async (req: Request, res: Response): Promise<void> => {
     }
 });
 
+// ─── Sales metrics cache (per tenant+window, 30s TTL) ───
+const salesCache = new Map<string, CachedOverview>();
+
+/** Invalidate sales-metrics cache for a tenant (call after deal/stage changes). */
+export function invalidateSalesCache(tenantId: string) {
+    for (const key of salesCache.keys()) {
+        if (key.startsWith(tenantId)) salesCache.delete(key);
+    }
+}
+
+// GET /api/statistics/sales — Sales analytics + forecast for the dashboard (tenant-scoped, single RPC).
+// Reads customer-entered deal value only (no COGS/margin), so tenant-scope matches /overview + /ops.
+router.get('/sales', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+
+        // Window in days: the client sends 30/90/365; clamp defensively (the RPC clamps too).
+        const daysRaw = Number.parseInt(String(req.query.days ?? '90'), 10);
+        const days = Number.isFinite(daysRaw) ? Math.min(365, Math.max(1, daysRaw)) : 90;
+
+        const cacheKey = `${tenantId}:${days}`;
+        const cached = salesCache.get(cacheKey);
+        if (cached && Date.now() - cached.ts < OVERVIEW_TTL) {
+            res.json(cached.data);
+            return;
+        }
+
+        const { data, error } = await supabaseAdmin.rpc('get_sales_metrics', {
+            p_tenant_id: tenantId,
+            p_days: days,
+        });
+
+        if (error) {
+            log.error({ err: error }, 'Sales metrics RPC error');
+            res.status(500).json({ error: 'Failed to fetch sales metrics' });
+            return;
+        }
+
+        const result = (data || {}) as Record<string, unknown>;
+        if (salesCache.size >= MAX_STATS_CACHE_SIZE) salesCache.clear();
+        salesCache.set(cacheKey, { data: result, ts: Date.now() });
+
+        res.json(result);
+    } catch (err) {
+        log.error({ err }, 'Sales metrics error');
+        res.status(500).json({ error: 'Failed to fetch sales metrics' });
+    }
+});
+
 // ─── Pipeline cache (per tenant, 30s TTL) ───
 const pipelineStatsCache = new Map<string, CachedOverview>();
 

@@ -18,6 +18,7 @@ import {
     ScrollArea,
     Table,
     Badge,
+    Progress,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
@@ -35,6 +36,11 @@ import {
     IconUsers,
     IconClock,
     IconClockPause,
+    IconCurrencyDollar,
+    IconTargetArrow,
+    IconThumbDown,
+    IconGauge,
+    IconCalendarStats,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
@@ -96,6 +102,72 @@ interface OpsMetrics {
     stage_dwell: OpsStageDwell[];
 }
 
+interface SalesPipelineRow {
+    currency: string;
+    pipeline_value: number;
+    weighted_forecast: number;
+    deal_count: number;
+}
+
+interface SalesLossReason {
+    code: string;
+    count: number;
+}
+
+interface SalesSourceRow {
+    source: string;
+    total: number;
+    won: number;
+    lost: number;
+    open: number;
+    win_rate: number | null;
+}
+
+interface SalesFunnelRow {
+    stage: string;
+    count: number;
+}
+
+interface SalesCalendarRow {
+    month: string;
+    currency: string;
+    amount: number;
+    count: number;
+}
+
+interface SalesMetrics {
+    days: number;
+    quality_threshold: number;
+    win_count: number;
+    loss_count: number;
+    win_rate: number | null;
+    avg_cycle_days: number | null;
+    open_deal_count: number;
+    data_quality: number | null;
+    forecast_ready: boolean;
+    pipeline: SalesPipelineRow[];
+    loss_reasons: SalesLossReason[];
+    source_conversion: SalesSourceRow[];
+    stage_funnel: SalesFunnelRow[];
+    close_calendar: SalesCalendarRow[];
+}
+
+// Localised currency amount; falls back to a plain number + code for unknown currencies.
+function formatMoney(locale: string, currency: string, value: number): string {
+    try {
+        return new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 0 }).format(value);
+    } catch {
+        return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(value)} ${currency}`;
+    }
+}
+
+// 'YYYY-MM' → localised "short-month year" label for the expected-close calendar.
+function formatMonth(locale: string, ym: string): string {
+    const [y, m] = ym.split('-').map((n) => Number(n));
+    if (!y || !m) return ym;
+    return new Date(y, m - 1, 1).toLocaleDateString(locale, { month: 'short', year: 'numeric' });
+}
+
 type DashboardPeriod = DatePeriod | 'all' | 'custom';
 
 export default function DashboardPage() {
@@ -111,6 +183,8 @@ export default function DashboardPage() {
     const [period, setPeriod] = useState<DashboardPeriod>('month');
     // Operations window (days): 7 / 30 / 90.
     const [opsDays, setOpsDays] = useState<number>(30);
+    // Sales window (days): 30 / 90 / 365 (bounds win/loss + cycle; pipeline/forecast are live).
+    const [salesDays, setSalesDays] = useState<number>(90);
     const [periodAnchor, setPeriodAnchor] = useState<Date>(new Date());
     const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null]);
 
@@ -287,6 +361,21 @@ export default function DashboardPage() {
             // B's data can never be cached under tenant A's key. The interceptor preserves this header.
             const tid = queryKey[2] as string;
             return (await api.get(`/statistics/ops?days=${opsDays}`, { headers: { 'X-Tenant-Id': tid }, signal })).data;
+        },
+        enabled: !!activeTenantId,
+        staleTime: 30_000,
+        refetchOnWindowFocus: true,
+        refetchInterval: 5 * 60_000,
+    });
+
+    // Sales analytics + forecast — single RPC, tenant-scoped, all tiers. Same tenant-pinned key
+    // discipline as ops: the tid is read from the KEY being fetched so a stale refetch after a
+    // tenant switch never caches tenant B's deal data under tenant A's key.
+    const { data: sales, isLoading: salesLoading } = useQuery<SalesMetrics>({
+        queryKey: ['statistics', 'sales', activeTenantId, salesDays],
+        queryFn: async ({ queryKey, signal }) => {
+            const tid = queryKey[2] as string;
+            return (await api.get(`/statistics/sales?days=${salesDays}`, { headers: { 'X-Tenant-Id': tid }, signal })).data;
         },
         enabled: !!activeTenantId,
         staleTime: 30_000,
@@ -614,6 +703,267 @@ export default function DashboardPage() {
                     </>
                 ) : (
                     <Text c="dimmed" size="sm" ta="center" py="md">{t('opsAnalytics.loadError')}</Text>
+                )}
+            </Paper>
+
+            {/* Sales — pipeline value, weighted forecast, win/loss, source conversion, cycle & close calendar */}
+            <Paper shadow="sm" radius="lg" p="lg" withBorder mb="lg">
+                <Group justify="space-between" align="center" mb="md" wrap="wrap" gap="sm">
+                    <div>
+                        <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                            {t('salesAnalytics.title')}
+                        </Text>
+                        <Text size="xs" c="dimmed">{t('salesAnalytics.subtitle')}</Text>
+                    </div>
+                    <SegmentedControl
+                        value={String(salesDays)}
+                        onChange={(v) => setSalesDays(Number(v))}
+                        data={[
+                            { label: t('salesAnalytics.days30'), value: '30' },
+                            { label: t('salesAnalytics.days90'), value: '90' },
+                            { label: t('salesAnalytics.days365'), value: '365' },
+                        ]}
+                        size="xs"
+                    />
+                </Group>
+
+                {salesLoading ? (
+                    <Center py="xl"><Loader color="violet" /></Center>
+                ) : sales ? (
+                    (sales.open_deal_count === 0 && sales.source_conversion.length === 0) ? (
+                        <Text c="dimmed" size="sm" ta="center" py="md">{t('salesAnalytics.empty')}</Text>
+                    ) : (
+                        <>
+                            {/* Win/loss + cycle KPIs (reflect the selected window) */}
+                            <SimpleGrid cols={{ base: 1, xs: 2, md: 5 }} mb="md">
+                                <StatCard
+                                    compact
+                                    title={t('salesAnalytics.won')}
+                                    value={sales.win_count}
+                                    icon={<IconTrophy size={20} />}
+                                    color="green"
+                                    description={t('salesAnalytics.wonDesc', { days: sales.days })}
+                                />
+                                <StatCard
+                                    compact
+                                    title={t('salesAnalytics.lost')}
+                                    value={sales.loss_count}
+                                    icon={<IconThumbDown size={20} />}
+                                    color="red"
+                                    description={t('salesAnalytics.lostDesc', { days: sales.days })}
+                                />
+                                <StatCard
+                                    compact
+                                    title={t('salesAnalytics.winRate')}
+                                    value={sales.win_rate == null ? '—' : `${sales.win_rate}%`}
+                                    icon={<IconPercentage size={20} />}
+                                    color="teal"
+                                    description={t('salesAnalytics.winRateDesc', { days: sales.days })}
+                                />
+                                <StatCard
+                                    compact
+                                    title={t('salesAnalytics.avgCycle')}
+                                    value={sales.avg_cycle_days == null ? '—' : t('salesAnalytics.daysValue', { days: sales.avg_cycle_days })}
+                                    icon={<IconClock size={20} />}
+                                    color="blue"
+                                    description={t('salesAnalytics.avgCycleDesc')}
+                                />
+                                <StatCard
+                                    compact
+                                    title={t('salesAnalytics.dataQuality')}
+                                    value={sales.data_quality == null ? '—' : `${sales.data_quality}%`}
+                                    icon={<IconGauge size={20} />}
+                                    color="grape"
+                                    description={t('salesAnalytics.dataQualityDesc')}
+                                />
+                            </SimpleGrid>
+
+                            {/* Pipeline value + weighted forecast (live snapshot, per currency) */}
+                            <Group gap={6} mb={4}>
+                                <IconCurrencyDollar size={16} />
+                                <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                                    {t('salesAnalytics.pipelineForecast')}
+                                </Text>
+                            </Group>
+                            <Text size="xs" c="dimmed" mb="xs">
+                                {t('salesAnalytics.forecastNote', { threshold: sales.quality_threshold })}
+                            </Text>
+                            {sales.pipeline.length === 0 ? (
+                                // No amount-bearing open deals to value. If open deals DO exist but
+                                // the forecast base is too thin, surface the same insufficiency reason
+                                // (quality % + threshold) so an empty pipeline isn't mistaken for "no work".
+                                (sales.open_deal_count > 0 && !sales.forecast_ready) ? (
+                                    <Text c="dimmed" size="sm" fs="italic" py="sm">
+                                        {t('salesAnalytics.forecastInsufficient', { threshold: sales.quality_threshold, quality: sales.data_quality ?? 0 })}
+                                    </Text>
+                                ) : (
+                                    <Text c="dimmed" size="sm" fs="italic" py="sm">{t('salesAnalytics.noPipeline')}</Text>
+                                )
+                            ) : (
+                                <SimpleGrid cols={{ base: 1, md: 2 }} mb="md">
+                                    {sales.pipeline.flatMap((p) => ([
+                                        <StatCard
+                                            key={`pv-${p.currency}`}
+                                            compact
+                                            title={t('salesAnalytics.pipelineValue', { currency: p.currency })}
+                                            value={formatMoney(locale, p.currency, p.pipeline_value)}
+                                            icon={<IconCurrencyDollar size={20} />}
+                                            color="cyan"
+                                            description={t('salesAnalytics.pipelineValueDesc', { count: p.deal_count })}
+                                        />,
+                                        <StatCard
+                                            key={`fc-${p.currency}`}
+                                            compact
+                                            title={t('salesAnalytics.forecast', { currency: p.currency })}
+                                            value={sales.forecast_ready ? formatMoney(locale, p.currency, p.weighted_forecast) : '—'}
+                                            icon={<IconTargetArrow size={20} />}
+                                            color={sales.forecast_ready ? 'green' : 'gray'}
+                                            description={sales.forecast_ready
+                                                ? t('salesAnalytics.forecastDesc')
+                                                : t('salesAnalytics.forecastInsufficient', { threshold: sales.quality_threshold, quality: sales.data_quality ?? 0 })}
+                                        />,
+                                    ]))}
+                                </SimpleGrid>
+                            )}
+
+                            {/* Loss reasons + lead-source conversion */}
+                            <SimpleGrid cols={{ base: 1, md: 2 }} mb="md">
+                                <div>
+                                    <Group gap={6} mb="xs">
+                                        <IconThumbDown size={16} />
+                                        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                                            {t('salesAnalytics.lossReasons')}
+                                        </Text>
+                                    </Group>
+                                    <Text size="xs" c="dimmed" mb="xs">{t('salesAnalytics.lossReasonsDesc', { days: sales.days })}</Text>
+                                    {sales.loss_reasons.length === 0 ? (
+                                        <Text c="dimmed" size="sm" fs="italic" py="sm">{t('salesAnalytics.noLosses')}</Text>
+                                    ) : (
+                                        <ScrollArea.Autosize mah={220} offsetScrollbars>
+                                            <Stack gap={8}>
+                                                {sales.loss_reasons.map((r) => {
+                                                    const max = sales.loss_reasons[0]?.count || 1;
+                                                    return (
+                                                        <div key={r.code}>
+                                                            <Group justify="space-between" wrap="nowrap" gap="sm" mb={2}>
+                                                                <Text size="sm" truncate>{t(`salesAnalytics.lossReason.${r.code}`, r.code)}</Text>
+                                                                <Text size="sm" fw={600}>{r.count}</Text>
+                                                            </Group>
+                                                            <Progress value={(r.count / max) * 100} color="red" size="sm" radius="sm" />
+                                                        </div>
+                                                    );
+                                                })}
+                                            </Stack>
+                                        </ScrollArea.Autosize>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <Group gap={6} mb="xs">
+                                        <IconTrendingUp size={16} />
+                                        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                                            {t('salesAnalytics.sourceConversion')}
+                                        </Text>
+                                    </Group>
+                                    <Text size="xs" c="dimmed" mb="xs">{t('salesAnalytics.sourceConversionDesc')}</Text>
+                                    {sales.source_conversion.length === 0 ? (
+                                        <Text c="dimmed" size="sm" fs="italic" py="sm">{t('salesAnalytics.noSources')}</Text>
+                                    ) : (
+                                        <ScrollArea.Autosize mah={220} offsetScrollbars>
+                                            <Table verticalSpacing="xs" fz="sm" striped>
+                                                <Table.Thead>
+                                                    <Table.Tr>
+                                                        <Table.Th>{t('salesAnalytics.source')}</Table.Th>
+                                                        <Table.Th ta="right">{t('salesAnalytics.total')}</Table.Th>
+                                                        <Table.Th ta="right">{t('salesAnalytics.won')}</Table.Th>
+                                                        <Table.Th ta="right">{t('salesAnalytics.winRate')}</Table.Th>
+                                                    </Table.Tr>
+                                                </Table.Thead>
+                                                <Table.Tbody>
+                                                    {sales.source_conversion.map((s) => (
+                                                        <Table.Tr key={s.source}>
+                                                            <Table.Td>{s.source === 'unknown' ? t('salesAnalytics.sourceUnknown') : s.source}</Table.Td>
+                                                            <Table.Td ta="right">{s.total}</Table.Td>
+                                                            <Table.Td ta="right">{s.won}</Table.Td>
+                                                            <Table.Td ta="right">
+                                                                {s.win_rate == null
+                                                                    ? <Text span c="dimmed" size="sm">—</Text>
+                                                                    : `${s.win_rate}%`}
+                                                            </Table.Td>
+                                                        </Table.Tr>
+                                                    ))}
+                                                </Table.Tbody>
+                                            </Table>
+                                        </ScrollArea.Autosize>
+                                    )}
+                                </div>
+                            </SimpleGrid>
+
+                            {/* Open-deal stage funnel + expected-close calendar */}
+                            <SimpleGrid cols={{ base: 1, md: 2 }}>
+                                <div>
+                                    <Group gap={6} mb="xs">
+                                        <IconChartBar size={16} />
+                                        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                                            {t('salesAnalytics.stageFunnel')}
+                                        </Text>
+                                    </Group>
+                                    <Text size="xs" c="dimmed" mb="xs">{t('salesAnalytics.stageFunnelDesc')}</Text>
+                                    {sales.stage_funnel.length === 0 ? (
+                                        <Text c="dimmed" size="sm" fs="italic" py="sm">{t('salesAnalytics.noOpenDeals')}</Text>
+                                    ) : (
+                                        <ScrollArea.Autosize mah={220} offsetScrollbars>
+                                            <Stack gap={8}>
+                                                {sales.stage_funnel.map((f) => {
+                                                    const max = Math.max(...sales.stage_funnel.map((x) => x.count)) || 1;
+                                                    return (
+                                                        <div key={f.stage}>
+                                                            <Group justify="space-between" wrap="nowrap" gap="sm" mb={2}>
+                                                                <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+                                                                    <Badge color={getStageColor(f.stage)} variant="light" size="sm">{f.count}</Badge>
+                                                                    <Text size="sm" fw={500} truncate>{getStageLabel(f.stage)}</Text>
+                                                                </Group>
+                                                            </Group>
+                                                            <Progress value={(f.count / max) * 100} color={getStageColor(f.stage)} size="sm" radius="sm" />
+                                                        </div>
+                                                    );
+                                                })}
+                                            </Stack>
+                                        </ScrollArea.Autosize>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <Group gap={6} mb="xs">
+                                        <IconCalendarStats size={16} />
+                                        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.5px' }}>
+                                            {t('salesAnalytics.closeCalendar')}
+                                        </Text>
+                                    </Group>
+                                    <Text size="xs" c="dimmed" mb="xs">{t('salesAnalytics.closeCalendarDesc')}</Text>
+                                    {sales.close_calendar.length === 0 ? (
+                                        <Text c="dimmed" size="sm" fs="italic" py="sm">{t('salesAnalytics.noCloseDates')}</Text>
+                                    ) : (
+                                        <ScrollArea.Autosize mah={220} offsetScrollbars>
+                                            <Stack gap={2}>
+                                                {sales.close_calendar.map((c) => (
+                                                    <Group key={`${c.month}-${c.currency}`} justify="space-between" wrap="nowrap" gap="sm" style={{ padding: '4px 8px' }}>
+                                                        <Text size="sm" fw={500}>{formatMonth(locale, c.month)}</Text>
+                                                        <Group gap={8} wrap="nowrap">
+                                                            <Text size="sm">{formatMoney(locale, c.currency, c.amount)}</Text>
+                                                            <Badge variant="light" size="sm" color="violet">{c.count}</Badge>
+                                                        </Group>
+                                                    </Group>
+                                                ))}
+                                            </Stack>
+                                        </ScrollArea.Autosize>
+                                    )}
+                                </div>
+                            </SimpleGrid>
+                        </>
+                    )
+                ) : (
+                    <Text c="dimmed" size="sm" ta="center" py="md">{t('salesAnalytics.loadError')}</Text>
                 )}
             </Paper>
 

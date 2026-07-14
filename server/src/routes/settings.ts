@@ -220,12 +220,32 @@ router.put('/stages/:slug', async (req: Request, res: Response, next: NextFuncti
         }
 
         const { slug } = req.params;
-        const { display_name, color, sort_order } = req.body;
+        const { display_name, color, sort_order, win_probability } = req.body;
 
         const updateData: Record<string, unknown> = {};
         if (display_name !== undefined) updateData.display_name = display_name.trim();
         if (color !== undefined) updateData.color = color;
         if (sort_order !== undefined) updateData.sort_order = sort_order;
+        // win_probability (0-100) drives the dashboard's weighted sales forecast (migration 141).
+        // Explicit null clears it back to the RPC's fallback heuristic.
+        if (win_probability !== undefined) {
+            if (win_probability === null) {
+                // Explicit null clears it back to the RPC's fallback heuristic.
+                updateData.win_probability = null;
+            } else if (
+                typeof win_probability === 'number' &&
+                Number.isInteger(win_probability) &&
+                win_probability >= 0 &&
+                win_probability <= 100
+            ) {
+                // Only a real integer in range is accepted — Number() coercion would
+                // silently turn '', false or [] into 0, so we never coerce here.
+                updateData.win_probability = win_probability;
+            } else {
+                res.status(400).json({ error: 'Win probability must be a whole number between 0 and 100' });
+                return;
+            }
+        }
 
         if (Object.keys(updateData).length === 0) {
             res.status(400).json({ error: 'Please make a change before saving' });
