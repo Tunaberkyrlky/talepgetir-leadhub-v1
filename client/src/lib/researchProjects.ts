@@ -23,6 +23,10 @@ export interface ResearchProjectSummary {
     // (recomputing let apply-revision's approved->draft demotion flip or null the target mid-loop).
     // offer_card_index: WP9's own additive key, same reasoning — the persisted cursor into
     // step 16's one-card-per-screen offer/angle review.
+    // reseed_from_draft: additive key set by the wizard's subject-change paths (website/social
+    // edit, "research again") — tells the steps 3-5 pre-fill that gate-absent fields are stale
+    // after a fresh crawl and must reseed from ai_draft, not the previous subject's confirmed
+    // profile values.
     flow_state: {
         step?: number;
         completed_gates?: string[];
@@ -31,6 +35,7 @@ export interface ResearchProjectSummary {
         calibration_company_index?: number;
         calibration_icp_id?: string | null;
         offer_card_index?: number;
+        reseed_from_draft?: boolean;
     } | null;
 }
 

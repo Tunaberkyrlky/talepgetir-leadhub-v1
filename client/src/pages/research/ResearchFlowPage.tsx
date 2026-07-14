@@ -166,6 +166,14 @@ interface SaveStepVars {
      *  permanently locked out of ever re-deriving from a fresh ai_draft again (see the
      *  completed_gates-gated pre-fill logic in steps 3-5 below; review P2). */
     removeGates?: string[];
+    /** Set to true by the subject-change paths (step-1 website/social change, "research again")
+     *  to persist flow_state.reseed_from_draft. It tells the steps 3-5 pre-fill logic that any
+     *  gate-ABSENT field is stale-after-a-fresh-crawl and must reseed from the fresh ai_draft,
+     *  NOT from a leftover confirmed profile value belonging to the PREVIOUS subject. Left unset
+     *  (and never auto-cleared) otherwise, so advanced-editor / pre-wizard projects — which have
+     *  authored profile fields but no gates and never a subject-change — keep showing their own
+     *  values in the wizard rather than being masked by the draft (review P2). */
+    reseedFromDraft?: boolean;
     /** Override for flow_state.icp_card_index (WP8a) — defaults to the current local cursor
      *  when omitted, so every save (even from unrelated steps) still carries the cursor
      *  forward (whole-object flow_state replace, same reasoning as completed_gates). */
@@ -219,6 +227,12 @@ export default function ResearchFlowPage() {
     const [projectId, setProjectId] = useState<string | null>(null);
     const [step, setStep] = useState(1);
     const [completedGates, setCompletedGates] = useState<string[]>([]);
+    // Persisted (flow_state.reseed_from_draft): once a subject-change (website/social edit or
+    // "research again") has demoted the step 3-5 gates, a gate-ABSENT field must reseed from the
+    // fresh ai_draft, not from the leftover confirmed value of the PREVIOUS subject. See the
+    // SaveStepVars.reseedFromDraft doc for why this is set-and-never-cleared (only a subject
+    // change ever demotes a gate, so "gate absent ⟹ reseed from draft" stays correct).
+    const [reseedFromDraft, setReseedFromDraft] = useState(false);
 
     // Full raw profile object as last known on the server — preserved so a wizard save
     // never drops keys the advanced view (or profile:crawl) wrote.
@@ -523,6 +537,7 @@ export default function ResearchFlowPage() {
         setProjectId(null);
         setStep(1);
         setCompletedGates([]);
+        setReseedFromDraft(false);
         setProfile({});
         setCompanyName('');
         setContactName('');
@@ -635,6 +650,7 @@ export default function ResearchFlowPage() {
             if (clampedStep >= 2 && !hasWebsite) clampedStep = 1;
             setStep(clampedStep);
             setCompletedGates(asStringArray(project.flow_state?.completed_gates));
+            setReseedFromDraft(project.flow_state?.reseed_from_draft === true);
             // WP8a: carried forward as-is — clamped to each list's actual bounds at RENDER
             // time (steps 8/10 below), since the ICP/geo lists aren't loaded yet at this point.
             const rawIcpIdx = project.flow_state?.icp_card_index;
@@ -659,7 +675,7 @@ export default function ResearchFlowPage() {
     }
 
     const saveStepMut = useMutation({
-        mutationFn: async ({ patch, nextStep, gate, clearDependentSeeds, removeGates, icpCardIndexOverride, geoCardIndexOverride, calibCompanyIndexOverride, calibIcpIdOverride, calibStepToken, offerCardIndexOverride }: SaveStepVars) => {
+        mutationFn: async ({ patch, nextStep, gate, clearDependentSeeds, removeGates, reseedFromDraft: reseedFromDraftOverride, icpCardIndexOverride, geoCardIndexOverride, calibCompanyIndexOverride, calibIcpIdOverride, calibStepToken, offerCardIndexOverride }: SaveStepVars) => {
             // Captured at the MOMENT this mutation fires, not read again in onSuccess — so a
             // tenant switch that happens while the request is in flight is detected below
             // (review P2: a stale callback from the PREVIOUS tenant must never repopulate the
@@ -675,6 +691,10 @@ export default function ResearchFlowPage() {
             const flow_state = {
                 step: nextStep,
                 completed_gates: nextGates,
+                // Persist-through on EVERY save (whole-object replace, no server merge — same
+                // reasoning as the card cursors): default to the current value so an unrelated
+                // step's save can't drop the flag; the subject-change callers pass true.
+                reseed_from_draft: reseedFromDraftOverride ?? reseedFromDraft,
                 icp_card_index: icpCardIndexOverride ?? icpCardIndex,
                 geo_card_index: geoCardIndexOverride ?? geoCardIndex,
                 calibration_company_index: calibCompanyIndexOverride ?? calibrationCompanyIndex,
@@ -714,6 +734,7 @@ export default function ResearchFlowPage() {
             setProjectId(pid);
             setProfile(mergedProfile);
             setCompletedGates(flow_state.completed_gates);
+            setReseedFromDraft(flow_state.reseed_from_draft);
             if (!stepStale) {
                 setStep(flow_state.step);
                 setCalibrationCompanyIndex(flow_state.calibration_company_index);
@@ -931,7 +952,11 @@ export default function ResearchFlowPage() {
             // treat any of those already-answered fields as locked out of the fresh draft
             // forever (review P2 — step 3 alone wasn't enough; 4 and 5 have the identical bug).
             const demotedGates = new Set(['step3', 'step4', 'step5']);
-            const flow_state = { step: 2, completed_gates: completedGates.filter((g) => !demotedGates.has(g)) };
+            // reseed_from_draft: this explicit re-research demoted steps 3-5, so their gate-absent
+            // pre-fill must come from the FRESH crawl, not the leftover confirmed products/summary/
+            // differentiators of the subject we just re-researched (review P2 — the stale fields are
+            // preserved in `profile`, only re-seeded away from until the user re-confirms each step).
+            const flow_state = { step: 2, completed_gates: completedGates.filter((g) => !demotedGates.has(g)), reseed_from_draft: true };
             await api.patch(`/research/projects/${pid}`, { profile: profileWithoutDraft, flow_state });
             return { pid, profileWithoutDraft, flow_state, startedForTenant };
         },
@@ -939,6 +964,7 @@ export default function ResearchFlowPage() {
             if (startedForTenant !== activeTenantIdRef.current) return; // tenant switched mid-flight — discard
             setProfile(profileWithoutDraft);
             setCompletedGates(flow_state.completed_gates);
+            setReseedFromDraft(flow_state.reseed_from_draft);
             setStep(2); // explicit — belt-and-suspenders even though we're already here
             setStep3Seeded(false);
             setStep4Seeded(false);
@@ -2122,6 +2148,10 @@ export default function ResearchFlowPage() {
                         // would permanently lock products/differentiators out of the fresh
                         // draft too (review P2).
                         removeGates: inputChanged ? ['step3', 'step4', 'step5'] : undefined,
+                        // A changed website/social IS a fresh-crawl subject change: mark the
+                        // profile's confirmed step 3-5 fields as stale so their gate-absent
+                        // pre-fill reseeds from the NEW draft, not the previous subject's values.
+                        reseedFromDraft: inputChanged ? true : undefined,
                     });
                 }}
                 primaryLoading={saveStepMut.isPending}
@@ -2246,21 +2276,32 @@ export default function ResearchFlowPage() {
         if (!step3Seeded) {
             // Once 'step3' is in the PERSISTED completed_gates, its fields were genuinely
             // answered (even if left blank on purpose) and must read straight from `profile` —
-            // never re-derive from ai_draft again. Only an un-completed step 3 (gate absent) may
-            // fall back to the draft. Local `stepNSeeded` alone can't carry this distinction
-            // across a reload (it's always false on a fresh mount) — completed_gates is the
-            // server-persisted signal that survives it (review P2).
+            // never re-derive from ai_draft again. For an un-completed step 3 (gate absent) the
+            // source depends on WHY the gate is absent:
+            //   • reseedFromDraft (a website/social change or "research again" demoted this gate):
+            //     the confirmed field belongs to the PREVIOUS subject and is stale, so seed from
+            //     the FRESH ai_draft — never the leftover `profile.what_they_do` (that was the
+            //     "same summary + ceramic floor tiles on a new site" bug).
+            //   • otherwise (a never-configured wizard project, or an advanced-editor / pre-wizard
+            //     project that authored these fields WITHOUT gates): keep the prior behavior of
+            //     preferring the authored profile value so we don't mask the user's own data.
+            // Local `stepNSeeded` can't carry this across a reload (always false on a fresh mount)
+            // — completed_gates + reseed_from_draft are the server-persisted signals (review P2).
             const step3Done = completedGates.includes('step3');
             const seedSummary = step3Done
                 ? asStringField(profile.what_they_do)
-                : profile.what_they_do
-                  ? asStringField(profile.what_they_do)
-                  : asStringField(aiDraft.company_summary);
+                : reseedFromDraft
+                  ? asStringField(aiDraft.company_summary)
+                  : profile.what_they_do
+                    ? asStringField(profile.what_they_do)
+                    : asStringField(aiDraft.company_summary);
             const seedCountry = step3Done
                 ? asStringField(profile.company_country)
-                : profile.company_country
-                  ? asStringField(profile.company_country)
-                  : asStringField(aiDraft.company_country);
+                : reseedFromDraft
+                  ? asStringField(aiDraft.company_country)
+                  : profile.company_country
+                    ? asStringField(profile.company_country)
+                    : asStringField(aiDraft.company_country);
             setWhatTheyDoInput(seedSummary);
             setCompanyCountryInput(seedCountry);
             setStep3Seeded(true);
@@ -2303,15 +2344,22 @@ export default function ResearchFlowPage() {
     // ── Step 4 — Ürün/hizmet listesi ─────────────────────────────────────────
     if (step === 4) {
         if (!step4Seeded) {
-            // Same completed_gates-gated rule as step 3: once 'step4' is persisted, an
-            // intentionally-empty product list must stay empty on reload, not get silently
-            // reseeded from ai_draft.products_services (review P2).
+            // Same completed_gates + reseed_from_draft rule as step 3 (see its comment): once
+            // 'step4' is persisted, an intentionally-empty product list stays as-is on reload.
+            // Gate absent + reseedFromDraft (subject changed) → seed from the fresh draft, never
+            // the leftover `profile.products` of the PREVIOUS subject (the "ceramic floor tiles on
+            // a new metal-machining site" bug); the stale value is left in `profile` untouched
+            // (non-destructive) and the user's next step-4 confirm overwrites it. Gate absent
+            // WITHOUT reseedFromDraft (fresh wizard project, or advanced-editor/pre-wizard project
+            // that authored products without gates) → keep preferring the authored list.
             const existing = asStringArray(profile.products);
             const seedProducts = completedGates.includes('step4')
                 ? existing
-                : existing.length > 0
-                  ? existing
-                  : asStringArray(aiDraft.products_services);
+                : reseedFromDraft
+                  ? asStringArray(aiDraft.products_services)
+                  : existing.length > 0
+                    ? existing
+                    : asStringArray(aiDraft.products_services);
             setProductsInput(seedProducts);
             setStep4Seeded(true);
         }
@@ -2338,15 +2386,20 @@ export default function ResearchFlowPage() {
     // ── Step 5 — Farklılaştırıcılar (opsiyonel, "Atla" mümkün) ───────────────
     if (step === 5) {
         if (!step5Seeded) {
-            // Same completed_gates-gated rule as steps 3-4: once 'step5' is persisted, an
-            // intentionally-empty differentiators answer must stay empty on reload, not get
-            // silently reseeded from ai_draft.differentiators (review P2).
+            // Same completed_gates + reseed_from_draft rule as steps 3-4 (see step 3's comment):
+            // gate present → the confirmed answer; gate absent + reseedFromDraft (subject changed)
+            // → the fresh draft, never the prior subject's leftover `profile.differentiators`
+            // (left untouched, non-destructive; overwritten on the next step-5 confirm); gate
+            // absent WITHOUT reseedFromDraft (fresh, or advanced/pre-wizard authored) → keep the
+            // authored answer.
             const existing = asRecord(profile.differentiators);
             const source = completedGates.includes('step5')
                 ? existing
-                : Object.keys(existing).length > 0
-                  ? existing
-                  : asRecord(aiDraft.differentiators);
+                : reseedFromDraft
+                  ? asRecord(aiDraft.differentiators)
+                  : Object.keys(existing).length > 0
+                    ? existing
+                    : asRecord(aiDraft.differentiators);
             setMoq(asStringField(source.moq));
             setLeadTime(asStringField(source.lead_time));
             setCertifications(asStringArray(source.certifications));
