@@ -5,7 +5,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
-import { validateBody, createCompanyQualifiedSchema, updateCompanyQualifiedSchema, bulkOwnerSchema, stagePatchSchema, sanitizeEmail, mergeCompaniesSchema, COMPANY_PRIORITIES, QUALIFICATION_STATUSES } from '../lib/validation.js';
+import { validateBody, createCompanyQualifiedSchema, updateCompanyQualifiedSchema, bulkOwnerSchema, bulkUpdateCompaniesSchema, stagePatchSchema, sanitizeEmail, mergeCompaniesSchema, COMPANY_PRIORITIES, QUALIFICATION_STATUSES } from '../lib/validation.js';
 import { transitionCompanyStage, assertStageTransition, recordStageChangeActivity } from '../lib/stageTransition.js';
 import { resolveUsers, ownerDisplayName } from '../lib/userResolver.js';
 import { parseList } from '../lib/parseList.js';
@@ -1747,6 +1747,154 @@ router.patch(
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Bulk owner assign error');
             res.status(500).json({ error: 'Failed to bulk assign owner' });
+        }
+    }
+);
+
+// Postgres codes for "relation/column does not exist" — used to turn a missing-migration
+// error into a per-company schema_missing result instead of a whole-request 500.
+const isSchemaMissing = (code?: string): boolean => code === '42P01' || code === '42703';
+
+// POST /api/companies/bulk-update — Bulk field edit + tag add/remove (v2 Phase 8, E10).
+// Edits qualification fields (priority, lead_source, qualification_status — migration 139
+// columns) and/or links/unlinks tenant tags on a selection. Not atomic by design: returns
+// a per-company result so one bad row (a company outside the tenant) never aborts the batch.
+// The tag list is validated against the tenant up front — a foreign tag_id rejects the whole
+// request (it would fail identically for every company). Writes company_tags DIRECTLY (the
+// same tenant-fenced insert tags.ts uses) so this route never depends on the tags route.
+router.post(
+    '/bulk-update',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    validateBody(bulkUpdateCompaniesSchema),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { company_ids, priority, lead_source, qualification_status, tags_add, tags_remove } =
+                req.body as {
+                    company_ids: string[];
+                    priority?: string;
+                    lead_source?: string | null;
+                    qualification_status?: string;
+                    tags_add?: string[];
+                    tags_remove?: string[];
+                };
+
+            // De-dupe ids (a client could send the same company twice); preserves order.
+            const ids = Array.from(new Set(company_ids));
+
+            // Validate every referenced tag belongs to this tenant. A foreign tag is a
+            // whole-request error (422) — it can't apply to any company. The DB fence
+            // (company_tags_tenant_consistency, migration 139) is the second layer.
+            // If the tags/company_tags schema is missing (migration 139 not yet applied),
+            // don't 500 — leave `schemaMissing` set so each tag op fails per-company below
+            // with a stable reason_code instead of aborting the whole batch.
+            const tagIds = Array.from(new Set([...(tags_add || []), ...(tags_remove || [])]));
+            let schemaMissing = false;
+            if (tagIds.length > 0) {
+                const { data: tenantTags, error: tagErr } = await supabaseAdmin
+                    .from('tags')
+                    .select('id')
+                    .eq('tenant_id', tenantId)
+                    .in('id', tagIds);
+                if (tagErr) {
+                    if (isSchemaMissing((tagErr as { code?: string }).code)) {
+                        schemaMissing = true;
+                    } else {
+                        throw new AppError('Failed to validate tags', 500);
+                    }
+                } else {
+                    const validTagIds = new Set((tenantTags || []).map((r) => r.id as string));
+                    if (tagIds.some((id) => !validTagIds.has(id))) {
+                        res.status(422).json({ error: 'One or more selected tags do not belong to this workspace', code: 'foreign_tag' });
+                        return;
+                    }
+                }
+            }
+
+            // Which of the requested companies actually live in this tenant. Anything
+            // missing is reported per-company as not_found rather than silently dropped.
+            const { data: rows, error: rowsErr } = await supabaseAdmin
+                .from('companies')
+                .select('id')
+                .in('id', ids)
+                .eq('tenant_id', tenantId);
+            if (rowsErr) throw new AppError('Failed to load companies', 500);
+            const validIds = new Set((rows || []).map((r) => r.id as string));
+
+            // Per-company result accumulator. not_found rows are settled immediately.
+            // reason carries a stable code (not_found | schema_missing | db_error) that the
+            // client maps to a localized message — server messages never reach the UI raw.
+            const results: Array<{ id: string; ok: boolean; reason?: string }> = [];
+            for (const id of ids) {
+                if (!validIds.has(id)) results.push({ id, ok: false, reason: 'not_found' });
+            }
+            const targets = ids.filter((id) => validIds.has(id));
+
+            // Field patch (only the provided keys). priority/qualification_status are set;
+            // lead_source may be cleared (null).
+            const patch: Record<string, unknown> = {};
+            if (priority !== undefined) patch.priority = priority;
+            if (lead_source !== undefined) patch.lead_source = lead_source;
+            if (qualification_status !== undefined) patch.qualification_status = qualification_status;
+            const hasFieldPatch = Object.keys(patch).length > 0;
+
+            // Per-company ATOMICITY: one crm_bulk_update_company RPC call per company —
+            // its tag ops + field patch commit/roll back together (migration 142), so a
+            // company can never end half-applied while reporting ok:false. There is NO
+            // sequential fallback: without the RPC (pre-142 DB) every company fails
+            // honestly with schema_missing instead of risking a half-applied row.
+            // 200 companies × 1 RPC is acceptable (selection capped upstream).
+            for (const id of targets) {
+                if (schemaMissing) { results.push({ id, ok: false, reason: 'schema_missing' }); continue; }
+                try {
+                    const { error: rpcErr } = await supabaseAdmin.rpc('crm_bulk_update_company', {
+                        p_tenant_id: tenantId,
+                        p_company_id: id,
+                        p_user_id: req.user!.id,
+                        p_fields: patch,
+                        p_tags_add: tags_add && tags_add.length > 0 ? tags_add : null,
+                        p_tags_remove: tags_remove && tags_remove.length > 0 ? tags_remove : null,
+                    });
+                    if (rpcErr) {
+                        const rc = (rpcErr as { code?: string }).code;
+                        const msg = (rpcErr as { message?: string }).message || '';
+                        if (rc === 'PGRST202' || rc === '42883') {
+                            results.push({ id, ok: false, reason: 'schema_missing' });
+                        } else if (msg.includes('not_found')) {
+                            results.push({ id, ok: false, reason: 'not_found' });
+                        } else if (msg.includes('foreign_tag')) {
+                            results.push({ id, ok: false, reason: 'foreign_tag' });
+                        } else {
+                            throw rpcErr;
+                        }
+                    } else {
+                        results.push({ id, ok: true });
+                    }
+                } catch (rowErr) {
+                    const code = (rowErr as { code?: string })?.code;
+                    results.push({ id, ok: false, reason: isSchemaMissing(code) ? 'schema_missing' : 'db_error' });
+                }
+            }
+
+            const updated = results.filter((r) => r.ok).length;
+            invalidateOverviewCache(tenantId);
+            invalidatePipelineStatsCache(tenantId);
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'company_bulk_updated',
+                properties: {
+                    count: updated,
+                    fields: Object.keys(patch).filter((k) => k !== 'updated_at'),
+                    tags_added: tags_add?.length || 0,
+                    tags_removed: tags_remove?.length || 0,
+                    tenant_id: tenantId,
+                },
+            });
+            res.json({ updated, results });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Bulk company update error');
+            res.status(500).json({ error: 'Failed to bulk update companies' });
         }
     }
 );

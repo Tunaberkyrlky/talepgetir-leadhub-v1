@@ -7,6 +7,7 @@ import { resolveUsers } from '../lib/userResolver.js';
 import {
     validateBody,
     createTaskSchema,
+    bulkCreateTasksSchema,
     updateTaskSchema,
     completeTaskSchema,
     TASK_PRIORITIES,
@@ -237,6 +238,61 @@ router.post('/', writeRoles, validateBody(createTaskSchema), async (req: Request
 
         const [mapped] = await mapTaskRelations([data as TaskRelations]);
         res.status(201).json({ data: mapped });
+    } catch (err) {
+        next(err);
+    }
+});
+
+// POST /api/tasks/bulk-create — create the SAME task once per selected company (v2 Phase 8,
+// E10). The owner (single, shared) is validated once; companies are validated as a batch and
+// any outside the tenant is reported per-company as not_found. Not atomic by design — the
+// bulk insert covers the valid companies and returns a per-company result list.
+router.post('/bulk-create', writeRoles, validateBody(bulkCreateTasksSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        // Owner contract (A2): an omitted assigned_to defaults to the caller; an explicit
+        // null keeps the task unassigned. `|| req.user!.id` would wrongly reassign null → self.
+        const assignedTo = req.body.assigned_to === undefined ? req.user!.id : req.body.assigned_to;
+        // Shared owner is validated once for the whole batch (a bad owner is a 422 for all).
+        await assertAssignableUser(tenantId, assignedTo, req.user!.id);
+
+        // De-dupe ids so the same company can't get two identical tasks in one call.
+        const ids = Array.from(new Set(req.body.company_ids as string[]));
+
+        // Per-company isolation: validate + insert each company on its own so a company
+        // deleted between selection and execution (FK violation) fails only that row instead
+        // of dropping the whole batch. reason carries a stable code the client localizes.
+        const results: Array<{ company_id: string; ok: boolean; reason?: string }> = [];
+        let created = 0;
+        for (const companyId of ids) {
+            try {
+                await assertCompanyAndContact(tenantId, companyId, null);
+                const { error } = await supabaseAdmin.from('tasks').insert({
+                    tenant_id: tenantId,
+                    company_id: companyId,
+                    contact_id: null,
+                    deal_id: null,
+                    title: req.body.title,
+                    detail: req.body.detail || null,
+                    priority: req.body.priority,
+                    due_at: req.body.due_at,
+                    assigned_to: assignedTo,
+                    created_by: req.user!.id,
+                });
+                if (error) throw error;
+                created += 1;
+                results.push({ company_id: companyId, ok: true });
+            } catch (rowErr) {
+                if (rowErr instanceof AppError && rowErr.statusCode === 404) {
+                    results.push({ company_id: companyId, ok: false, reason: 'not_found' });
+                } else {
+                    log.error({ err: rowErr, companyId }, 'Bulk create task row failed');
+                    results.push({ company_id: companyId, ok: false, reason: 'db_error' });
+                }
+            }
+        }
+
+        res.status(201).json({ created, results });
     } catch (err) {
         next(err);
     }

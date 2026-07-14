@@ -869,3 +869,42 @@ export const mergeContactsSchema = z.object({
     message: 'source_id and target_id must differ',
     path: ['target_id'],
 });
+
+// ── Bulk company edit + bulk task schemas (v2 Phase 8, slice E10) ───────────
+// Field enums reuse the E4 qualification constants above (single source of truth);
+// company_ids is capped at 200 — DELIBERATELY lower than the 500-cap
+// bulk-stage/bulk-owner paths because this is a heavier per-company write (field
+// patch + tag link/unlink), so it keeps its own schema.
+
+// Bulk field edit for a selection of companies. At least one field OR one tag
+// operation must be present (an empty edit is a no-op, rejected up front). priority
+// / qualification_status are set-only enums; lead_source is nullable so it can be
+// cleared. tags_add / tags_remove are tag UUIDs validated against the tenant server-side.
+export const bulkUpdateCompaniesSchema = z.object({
+    company_ids: z.array(uuidField('Invalid company id')).min(1, 'Select at least one company').max(200),
+    priority: z.enum(COMPANY_PRIORITIES).optional(),
+    lead_source: z.string().max(200).optional().nullable(),
+    qualification_status: z.enum(QUALIFICATION_STATUSES).optional(),
+    tags_add: z.array(uuidField('Invalid tag id')).max(100).optional(),
+    tags_remove: z.array(uuidField('Invalid tag id')).max(100).optional(),
+}).refine(
+    (d) =>
+        d.priority !== undefined ||
+        d.lead_source !== undefined ||
+        d.qualification_status !== undefined ||
+        (d.tags_add !== undefined && d.tags_add.length > 0) ||
+        (d.tags_remove !== undefined && d.tags_remove.length > 0),
+    { message: 'Provide at least one field to update or a tag to add/remove' },
+);
+
+// Bulk task creation — the SAME task is written once per selected company. Same field
+// rules as createTaskSchema minus company_id/contact_id/deal_id: each task binds to its
+// own company and a bulk create carries no per-company contact/deal link.
+export const bulkCreateTasksSchema = z.object({
+    company_ids: z.array(uuidField('Invalid company id')).min(1, 'Select at least one company').max(200),
+    title: z.string().trim().min(1, 'Title is required').max(1000),
+    detail: z.string().max(5000).optional().nullable(),
+    priority: z.enum(TASK_PRIORITIES).optional().default('normal'),
+    due_at: z.string().datetime({ message: 'due_at must be a valid ISO datetime' }),
+    assigned_to: uuidField('Invalid assigned_to').optional().nullable(),
+});

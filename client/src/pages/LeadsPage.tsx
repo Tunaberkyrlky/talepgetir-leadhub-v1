@@ -30,6 +30,8 @@ import {
     SegmentedControl,
     ScrollArea,
     Switch,
+    Textarea,
+    Collapse,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure, useHotkeys } from '@mantine/hooks';
 import { showSuccess, showInfo, showErrorFromApi } from '../lib/notifications';
@@ -67,7 +69,7 @@ import {
     IconArchiveOff,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
-import { DatePickerInput } from '@mantine/dates';
+import { DatePickerInput, DateTimePicker } from '@mantine/dates';
 import {
     DndContext,
     closestCenter,
@@ -96,6 +98,7 @@ import CompanyForm from '../components/CompanyForm';
 import CompaniesPeopleToggle from '../components/CompaniesPeopleToggle';
 import ClosingReportModal from '../components/ClosingReportModal';
 import ReopenReasonModal from '../components/ReopenReasonModal';
+import OwnerSelect from '../components/OwnerSelect';
 import TruncatedText from '../components/TruncatedText';
 import EmailStatusIcon from '../components/EmailStatusIcon';
 import { useUndoStack } from '../hooks/useUndoStack';
@@ -502,6 +505,42 @@ export default function LeadsPage() {
     const [newViewName, setNewViewName] = useState('');
     const [newViewShared, setNewViewShared] = useState(false);
     const [exporting, setExporting] = useState(false);
+    // ── Bulk edit + bulk task (v2 Phase 8, E10) ──
+    const [bulkEditOpen, { open: openBulkEdit, close: closeBulkEdit }] = useDisclosure(false);
+    const [bulkTaskOpen, { open: openBulkTask, close: closeBulkTask }] = useDisclosure(false);
+    // Bulk field-edit form state — every field optional (empty = leave unchanged).
+    const [bePriority, setBePriority] = useState<string | null>(null);
+    const [beQual, setBeQual] = useState<string | null>(null);
+    const [beLeadSource, setBeLeadSource] = useState('');
+    // Lead-source is three-state: keep (leave unchanged) | set (to the text value) | clear (→ null).
+    const [beLeadSourceMode, setBeLeadSourceMode] = useState<'keep' | 'set' | 'clear'>('keep');
+    const [beTagsAdd, setBeTagsAdd] = useState<string[]>([]);
+    const [beTagsRemove, setBeTagsRemove] = useState<string[]>([]);
+    // Bulk task form state.
+    const [btTitle, setBtTitle] = useState('');
+    const [btDetail, setBtDetail] = useState('');
+    const [btDue, setBtDue] = useState<Date | null>(null);
+    const [btPriority, setBtPriority] = useState<string>('normal');
+    const [btAssignee, setBtAssignee] = useState<string | null>(null);
+    // Shared per-request result summary ({ ok, fail, errors }) rendered inline in each modal.
+    const [bulkResult, setBulkResult] = useState<{ ok: number; fail: number; errors: string[]; okIds: string[]; failIds: string[] } | null>(null);
+    const [showBulkErrors, setShowBulkErrors] = useState(false);
+
+    // Tenant tag catalogue for the add/remove pickers. The /tags route ships with slice E4;
+    // until then it 404s — the catch swallows it so the pickers just render empty (graceful).
+    const { data: tagsData } = useQuery<{ data: Array<{ id: string; name: string; color: string }> }>({
+        queryKey: ['tenant-tags', activeTenantId],
+        queryFn: async () => {
+            try {
+                return (await api.get('/tags')).data;
+            } catch {
+                return { data: [] };
+            }
+        },
+        enabled: !!activeTenantId,
+        staleTime: 60_000,
+    });
+    const tagOptions = (tagsData?.data ?? []).map((tag) => ({ value: tag.id, label: tag.name }));
 
     const canEdit = canWrite(user?.role || '');
 
@@ -749,16 +788,6 @@ export default function LeadsPage() {
         },
     });
 
-    // Tenant tag catalogue (v2 Phase 6) — options for the tag filter.
-    const { data: tagOptions } = useQuery<Array<{ id: string; name: string; color: string }>>({
-        queryKey: ['tags', activeTenantId],
-        queryFn: async ({ queryKey, signal }) => {
-            const tid = queryKey[1] as string;
-            return (await api.get('/tags', { headers: { 'X-Tenant-Id': tid }, signal })).data.data;
-        },
-        enabled: !!activeTenantId,
-    });
-
     const toggleSelectAll = () => {
         if (allSelected) {
             setSelectedIds(new Set());
@@ -853,6 +882,162 @@ export default function LeadsPage() {
             setSelectedIds(new Set());
             showSuccess(t('owner.bulkAssignedCount', { count: res.data?.updated ?? ids.length }));
         }).catch((err) => showErrorFromApi(err));
+    };
+
+    // Map a server reason_code to a localized message (unknown codes fall back to generic).
+    const reasonLabel = (code?: string): string => {
+        switch (code) {
+            case 'not_found': return t('bulkEdit.errNotFound');
+            case 'foreign_tag': return t('bulkEdit.errForeignTag');
+            case 'schema_missing': return t('bulkEdit.errSchemaMissing');
+            case 'db_error': return t('bulkEdit.errDbError');
+            default: return t('bulkEdit.errGeneric');
+        }
+    };
+
+    // Turn a per-company result list into a summary; each error line pairs the company name
+    // (resolved from the current page) with a localized reason. okIds/failIds drive the
+    // detail-cache invalidation and the "retry failed" flow.
+    const summarizeBulk = (
+        results: Array<{ id?: string; company_id?: string; ok: boolean; reason?: string }>,
+    ): { ok: number; fail: number; errors: string[]; okIds: string[]; failIds: string[] } => {
+        const nameFor = (id: string) => data?.data.find((c) => c.id === id)?.name || id;
+        const idOf = (r: { id?: string; company_id?: string }) => (r.id || r.company_id || '') as string;
+        const fails = results.filter((r) => !r.ok);
+        const oks = results.filter((r) => r.ok);
+        const errors = fails.map((r) => `${nameFor(idOf(r))}: ${reasonLabel(r.reason)}`);
+        return {
+            ok: oks.length,
+            fail: fails.length,
+            errors,
+            okIds: oks.map(idOf).filter(Boolean),
+            failIds: fails.map(idOf).filter(Boolean),
+        };
+    };
+
+    const openBulkEditModal = () => {
+        setBePriority(null);
+        setBeQual(null);
+        setBeLeadSource('');
+        setBeLeadSourceMode('keep');
+        setBeTagsAdd([]);
+        setBeTagsRemove([]);
+        setBulkResult(null);
+        setShowBulkErrors(false);
+        openBulkEdit();
+    };
+
+    const openBulkTaskModal = () => {
+        const due = new Date();
+        due.setDate(due.getDate() + 1);
+        due.setHours(9, 0, 0, 0);
+        setBtTitle('');
+        setBtDetail('');
+        setBtDue(due);
+        setBtPriority('normal');
+        setBtAssignee(user?.id ?? null);
+        setBulkResult(null);
+        setShowBulkErrors(false);
+        openBulkTask();
+    };
+
+    // At least one field/tag must change before the bulk edit can be applied (mirrors the
+    // server-side refine so the button is disabled rather than bouncing a 400).
+    const leadSourceChanges = beLeadSourceMode === 'clear' || (beLeadSourceMode === 'set' && !!beLeadSource.trim());
+    const hasBulkEditChanges = !!(bePriority || beQual || leadSourceChanges || beTagsAdd.length || beTagsRemove.length);
+
+    const bulkEditMutation = useMutation({
+        mutationFn: async () => {
+            const payload: Record<string, unknown> = { company_ids: Array.from(selectedIds) };
+            if (bePriority) payload.priority = bePriority;
+            if (beQual) payload.qualification_status = beQual;
+            // Three-state lead source: set → trimmed value, clear → null, keep → omit the key.
+            if (beLeadSourceMode === 'set' && beLeadSource.trim()) payload.lead_source = beLeadSource.trim();
+            else if (beLeadSourceMode === 'clear') payload.lead_source = null;
+            if (beTagsAdd.length) payload.tags_add = beTagsAdd;
+            if (beTagsRemove.length) payload.tags_remove = beTagsRemove;
+            return (await api.post('/companies/bulk-update', payload)).data;
+        },
+        onSuccess: (res) => {
+            const summary = summarizeBulk(res.results ?? []);
+            setBulkResult(summary);
+            queryClient.invalidateQueries({ queryKey: ['companies'] });
+            queryClient.invalidateQueries({ queryKey: ['statistics'] });
+            queryClient.invalidateQueries({ queryKey: ['tenant-tags', activeTenantId] });
+            queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+            summary.okIds.forEach((id) => queryClient.invalidateQueries({ queryKey: ['company', id] }));
+            // Both full and partial runs stay open in the result state (see modal footer) so the
+            // outcome is always confirmed; the toast is a bonus on a fully clean run.
+            if (summary.fail === 0) showSuccess(t('bulkEdit.editDone', { count: summary.ok }));
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    // Close + reset the bulk-edit modal; drop successfully-edited rows from the selection so a
+    // reopen starts clean. Retry keeps the selection scoped to failures instead.
+    const finishBulkEdit = () => {
+        if (bulkResult && bulkResult.ok > 0) {
+            setSelectedIds((prev) => {
+                const next = new Set(prev);
+                bulkResult.okIds.forEach((id) => next.delete(id));
+                return next;
+            });
+        }
+        setBulkResult(null);
+        setShowBulkErrors(false);
+        closeBulkEdit();
+    };
+    const retryBulkEditFailures = () => {
+        if (!bulkResult) return;
+        setSelectedIds(new Set(bulkResult.failIds));
+        setBulkResult(null);
+        setShowBulkErrors(false);
+    };
+
+    const btDueValid = !!(btDue && !Number.isNaN(new Date(btDue).getTime()));
+    const bulkTaskMutation = useMutation({
+        mutationFn: async () => {
+            const payload = {
+                company_ids: Array.from(selectedIds),
+                title: btTitle.trim(),
+                detail: btDetail.trim() || null,
+                due_at: btDue ? new Date(btDue).toISOString() : '',
+                priority: btPriority,
+                assigned_to: btAssignee || null,
+            };
+            return (await api.post('/tasks/bulk-create', payload)).data;
+        },
+        onSuccess: (res) => {
+            const summary = summarizeBulk(res.results ?? []);
+            setBulkResult(summary);
+            queryClient.invalidateQueries({ queryKey: ['tasks'] });
+            // Stay open in the result state; the form is locked (create button hidden) so the
+            // same batch can't be submitted twice. Full success still fires the toast.
+            if (summary.fail === 0) showSuccess(t('bulkEdit.taskDone', { count: summary.ok }));
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    // Close the bulk-task modal; drop companies that got a task from the selection.
+    const finishBulkTask = () => {
+        if (bulkResult && bulkResult.ok > 0) {
+            setSelectedIds((prev) => {
+                const next = new Set(prev);
+                bulkResult.okIds.forEach((id) => next.delete(id));
+                return next;
+            });
+        }
+        setBulkResult(null);
+        setShowBulkErrors(false);
+        closeBulkTask();
+    };
+    // Narrow the selection to the failed companies so the same task can be re-attempted only
+    // where it didn't land (guards against duplicate tasks on the ones that succeeded).
+    const retryBulkTaskFailures = () => {
+        if (!bulkResult) return;
+        setSelectedIds(new Set(bulkResult.failIds));
+        setBulkResult(null);
+        setShowBulkErrors(false);
     };
 
     const handleSort = (key: SortKey) => {
@@ -1864,7 +2049,7 @@ export default function LeadsPage() {
                     />
                     <MultiSelect
                         placeholder={selectedTags.length === 0 ? t('qualification.tags') : undefined}
-                        data={(tagOptions ?? []).map((tag) => ({ value: tag.id, label: tag.name }))}
+                        data={tagOptions}
                         value={selectedTags}
                         onChange={setSelectedTags}
                         clearable
@@ -1979,38 +2164,59 @@ export default function LeadsPage() {
                             </Button>
                         </Group>
                         {canEdit && (
-                            <Menu withinPortal position="bottom-end" shadow="md" width={240}>
-                                <Menu.Target>
-                                    <Button
-                                        variant="light"
-                                        color="violet"
-                                        size="xs"
-                                        leftSection={<IconUser size={14} />}
-                                        rightSection={<IconChevronDown size={14} />}
-                                    >
-                                        {t('owner.assignOwner')}
-                                    </Button>
-                                </Menu.Target>
-                                <Menu.Dropdown>
-                                    <Menu.Label>
-                                        {t('owner.bulkAffected', { count: selectedIds.size })}
-                                    </Menu.Label>
-                                    <Menu.Item onClick={() => bulkAssignOwner(user?.id ?? null)}>
-                                        {t('owner.assignToMe')}
-                                    </Menu.Item>
-                                    <Menu.Item onClick={() => bulkAssignOwner(null)}>
-                                        {t('owner.setUnassigned')}
-                                    </Menu.Item>
-                                    {(membersData?.members ?? []).length > 0 && <Menu.Divider />}
-                                    <ScrollArea.Autosize mah={220}>
-                                        {(membersData?.members ?? []).map((m) => (
-                                            <Menu.Item key={m.id} onClick={() => bulkAssignOwner(m.id)}>
-                                                {m.name || m.email}
-                                            </Menu.Item>
-                                        ))}
-                                    </ScrollArea.Autosize>
-                                </Menu.Dropdown>
-                            </Menu>
+                            <Group gap="xs">
+                                {/* Bulk field edit + bulk task (v2 Phase 8, E10) — sit beside the owner menu. */}
+                                <Button
+                                    variant="light"
+                                    color="violet"
+                                    size="xs"
+                                    leftSection={<IconPencil size={14} />}
+                                    onClick={openBulkEditModal}
+                                >
+                                    {t('bulkEdit.editButton')}
+                                </Button>
+                                <Button
+                                    variant="light"
+                                    color="violet"
+                                    size="xs"
+                                    leftSection={<IconCalendar size={14} />}
+                                    onClick={openBulkTaskModal}
+                                >
+                                    {t('bulkEdit.taskButton')}
+                                </Button>
+                                <Menu withinPortal position="bottom-end" shadow="md" width={240}>
+                                    <Menu.Target>
+                                        <Button
+                                            variant="light"
+                                            color="violet"
+                                            size="xs"
+                                            leftSection={<IconUser size={14} />}
+                                            rightSection={<IconChevronDown size={14} />}
+                                        >
+                                            {t('owner.assignOwner')}
+                                        </Button>
+                                    </Menu.Target>
+                                    <Menu.Dropdown>
+                                        <Menu.Label>
+                                            {t('owner.bulkAffected', { count: selectedIds.size })}
+                                        </Menu.Label>
+                                        <Menu.Item onClick={() => bulkAssignOwner(user?.id ?? null)}>
+                                            {t('owner.assignToMe')}
+                                        </Menu.Item>
+                                        <Menu.Item onClick={() => bulkAssignOwner(null)}>
+                                            {t('owner.setUnassigned')}
+                                        </Menu.Item>
+                                        {(membersData?.members ?? []).length > 0 && <Menu.Divider />}
+                                        <ScrollArea.Autosize mah={220}>
+                                            {(membersData?.members ?? []).map((m) => (
+                                                <Menu.Item key={m.id} onClick={() => bulkAssignOwner(m.id)}>
+                                                    {m.name || m.email}
+                                                </Menu.Item>
+                                            ))}
+                                        </ScrollArea.Autosize>
+                                    </Menu.Dropdown>
+                                </Menu>
+                            </Group>
                         )}
                     </Group>
                 </Paper>
@@ -2438,6 +2644,279 @@ export default function LeadsPage() {
                     }}
                 />
             )}
+
+            {/* Bulk field edit modal (v2 Phase 8, E10). Every field is optional — an empty
+                field leaves that column unchanged; only the provided keys are sent. */}
+            <Modal
+                opened={bulkEditOpen}
+                onClose={finishBulkEdit}
+                title={t('bulkEdit.editTitle')}
+                radius="lg"
+                centered
+                size="md"
+            >
+                <Stack gap="md">
+                    <Text size="sm" c="dimmed">
+                        {t('bulkEdit.affectedCount', { count: selectedIds.size })}
+                    </Text>
+                    <Select
+                        label={t('bulkEdit.priority')}
+                        placeholder={t('bulkEdit.leaveUnchanged')}
+                        clearable
+                        radius="md"
+                        data={[
+                            { value: 'low', label: t('tasks.priorities.low') },
+                            { value: 'normal', label: t('tasks.priorities.normal') },
+                            { value: 'high', label: t('tasks.priorities.high') },
+                        ]}
+                        value={bePriority}
+                        onChange={setBePriority}
+                    />
+                    <Select
+                        label={t('bulkEdit.qualification')}
+                        placeholder={t('bulkEdit.leaveUnchanged')}
+                        clearable
+                        radius="md"
+                        data={[
+                            { value: 'unqualified', label: t('bulkEdit.qualifications.unqualified') },
+                            { value: 'in_progress', label: t('bulkEdit.qualifications.in_progress') },
+                            { value: 'qualified', label: t('bulkEdit.qualifications.qualified') },
+                            { value: 'disqualified', label: t('bulkEdit.qualifications.disqualified') },
+                        ]}
+                        value={beQual}
+                        onChange={setBeQual}
+                    />
+                    <Stack gap={4}>
+                        <Text size="sm" fw={500}>{t('bulkEdit.leadSource')}</Text>
+                        <SegmentedControl
+                            fullWidth
+                            size="xs"
+                            radius="md"
+                            value={beLeadSourceMode}
+                            onChange={(v) => setBeLeadSourceMode(v as 'keep' | 'set' | 'clear')}
+                            data={[
+                                { value: 'keep', label: t('bulkEdit.leadSourceKeep') },
+                                { value: 'set', label: t('bulkEdit.leadSourceSet') },
+                                { value: 'clear', label: t('bulkEdit.leadSourceClear') },
+                            ]}
+                        />
+                        {beLeadSourceMode === 'set' && (
+                            <TextInput
+                                placeholder={t('bulkEdit.leadSourcePlaceholder')}
+                                radius="md"
+                                value={beLeadSource}
+                                onChange={(e) => setBeLeadSource(e.currentTarget.value)}
+                            />
+                        )}
+                    </Stack>
+                    <MultiSelect
+                        label={t('bulkEdit.tagsAdd')}
+                        placeholder={tagOptions.length ? t('bulkEdit.tagsPlaceholder') : t('bulkEdit.noTags')}
+                        radius="md"
+                        searchable
+                        clearable
+                        disabled={tagOptions.length === 0}
+                        data={tagOptions}
+                        value={beTagsAdd}
+                        onChange={setBeTagsAdd}
+                    />
+                    <MultiSelect
+                        label={t('bulkEdit.tagsRemove')}
+                        placeholder={tagOptions.length ? t('bulkEdit.tagsPlaceholder') : t('bulkEdit.noTags')}
+                        radius="md"
+                        searchable
+                        clearable
+                        disabled={tagOptions.length === 0}
+                        data={tagOptions}
+                        value={beTagsRemove}
+                        onChange={setBeTagsRemove}
+                    />
+                    {bulkResult && (
+                        <Alert
+                            variant="light"
+                            color={bulkResult.fail === 0 ? 'green' : 'yellow'}
+                            icon={<IconAlertCircle size={16} />}
+                        >
+                            <Text size="sm" fw={500}>
+                                {t('bulkEdit.resultSummary', { ok: bulkResult.ok, fail: bulkResult.fail })}
+                            </Text>
+                            {bulkResult.errors.length > 0 && (
+                                <>
+                                    <Button
+                                        variant="subtle"
+                                        color="gray"
+                                        size="compact-xs"
+                                        mt={4}
+                                        onClick={() => setShowBulkErrors((v) => !v)}
+                                    >
+                                        {showBulkErrors ? t('bulkEdit.hideErrors') : t('bulkEdit.showErrors')}
+                                    </Button>
+                                    <Collapse in={showBulkErrors}>
+                                        <Stack gap={2} mt={4}>
+                                            {bulkResult.errors.map((line, i) => (
+                                                <Text key={i} size="xs" c="dimmed">{line}</Text>
+                                            ))}
+                                        </Stack>
+                                    </Collapse>
+                                </>
+                            )}
+                        </Alert>
+                    )}
+                    {/* Once a result is in, the form is locked (Apply is gone) so the same batch
+                        can't be re-submitted; the user closes or retries just the failures. */}
+                    <Group justify="flex-end">
+                        {bulkResult ? (
+                            <>
+                                {bulkResult.fail > 0 && (
+                                    <Button variant="light" color="violet" onClick={retryBulkEditFailures}>
+                                        {t('bulkEdit.retryFailed', { count: bulkResult.fail })}
+                                    </Button>
+                                )}
+                                <Button variant="default" onClick={finishBulkEdit}>
+                                    {t('common.close')}
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <Button variant="default" onClick={finishBulkEdit}>
+                                    {t('common.cancel')}
+                                </Button>
+                                <Button
+                                    color="violet"
+                                    leftSection={<IconPencil size={14} />}
+                                    disabled={!hasBulkEditChanges}
+                                    loading={bulkEditMutation.isPending}
+                                    onClick={() => bulkEditMutation.mutate()}
+                                >
+                                    {t('bulkEdit.apply')}
+                                </Button>
+                            </>
+                        )}
+                    </Group>
+                </Stack>
+            </Modal>
+
+            {/* Bulk task modal (v2 Phase 8, E10). Writes the SAME task once per selected company. */}
+            <Modal
+                opened={bulkTaskOpen}
+                onClose={finishBulkTask}
+                title={t('bulkEdit.taskTitle')}
+                radius="lg"
+                centered
+                size="md"
+            >
+                <Stack gap="md">
+                    <Text size="sm" c="dimmed">
+                        {t('bulkEdit.taskAffected', { count: selectedIds.size })}
+                    </Text>
+                    <TextInput
+                        label={t('tasks.title')}
+                        placeholder={t('tasks.titlePlaceholder')}
+                        required
+                        radius="md"
+                        value={btTitle}
+                        onChange={(e) => setBtTitle(e.currentTarget.value)}
+                    />
+                    <Textarea
+                        label={t('tasks.detail')}
+                        placeholder={t('tasks.detailPlaceholder')}
+                        radius="md"
+                        autosize
+                        minRows={2}
+                        maxRows={5}
+                        value={btDetail}
+                        onChange={(e) => setBtDetail(e.currentTarget.value)}
+                    />
+                    <DateTimePicker
+                        label={t('tasks.dueAt')}
+                        required
+                        radius="md"
+                        valueFormat="DD MMM YYYY HH:mm"
+                        value={btDue}
+                        onChange={(v) => setBtDue(v ? (typeof v === 'string' ? new Date(v) : v) : null)}
+                    />
+                    <Select
+                        label={t('tasks.priority')}
+                        radius="md"
+                        allowDeselect={false}
+                        data={[
+                            { value: 'low', label: t('tasks.priorities.low') },
+                            { value: 'normal', label: t('tasks.priorities.normal') },
+                            { value: 'high', label: t('tasks.priorities.high') },
+                        ]}
+                        value={btPriority}
+                        onChange={(v) => setBtPriority(v || 'normal')}
+                    />
+                    <OwnerSelect
+                        label={t('owner.assignee')}
+                        value={btAssignee}
+                        onChange={setBtAssignee}
+                        clearable
+                    />
+                    {bulkResult && (
+                        <Alert
+                            variant="light"
+                            color={bulkResult.fail === 0 ? 'green' : 'yellow'}
+                            icon={<IconAlertCircle size={16} />}
+                        >
+                            <Text size="sm" fw={500}>
+                                {t('bulkEdit.resultSummary', { ok: bulkResult.ok, fail: bulkResult.fail })}
+                            </Text>
+                            {bulkResult.errors.length > 0 && (
+                                <>
+                                    <Button
+                                        variant="subtle"
+                                        color="gray"
+                                        size="compact-xs"
+                                        mt={4}
+                                        onClick={() => setShowBulkErrors((v) => !v)}
+                                    >
+                                        {showBulkErrors ? t('bulkEdit.hideErrors') : t('bulkEdit.showErrors')}
+                                    </Button>
+                                    <Collapse in={showBulkErrors}>
+                                        <Stack gap={2} mt={4}>
+                                            {bulkResult.errors.map((line, i) => (
+                                                <Text key={i} size="xs" c="dimmed">{line}</Text>
+                                            ))}
+                                        </Stack>
+                                    </Collapse>
+                                </>
+                            )}
+                        </Alert>
+                    )}
+                    {/* After a result the create button is hidden so tasks can't be created twice
+                        for the same batch; only close or retry-the-failures remain. */}
+                    <Group justify="flex-end">
+                        {bulkResult ? (
+                            <>
+                                {bulkResult.fail > 0 && (
+                                    <Button variant="light" color="violet" onClick={retryBulkTaskFailures}>
+                                        {t('bulkEdit.retryFailed', { count: bulkResult.fail })}
+                                    </Button>
+                                )}
+                                <Button variant="default" onClick={finishBulkTask}>
+                                    {t('common.close')}
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <Button variant="default" onClick={finishBulkTask}>
+                                    {t('common.cancel')}
+                                </Button>
+                                <Button
+                                    color="violet"
+                                    leftSection={<IconCalendar size={14} />}
+                                    disabled={!btTitle.trim() || !btDueValid}
+                                    loading={bulkTaskMutation.isPending}
+                                    onClick={() => bulkTaskMutation.mutate()}
+                                >
+                                    {t('bulkEdit.taskCreate')}
+                                </Button>
+                            </>
+                        )}
+                    </Group>
+                </Stack>
+            </Modal>
         </Container>
     );
 }
