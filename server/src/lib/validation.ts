@@ -839,3 +839,33 @@ export const updateTagSchema = z.object({
 export const linkCompanyTagSchema = z.object({
     tag_id: uuidField('Invalid tag_id'),
 });
+
+// ── Merge schemas (v2 Phase 8 — duplicate merge) ───────────────────────────
+// field_winners maps a field name → which record wins ('source' | 'target').
+// Absent / 'target' keeps the merge target's value; the merge_* RPCs enforce the
+// canonical field allowlist, so an unknown key here is simply ignored server-side.
+// The merge is destructive-ish (source is disabled, children repointed) so both
+// ids MUST differ — the RPC re-asserts this, but rejecting early gives a clean 400.
+const mergeFieldWinners = z
+    .record(z.string().max(60), z.enum(['source', 'target']))
+    .refine((m) => Object.keys(m).length <= 60, { message: 'Too many field winners' })
+    .optional()
+    .default({});
+
+export const mergeCompaniesSchema = z.object({
+    source_id: uuidField('Invalid source_id'),
+    target_id: uuidField('Invalid target_id'),
+    field_winners: mergeFieldWinners,
+}).refine((d) => d.source_id !== d.target_id, {
+    message: 'source_id and target_id must differ',
+    path: ['target_id'],
+});
+
+export const mergeContactsSchema = z.object({
+    source_id: uuidField('Invalid source_id'),
+    target_id: uuidField('Invalid target_id'),
+    field_winners: mergeFieldWinners,
+}).refine((d) => d.source_id !== d.target_id, {
+    message: 'source_id and target_id must differ',
+    path: ['target_id'],
+});

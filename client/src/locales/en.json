@@ -2768,5 +2768,68 @@
             "no_response": "No response",
             "other": "Other"
         }
+    },
+    "merge": {
+        "title": "Merge records",
+        "mergeButton": "Merge",
+        "confirm": "Merge",
+        "success": "Records merged.",
+        "loadError": "Could not load the records to merge.",
+        "directionNotice": "The duplicate will be merged into the current record, which is kept.",
+        "source": "Duplicate",
+        "target": "Kept record",
+        "fieldTableTitle": "Choose which value to keep for each field",
+        "fieldColumn": "Field",
+        "keepSource": "From duplicate",
+        "keepTarget": "From kept record",
+        "empty": "(empty)",
+        "moveTitle": "Records that will move",
+        "moveNone": "No linked records to move.",
+        "disableNotice": "The duplicate is not deleted; it is disabled and kept for reference.",
+        "banner": {
+            "title_one": "{{count}} possible duplicate company found",
+            "title_other": "{{count}} possible duplicate companies found",
+            "titleContact_one": "{{count}} possible duplicate contact found",
+            "titleContact_other": "{{count}} possible duplicate contacts found"
+        },
+        "reason": {
+            "name": "Same name",
+            "website": "Same website",
+            "phone": "Same phone",
+            "email": "Same email"
+        },
+        "moved": {
+            "contacts": "Contacts",
+            "tasks": "Tasks",
+            "activities": "Activities",
+            "deals": "Deals",
+            "leads": "Leads",
+            "deal_contacts": "Deal contacts"
+        },
+        "fields": {
+            "name": "Name",
+            "website": "Website",
+            "company_phone": "Phone",
+            "company_email": "Email",
+            "email_status": "Email status",
+            "location": "Location",
+            "industry": "Industry",
+            "employee_size": "Employee size",
+            "linkedin": "LinkedIn",
+            "fit_score": "Fit score",
+            "next_step": "Next step",
+            "company_summary": "Summary",
+            "internal_notes": "Internal notes",
+            "product_services": "Products / services",
+            "product_portfolio": "Product portfolio",
+            "first_name": "First name",
+            "last_name": "Last name",
+            "title": "Title",
+            "email": "Email",
+            "phone_e164": "Phone",
+            "country": "Country",
+            "seniority": "Seniority",
+            "department": "Department"
+        }
     }
 }

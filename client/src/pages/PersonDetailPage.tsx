@@ -30,9 +30,11 @@ import {
     IconLanguage,
     IconArchive,
     IconArchiveOff,
+    IconAlertCircle,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import CallButton from '../components/coldcall/CallButton';
+import MergeWizardModal from '../components/MergeWizardModal';
 import api from '../lib/api';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { invalidateContactArchiveCaches } from '../lib/archiveCache';
@@ -83,8 +85,19 @@ export default function PersonDetailPage() {
     const queryClient = useQueryClient();
     const [formOpened, { open: openForm, close: closeForm }] = useDisclosure(false);
     const [showTranslation, setShowTranslation] = useState(false);
+    const [mergeOpened, { open: openMerge, close: closeMerge }] = useDisclosure(false);
+    const [mergeSourceId, setMergeSourceId] = useState<string | null>(null);
 
     const userCanEdit = canWrite(user?.role || '');
+
+    // Possible duplicate contacts within the SAME company (merge is same-company only).
+    // The current contact is always the merge TARGET (survivor).
+    const { data: duplicates = [] } = useQuery<Array<{ id: string; first_name: string; last_name: string | null; match_reason: string }>>({
+        queryKey: ['contact-duplicates', id],
+        queryFn: async () => (await api.get(`/contacts/${id}/duplicates`)).data.data,
+        enabled: !!id && userCanEdit,
+        retry: false,
+    });
 
     const translateMutation = useMutation({
         mutationFn: () => api.post(`/contacts/${id}/translate`),
@@ -227,6 +240,39 @@ export default function PersonDetailPage() {
                             </Button>
                         )}
                     </Group>
+                </Alert>
+            )}
+
+            {/* Possible-duplicate banner (same company) */}
+            {userCanEdit && duplicates.length > 0 && (
+                <Alert
+                    icon={<IconAlertCircle size={18} />}
+                    color="orange"
+                    variant="light"
+                    radius="md"
+                    mb="md"
+                    title={t('merge.banner.titleContact', { count: duplicates.length })}
+                >
+                    <Stack gap="xs">
+                        {duplicates.map((d) => (
+                            <Group key={d.id} justify="space-between" wrap="nowrap" gap="sm">
+                                <div style={{ minWidth: 0 }}>
+                                    <Anchor size="sm" fw={500} onClick={() => navigate(`/people/${d.id}`)}>
+                                        {d.first_name} {d.last_name || ''}
+                                    </Anchor>
+                                    <Text size="xs" c="dimmed">{t(`merge.reason.${d.match_reason}`)}</Text>
+                                </div>
+                                <Button
+                                    size="xs"
+                                    variant="light"
+                                    color="orange"
+                                    onClick={() => { setMergeSourceId(d.id); openMerge(); }}
+                                >
+                                    {t('merge.mergeButton')}
+                                </Button>
+                            </Group>
+                        ))}
+                    </Stack>
                 </Alert>
             )}
 
@@ -387,6 +433,20 @@ export default function PersonDetailPage() {
                     contactId={contact.id}
                 />
             </Container>
+        )}
+        {mergeOpened && mergeSourceId && id && (
+            <MergeWizardModal
+                opened={mergeOpened}
+                onClose={() => { closeMerge(); setMergeSourceId(null); }}
+                entityType="contact"
+                sourceId={mergeSourceId}
+                targetId={id}
+                onSuccess={() => {
+                    setMergeSourceId(null);
+                    queryClient.invalidateQueries({ queryKey: ['person', id] });
+                    queryClient.invalidateQueries({ queryKey: ['contact-duplicates', id] });
+                }}
+            />
         )}
         </>
     );

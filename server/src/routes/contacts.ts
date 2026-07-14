@@ -4,7 +4,7 @@ import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { translateTexts } from '../lib/deepl.js';
-import { validateBody, createContactSchema, updateContactSchema, BUYING_ROLES, RELATIONSHIP_STATUSES } from '../lib/validation.js';
+import { validateBody, createContactSchema, updateContactSchema, mergeContactsSchema, BUYING_ROLES, RELATIONSHIP_STATUSES } from '../lib/validation.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import { isMissingFunctionError, isMissingColumnError } from '../lib/supabaseErrors.js';
@@ -100,7 +100,8 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                 .from('contacts')
                 .select('*')
                 .eq('tenant_id', tenantId)
-                .eq('company_id', companyId);
+                .eq('company_id', companyId)
+                .is('merged_into_id', null);
             byCompanyQuery = archivedOnly
                 ? byCompanyQuery.not('archived_at', 'is', null)
                 : byCompanyQuery.is('archived_at', null);
@@ -246,6 +247,27 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                 }
             }
 
+            // search_contacts does NOT exclude merged-away sources, so drop any merged row
+            // from THIS page with a lightweight id lookup (mirrors the companies path).
+            // Page-scoped: `total` above (from the RPC) can slightly OVER-count when merged
+            // rows matched — an accepted edge until search_contacts filters merged_into_id.
+            if (data.length > 0) {
+                const pageIds = data.map((r) => r.id);
+                const { data: mergedRows, error: mErr } = await db
+                    .from('contacts')
+                    .select('id')
+                    .eq('tenant_id', tenantId)
+                    .in('id', pageIds)
+                    .not('merged_into_id', 'is', null);
+                if (mErr) {
+                    log.error({ err: mErr }, 'search_contacts merged filter failed');
+                    res.status(500).json({ error: 'Failed to search contacts' });
+                    return;
+                }
+                const mergedSet = new Set((mergedRows ?? []).map((r) => r.id));
+                data = data.filter((r) => !mergedSet.has(r.id));
+            }
+
             res.json({
                 data,
                 pagination: {
@@ -273,6 +295,9 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             .eq('tenant_id', tenantId);
 
         query = archivedOnly ? query.not('archived_at', 'is', null) : query.is('archived_at', null);
+        // Hide merged-away sources (merged_into_id NOT NULL) from the default listing —
+        // NULL = a live record. The detail route (GET /:id) still returns them 200.
+        query = query.is('merged_into_id', null);
 
         if (filterCompanyIds.length > 0) query = query.in('company_id', filterCompanyIds);
         if (filterSeniorities.length > 0) query = query.in('seniority', filterSeniorities);
@@ -340,6 +365,104 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
         res.status(500).json({ error: 'Failed to fetch contact' });
     }
 });
+
+// GET /api/contacts/:id/duplicates — Possible duplicate contacts within the SAME
+// company (merge_contacts is same-company only). Normalised email / phone / name
+// matching via find_duplicate_contacts. Read-only, capped at 5.
+router.get('/:id/duplicates', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const id = String(req.params.id);
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+            res.status(400).json({ error: 'Invalid contact id' });
+            return;
+        }
+
+        const { data: contact, error: cErr } = await supabaseAdmin
+            .from('contacts')
+            .select('id')
+            .eq('id', id)
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+        if (cErr) throw new AppError('Failed to load contact', 500);
+        if (!contact) { res.status(404).json({ error: 'Contact not found' }); return; }
+
+        const { data, error } = await supabaseAdmin.rpc('find_duplicate_contacts', {
+            p_tenant_id: tenantId,
+            p_contact_id: id,
+        });
+        if (error) {
+            if (isMissingFunctionError(error)) { res.json({ data: [] }); return; }
+            log.error({ err: error }, 'find_duplicate_contacts failed');
+            throw new AppError('Failed to find duplicates', 500);
+        }
+        res.json({ data: data || [] });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Contact duplicates error');
+        res.status(500).json({ error: 'Failed to find duplicates' });
+    }
+});
+
+// POST /api/contacts/merge — Merge a source contact into a target contact (same
+// company only). Atomic single merge_contacts RPC: children repoint, field winners
+// apply, the source is disabled without data loss, crm_merge_log is written.
+router.post(
+    '/merge',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    validateBody(mergeContactsSchema),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { source_id, target_id, field_winners } = req.body;
+
+            const { data: rows, error: chkErr } = await supabaseAdmin
+                .from('contacts')
+                .select('id')
+                .eq('tenant_id', tenantId)
+                .in('id', [source_id, target_id]);
+            if (chkErr) throw new AppError('Failed to validate contacts', 500);
+            const found = new Set((rows || []).map((r) => r.id));
+            if (!found.has(source_id) || !found.has(target_id)) {
+                res.status(404).json({ error: 'Contact not found' });
+                return;
+            }
+
+            const { data, error } = await supabaseAdmin.rpc('merge_contacts', {
+                p_tenant_id: tenantId,
+                p_source_id: source_id,
+                p_target_id: target_id,
+                p_field_winners: field_winners || {},
+                p_performed_by: req.user!.id,
+            });
+            if (error) {
+                if (error.message?.includes('already_merged')) {
+                    res.status(409).json({ error: 'One of the records was already merged' });
+                    return;
+                }
+                if (error.message?.includes('same company')) {
+                    res.status(422).json({ error: 'Contacts must belong to the same company' });
+                    return;
+                }
+                if (error.message?.includes('must differ')) {
+                    res.status(400).json({ error: 'source and target must differ' });
+                    return;
+                }
+                if (error.message?.includes('not found')) {
+                    res.status(404).json({ error: 'Contact not found' });
+                    return;
+                }
+                log.error({ err: error }, 'merge_contacts failed');
+                throw new AppError('Failed to merge contacts', 500);
+            }
+            res.json({ data });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Merge contacts error');
+            res.status(500).json({ error: 'Failed to merge contacts' });
+        }
+    }
+);
 
 // POST /api/contacts — Create contact
 router.post(

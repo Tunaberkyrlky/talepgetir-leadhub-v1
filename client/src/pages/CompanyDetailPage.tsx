@@ -70,6 +70,7 @@ import OwnerSelect from '../components/OwnerSelect';
 import CompanyForm from '../components/CompanyForm';
 import CompanyQualificationPanel from '../components/CompanyQualificationPanel';
 import ClosingReportModal from '../components/ClosingReportModal';
+import MergeWizardModal from '../components/MergeWizardModal';
 import ReopenReasonModal from '../components/ReopenReasonModal';
 import ActivityTimelineUnified from '../components/ActivityTimelineUnified';
 import type { ActivityTimelineHandle } from '../components/ActivityTimeline';
@@ -305,6 +306,17 @@ export default function CompanyDetailPage() {
     const canEdit = canWrite(user?.role || '');
     const [activeTab, setActiveTab] = useState<string | null>('activities');
     const activityTimelineRef = useRef<ActivityTimelineHandle>(null);
+    const [mergeOpened, { open: openMerge, close: closeMerge }] = useDisclosure(false);
+    const [mergeSourceId, setMergeSourceId] = useState<string | null>(null);
+
+    // Possible duplicate companies in this tenant (normalised name/domain/phone match).
+    // The current company is always the merge TARGET (survivor); a duplicate is the source.
+    const { data: duplicates = [] } = useQuery<Array<{ id: string; name: string; stage: string; match_reason: string }>>({
+        queryKey: ['company-duplicates', id],
+        queryFn: async () => (await api.get(`/companies/${id}/duplicates`)).data.data,
+        enabled: !!id && canEdit,
+        retry: false,
+    });
 
     const { data: companyEmails = [], isLoading: emailsLoading, isError: emailsError } = useQuery<EmailReply[]>({
         queryKey: ['company-emails', id],
@@ -678,6 +690,39 @@ export default function CompanyDetailPage() {
                             </Button>
                         )}
                     </Group>
+                </Alert>
+            )}
+
+            {/* Possible-duplicate banner */}
+            {canEdit && duplicates.length > 0 && (
+                <Alert
+                    icon={<IconAlertCircle size={18} />}
+                    color="orange"
+                    variant="light"
+                    radius="md"
+                    mb="lg"
+                    title={t('merge.banner.title', { count: duplicates.length })}
+                >
+                    <Stack gap="xs">
+                        {duplicates.map((d) => (
+                            <Group key={d.id} justify="space-between" wrap="nowrap" gap="sm">
+                                <div style={{ minWidth: 0 }}>
+                                    <Anchor size="sm" fw={500} onClick={() => navigate(`/companies/${d.id}`)}>
+                                        {d.name}
+                                    </Anchor>
+                                    <Text size="xs" c="dimmed">{t(`merge.reason.${d.match_reason}`)}</Text>
+                                </div>
+                                <Button
+                                    size="xs"
+                                    variant="light"
+                                    color="orange"
+                                    onClick={() => { setMergeSourceId(d.id); openMerge(); }}
+                                >
+                                    {t('merge.mergeButton')}
+                                </Button>
+                            </Group>
+                        ))}
+                    </Stack>
                 </Alert>
             )}
 
@@ -1361,6 +1406,20 @@ export default function CompanyDetailPage() {
                         .then(() => setReopenTarget(null))
                         .catch((err) => showErrorFromApi(err))
                         .finally(() => setReopenLoading(false));
+                }}
+            />
+        )}
+        {mergeOpened && mergeSourceId && id && (
+            <MergeWizardModal
+                opened={mergeOpened}
+                onClose={() => { closeMerge(); setMergeSourceId(null); }}
+                entityType="company"
+                sourceId={mergeSourceId}
+                targetId={id}
+                onSuccess={() => {
+                    setMergeSourceId(null);
+                    queryClient.invalidateQueries({ queryKey: ['company', id] });
+                    queryClient.invalidateQueries({ queryKey: ['company-duplicates', id] });
                 }}
             />
         )}

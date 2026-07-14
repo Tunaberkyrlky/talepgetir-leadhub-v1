@@ -5,7 +5,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
-import { validateBody, createCompanyQualifiedSchema, updateCompanyQualifiedSchema, bulkOwnerSchema, stagePatchSchema, sanitizeEmail, COMPANY_PRIORITIES, QUALIFICATION_STATUSES } from '../lib/validation.js';
+import { validateBody, createCompanyQualifiedSchema, updateCompanyQualifiedSchema, bulkOwnerSchema, stagePatchSchema, sanitizeEmail, mergeCompaniesSchema, COMPANY_PRIORITIES, QUALIFICATION_STATUSES } from '../lib/validation.js';
 import { transitionCompanyStage, assertStageTransition, recordStageChangeActivity } from '../lib/stageTransition.js';
 import { resolveUsers, ownerDisplayName } from '../lib/userResolver.js';
 import { parseList } from '../lib/parseList.js';
@@ -418,6 +418,27 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                 }
             }
 
+            // search_companies does NOT exclude merged-away sources, so drop any merged row
+            // from THIS page with a lightweight id lookup (mirrors the archive worktree's
+            // in-page post-filter). Page-scoped: `total` above (from the RPC) can slightly
+            // OVER-count when merged rows matched — an accepted edge until search_companies
+            // itself filters merged_into_id. NULL = a live record.
+            if (data.length > 0) {
+                const pageIds = data.map((r) => r.id as string);
+                const { data: mergedRows, error: mErr } = await db
+                    .from('companies')
+                    .select('id')
+                    .eq('tenant_id', tenantId)
+                    .in('id', pageIds)
+                    .not('merged_into_id', 'is', null);
+                if (mErr) {
+                    log.error({ err: mErr }, 'search_companies merged filter failed');
+                    throw new AppError('Failed to search companies', 500);
+                }
+                const mergedSet = new Set((mergedRows ?? []).map((r) => r.id as string));
+                data = data.filter((r) => !mergedSet.has(r.id as string));
+            }
+
             // Enrich owners so the owner NAME shows and no raw UUID leaks. The owner
             // FILTER itself runs inside the RPC (migration 118); on a pre-118 DB the
             // retry above ran owner-less, so results stay owner-unfiltered until then.
@@ -460,6 +481,10 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             countQuery = countQuery.is('archived_at', null);
             dataQuery = dataQuery.is('archived_at', null);
         }
+        // Hide merged-away sources (merged_into_id NOT NULL) from the default listing —
+        // NULL = a live record. The detail route (GET /:id) still returns them 200.
+        countQuery = countQuery.is('merged_into_id', null);
+        dataQuery = dataQuery.is('merged_into_id', null);
 
         // (search handled via RPC in the ranked path above — no ILIKE here)
 
@@ -645,6 +670,7 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
             .eq('tenant_id', tenantId)
             // The pipeline board never shows archived companies (no archive view here).
             .is('archived_at', null)
+            .is('merged_into_id', null)
             .in('stage', pipelineStages);
         if (tagIdsForQuery) query = query.in('id', tagIdsForQuery);
 
@@ -744,6 +770,7 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
             .select('id, name, industry, stage, next_step, company_summary, updated_at, stage_changed_at, contact_count')
             .eq('tenant_id', tenantId)
             .is('archived_at', null)
+            .is('merged_into_id', null)
             .in('stage', terminalStages)
             .order('updated_at', { ascending: false });
         if (tagIdsForQuery) terminalQuery = terminalQuery.in('id', tagIdsForQuery);
@@ -844,6 +871,92 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
         res.status(500).json({ error: 'Failed to fetch company' });
     }
 });
+
+// GET /api/companies/:id/duplicates — Possible duplicate companies (same tenant).
+// Normalised (name legal-suffix strip / website domain / phone digits) matching via
+// the find_duplicate_companies RPC. Read-only, capped at 5. Already-merged sources
+// (internal_notes marker) are excluded by the RPC.
+router.get('/:id/duplicates', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!;
+        const id = String(req.params.id);
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+            throw new AppError('Invalid company id', 400);
+        }
+
+        // Confirm the company is in this tenant (clean 404, no cross-tenant leak).
+        const { data: company, error: cErr } = await supabaseAdmin
+            .from('companies')
+            .select('id')
+            .eq('id', id)
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+        if (cErr) throw new AppError('Failed to load company', 500);
+        if (!company) throw new AppError('Company not found', 404);
+
+        const { data, error } = await supabaseAdmin.rpc('find_duplicate_companies', {
+            p_tenant_id: tenantId,
+            p_company_id: id,
+        });
+        if (error) {
+            // RPC not deployed yet (pre-136): behave as "no duplicates", never 500.
+            if (isMissingFunctionError(error)) { res.json({ data: [] }); return; }
+            log.error({ err: error }, 'find_duplicate_companies failed');
+            throw new AppError('Failed to find duplicates', 500);
+        }
+        res.json({ data: data || [] });
+    } catch (err) {
+        next(err);
+    }
+});
+
+// POST /api/companies/merge — Merge a source company into a target company.
+// Atomic (single merge_companies RPC / one transaction): children repoint, field
+// winners apply to the target, the source is disabled WITHOUT data loss, and a
+// crm_merge_log row is written. Destructive-ish → gated to the write roles.
+router.post(
+    '/merge',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    validateBody(mergeCompaniesSchema),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { source_id, target_id, field_winners } = req.body;
+
+            // Both must live in this tenant before the destructive call (clean 404).
+            const { data: rows, error: chkErr } = await supabaseAdmin
+                .from('companies')
+                .select('id')
+                .eq('tenant_id', tenantId)
+                .in('id', [source_id, target_id]);
+            if (chkErr) throw new AppError('Failed to validate companies', 500);
+            const found = new Set((rows || []).map((r) => r.id));
+            if (!found.has(source_id) || !found.has(target_id)) throw new AppError('Company not found', 404);
+
+            const { data, error } = await supabaseAdmin.rpc('merge_companies', {
+                p_tenant_id: tenantId,
+                p_source_id: source_id,
+                p_target_id: target_id,
+                p_field_winners: field_winners || {},
+                p_performed_by: req.user!.id,
+            });
+            if (error) {
+                if (error.message?.includes('already_merged')) throw new AppError('One of the records was already merged', 409);
+                if (error.message?.includes('must differ')) throw new AppError('source and target must differ', 400);
+                if (error.message?.includes('not found')) throw new AppError('Company not found', 404);
+                log.error({ err: error }, 'merge_companies failed');
+                throw new AppError('Failed to merge companies', 500);
+            }
+
+            // Counts/pipeline shifted — drop the memoised aggregates for this tenant.
+            invalidateOverviewCache(tenantId);
+            invalidatePipelineStatsCache(tenantId);
+            res.json({ data });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
 
 // GET /api/companies/:id/timeline — Unified chronological history for one company.
 // Batches a FIXED set of queries (no N+1): activities (RLS-scoped) + email replies

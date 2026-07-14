@@ -2768,5 +2768,68 @@
             "no_response": "Yanıt yok",
             "other": "Diğer"
         }
+    },
+    "merge": {
+        "title": "Kayıtları birleştir",
+        "mergeButton": "Birleştir",
+        "confirm": "Birleştir",
+        "success": "Kayıtlar birleştirildi.",
+        "loadError": "Birleştirilecek kayıtlar yüklenemedi.",
+        "directionNotice": "Mükerrer kayıt, saklanan mevcut kaydın içine birleştirilecektir.",
+        "source": "Mükerrer",
+        "target": "Saklanan kayıt",
+        "fieldTableTitle": "Her alan için hangi değerin korunacağını seçin",
+        "fieldColumn": "Alan",
+        "keepSource": "Mükerrerden",
+        "keepTarget": "Saklanan kayıttan",
+        "empty": "(boş)",
+        "moveTitle": "Taşınacak kayıtlar",
+        "moveNone": "Taşınacak bağlı kayıt yok.",
+        "disableNotice": "Mükerrer kayıt silinmez; devre dışı bırakılır ve referans için saklanır.",
+        "banner": {
+            "title_one": "{{count}} olası mükerrer firma bulundu",
+            "title_other": "{{count}} olası mükerrer firma bulundu",
+            "titleContact_one": "{{count}} olası mükerrer kişi bulundu",
+            "titleContact_other": "{{count}} olası mükerrer kişi bulundu"
+        },
+        "reason": {
+            "name": "Aynı ad",
+            "website": "Aynı web sitesi",
+            "phone": "Aynı telefon",
+            "email": "Aynı e-posta"
+        },
+        "moved": {
+            "contacts": "Kişiler",
+            "tasks": "Görevler",
+            "activities": "Aktiviteler",
+            "deals": "Anlaşmalar",
+            "leads": "Lead'ler",
+            "deal_contacts": "Anlaşma kişileri"
+        },
+        "fields": {
+            "name": "Ad",
+            "website": "Web sitesi",
+            "company_phone": "Telefon",
+            "company_email": "E-posta",
+            "email_status": "E-posta durumu",
+            "location": "Konum",
+            "industry": "Sektör",
+            "employee_size": "Çalışan sayısı",
+            "linkedin": "LinkedIn",
+            "fit_score": "Uyum puanı",
+            "next_step": "Sonraki adım",
+            "company_summary": "Özet",
+            "internal_notes": "Dahili notlar",
+            "product_services": "Ürünler / hizmetler",
+            "product_portfolio": "Ürün portföyü",
+            "first_name": "Ad",
+            "last_name": "Soyad",
+            "title": "Unvan",
+            "email": "E-posta",
+            "phone_e164": "Telefon",
+            "country": "Ülke",
+            "seniority": "Kıdem",
+            "department": "Departman"
+        }
     }
 }
