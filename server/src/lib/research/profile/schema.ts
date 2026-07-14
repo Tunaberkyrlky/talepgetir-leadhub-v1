@@ -34,8 +34,14 @@ const differentiatorsSchema = z.object({
 export const profileCrawlSchema = z.object({
     /** A few plain sentences on what the company does and who it sells to. */
     company_summary: noFence(2000),
-    /** Concrete product/service names actually mentioned in the fetched text (not categories). */
-    products_services: z.array(noFence(200)).max(30),
+    /** Concrete product/service names actually mentioned in the fetched text (not categories).
+     *  Each item pairs a `name` with an `evidence_quote` — a short snippet copied VERBATIM
+     *  from the fetched text, which must itself CONTAIN the name, proving the product/service
+     *  is genuinely offered. The worker's grounding gate (profileCrawl.ts) drops any item
+     *  unless the evidence_quote both contains the name AND actually appears (normalized) in a
+     *  single fetched page before persisting — this is what makes the hallucination
+     *  structurally impossible instead of merely discouraged by the prompt. */
+    products_services: z.array(z.object({ name: noFence(200), evidence_quote: noFence(400) })).max(30),
     /** Best guess of the company's OWN home country; null when there is no real evidence. */
     company_country: noFence(120).nullable(),
     /** Filled only where the fetched text supports it; null/empty otherwise — no guessing. */

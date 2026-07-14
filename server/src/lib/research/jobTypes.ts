@@ -11,7 +11,8 @@
  */
 export const RESEARCH_JOB_TYPES = {
     PING: 'ping',
-    /** WP7 FAZ 1: crawl the project's website + social links (reading model) -> profile.ai_draft. */
+    /** WP7 FAZ 1: crawl the project's website + social links (strategy model, hard structured
+     *  output + grounding gate) -> profile.ai_draft. */
     PROFILE_CRAWL: 'profile:crawl',
     /** ICP Master (B5): generate ICP drafts from the project profile via the strategy model. */
     ICP_GENERATE: 'icp:generate',

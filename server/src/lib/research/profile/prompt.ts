@@ -1,13 +1,13 @@
 /**
  * profile:crawl (WP7) — prompt builder for the FAZ 1 website+social crawl.
  *
- * Feeds the reading model the raw fetched text of the company's own website (and up to 3
- * social links, best-effort) and asks it to extract: a plain company summary, concrete
- * product/service names actually mentioned, a best-guess home country ONLY with real
- * evidence, and whichever differentiator fields (MOQ, lead time, certifications, capacity,
- * references, languages) the text genuinely supports. Fetched web content is untrusted
- * (public, scraped) and goes inside the SAME <<<UNTRUSTED_DATA>>> fence convention as
- * geo/prompt.ts and icp/prompt.ts.
+ * Feeds the strong/strategy model the raw fetched text of the company's own website (and up
+ * to 3 social links, best-effort) and asks it to extract: a plain company summary, concrete
+ * product/service names actually mentioned (each backed by a verbatim evidence quote — see
+ * profileCrawlSchema), a best-guess home country ONLY with real evidence, and whichever
+ * differentiator fields (MOQ, lead time, certifications, capacity, references, languages)
+ * the text genuinely supports. Fetched web content is untrusted (public, scraped) and goes
+ * inside the SAME <<<UNTRUSTED_DATA>>> fence convention as geo/prompt.ts and icp/prompt.ts.
  */
 import type { LlmMessage } from '../llm/index.js';
 import { stripFence } from '../icp/prompt.js';
@@ -30,8 +30,20 @@ actually present in the fetched text below — this is a strict grounding requir
 Produce:
 - company_summary: a few plain sentences on what the company does and who it sells to, based
   ONLY on what the fetched text actually says.
-- products_services: concrete product/service names actually mentioned in the fetched text —
-  not generic guesses, not categories the company merely COULD sell.
+- products_services: for EACH concrete product/service actually mentioned in the fetched
+  text — not generic guesses, not categories the company merely COULD sell — return an
+  object {"name": "...", "evidence_quote": "..."}:
+  - "name" must be the product/service EXACTLY as it is named in the fetched text — copy the
+    wording from the source, in the source's own language. Do NOT translate it, do NOT
+    rephrase it, and do NOT normalize it into a generic English category.
+  - "evidence_quote" must be a SHORT snippet copied EXACTLY, character-for-character, from the
+    fetched text above (same language as the source — do NOT translate or paraphrase it) that
+    CONTAINS that exact name and shows the product/service is genuinely offered.
+  A downstream check verifies each evidence_quote actually contains the name AND appears in
+  the fetched text, and DROPS any item that fails — so an invented name, a paraphrased quote,
+  or a quote that doesn't literally contain the name is worthless. If a candidate product's
+  name does not literally appear in the fetched text, do NOT include it. If the text names no
+  concrete products/services, return an empty array — NEVER invent or translate one.
 - company_country: your best guess of the company's OWN home country (where it is based or
   registered), using only real evidence in the text (a postal address, a phone country code,
   a country-code top-level domain, currency/language cues). Return null if there is no real
@@ -74,7 +86,7 @@ export function buildProfileCrawlPrompt(input: ProfileCrawlPromptInput): { syste
     // page block's own "## <label>: <url>" header, stripFence'd) — refer to them generically.
     parts.push(
         '\n# Task\nRead the fetched content above (the company\'s own website and social profiles) and ' +
-            'extract the JSON object {"company_summary":"...","products_services":[...],"company_country":null,' +
+            'extract the JSON object {"company_summary":"...","products_services":[{"name":"...","evidence_quote":"..."}],"company_country":null,' +
             '"differentiators":{"moq":null,"lead_time":null,"certifications":[...],"capacity":null,' +
             '"references":[...],"languages":[...]}} matching the schema — no commentary, no invented facts.'
     );
