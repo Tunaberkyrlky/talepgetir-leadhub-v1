@@ -41,6 +41,7 @@ import {
     IconPhoneCall,
     IconDatabase,
     IconSearch,
+    IconBrandLinkedin,
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
 import CommandPalette from './CommandPalette';
@@ -158,6 +159,7 @@ export default function Layout() {
         },
         { path: '/research/full', label: t('nav.companyKnowledge', 'Company Knowledge'), icon: <IconDatabase size={20} /> },
         { path: '/cold-call', label: t('nav.coldCall', 'Cold Call'), icon: <IconPhoneCall size={20} /> },
+        { path: '/linkedin', label: t('nav.linkedin', 'LinkedIn'), icon: <IconBrandLinkedin size={20} /> },
         ...(['superadmin', 'ops_agent'].includes(user?.role || '')
             ? [
                 // Internal-only margin panel: dollar COGS never surfaces to client roles.

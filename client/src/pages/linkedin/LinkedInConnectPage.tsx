@@ -28,10 +28,9 @@ function tokenFromHash(hash: string): string | null {
     return raw && raw.length >= 32 && raw.length <= 128 ? raw : null;
 }
 
-// Where "Connected" lands the user: the LinkedIn tab's Accounts sub-tab. /research is
-// now the wizard entry (WP6) — the tabbed surface with the LinkedIn tab lives at
-// /research/full.
-const ACCOUNTS_URL = '/research/full?tab=linkedin&sub=accounts';
+// Where "Connected" lands the user: the LinkedIn module's Accounts sub-tab. LinkedIn is
+// its own top-level module (not a Research tab) at /linkedin.
+const ACCOUNTS_URL = '/linkedin?sub=accounts';
 // Poll long enough to install/open the extension and paste the token.
 const CONNECT_WATCH_MS = 4 * 60 * 1000;
 

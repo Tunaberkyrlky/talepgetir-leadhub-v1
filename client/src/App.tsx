@@ -45,6 +45,7 @@ const ResearchFlowPage = lazy(() => import('./pages/research/ResearchFlowPage'))
 const ColdCallPage = lazy(() => import('./pages/coldcall/ColdCallPage'));
 const ResearchAdminPage = lazy(() => import('./pages/research/ResearchAdminPage'));
 const LinkedInConnectPage = lazy(() => import('./pages/linkedin/LinkedInConnectPage'));
+const LinkedInPage = lazy(() => import('./pages/linkedin/LinkedInPage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -129,6 +130,7 @@ function App() {
                           <Route path="/research/full" element={<ResearchPage />} />
                           <Route path="/linkedin/connect" element={<LinkedInConnectPage />} />
                           <Route path="/cold-call" element={<ColdCallPage />} />
+                          <Route path="/linkedin" element={<LinkedInPage />} />
                           <Route path="/research/admin" element={<ResearchAdminPage />} />
                           <Route path="/campaigns" element={<CampaignsPage />} />
                           <Route path="/campaigns/drip/new" element={<CampaignEditorPage />} />

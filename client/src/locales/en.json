@@ -477,6 +477,7 @@
         "research": "Research",
         "companyKnowledge": "Company Knowledge",
         "coldCall": "Cold Call",
+        "linkedin": "LinkedIn",
         "researchAdmin": "Research COGS",
         "campaigns": "Campaigns",
         "import": "Import",
@@ -708,6 +709,7 @@
             "emptyDraft": "(empty)"
         },
         "linkedin": {
+            "subtitle": "Reach your leads on LinkedIn — connect accounts, run campaigns and manage replies.",
             "heading": "LinkedIn Accounts",
             "connect": "Connect account",
             "tokenIssued": "Pairing link opened — capture your session in the extension.",

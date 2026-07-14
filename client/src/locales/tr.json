@@ -477,6 +477,7 @@
         "research": "Araştırma",
         "companyKnowledge": "Şirket Bilgisi",
         "coldCall": "Cold Call",
+        "linkedin": "LinkedIn",
         "researchAdmin": "Araştırma COGS",
         "campaigns": "Kampanyalar",
         "import": "İçe Aktar",
@@ -708,6 +709,7 @@
             "emptyDraft": "(boş)"
         },
         "linkedin": {
+            "subtitle": "Lead'lerinize LinkedIn'den ulaşın — hesap bağlayın, kampanya kurun ve yanıtları yönetin.",
             "heading": "LinkedIn Hesapları",
             "connect": "Hesap bağla",
             "tokenIssued": "Eşleme bağlantısı açıldı — oturumunuzu uzantıda yakalayın.",

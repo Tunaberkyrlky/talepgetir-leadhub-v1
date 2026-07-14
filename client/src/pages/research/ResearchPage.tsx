@@ -9,7 +9,7 @@ import {
     Container, Title, Text, Paper, Stack, Group, TextInput, Textarea, TagsInput,
     NumberInput, Button, Loader, Alert, SimpleGrid, Badge, Tabs, Divider,
 } from '@mantine/core';
-import { IconSparkles, IconInfoCircle, IconBuildingSkyscraper, IconTargetArrow, IconFileSpreadsheet, IconBrandLinkedin, IconWorldPin, IconUserSearch, IconBarcode } from '@tabler/icons-react';
+import { IconSparkles, IconInfoCircle, IconBuildingSkyscraper, IconTargetArrow, IconFileSpreadsheet, IconWorldPin, IconUserSearch, IconBarcode } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -23,7 +23,6 @@ import OffersPanel from '../../components/research/OffersPanel';
 import HsCodesPanel from '../../components/research/HsCodesPanel';
 import TradeImportsPanel from '../../components/research/TradeImportsPanel';
 import EnrichmentPanel from '../../components/research/EnrichmentPanel';
-import LinkedInPanel from '../../components/linkedin/LinkedInPanel';
 import { useAuth } from '../../contexts/AuthContext';
 import {
     latestResearchProjectQueryKey,
@@ -41,7 +40,7 @@ interface ResearchJob {
 
 const JOB_RUNNING = (s?: string) => s === 'queued' || s === 'running';
 
-const RESEARCH_TABS = ['icp', 'hs', 'geographies', 'offers', 'companies', 'enrichment', 'trade', 'linkedin'];
+const RESEARCH_TABS = ['icp', 'hs', 'geographies', 'offers', 'companies', 'enrichment', 'trade'];
 
 function asStringArray(v: unknown): string[] {
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
@@ -59,8 +58,7 @@ export default function ResearchPage() {
     const { t } = useTranslation();
     const qc = useQueryClient();
     const { activeTenantId } = useAuth();
-    // URL-controlled active tab (?tab=…) so the LinkedIn connect page can deep-link
-    // back to a specific tab after a session is captured (no manual reload/click).
+    // URL-controlled active tab (?tab=…).
     const [searchParams, setSearchParams] = useSearchParams();
     const tabParam = searchParams.get('tab');
     const activeTab = tabParam && RESEARCH_TABS.includes(tabParam) ? tabParam : 'icp';
@@ -68,8 +66,6 @@ export default function ResearchPage() {
         setSearchParams((prev) => {
             const next = new URLSearchParams(prev);
             if (value && value !== 'icp') next.set('tab', value); else next.delete('tab');
-            // Sub-tab is tab-specific; drop it when switching top-level tabs.
-            if (value !== 'linkedin') next.delete('sub');
             return next;
         }, { replace: true });
     };
@@ -297,9 +293,6 @@ export default function ResearchPage() {
                         <Tabs.Tab value="trade" leftSection={<IconFileSpreadsheet size={16} />}>
                             {t('research.tabs.trade', 'Customs data')}
                         </Tabs.Tab>
-                        <Tabs.Tab value="linkedin" leftSection={<IconBrandLinkedin size={16} />}>
-                            {t('research.tabs.linkedin', 'LinkedIn')}
-                        </Tabs.Tab>
                     </Tabs.List>
 
                     <Tabs.Panel value="hs"><HsCodesPanel /></Tabs.Panel>
@@ -322,10 +315,6 @@ export default function ResearchPage() {
 
                     <Tabs.Panel value="trade">
                         <TradeImportsPanel />
-                    </Tabs.Panel>
-
-                    <Tabs.Panel value="linkedin">
-                        <LinkedInPanel />
                     </Tabs.Panel>
 
                     <Tabs.Panel value="icp">
