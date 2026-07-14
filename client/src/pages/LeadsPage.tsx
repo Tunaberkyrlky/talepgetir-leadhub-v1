@@ -63,6 +63,8 @@ import {
     IconDeviceFloppy,
     IconBookmark,
     IconShare,
+    IconArchive,
+    IconArchiveOff,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { DatePickerInput } from '@mantine/dates';
@@ -84,6 +86,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import api from '../lib/api';
+import { invalidateCompanyArchiveCaches } from '../lib/archiveCache';
 import { localizeCountry } from '../lib/countryNamesTr';
 import { useAuth } from '../contexts/AuthContext';
 import { canWrite } from '../lib/permissions';
@@ -124,6 +127,8 @@ interface Company {
     updated_at: string;
     latitude: number | null;
     contact_count: number;
+    archived_at: string | null;
+    archived_by: string | null;
 }
 
 interface PaginatedResponse {
@@ -469,6 +474,10 @@ export default function LeadsPage() {
     const searchRef = useRef<HTMLInputElement>(null);
     const undoStack = useUndoStack();
     const [deleteModalCompany, setDeleteModalCompany] = useState<Company | null>(null);
+    const [archiveModalCompany, setArchiveModalCompany] = useState<Company | null>(null);
+    // Active vs. archived listing. Archived rows are hidden from the default view and
+    // shown (with a one-tap Restore) only when this switch is set to 'archived'.
+    const [viewMode, setViewMode] = useState<'active' | 'archived'>('active');
     const [closingReportTarget, setClosingReportTarget] = useState<{
         companyId: string;
         companyName: string;
@@ -539,7 +548,8 @@ export default function LeadsPage() {
         if (ownerFilter) params.set('owner', ownerFilter);
         if (dateParams?.dateFrom) params.set('dateFrom', dateParams.dateFrom);
         if (dateParams?.dateTo) params.set('dateTo', dateParams.dateTo);
-    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, dateParams]);
+        if (viewMode === 'archived') params.set('archived', 'only');
+    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, dateParams, viewMode]);
 
     // Build query params (moved up so useQuery can be before handleRowSelect)
     const buildQueryParams = useCallback(() => {
@@ -554,7 +564,7 @@ export default function LeadsPage() {
 
     // Fetch companies (moved up so data is available for handleRowSelect and useHotkeys)
     const { data, isLoading, error } = useQuery<PaginatedResponse>({
-        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, sortBy, sortOrder, dateParams],
+        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, sortBy, sortOrder, dateParams, viewMode],
         queryFn: async () => {
             const res = await api.get(`/companies?${buildQueryParams()}`);
             return res.data;
@@ -635,7 +645,7 @@ export default function LeadsPage() {
     // Clear selection when page/filters change
     useEffect(() => {
         setSelectedIds(new Set());
-    }, [page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter]);
+    }, [page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, viewMode]);
 
     // Bulk stage update mutation with undo support
     const columnLabels: Record<ColumnKey, string> = {
@@ -701,7 +711,7 @@ export default function LeadsPage() {
     // Reset page when filters change
     useEffect(() => {
         setPage(1);
-    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter]);
+    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, viewMode]);
 
     useEffect(() => {
         setPage(1);
@@ -740,11 +750,39 @@ export default function LeadsPage() {
         },
     });
 
+    // Archive mutation — the default "remove from view" action (reversible, keeps all data).
+    const archiveMutation = useMutation({
+        mutationFn: async (id: string) => {
+            await api.post(`/companies/${id}/archive`);
+        },
+        onSuccess: () => {
+            invalidateCompanyArchiveCaches(queryClient);
+            showSuccess(t('archive.archived'));
+            setArchiveModalCompany(null);
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    // Restore an archived company back into the active view (one tap, no confirm).
+    const unarchiveMutation = useMutation({
+        mutationFn: async (id: string) => {
+            await api.post(`/companies/${id}/unarchive`);
+        },
+        onSuccess: () => {
+            invalidateCompanyArchiveCaches(queryClient);
+            showSuccess(t('archive.restored'));
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+
     const handleEdit = (company: Company) => { setEditingCompany(company); open(); };
     const handleCreate = () => { setEditingCompany(null); open(); };
     const handleFormClose = () => { setEditingCompany(null); close(); };
     const handleDelete = (company: Company) => {
         setDeleteModalCompany(company);
+    };
+    const handleArchive = (company: Company) => {
+        setArchiveModalCompany(company);
     };
 
     // Bulk owner (re)assignment for the current selection, with an undo that restores each
@@ -1666,6 +1704,19 @@ export default function LeadsPage() {
 
             {/* Search & Filters */}
             <Paper shadow="sm" radius="lg" p="md" mb="md" withBorder>
+                {/* Active vs. archived view switch */}
+                <Group mb="sm">
+                    <SegmentedControl
+                        size="xs"
+                        radius="md"
+                        value={viewMode}
+                        onChange={(v) => setViewMode(v as 'active' | 'archived')}
+                        data={[
+                            { label: t('archive.viewActive'), value: 'active' },
+                            { label: t('archive.viewArchived'), value: 'archived' },
+                        ]}
+                    />
+                </Group>
                 <Group grow>
                     <TextInput
                         ref={searchRef}
@@ -2074,6 +2125,27 @@ export default function LeadsPage() {
                                                         >
                                                             {t('company.editTitle')}
                                                         </Menu.Item>
+                                                        {viewMode === 'archived' ? (
+                                                            <Menu.Item
+                                                                leftSection={<IconArchiveOff size={14} />}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    unarchiveMutation.mutate(company.id);
+                                                                }}
+                                                            >
+                                                                {t('archive.restore')}
+                                                            </Menu.Item>
+                                                        ) : (
+                                                            <Menu.Item
+                                                                leftSection={<IconArchive size={14} />}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleArchive(company);
+                                                                }}
+                                                            >
+                                                                {t('archive.archive')}
+                                                            </Menu.Item>
+                                                        )}
                                                         {user?.role === 'superadmin' && (
                                                             <Menu.Item
                                                                 color="red"
@@ -2215,6 +2287,38 @@ export default function LeadsPage() {
                             onClick={handleSaveView}
                         >
                             {t('savedViews.create')}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
+
+            {/* Archive Confirm Modal (E9) */}
+            <Modal
+                opened={!!archiveModalCompany}
+                onClose={() => setArchiveModalCompany(null)}
+                title={t('archive.archiveTitle')}
+                radius="lg"
+                centered
+                size="sm"
+            >
+                <Stack gap="md">
+                    <Alert icon={<IconArchive size={16} />} color="violet" variant="light">
+                        <Text size="sm" fw={600}>{archiveModalCompany?.name}</Text>
+                        <Text size="sm" c="dimmed" mt={4}>
+                            {t('archive.archiveConfirmDesc')}
+                        </Text>
+                    </Alert>
+                    <Group justify="flex-end">
+                        <Button variant="default" onClick={() => setArchiveModalCompany(null)}>
+                            {t('common.cancel')}
+                        </Button>
+                        <Button
+                            color="violet"
+                            leftSection={<IconArchive size={14} />}
+                            loading={archiveMutation.isPending}
+                            onClick={() => archiveModalCompany && archiveMutation.mutate(archiveModalCompany.id)}
+                        >
+                            {t('archive.archive')}
                         </Button>
                     </Group>
                 </Stack>

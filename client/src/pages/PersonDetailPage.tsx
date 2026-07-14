@@ -16,6 +16,7 @@ import {
     Anchor,
     ActionIcon,
     Tooltip,
+    Alert,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -27,10 +28,14 @@ import {
     IconBuilding,
     IconUser,
     IconLanguage,
+    IconArchive,
+    IconArchiveOff,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import CallButton from '../components/coldcall/CallButton';
 import api from '../lib/api';
+import { showSuccess, showErrorFromApi } from '../lib/notifications';
+import { invalidateContactArchiveCaches } from '../lib/archiveCache';
 
 import { useAuth } from '../contexts/AuthContext';
 import { canWrite } from '../lib/permissions';
@@ -56,6 +61,7 @@ interface ContactDetail {
     is_primary: boolean;
     translations: { title?: string; translated_at?: string } | null;
     updated_at: string;
+    archived_at: string | null;
     companies: {
         id: string;
         name: string;
@@ -89,6 +95,24 @@ export default function PersonDetailPage() {
         onError: () => {
             // handled by interceptor
         },
+    });
+
+    // Archive / restore this contact (reversible; hides it from the default People list).
+    const archiveMutation = useMutation({
+        mutationFn: () => api.post(`/contacts/${id}/archive`),
+        onSuccess: () => {
+            invalidateContactArchiveCaches(queryClient);
+            showSuccess(t('archive.archived'));
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+    const unarchiveMutation = useMutation({
+        mutationFn: () => api.post(`/contacts/${id}/unarchive`),
+        onSuccess: () => {
+            invalidateContactArchiveCaches(queryClient);
+            showSuccess(t('archive.restored'));
+        },
+        onError: (err) => showErrorFromApi(err),
     });
 
     const { data, isLoading, error } = useQuery<{ data: ContactDetail }>({
@@ -161,8 +185,50 @@ export default function PersonDetailPage() {
                             {t('contact.editContact')}
                         </Button>
                     )}
+                    {userCanEdit && !contact.archived_at && (
+                        <Button
+                            leftSection={<IconArchive size={16} />}
+                            variant="light"
+                            color="gray"
+                            loading={archiveMutation.isPending}
+                            onClick={() => {
+                                if (window.confirm(t('archive.archiveContactConfirm'))) {
+                                    archiveMutation.mutate();
+                                }
+                            }}
+                        >
+                            {t('archive.archive')}
+                        </Button>
+                    )}
                 </Group>
             </Group>
+
+            {contact.archived_at && (
+                <Alert
+                    icon={<IconArchive size={18} />}
+                    color="violet"
+                    variant="light"
+                    radius="md"
+                    mb="md"
+                    title={t('archive.archivedBannerTitle')}
+                >
+                    <Group justify="space-between" align="center" wrap="nowrap">
+                        <Text size="sm" c="dimmed">{t('archive.archivedBannerDesc')}</Text>
+                        {userCanEdit && (
+                            <Button
+                                variant="light"
+                                color="violet"
+                                size="xs"
+                                leftSection={<IconArchiveOff size={14} />}
+                                loading={unarchiveMutation.isPending}
+                                onClick={() => unarchiveMutation.mutate()}
+                            >
+                                {t('archive.restore')}
+                            </Button>
+                        )}
+                    </Group>
+                </Alert>
+            )}
 
             <Stack gap="md">
                 {/* Identity card */}

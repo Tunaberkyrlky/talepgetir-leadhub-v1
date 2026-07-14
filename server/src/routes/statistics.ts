@@ -68,11 +68,13 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        // Build companies query with optional date filters
+        // Build companies query with optional date filters. Archived companies are
+        // excluded from the dashboard total so the top-line card matches the default list.
         let companiesQuery = supabaseAdmin
             .from('companies')
             .select('*', { count: 'exact', head: true })
-            .eq('tenant_id', tenantId);
+            .eq('tenant_id', tenantId)
+            .is('archived_at', null);
         if (dateFrom) companiesQuery = companiesQuery.gte('created_at', dateFrom);
         if (dateTo) companiesQuery = companiesQuery.lte('created_at', dateTo);
 
@@ -95,21 +97,23 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
 
         let totalContacts: number;
         if (dateFrom || dateTo) {
-            // Sum contact_count from date-filtered companies
+            // Sum contact_count from date-filtered companies (archived companies excluded)
             let contactQuery = supabaseAdmin
                 .from('companies')
                 .select('contact_count')
-                .eq('tenant_id', tenantId);
+                .eq('tenant_id', tenantId)
+                .is('archived_at', null);
             if (dateFrom) contactQuery = contactQuery.gte('created_at', dateFrom);
             if (dateTo) contactQuery = contactQuery.lte('created_at', dateTo);
             const { data: contactData } = await contactQuery;
             totalContacts = (contactData || []).reduce((sum, c) => sum + (c.contact_count || 0), 0);
         } else {
-            // Existing efficient head count on contacts table
+            // Existing efficient head count on contacts table (archived contacts excluded)
             const { count } = await supabaseAdmin
                 .from('contacts')
                 .select('*', { count: 'exact', head: true })
-                .eq('tenant_id', tenantId);
+                .eq('tenant_id', tenantId)
+                .is('archived_at', null);
             totalContacts = count ?? 0;
         }
 
@@ -298,10 +302,14 @@ router.get('/company-locations', requireTier('pro'), async (req: Request, res: R
             .filter((s) => s.stage_type === 'pipeline' || s.stage_type === 'terminal')
             .map((s) => s.slug);
 
+        // Archived companies are hidden from the globe map (both the plotted markers and
+        // the "missing coordinates" count). This endpoint is self-contained (no RPC), so
+        // filtering here stays internally consistent.
         let locationsQuery = supabaseAdmin
             .from('companies')
             .select('id, name, location, latitude, longitude, stage')
             .eq('tenant_id', tenantId)
+            .is('archived_at', null)
             .in('stage', mapStageSlugs)
             .not('latitude', 'is', null)
             .not('longitude', 'is', null)
@@ -315,6 +323,7 @@ router.get('/company-locations', requireTier('pro'), async (req: Request, res: R
                 .from('companies')
                 .select('*', { count: 'exact', head: true })
                 .eq('tenant_id', tenantId)
+                .is('archived_at', null)
                 .in('stage', mapStageSlugs)
                 .not('location', 'is', null)
                 .is('latitude', null)
@@ -507,11 +516,12 @@ router.get('/report/monthly', requireRole('superadmin', 'ops_agent', 'client_adm
             wonLostRes,
             emailsRes,
         ] = await Promise.all([
-            // A1: new contacts count
+            // A1: new contacts count (archived contacts excluded, matching the People list)
             supabaseAdmin
                 .from('contacts')
                 .select('*', { count: 'exact', head: true })
                 .eq('tenant_id', tenantId)
+                .is('archived_at', null)
                 .gte('created_at', dateFrom)
                 .lt('created_at', dateTo),
             // A3: new activities count
@@ -527,11 +537,13 @@ router.get('/report/monthly', requireRole('superadmin', 'ops_agent', 'client_adm
                 p_date_from: null,
                 p_date_to: null,
             }),
-            // C: companies with stage change in period (stage_changed_at within range)
+            // C: companies with stage change in period (stage_changed_at within range;
+            //    archived companies excluded)
             supabaseAdmin
                 .from('companies')
                 .select('name, stage, stage_changed_at, industry, location')
                 .eq('tenant_id', tenantId)
+                .is('archived_at', null)
                 .gte('stage_changed_at', dateFrom)
                 .lt('stage_changed_at', dateTo)
                 .order('stage_changed_at', { ascending: false })
@@ -546,11 +558,12 @@ router.get('/report/monthly', requireRole('superadmin', 'ops_agent', 'client_adm
                 .lt('occurred_at', dateTo)
                 .order('occurred_at', { ascending: false })
                 .limit(5000),
-            // E: won/lost
+            // E: won/lost (archived companies excluded)
             supabaseAdmin
                 .from('companies')
                 .select('name, stage, stage_changed_at, industry, location')
                 .eq('tenant_id', tenantId)
+                .is('archived_at', null)
                 .in('stage', ['won', 'lost'])
                 .gte('stage_changed_at', dateFrom)
                 .lt('stage_changed_at', dateTo)

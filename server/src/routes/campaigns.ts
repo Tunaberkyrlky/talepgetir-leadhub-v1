@@ -376,6 +376,11 @@ async function resolveAudience(tenantId: string, filters: AudienceFilters, limit
         .select('id, first_name, last_name, email, company_id, companies!inner(name, stage, industry)', { count: 'exact' })
         .eq('tenant_id', tenantId)
         .not('email', 'is', null)
+        // Archived contacts, and contacts whose parent company is archived, must never
+        // enter a campaign audience (preview or enroll). Both filters below apply to the
+        // inner-joined companies row and the contact itself.
+        .is('archived_at', null)
+        .is('companies.archived_at', null)
         .order('updated_at', { ascending: false })
         .limit(limit);
 

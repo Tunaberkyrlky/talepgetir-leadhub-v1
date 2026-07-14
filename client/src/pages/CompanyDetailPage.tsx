@@ -34,6 +34,7 @@ import {
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
 import { showSuccess, showError, showErrorFromApi } from '../lib/notifications';
+import { invalidateCompanyArchiveCaches, invalidateContactArchiveCaches } from '../lib/archiveCache';
 import {
     IconArrowLeft,
     IconPencil,
@@ -53,6 +54,8 @@ import {
     IconAlertCircle,
     IconChevronDown,
     IconEyeOff,
+    IconArchive,
+    IconArchiveOff,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
@@ -130,6 +133,8 @@ interface Company {
     translations: Record<string, string> | null;
     created_at: string;
     updated_at: string;
+    archived_at: string | null;
+    archived_by: string | null;
 }
 
 const DETAIL_FIELDS = [
@@ -171,12 +176,13 @@ interface ContactCardProps {
     onNavigate: (id: string) => void;
     onEdit: (contact: Contact) => void;
     onDelete: (contact: Contact) => void;
+    onArchive: (contact: Contact) => void;
     t: (key: string) => string;
     companyId?: string;
     companyName?: string;
 }
 
-function ContactCard({ contact, canEdit, isSuperadmin, onNavigate, onEdit, onDelete, t, companyId, companyName }: ContactCardProps) {
+function ContactCard({ contact, canEdit, isSuperadmin, onNavigate, onEdit, onDelete, onArchive, t, companyId, companyName }: ContactCardProps) {
     const href = safeUrl(contact.linkedin);
     return (
         <Card withBorder radius="md" p="md" style={{ cursor: 'pointer' }} onClick={() => onNavigate(contact.id)}>
@@ -247,6 +253,9 @@ function ContactCard({ contact, canEdit, isSuperadmin, onNavigate, onEdit, onDel
                             <Menu.Dropdown>
                                 <Menu.Item leftSection={<IconPencil size={14} />} onClick={() => onEdit(contact)}>
                                     {t('contact.editContact')}
+                                </Menu.Item>
+                                <Menu.Item leftSection={<IconArchive size={14} />} onClick={() => onArchive(contact)}>
+                                    {t('archive.archive')}
                                 </Menu.Item>
                                 {isSuperadmin && (
                                     <Menu.Item color="red" leftSection={<IconTrash size={14} />} onClick={() => onDelete(contact)}>
@@ -355,6 +364,42 @@ export default function CompanyDetailPage() {
         },
         onError: (err) => showErrorFromApi(err),
     });
+
+    // Archive / restore this company. Archiving hides it from the default list, pipeline
+    // and search (reversibly); restoring brings it straight back.
+    const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+    const archiveMutation = useMutation({
+        mutationFn: async () => api.post(`/companies/${id}/archive`),
+        onSuccess: () => {
+            invalidateCompanyArchiveCaches(queryClient);
+            setArchiveConfirmOpen(false);
+            showSuccess(t('archive.archived'));
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+    const unarchiveMutation = useMutation({
+        mutationFn: async () => api.post(`/companies/${id}/unarchive`),
+        onSuccess: () => {
+            invalidateCompanyArchiveCaches(queryClient);
+            showSuccess(t('archive.restored'));
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    // Archive a contact from the card list (reversible; restore from the People archive view).
+    const archiveContactMutation = useMutation({
+        mutationFn: async (contactId: string) => api.post(`/contacts/${contactId}/archive`),
+        onSuccess: () => {
+            invalidateContactArchiveCaches(queryClient);
+            showSuccess(t('archive.archived'));
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+    const handleArchiveContact = (contact: Contact) => {
+        if (window.confirm(t('archive.archiveContactConfirm'))) {
+            archiveContactMutation.mutate(contact.id);
+        }
+    };
 
     const { data: company, isLoading } = useQuery<Company>({
         queryKey: ['company', id],
@@ -586,8 +631,48 @@ export default function CompanyDetailPage() {
                             {t('company.editTitle')}
                         </Button>
                     )}
+                    {canEdit && !company?.archived_at && (
+                        <Button
+                            variant="light"
+                            color="gray"
+                            leftSection={<IconArchive size={16} />}
+                            radius="md"
+                            onClick={() => setArchiveConfirmOpen(true)}
+                        >
+                            {t('archive.archive')}
+                        </Button>
+                    )}
                 </Group>
             </Group>
+
+            {/* Archived banner — the company is hidden from default views until restored. */}
+            {company?.archived_at && (
+                <Alert
+                    icon={<IconArchive size={18} />}
+                    color="violet"
+                    variant="light"
+                    radius="lg"
+                    mb="lg"
+                    title={t('archive.archivedBannerTitle')}
+                >
+                    <Group justify="space-between" align="center" wrap="nowrap">
+                        <Text size="sm" c="dimmed">{t('archive.archivedBannerDesc')}</Text>
+                        {canEdit && (
+                            <Button
+                                variant="light"
+                                color="violet"
+                                size="xs"
+                                leftSection={<IconArchiveOff size={14} />}
+                                radius="md"
+                                loading={unarchiveMutation.isPending}
+                                onClick={() => unarchiveMutation.mutate()}
+                            >
+                                {t('archive.restore')}
+                            </Button>
+                        )}
+                    </Group>
+                </Alert>
+            )}
 
             {/* Company Header */}
             <Paper shadow="sm" radius="lg" p="xl" withBorder mb="lg">
@@ -964,6 +1049,7 @@ export default function CompanyDetailPage() {
                                 onNavigate: (cid: string) => navigate(`/people/${cid}`),
                                 onEdit: handleEditContact,
                                 onDelete: setDeleteContactTarget,
+                                onArchive: handleArchiveContact,
                                 t,
                                 companyId: company.id,
                                 companyName: company.name,
@@ -1209,6 +1295,36 @@ export default function CompanyDetailPage() {
                 </Stack>
             </Modal>
         )}
+        <Modal
+            opened={archiveConfirmOpen}
+            onClose={() => setArchiveConfirmOpen(false)}
+            title={t('archive.archiveTitle')}
+            radius="lg"
+            centered
+            size="sm"
+        >
+            <Stack gap="md">
+                <Alert icon={<IconArchive size={16} />} color="violet" variant="light">
+                    <Text size="sm" fw={600}>{company?.name}</Text>
+                    <Text size="sm" c="dimmed" mt={4}>
+                        {t('archive.archiveConfirmDesc')}
+                    </Text>
+                </Alert>
+                <Group justify="flex-end">
+                    <Button variant="default" onClick={() => setArchiveConfirmOpen(false)}>
+                        {t('common.cancel')}
+                    </Button>
+                    <Button
+                        color="violet"
+                        leftSection={<IconArchive size={14} />}
+                        loading={archiveMutation.isPending}
+                        onClick={() => archiveMutation.mutate()}
+                    >
+                        {t('archive.archive')}
+                    </Button>
+                </Group>
+            </Stack>
+        </Modal>
         {closingReportTarget && (
             <ClosingReportModal
                 opened={true}

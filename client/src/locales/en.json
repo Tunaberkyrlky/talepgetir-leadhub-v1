@@ -2707,5 +2707,18 @@
         "recentsEmpty": "Nothing viewed recently.",
         "addFavorite": "Add to favorites",
         "removeFavorite": "Remove from favorites"
+    },
+    "archive": {
+        "archive": "Archive",
+        "restore": "Restore",
+        "archived": "Archived",
+        "restored": "Restored",
+        "viewActive": "Active",
+        "viewArchived": "Archived",
+        "archiveTitle": "Archive Company",
+        "archiveConfirmDesc": "This company will be archived and hidden from the default list, pipeline and search. You can restore it anytime, nothing is deleted.",
+        "archiveContactConfirm": "Archive this contact? You can restore it anytime.",
+        "archivedBannerTitle": "Archived",
+        "archivedBannerDesc": "This record is archived and hidden from the default views. Restore it to bring it back."
     }
 }

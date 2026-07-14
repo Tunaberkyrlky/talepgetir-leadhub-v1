@@ -15,12 +15,14 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         const allStages = await getTenantStages(tenantId);
         const stages = allStages.map((s) => s.slug);
 
-        // Get distinct industries, locations, products, countries in parallel
+        // Get distinct industries, locations, products, countries in parallel.
+        // Archived companies are excluded so their values don't linger in filter dropdowns.
         const [industryRes, locationRes, productRes, countryRes] = await Promise.all([
             supabaseAdmin
                 .from('companies')
                 .select('industry')
                 .eq('tenant_id', tenantId)
+                .is('archived_at', null)
                 .not('industry', 'is', null)
                 .neq('industry', '')
                 .limit(5000),
@@ -28,6 +30,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
                 .from('companies')
                 .select('location')
                 .eq('tenant_id', tenantId)
+                .is('archived_at', null)
                 .not('location', 'is', null)
                 .neq('location', '')
                 .limit(5000),
@@ -35,12 +38,14 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
                 .from('companies')
                 .select('product_services')
                 .eq('tenant_id', tenantId)
+                .is('archived_at', null)
                 .not('product_services', 'is', null)
                 .limit(5000),
             supabaseAdmin
                 .from('companies')
                 .select('country')
                 .eq('tenant_id', tenantId)
+                .is('archived_at', null)
                 .not('country', 'is', null)
                 .neq('country', '')
                 .limit(5000),

@@ -7,6 +7,8 @@ import { translateTexts } from '../lib/deepl.js';
 import { validateBody, createContactSchema, updateContactSchema, BUYING_ROLES, RELATIONSHIP_STATUSES } from '../lib/validation.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
+import { isMissingFunctionError, isMissingColumnError } from '../lib/supabaseErrors.js';
+import { invalidateOverviewCache } from './statistics.js';
 import posthog from '../lib/posthog.js';
 
 const log = createLogger('route:contacts');
@@ -29,14 +31,35 @@ router.get('/filter-options', async (req: Request, res: Response, next: NextFunc
         // Use RPC for seniorities + countries: single query with SQL DISTINCT,
         // far more efficient than fetching all rows and deduplicating in JS.
         // Companies are fetched separately since we need id+name pairs, not just distinct values.
-        const [filterRes, companyRes] = await Promise.all([
-            supabaseAdmin.rpc('get_contact_filter_options', { p_tenant_id: tenantId }),
+        let [filterRes, companyRes] = await Promise.all([
+            // Archive-aware RPC (migration 137) derives seniority/country options from
+            // ACTIVE contacts only. Falls back to the pre-137 RPC (which counts all
+            // contacts) if the new function is missing.
+            supabaseAdmin.rpc('get_contact_filter_options_archive', { p_tenant_id: tenantId }),
             dbClient(req)
                 .from('companies')
                 .select('id, name')
                 .eq('tenant_id', tenantId)
+                .is('archived_at', null) // company dropdown lists active companies only
                 .order('name'),
         ]);
+
+        if (filterRes.error && isMissingFunctionError(filterRes.error)) {
+            log.warn({ err: filterRes.error }, 'get_contact_filter_options_archive missing (migration 137 pending); falling back to get_contact_filter_options');
+            filterRes = await supabaseAdmin.rpc('get_contact_filter_options', { p_tenant_id: tenantId });
+        }
+
+        // Pre-137 DB: companies.archived_at doesn't exist yet, so the `.is('archived_at', null)`
+        // filter above errors and the companies dropdown comes back EMPTY (companyRes.error set,
+        // data null). Retry archived_at-free so the dropdown still lists every company.
+        if (companyRes.error && isMissingColumnError(companyRes.error, 'archived_at')) {
+            log.warn({ err: companyRes.error }, 'companies.archived_at missing (migration 137 pending); listing all companies for the filter dropdown');
+            companyRes = await dbClient(req)
+                .from('companies')
+                .select('id, name')
+                .eq('tenant_id', tenantId)
+                .order('name');
+        }
 
         if (filterRes.error) {
             log.error({ err: filterRes.error }, 'get_contact_filter_options RPC error');
@@ -63,6 +86,9 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const tenantId = req.tenantId!;
         const companyId = req.query.company_id as string | undefined;
 
+        // Archive view: default hides archived contacts; ?archived=only returns only them.
+        const archivedOnly = (req.query.archived as string || '').trim() === 'only';
+
         const db = dbClient(req);
 
         // When fetching for a company detail page (company_id provided), simple ordered list
@@ -70,11 +96,15 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(companyId)) {
                 res.status(400).json({ error: 'Invalid company ID' }); return;
             }
-            const { data, error } = await db
+            let byCompanyQuery = db
                 .from('contacts')
                 .select('*')
                 .eq('tenant_id', tenantId)
-                .eq('company_id', companyId)
+                .eq('company_id', companyId);
+            byCompanyQuery = archivedOnly
+                ? byCompanyQuery.not('archived_at', 'is', null)
+                : byCompanyQuery.is('archived_at', null);
+            const { data, error } = await byCompanyQuery
                 .order('is_primary', { ascending: false })
                 .order('created_at', { ascending: true });
 
@@ -141,7 +171,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         // → first/last prefix → contains across first/last/email → title contains.
         if (search.length > 0) {
             const safe = sanitizeSearch(search);
-            const { data: rows, error: rpcErr } = await db.rpc('search_contacts', {
+            const searchParams = {
                 p_tenant_id:   tenantId,
                 p_search:      safe,
                 p_company_ids: filterCompanyIds.length > 0 ? filterCompanyIds : null,
@@ -149,7 +179,21 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                 p_countries:   filterCountries.length > 0 ? filterCountries : null,
                 p_limit:       limit,
                 p_offset:      offset,
+            };
+
+            // Primary path: archive-aware RPC (migration 137) pushes the archive predicate
+            // into the WHERE before pagination, so pages/totals are archive-correct (incl.
+            // ?archived=only). Falls back to search_contacts + in-page filter if missing.
+            let usedArchiveRpc = true;
+            let { data: rows, error: rpcErr } = await db.rpc('search_contacts_archive', {
+                ...searchParams,
+                p_archived_only: archivedOnly,
             });
+            if (rpcErr && isMissingFunctionError(rpcErr)) {
+                log.warn({ err: rpcErr }, 'search_contacts_archive missing (migration 137 pending); falling back to search_contacts + in-page archive filter');
+                usedArchiveRpc = false;
+                ({ data: rows, error: rpcErr } = await db.rpc('search_contacts', searchParams));
+            }
 
             if (rpcErr) {
                 log.error({ err: rpcErr }, 'search_contacts RPC failed');
@@ -165,12 +209,42 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                 created_at: string; updated_at: string; total_count: number;
             }>;
             const total = list.length > 0 ? Number(list[0].total_count) : 0;
-            const data = list.map(({ total_count: _ignore, company_name, company_stage, company_id, ...rest }) => ({
+            let data = list.map(({ total_count: _ignore, company_name, company_stage, company_id, ...rest }) => ({
                 ...rest,
                 company_id,
                 companies: company_id ? { id: company_id, name: company_name, stage: company_stage } : null,
             }));
             const totalPages = Math.ceil(total / limit);
+
+            // In-page archive filter is ONLY needed on the fallback path (search_contacts_archive
+            // already filtered server-side). search_contacts (migration 037) neither returns nor
+            // filters archived_at, so identify the archived rows on THIS page with a lightweight id
+            // lookup and drop them (default) or keep only them (?archived=only). On the fallback,
+            // total_count can slightly over-count archived matches — an accepted edge.
+            if (!usedArchiveRpc && data.length > 0) {
+                const pageIds = data.map((r) => r.id);
+                const { data: archRows, error: archErr } = await db
+                    .from('contacts')
+                    .select('id')
+                    .eq('tenant_id', tenantId)
+                    .in('id', pageIds)
+                    .not('archived_at', 'is', null);
+                // Pre-137 DB: this fallback only runs because search_contacts_archive was
+                // missing — so migration 137 hasn't landed and archived_at doesn't exist. A
+                // missing-column error means "archive feature off": skip filtering (all rows
+                // stay, ?archived is a no-op) rather than 500. Any OTHER error is a real fault.
+                if (archErr && !isMissingColumnError(archErr, 'archived_at')) {
+                    log.error({ err: archErr }, 'search_contacts archive filter failed');
+                    res.status(500).json({ error: 'Failed to search contacts' });
+                    return;
+                }
+                if (!archErr) {
+                    const archivedSet = new Set((archRows ?? []).map((r) => r.id));
+                    data = archivedOnly
+                        ? data.filter((r) => archivedSet.has(r.id))
+                        : data.filter((r) => !archivedSet.has(r.id));
+                }
+            }
 
             res.json({
                 data,
@@ -192,11 +266,13 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             .select(
                 `id, first_name, last_name, email, phone_e164, title, country, seniority,
                  buying_role, relationship_status, preferred_channel,
-                 is_primary, linkedin, created_at, updated_at,
+                 is_primary, linkedin, created_at, updated_at, archived_at,
                  companies(id, name, stage)`,
                 { count: 'exact' }
             )
             .eq('tenant_id', tenantId);
+
+        query = archivedOnly ? query.not('archived_at', 'is', null) : query.is('archived_at', null);
 
         if (filterCompanyIds.length > 0) query = query.in('company_id', filterCompanyIds);
         if (filterSeniorities.length > 0) query = query.in('seniority', filterSeniorities);
@@ -497,6 +573,83 @@ router.post(
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Translate contact error');
             res.status(500).json({ error: 'Translation failed' });
+        }
+    }
+);
+
+// POST /api/contacts/:id/archive — Soft-archive a contact (reversible; hides it from the
+// default People list + company detail card list). UI default instead of delete.
+router.post(
+    '/:id/archive',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { data, error } = await supabaseAdmin
+                .from('contacts')
+                .update({ archived_at: new Date().toISOString(), archived_by: req.user!.id })
+                .eq('id', req.params.id)
+                .eq('tenant_id', req.tenantId!)
+                .select()
+                .maybeSingle();
+
+            if (error) throw new AppError('Failed to archive contact', 500);
+            if (!data) {
+                res.status(404).json({ error: 'Contact not found' });
+                return;
+            }
+
+            // Archiving a contact changes companies.contact_count (trigger) and the
+            // dashboard contact totals, so drop the cached overview for this tenant.
+            invalidateOverviewCache(req.tenantId!);
+
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'contact_archived',
+                properties: { contact_id: req.params.id, tenant_id: req.tenantId! },
+            });
+            res.json({ data });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Archive contact error');
+            res.status(500).json({ error: 'Failed to archive contact' });
+        }
+    }
+);
+
+// POST /api/contacts/:id/unarchive — Restore an archived contact (one-tap undo).
+router.post(
+    '/:id/unarchive',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { data, error } = await supabaseAdmin
+                .from('contacts')
+                .update({ archived_at: null, archived_by: null })
+                .eq('id', req.params.id)
+                .eq('tenant_id', req.tenantId!)
+                .select()
+                .maybeSingle();
+
+            if (error) throw new AppError('Failed to restore contact', 500);
+            if (!data) {
+                res.status(404).json({ error: 'Contact not found' });
+                return;
+            }
+
+            // Restoring re-adds the contact to companies.contact_count and the dashboard
+            // totals, so drop the cached overview for this tenant.
+            invalidateOverviewCache(req.tenantId!);
+
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'contact_unarchived',
+                properties: { contact_id: req.params.id, tenant_id: req.tenantId! },
+            });
+            res.json({ data });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Unarchive contact error');
+            res.status(500).json({ error: 'Failed to restore contact' });
         }
     }
 );

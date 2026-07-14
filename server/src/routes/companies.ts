@@ -11,7 +11,7 @@ import { resolveUsers, ownerDisplayName } from '../lib/userResolver.js';
 import { parseList } from '../lib/parseList.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
-import { isMissingFunctionError } from '../lib/supabaseErrors.js';
+import { isMissingFunctionError, isMissingColumnError } from '../lib/supabaseErrors.js';
 import { getValidStageSlugs, getPipelineStageSlugs, getTerminalStageSlugs, getTenantStages } from './settings.js';
 import { invalidateOverviewCache, invalidatePipelineStatsCache } from './statistics.js';
 import posthog from '../lib/posthog.js';
@@ -235,6 +235,10 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const countries = (req.query.country as string || '').split(',').map(c => c.trim()).filter(Boolean);
         const products = (req.query.products as string || '').split(',').filter(Boolean);
 
+        // Archive view: the default listing hides archived rows (archived_at IS NULL);
+        // ?archived=only returns ONLY archived rows (the "Arşiv" view + restore flow).
+        const archivedOnly = (req.query.archived as string || '').trim() === 'only';
+
         // Owner filter: 'me' (current user), 'unassigned' (assigned_to IS NULL), or a member UUID.
         // Resolved to a concrete predicate once, then applied to the no-search path below.
         const ownerParam = (req.query.owner as string || '').trim();
@@ -308,19 +312,34 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
                   }
                 : {};
 
-            let { data: rows, error: rpcErr } = await db.rpc('search_companies', { ...baseParams, ...ownerParams });
-
-            // Pre-118 DB: the owner-param overload doesn't exist yet, so the RPC rejects the
-            // extra args with a missing-function/signature error. ONLY then retry owner-less
-            // so search still returns — the owner filter temporarily no-ops (surfaced to the
-            // client via owner_filter_dropped) until migration 118 lands. Any OTHER error
-            // (permission, generic DB fault) must NOT be masked by an owner-less retry — it
-            // falls through to the 500 below.
+            // Primary path: archive-aware RPC (migration 137) pushes the archive predicate
+            // INTO the WHERE before count(*) OVER() + LIMIT/OFFSET, so pages and totals are
+            // archive-correct even for ?archived=only. It also carries the owner params, so a
+            // single call covers both filters.
             let ownerFilterDropped = false;
-            if (rpcErr && ownerFilter && isMissingFunctionError(rpcErr)) {
-                log.warn({ err: rpcErr }, 'search_companies owner params rejected (missing function/signature); retrying owner-less (migration 118 pending)');
-                ({ data: rows, error: rpcErr } = await db.rpc('search_companies', baseParams));
-                ownerFilterDropped = true;
+            let usedArchiveRpc = true;
+            let { data: rows, error: rpcErr } = await db.rpc('search_companies_archive', {
+                ...baseParams,
+                ...ownerParams,
+                p_archived_only: archivedOnly,
+            });
+
+            // Pre-137 DB: the _archive RPC doesn't exist yet. Fall back to the shared
+            // search_companies RPC + in-page archive filter (the old behavior). This is the
+            // ONLY case where the page/total can be a slight over-count for archived matches.
+            if (rpcErr && isMissingFunctionError(rpcErr)) {
+                log.warn({ err: rpcErr }, 'search_companies_archive missing (migration 137 pending); falling back to search_companies + in-page archive filter');
+                usedArchiveRpc = false;
+                ({ data: rows, error: rpcErr } = await db.rpc('search_companies', { ...baseParams, ...ownerParams }));
+
+                // Pre-118 DB: the owner-param overload doesn't exist either, so retry owner-less
+                // so search still returns (owner filter temporarily no-ops, surfaced via
+                // owner_filter_dropped). Any OTHER error falls through to the 500 below.
+                if (rpcErr && ownerFilter && isMissingFunctionError(rpcErr)) {
+                    log.warn({ err: rpcErr }, 'search_companies owner params rejected (missing function/signature); retrying owner-less (migration 118 pending)');
+                    ({ data: rows, error: rpcErr } = await db.rpc('search_companies', baseParams));
+                    ownerFilterDropped = true;
+                }
             }
 
             if (rpcErr) {
@@ -330,8 +349,36 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
             const list = (rows ?? []) as Array<Record<string, unknown> & { total_count: number }>;
             const total = list.length > 0 ? Number(list[0].total_count) : 0;
-            const data = list.map(({ total_count: _ignore, ...rest }) => rest);
+            let data = list.map(({ total_count: _ignore, ...rest }) => rest);
             const totalPages = Math.ceil(total / limit);
+
+            // In-page archive filter is ONLY needed on the fallback path (the _archive RPC
+            // already filtered server-side). Identify the archived rows on THIS page with a
+            // lightweight id lookup and drop them (default) or keep only them (?archived=only).
+            if (!usedArchiveRpc && data.length > 0) {
+                const pageIds = data.map((r) => r.id as string);
+                const { data: archRows, error: archErr } = await db
+                    .from('companies')
+                    .select('id')
+                    .eq('tenant_id', tenantId)
+                    .in('id', pageIds)
+                    .not('archived_at', 'is', null);
+                // Pre-137 DB: this fallback only runs because search_companies_archive was
+                // missing — which means migration 137 hasn't landed, so archived_at doesn't
+                // exist either. A missing-column error therefore means "archive feature off":
+                // skip filtering (all rows stay, ?archived is a no-op) instead of 500ing. Any
+                // OTHER error is a genuine fault and must surface.
+                if (archErr && !isMissingColumnError(archErr, 'archived_at')) {
+                    log.error({ err: archErr }, 'search_companies archive filter failed');
+                    throw new AppError('Failed to search companies', 500);
+                }
+                if (!archErr) {
+                    const archivedSet = new Set((archRows ?? []).map((r) => r.id as string));
+                    data = archivedOnly
+                        ? data.filter((r) => archivedSet.has(r.id as string))
+                        : data.filter((r) => !archivedSet.has(r.id as string));
+                }
+            }
 
             // Enrich owners so the owner NAME shows and no raw UUID leaks. The owner
             // FILTER itself runs inside the RPC (migration 118); on a pre-118 DB the
@@ -364,8 +411,17 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         let dataQuery = db
             .from('companies')
-            .select('id, name, website, location, latitude, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at')
+            .select('id, name, website, location, latitude, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at, archived_at, archived_by')
             .eq('tenant_id', tenantId);
+
+        // Archive filter: default hides archived rows; ?archived=only shows only them.
+        if (archivedOnly) {
+            countQuery = countQuery.not('archived_at', 'is', null);
+            dataQuery = dataQuery.not('archived_at', 'is', null);
+        } else {
+            countQuery = countQuery.is('archived_at', null);
+            dataQuery = dataQuery.is('archived_at', null);
+        }
 
         // (search handled via RPC in the ranked path above — no ILIKE here)
 
@@ -509,6 +565,8 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
             .from('companies')
             .select('id, name, industry, stage, next_step, company_summary, updated_at, stage_changed_at, contact_count, assigned_to')
             .eq('tenant_id', tenantId)
+            // The pipeline board never shows archived companies (no archive view here).
+            .is('archived_at', null)
             .in('stage', pipelineStages);
 
         if (search) {
@@ -606,6 +664,7 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
             .from('companies')
             .select('id, name, industry, stage, next_step, company_summary, updated_at, stage_changed_at, contact_count')
             .eq('tenant_id', tenantId)
+            .is('archived_at', null)
             .in('stage', terminalStages)
             .order('updated_at', { ascending: false });
 
@@ -686,12 +745,14 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
             return;
         }
 
-        // Fetch contacts for this company
+        // Fetch contacts for this company (archived contacts are hidden from the card list;
+        // they can be restored from the People archive view).
         const { data: contacts } = await db
             .from('contacts')
             .select('*')
             .eq('company_id', id)
             .eq('tenant_id', tenantId)
+            .is('archived_at', null)
             .order('is_primary', { ascending: false })
             .order('created_at', { ascending: true });
 
@@ -1584,6 +1645,87 @@ router.post(
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Translate company error');
             res.status(500).json({ error: 'Translation failed' });
+        }
+    }
+);
+
+// POST /api/companies/:id/archive — Soft-archive a company (reversible; hides it from the
+// default list / pipeline / search). This is the UI default instead of delete; the
+// permanent DELETE below stays as a superadmin-only edge path.
+router.post(
+    '/:id/archive',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { id } = req.params;
+
+            const { data, error } = await supabaseAdmin
+                .from('companies')
+                .update({ archived_at: new Date().toISOString(), archived_by: req.user!.id })
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .select()
+                .maybeSingle();
+
+            if (error) throw new AppError('Failed to archive company', 500);
+            if (!data) {
+                res.status(404).json({ error: 'Company not found' });
+                return;
+            }
+
+            // Archived rows drop out of pipeline + overview totals — refresh the caches.
+            invalidateOverviewCache(tenantId);
+            invalidatePipelineStatsCache(tenantId);
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'company_archived',
+                properties: { company_id: id, tenant_id: tenantId },
+            });
+            res.json({ data });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Archive company error');
+            res.status(500).json({ error: 'Failed to archive company' });
+        }
+    }
+);
+
+// POST /api/companies/:id/unarchive — Restore an archived company (one-tap undo).
+router.post(
+    '/:id/unarchive',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const tenantId = req.tenantId!;
+            const { id } = req.params;
+
+            const { data, error } = await supabaseAdmin
+                .from('companies')
+                .update({ archived_at: null, archived_by: null })
+                .eq('id', id)
+                .eq('tenant_id', tenantId)
+                .select()
+                .maybeSingle();
+
+            if (error) throw new AppError('Failed to restore company', 500);
+            if (!data) {
+                res.status(404).json({ error: 'Company not found' });
+                return;
+            }
+
+            invalidateOverviewCache(tenantId);
+            invalidatePipelineStatsCache(tenantId);
+            posthog.capture({
+                distinctId: req.user!.id,
+                event: 'company_unarchived',
+                properties: { company_id: id, tenant_id: tenantId },
+            });
+            res.json({ data });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Unarchive company error');
+            res.status(500).json({ error: 'Failed to restore company' });
         }
     }
 );

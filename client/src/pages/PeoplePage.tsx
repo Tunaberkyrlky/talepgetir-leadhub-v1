@@ -24,6 +24,7 @@ import {
     Popover,
     Checkbox,
     Divider,
+    SegmentedControl,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
@@ -43,6 +44,8 @@ import {
     IconMail,
     IconPhone,
     IconBrandLinkedin,
+    IconArchive,
+    IconArchiveOff,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -63,6 +66,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import api from '../lib/api';
+import { invalidateContactArchiveCaches } from '../lib/archiveCache';
 import { useAuth } from '../contexts/AuthContext';
 import { canDelete, canWrite } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
@@ -88,6 +92,7 @@ interface Contact {
     company_id: string;
     created_at: string;
     updated_at: string;
+    archived_at: string | null;
     companies: { id: string; name: string; stage: string } | null;
 }
 
@@ -257,6 +262,8 @@ export default function PeoplePage() {
     const [filterSeniorities, setFilterSeniorities] = useState<string[]>([]);
     const [filterCountries, setFilterCountries] = useState<string[]>([]);
     const [filterBuyingRoles, setFilterBuyingRoles] = useState<string[]>([]);
+    // Active vs. archived contact listing (archived rows hidden from the default view).
+    const [viewMode, setViewMode] = useState<'active' | 'archived'>('active');
 
     const [formOpened, { open: openForm, close: closeForm }] = useDisclosure(false);
     const [editContact, setEditContact] = useState<Contact | null>(null);
@@ -317,7 +324,7 @@ export default function PeoplePage() {
     // Reset page when filters change
     useEffect(() => {
         setPage(1);
-    }, [debouncedSearch, filterCompanies, filterSeniorities, filterCountries, filterBuyingRoles]);
+    }, [debouncedSearch, filterCompanies, filterSeniorities, filterCountries, filterBuyingRoles, viewMode]);
 
     // Fetch filter options
     const { data: filterOptionsData } = useQuery<{ data: FilterOptions }>({
@@ -338,12 +345,13 @@ export default function PeoplePage() {
         if (filterSeniorities.length) params.set('seniorities', filterSeniorities.join(','));
         if (filterCountries.length) params.set('countries', filterCountries.join(','));
         if (filterBuyingRoles.length) params.set('buying_roles', filterBuyingRoles.join(','));
+        if (viewMode === 'archived') params.set('archived', 'only');
         return params.toString();
-    }, [page, sortBy, sortOrder, debouncedSearch, filterCompanies, filterSeniorities, filterCountries, filterBuyingRoles]);
+    }, [page, sortBy, sortOrder, debouncedSearch, filterCompanies, filterSeniorities, filterCountries, filterBuyingRoles, viewMode]);
 
     // Fetch contacts
     const { data, isLoading, error } = useQuery<PaginatedResponse>({
-        queryKey: ['people', page, debouncedSearch, sortBy, sortOrder, filterCompanies, filterSeniorities, filterCountries, filterBuyingRoles],
+        queryKey: ['people', page, debouncedSearch, sortBy, sortOrder, filterCompanies, filterSeniorities, filterCountries, filterBuyingRoles, viewMode],
         queryFn: async () => {
             const res = await api.get(`/contacts?${buildQueryParams()}`);
             return res.data;
@@ -360,6 +368,24 @@ export default function PeoplePage() {
         onError: (err) => {
             showErrorFromApi(err);
         },
+    });
+
+    // Archive / restore a contact (reversible; the default "remove from view" action).
+    const archiveMutation = useMutation({
+        mutationFn: (id: string) => api.post(`/contacts/${id}/archive`),
+        onSuccess: () => {
+            showSuccess(t('archive.archived'));
+            invalidateContactArchiveCaches(queryClient);
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+    const unarchiveMutation = useMutation({
+        mutationFn: (id: string) => api.post(`/contacts/${id}/unarchive`),
+        onSuccess: () => {
+            showSuccess(t('archive.restored'));
+            invalidateContactArchiveCaches(queryClient);
+        },
+        onError: (err) => showErrorFromApi(err),
     });
 
     const handleSort = (key: SortKey) => {
@@ -606,6 +632,19 @@ export default function PeoplePage() {
 
             {/* Search & Filters */}
             <Paper shadow="sm" radius="lg" p="md" mb="md" withBorder>
+                {/* Active vs. archived view switch */}
+                <Group mb="sm">
+                    <SegmentedControl
+                        size="xs"
+                        radius="md"
+                        value={viewMode}
+                        onChange={(v) => setViewMode(v as 'active' | 'archived')}
+                        data={[
+                            { label: t('archive.viewActive'), value: 'active' },
+                            { label: t('archive.viewArchived'), value: 'archived' },
+                        ]}
+                    />
+                </Group>
                 <Group grow>
                     <TextInput
                         placeholder={t('people.search')}
@@ -818,6 +857,29 @@ export default function PeoplePage() {
                                                         >
                                                             {t('contact.editContact')}
                                                         </Menu.Item>
+                                                        {viewMode === 'archived' ? (
+                                                            <Menu.Item
+                                                                leftSection={<IconArchiveOff size={14} />}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    unarchiveMutation.mutate(contact.id);
+                                                                }}
+                                                            >
+                                                                {t('archive.restore')}
+                                                            </Menu.Item>
+                                                        ) : (
+                                                            <Menu.Item
+                                                                leftSection={<IconArchive size={14} />}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    if (confirm(t('archive.archiveContactConfirm'))) {
+                                                                        archiveMutation.mutate(contact.id);
+                                                                    }
+                                                                }}
+                                                            >
+                                                                {t('archive.archive')}
+                                                            </Menu.Item>
+                                                        )}
                                                         {userCanDelete && (
                                                             <Menu.Item
                                                                 color="red"

@@ -2707,5 +2707,18 @@
         "recentsEmpty": "Yakın zamanda görüntülenen yok.",
         "addFavorite": "Favorilere ekle",
         "removeFavorite": "Favorilerden çıkar"
+    },
+    "archive": {
+        "archive": "Arşivle",
+        "restore": "Geri Al",
+        "archived": "Arşivlendi",
+        "restored": "Geri alındı",
+        "viewActive": "Aktif",
+        "viewArchived": "Arşiv",
+        "archiveTitle": "Şirketi Arşivle",
+        "archiveConfirmDesc": "Bu şirket arşivlenip varsayılan liste, pipeline ve aramadan gizlenecek. İstediğiniz zaman geri alabilirsiniz, hiçbir veri silinmez.",
+        "archiveContactConfirm": "Bu kişi arşivlensin mi? İstediğiniz zaman geri alabilirsiniz.",
+        "archivedBannerTitle": "Arşivde",
+        "archivedBannerDesc": "Bu kayıt arşivde ve varsayılan görünümlerde gizli. Geri almak için tekrar aktifleştirin."
     }
 }

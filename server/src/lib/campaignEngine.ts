@@ -402,6 +402,26 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                     failed++; continue;
                 }
 
+                // Archive guard: a contact (or its company) archived AFTER enrollment must
+                // not receive mail. Pause the enrollment (reversible, mirrors the campaign-
+                // inactive path) and skip — logged, never thrown. Unarchiving + re-activating
+                // the campaign resumes it.
+                const [archCt, archCo] = await Promise.all([
+                    supabaseAdmin.from('contacts').select('archived_at').eq('id', enrollment.contact_id).single(),
+                    supabaseAdmin.from('companies').select('archived_at').eq('id', enrollment.company_id).single(),
+                ]);
+                if (archCt.data?.archived_at || archCo.data?.archived_at) {
+                    log.info(
+                        { enrollmentId: enrollment.id, contactArchived: !!archCt.data?.archived_at, companyArchived: !!archCo.data?.archived_at },
+                        'Skipping send: contact or company archived — pausing enrollment',
+                    );
+                    await supabaseAdmin
+                        .from('campaign_enrollments')
+                        .update({ status: 'paused' })
+                        .eq('id', enrollment.id);
+                    continue;
+                }
+
                 // ── Gönderim penceresi + günlük limit kapıları ──────────
                 const settings = campaign.settings || {};
                 const tz = settings.timezone || DEFAULT_TZ;
