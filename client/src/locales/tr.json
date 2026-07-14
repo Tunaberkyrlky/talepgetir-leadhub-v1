@@ -2593,5 +2593,16 @@
         "hintNavigate": "gez",
         "hintSelect": "seç",
         "hintClose": "kapat"
+    },
+    "dealPipeline": {
+        "title": "Anlaşmalar",
+        "subtitle": "Pipeline aşamasına göre açık anlaşmalar",
+        "search": "Anlaşmalarda ara...",
+        "statusOpen": "Açık",
+        "unassigned": "Sahipsiz",
+        "empty": "Anlaşma yok",
+        "moved": "Anlaşma aşaması güncellendi",
+        "moveError": "Anlaşma taşınamadı",
+        "loadError": "Anlaşmalar yüklenemedi"
     }
 }

@@ -48,7 +48,9 @@ import { TierGate } from '../components/FeatureGate';
 import { hasRolePermission } from '../lib/permissions';
 import { useStages } from '../contexts/StagesContext';
 import KanbanBoard from '../components/pipeline/KanbanBoard';
+import DealKanbanBoard from '../components/pipeline/DealKanbanBoard';
 import type { PipelineCompany } from '../components/pipeline/PipelineCard';
+import type { Deal, DealsResponse } from '../types/deal';
 import { isTaskOverdue, getContactAgeDays, getOwnerInitials } from '../lib/pipelineSignals';
 import { useUndoStack } from '../hooks/useUndoStack';
 import ClosingReportModal from '../components/ClosingReportModal';
@@ -62,13 +64,38 @@ interface PipelineData {
 
 export default function PipelinePage() {
     const { t } = useTranslation();
-    const { user } = useAuth();
-    const { pipelineStageSlugs, terminalStageSlugs, getStageColor } = useStages();
+    const { user, activeTenantId } = useAuth();
+    const { pipelineStageSlugs, terminalStageSlugs, getStageColor, allStages, isLoading: stagesLoading } = useStages();
     const queryClient = useQueryClient();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const focusStage = searchParams.get('focus');
     const role = user?.role || '';
+    // Deal-mode (v2 Phase 5): flag-gated per tenant. When on, the board renders open
+    // DEAL cards grouped by pipeline stage instead of companies.
+    //
+    // user.tenantSettings is resolved once at /auth/me time (mount tenant). Internal
+    // roles can switch tenants without re-fetching /auth/me, which leaves tenantSettings
+    // stale — so the flag would reflect the wrong tenant after a switch. When the active
+    // tenant differs from the mount-time user tenant we fetch that tenant's settings
+    // directly (/auth/me honours X-Tenant-Id and returns the requested tenant's settings).
+    const settingsMatchActive = !!activeTenantId && activeTenantId === user?.tenantId;
+    const { data: switchedSettings, isLoading: switchedSettingsLoading } = useQuery<Record<string, unknown>>({
+        queryKey: ['tenant-settings', activeTenantId],
+        queryFn: async ({ queryKey, signal }) => {
+            // Pin the tenant to the KEY being fetched so a stale-key refetch after another
+            // switch still targets the right tenant (same discipline as the deal query).
+            const tid = queryKey[1] as string;
+            const r = await api.get('/auth/me', { headers: { 'X-Tenant-Id': tid }, signal });
+            return r.data?.user?.tenantSettings ?? {};
+        },
+        enabled: !!activeTenantId && !settingsMatchActive,
+    });
+    const activeSettings = settingsMatchActive ? user?.tenantSettings : switchedSettings;
+    const dealMode = !!activeSettings?.deal_pipeline;
+    // While the switched-tenant settings are in flight the mode is unknown; hold the
+    // render so we never flash the wrong board (company ↔ deal) during a tenant switch.
+    const settingsResolving = !!activeTenantId && !settingsMatchActive && switchedSettingsLoading;
     const [search, setSearch] = useState('');
     const [debouncedSearch] = useDebouncedValue(search, 300);
     // Additive work-signal filter: '' = none, 'overdue' = has an overdue pending task,
@@ -129,6 +156,8 @@ export default function PipelinePage() {
             const res = await api.get(`/companies/pipeline?${params.toString()}`);
             return res.data;
         },
+        // In deal-mode the company pipeline is never rendered — skip the fetch.
+        enabled: !dealMode,
     });
 
     // Stage change mutation with optimistic update
@@ -211,6 +240,125 @@ export default function PipelinePage() {
         [stageMutation.mutate, undoStack, t, data]
     );
 
+    // ── Deal-mode (v2 Phase 5) ──────────────────────────────────────────────
+    // Fully isolated from the company-mode data path above. The query is gated on
+    // the flag so the default (company) experience issues no extra request.
+    const { data: dealData, isLoading: dealLoading, error: dealError } = useQuery<DealsResponse>({
+        // activeTenantId is part of the key so an internal-role tenant switch never
+        // shows a previous tenant's cached deals; enabled guards a no-tenant query.
+        queryKey: ['deals', 'pipeline', activeTenantId, debouncedSearch],
+        queryFn: async ({ queryKey, signal }) => {
+            // Pin the tenant to the KEY being fetched (not mutable localStorage/closure):
+            // a stale-key refetch after a switch then targets the right tenant, so tenant
+            // B's deals can never land under tenant A's key. The interceptor preserves it.
+            const tid = queryKey[2] as string;
+            // Single request; grouping into stage columns is done client-side.
+            // limit=100 is the server cap — tenants with >100 open deals get
+            // truncated columns (openQuestion: per-stage paged fetch later).
+            const params = new URLSearchParams({ status: 'open', limit: '100' });
+            if (debouncedSearch) params.set('search', debouncedSearch);
+            const res = await api.get(`/deals?${params.toString()}`, { headers: { 'X-Tenant-Id': tid }, signal });
+            return res.data;
+        },
+        enabled: dealMode && !!activeTenantId,
+    });
+
+    // Group open deals into pipeline-stage columns by their canonical stage_id.
+    // deal.stage is a denormalized slug that lags a stage rename; resolving stage_id
+    // to the *current* slug via allStages keeps a renamed stage's cards visible (they
+    // would otherwise vanish when the cached slug no longer matches a column). Falls
+    // back to the denormalized slug when stage_id is null. Won/lost deals are never
+    // fetched (status=open); a deal that resolves to no pipeline column is not shown.
+    const dealColumns = useMemo(() => {
+        const cols: Record<string, Deal[]> = {};
+        for (const slug of pipelineStageSlugs) cols[slug] = [];
+        const idToSlug = new Map(allStages.map((s) => [s.id, s.slug]));
+        for (const deal of dealData?.data || []) {
+            const slug = (deal.stage_id && idToSlug.get(deal.stage_id)) || deal.stage;
+            if (cols[slug]) cols[slug].push(deal);
+        }
+        return cols;
+    }, [dealData, pipelineStageSlugs, allStages]);
+
+    const totalOpenDeals = dealData?.pagination.total ?? 0;
+
+    // Deal stage transition — mirrors stageMutation's optimistic + rollback shape.
+    // The board speaks slugs; the API contract is stage_id, so the caller resolves
+    // the slug to a stage id before mutating.
+    const dealStageMutation = useMutation({
+        mutationFn: async ({ dealId, stageId }: { dealId: string; newSlug: string; stageId: string }) => {
+            const res = await api.put(`/deals/${dealId}`, { stage_id: stageId });
+            return res.data;
+        },
+        onMutate: async ({ dealId, newSlug, stageId }) => {
+            // Snapshot tenant + search at mutation time — either may change before onError
+            // fires, which would otherwise read/write the wrong cache key. The key must
+            // match the deal query's key exactly: ['deals','pipeline',tenant,search].
+            const tenantSnapshot = activeTenantId;
+            const searchSnapshot = debouncedSearch;
+            const dealsKey = ['deals', 'pipeline', tenantSnapshot, searchSnapshot];
+            await queryClient.cancelQueries({ queryKey: ['deals', 'pipeline', tenantSnapshot] });
+            const previous = queryClient.getQueryData<DealsResponse>(dealsKey);
+            // Capture ONLY the moved deal's prior stage (not the whole snapshot) so a
+            // concurrent drag of a different deal isn't clobbered on rollback (P2-2).
+            const prevDeal = previous?.data.find((d) => d.id === dealId);
+            const prevStage = prevDeal ? { stage: prevDeal.stage, stage_id: prevDeal.stage_id } : null;
+            if (previous) {
+                const updated = {
+                    ...previous,
+                    data: previous.data.map((d) =>
+                        d.id === dealId ? { ...d, stage: newSlug, stage_id: stageId } : d
+                    ),
+                };
+                queryClient.setQueryData(dealsKey, updated);
+            }
+            return { dealsKey, prevStage, optimistic: { stage: newSlug, stage_id: stageId } };
+        },
+        onError: (_err, { dealId }, context) => {
+            // Revert only THIS deal, and only if it still holds our optimistic value —
+            // a concurrent successful drag of the same deal must not be undone, and a
+            // concurrent drag of a different deal is untouched (functional update on the
+            // live cache, not a stale full-snapshot restore).
+            if (context?.prevStage) {
+                queryClient.setQueryData<DealsResponse>(context.dealsKey, (curr) => {
+                    if (!curr) return curr;
+                    return {
+                        ...curr,
+                        data: curr.data.map((d) =>
+                            d.id === dealId
+                                && d.stage === context.optimistic.stage
+                                && d.stage_id === context.optimistic.stage_id
+                                ? { ...d, stage: context.prevStage!.stage, stage_id: context.prevStage!.stage_id }
+                                : d
+                        ),
+                    };
+                });
+            }
+            showError(t('dealPipeline.moveError'));
+        },
+        onSuccess: () => {
+            showSuccess(t('dealPipeline.moved'));
+        },
+        onSettled: () => {
+            queryClient.invalidateQueries({ queryKey: ['deals'] });
+        },
+    });
+
+    const handleDealStageChange = useCallback(
+        (dealId: string, newSlug: string) => {
+            // Resolve the column slug to a stage_id; the board only offers pipeline
+            // columns, so a miss should never happen — guard + surface it if it does.
+            const target = allStages.find((s) => s.slug === newSlug);
+            if (!target) {
+                showError(t('dealPipeline.moveError'));
+                return;
+            }
+            dealStageMutation.mutate({ dealId, newSlug, stageId: target.id });
+        },
+        // dealStageMutation.mutate is stable across renders (TanStack Query guarantee)
+        [allStages, dealStageMutation.mutate, t]
+    );
+
     // Flatten all companies for table view, with client-side sorting
     const allCompanies = useMemo(() => {
         if (!data) return [];
@@ -281,6 +429,90 @@ export default function PipelinePage() {
             </Paper>
         </Container>
     );
+
+    // Active-tenant settings still resolving after a tenant switch — the deal/company
+    // mode is not yet known, so hold with a loader rather than flash the wrong board.
+    if (settingsResolving) {
+        return (
+            <Container size="xl" py="lg" style={{ maxWidth: '100%' }}>
+                <Center py={120}>
+                    <Loader size="lg" color="violet" />
+                </Center>
+            </Container>
+        );
+    }
+
+    // ── Deal-mode board (flag on) ──────────────────────────────────────────
+    // Isolated render branch; the company-mode return below is unchanged. The
+    // board shows only open deals — closing happens in the deal drawer (E2), so
+    // there are no terminal columns and no close-on-drag flow here.
+    if (dealMode) {
+        return (
+            <TierGate feature="pipeline_view" fallback={upgradePrompt}>
+                <Container size="xl" py="lg" style={{ maxWidth: '100%' }}>
+                    <Flex justify="space-between" align="center" mb="md" wrap="wrap" gap="sm">
+                        <Stack gap={0}>
+                            <Group gap="xs">
+                                <Title order={2} fw={700}>{t('dealPipeline.title')}</Title>
+                                <Badge size="lg" variant="light" color="violet">{totalOpenDeals}</Badge>
+                            </Group>
+                            <Text size="sm" c="dimmed">{t('dealPipeline.subtitle')}</Text>
+                        </Stack>
+                        <TextInput
+                            ref={searchRef}
+                            placeholder={t('dealPipeline.search')}
+                            leftSection={<IconSearch size={16} />}
+                            value={search}
+                            onChange={(e) => setSearch(e.currentTarget.value)}
+                            radius="md"
+                            size="sm"
+                            w={220}
+                            rightSection={
+                                search && (
+                                    <ActionIcon variant="subtle" size="sm" onClick={() => setSearch('')}>
+                                        <IconX size={14} />
+                                    </ActionIcon>
+                                )
+                            }
+                        />
+                    </Flex>
+
+                    {(dealLoading || stagesLoading) && (
+                        <Center py={120}>
+                            <Loader size="lg" color="violet" />
+                        </Center>
+                    )}
+
+                    {dealError && (
+                        <Center py={80}>
+                            <Stack align="center" gap="sm">
+                                <IconWifi size={48} color="#ccc" stroke={1.5} />
+                                <Text c="dimmed" fw={500}>{t('dealPipeline.loadError')}</Text>
+                                <Group>
+                                    <Button
+                                        variant="light"
+                                        leftSection={<IconRefresh size={16} />}
+                                        onClick={() => queryClient.invalidateQueries({ queryKey: ['deals', 'pipeline'] })}
+                                    >
+                                        {t('common.retry', 'Yeniden Dene')}
+                                    </Button>
+                                    <ErrorFeedbackButton context="DealPipeline" />
+                                </Group>
+                            </Stack>
+                        </Center>
+                    )}
+
+                    {!dealLoading && !stagesLoading && !dealError && (
+                        <DealKanbanBoard
+                            columns={dealColumns}
+                            isDragEnabled={canDrag}
+                            onStageChange={handleDealStageChange}
+                        />
+                    )}
+                </Container>
+            </TierGate>
+        );
+    }
 
     return (
         <TierGate feature="pipeline_view" fallback={upgradePrompt}>

@@ -2593,5 +2593,16 @@
         "hintNavigate": "navigate",
         "hintSelect": "select",
         "hintClose": "close"
+    },
+    "dealPipeline": {
+        "title": "Deals",
+        "subtitle": "Open deals by pipeline stage",
+        "search": "Search deals...",
+        "statusOpen": "Open",
+        "unassigned": "Unassigned",
+        "empty": "No deals",
+        "moved": "Deal stage updated",
+        "moveError": "Failed to move deal",
+        "loadError": "Could not load deals"
     }
 }
