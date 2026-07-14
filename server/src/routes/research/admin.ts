@@ -17,7 +17,18 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { createLogger } from '../../lib/logger.js';
 import { validateBody, uuidField } from '../../lib/validation.js';
 import { grantCredits } from '../../lib/research/engine/ledger.js';
-import { HUNTER_PER_REQUEST_USD } from '../../lib/research/engine/pricing.js';
+import { HUNTER_PER_REQUEST_USD, costFromUsageSummary, costOfUsageBucket } from '../../lib/research/engine/pricing.js';
+import type { LlmUsageSummary } from '../../lib/research/llm/meter.js';
+import type { LlmRole } from '../../lib/research/llm/types.js';
+import {
+    LLM_ROLES,
+    ROLE_PROVIDER,
+    PROVIDER_LABEL,
+    MODEL_CATALOG,
+    isValidModelId,
+    getRoleModels,
+    invalidateLlmConfigCache,
+} from '../../lib/research/llm/llmConfig.js';
 import { effectiveCostRole } from '../../lib/research/freshRole.js';
 
 const log = createLogger('route:research:admin');
@@ -298,6 +309,200 @@ router.post('/feedback/aggregate', async (req: Request, res: Response, next: Nex
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'feedback aggregate enqueue error');
         next(new AppError('Failed to start feedback aggregate', 500));
+    }
+});
+
+// ── Step → role mapping for the cost breakdown (which role/model each AI step runs) ──
+// harvest:run is 'mixed' (search=Gemini for discovery + reading=DeepSeek for validation);
+// its true per-model split shows in the provider rollup below.
+const STEP_ROLE: Record<string, LlmRole | 'mixed'> = {
+    'icp:generate': 'strategy',
+    'icp:revise': 'strategy',
+    'geo:analyze': 'strategy',
+    'offer:generate': 'strategy',
+    'hs:match': 'strategy',
+    'profile:crawl': 'strategy',
+    'harvest:run': 'mixed',
+};
+const round6 = (n: number): number => Math.round(n * 1_000_000) / 1_000_000;
+
+// ── GET /api/research/admin/cost-breakdown?from=&to=&tenant_id= ───────────────────
+// Per-STEP and per-MODEL AI spend across EVERY metered job type (not just harvest+icp).
+// This is where the wizard steps (profile:crawl, geo/offer/hs/icp:revise) that used to
+// show $0 on the panel become visible. Dollars are recomputed from the raw meter tally
+// at the CURRENT rate book (pricing.ts), so steps and providers always reconcile.
+router.get('/cost-breakdown', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const from = parseDate(req.query.from);
+        const to = parseDate(req.query.to);
+        if (from === null || to === null) {
+            res.status(400).json({ error: 'Invalid from/to date (use ISO 8601)' });
+            return;
+        }
+        const tenantId = req.query.tenant_id;
+        if (tenantId !== undefined && (typeof tenantId !== 'string' || !uuidField().safeParse(tenantId).success)) {
+            res.status(400).json({ error: 'Invalid tenant_id' });
+            return;
+        }
+
+        const { data, error } = await researchSupabaseAdmin.rpc('research_admin_ai_jobs', {
+            p_from: from?.toISOString() ?? null,
+            p_to: to?.toISOString() ?? null,
+            p_tenant: typeof tenantId === 'string' ? tenantId : null,
+        });
+        if (error) {
+            log.error({ err: error }, 'admin cost-breakdown rpc failed');
+            throw new AppError('Failed to fetch cost breakdown', 500);
+        }
+
+        const roleModels = await getRoleModels();
+        const stepMap = new Map<string, { runs: number; cost: number }>();
+        // Keyed by `provider|model` — spend attributed to the ACTUAL model that ran (from the
+        // meter's per-model tally), so switching a role's model never relabels historical spend.
+        const modelMap = new Map<string, { provider: string; model: string | null; cost: number; calls: number; inTok: number; outTok: number }>();
+
+        for (const row of (data ?? []) as Array<{ job_type: string; usage_raw: LlmUsageSummary | null }>) {
+            const usage = row.usage_raw;
+            if (!usage || typeof usage !== 'object' || !usage.byProvider) continue;
+            const breakdown = costFromUsageSummary(usage);
+            const s = stepMap.get(row.job_type) ?? { runs: 0, cost: 0 };
+            s.runs += 1;
+            s.cost += breakdown.totalUsd;
+            stepMap.set(row.job_type, s);
+            for (const [prov, u] of Object.entries(usage.byProvider)) {
+                const models = u.models && Object.keys(u.models).length > 0 ? Object.entries(u.models) : null;
+                if (models) {
+                    for (const [model, mu] of models) {
+                        const key = `${prov}|${model}`;
+                        const b = modelMap.get(key) ?? { provider: prov, model, cost: 0, calls: 0, inTok: 0, outTok: 0 };
+                        b.cost += costOfUsageBucket(prov, mu);
+                        b.calls += mu.calls ?? 0;
+                        b.inTok += mu.inputTokens ?? 0;
+                        b.outTok += mu.outputTokens ?? 0;
+                        modelMap.set(key, b);
+                    }
+                } else {
+                    // Legacy job metered before per-model tracking (068+ jobs may predate it): the
+                    // model is unknown, so attribute the whole provider bucket with model = null.
+                    const key = `${prov}|`;
+                    const b = modelMap.get(key) ?? { provider: prov, model: null, cost: 0, calls: 0, inTok: 0, outTok: 0 };
+                    b.cost += breakdown.byProvider[prov] ?? 0;
+                    b.calls += u.calls ?? 0;
+                    b.inTok += u.inputTokens ?? 0;
+                    b.outTok += u.outputTokens ?? 0;
+                    modelMap.set(key, b);
+                }
+            }
+        }
+
+        const steps = [...stepMap.entries()]
+            .map(([job_type, v]) => {
+                const role = STEP_ROLE[job_type] ?? null;
+                const model = role && role !== 'mixed' ? roleModels[role].model : null;
+                return { job_type, role, model, runs: v.runs, total_usd: round6(v.cost) };
+            })
+            .sort((a, b) => b.total_usd - a.total_usd);
+
+        const providers = [...modelMap.values()]
+            .map((v) => ({
+                provider: v.provider,
+                label: PROVIDER_LABEL[v.provider] ?? v.provider,
+                model: v.model,
+                cost_usd: round6(v.cost),
+                calls: v.calls,
+                input_tokens: v.inTok,
+                output_tokens: v.outTok,
+            }))
+            .sort((a, b) => b.cost_usd - a.cost_usd);
+
+        res.json({
+            data: {
+                steps,
+                providers,
+                roleModels,
+                totals: {
+                    ai_usd: round6(providers.reduce((s, p) => s + p.cost_usd, 0)),
+                    runs: steps.reduce((s, x) => s + x.runs, 0),
+                },
+            },
+        });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'admin cost-breakdown error');
+        next(new AppError('Failed to fetch cost breakdown', 500));
+    }
+});
+
+// ── GET /api/research/admin/llm-config — current per-role model + editable catalog ──
+router.get('/llm-config', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const roleModels = await getRoleModels();
+        res.json({
+            data: {
+                roles: LLM_ROLES.map((role) => ({
+                    role,
+                    provider: ROLE_PROVIDER[role],
+                    provider_label: PROVIDER_LABEL[ROLE_PROVIDER[role]] ?? ROLE_PROVIDER[role],
+                    model: roleModels[role].model,
+                    source: roleModels[role].source,
+                    catalog: MODEL_CATALOG[role],
+                })),
+            },
+        });
+    } catch (err) {
+        log.error({ err }, 'llm-config read error');
+        next(new AppError('Failed to fetch LLM config', 500));
+    }
+});
+
+// ── PUT /api/research/admin/llm-config — set (or reset) a role's model override ──────
+// model: a model id (validated shape; the operator owns correctness of a custom id, same
+// as the env override already was). Send model=null / '' to CLEAR the override → the role
+// reverts to its env default. Provider is never editable here.
+const llmConfigSchema = z.object({
+    role: z.enum(['strategy', 'search', 'reading']),
+    model: z.string().max(120).nullable(),
+});
+
+router.put('/llm-config', validateBody(llmConfigSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { role, model } = req.body as z.infer<typeof llmConfigSchema>;
+        const trimmed = model?.trim() ?? '';
+
+        if (trimmed === '') {
+            // Clear the override → env default resumes.
+            const { error } = await researchSupabaseAdmin.from('research_llm_config').delete().eq('role', role);
+            if (error) {
+                log.error({ err: error }, 'llm-config delete failed');
+                throw new AppError('Failed to reset model', 500);
+            }
+        } else {
+            if (!isValidModelId(trimmed)) {
+                res.status(400).json({ error: 'Invalid model id' });
+                return;
+            }
+            const { error } = await researchSupabaseAdmin
+                .from('research_llm_config')
+                .upsert(
+                    { role, model: trimmed, updated_at: new Date().toISOString(), updated_by: req.user?.id ?? null },
+                    { onConflict: 'role' }
+                );
+            if (error) {
+                log.error({ err: error }, 'llm-config upsert failed');
+                throw new AppError('Failed to save model', 500);
+            }
+        }
+
+        // Take effect immediately (bypass the router's 30s config cache).
+        invalidateLlmConfigCache();
+        log.info({ role, model: trimmed || '(default)', by: req.user?.id }, 'research llm model config saved');
+
+        const roleModels = await getRoleModels();
+        res.json({ data: { role, model: roleModels[role].model, source: roleModels[role].source } });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'llm-config save error');
+        next(new AppError('Failed to save LLM config', 500));
     }
 });
 

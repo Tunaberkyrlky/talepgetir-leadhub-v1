@@ -7,10 +7,10 @@
 import { useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
-    Badge, Button, Container, Divider, Group, Loader, NumberInput, Paper, Select, SimpleGrid,
+    Autocomplete, Badge, Button, Container, Divider, Group, Loader, NumberInput, Paper, Select, SimpleGrid,
     Stack, Switch, Table, Tabs, Text, TextInput, Title, Tooltip,
 } from '@mantine/core';
-import { IconCoins, IconGauge, IconListDetails } from '@tabler/icons-react';
+import { IconCoins, IconCpu, IconGauge, IconListDetails } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
@@ -52,6 +52,38 @@ interface AdminRunRow {
         cost_recheck?: { totalUsd?: number };
     } | null;
     error: string | null;
+}
+
+interface CostBreakdownStep {
+    job_type: string;
+    role: string | null;
+    model: string | null;
+    runs: number;
+    total_usd: number;
+}
+interface CostBreakdownProvider {
+    provider: string;
+    label: string;
+    model: string | null;
+    cost_usd: number;
+    calls: number;
+    input_tokens: number;
+    output_tokens: number;
+}
+interface CostBreakdown {
+    steps: CostBreakdownStep[];
+    providers: CostBreakdownProvider[];
+    roleModels: Record<string, { model: string; source: 'override' | 'default'; provider: string }>;
+    totals: { ai_usd: number; runs: number };
+}
+
+interface LlmConfigRole {
+    role: 'strategy' | 'search' | 'reading';
+    provider: string;
+    provider_label: string;
+    model: string;
+    source: 'override' | 'default';
+    catalog: { value: string; label: string }[];
 }
 
 const INTERNAL_ROLES = ['superadmin', 'ops_agent'];
@@ -127,6 +159,80 @@ function TierSettingsForm({
                 {t('research.admin.saveSettings', 'Save tier settings')}
             </Button>
         </Stack>
+    );
+}
+
+// Human-readable step names, keyed by job type. Falls back to the raw type.
+function stepLabel(t: (k: string, d: string) => string, jobType: string): string {
+    const map: Record<string, string> = {
+        'icp:generate': t('research.admin.stepIcpGenerate', 'ICP generation'),
+        'icp:revise': t('research.admin.stepIcpRevise', 'ICP revision'),
+        'geo:analyze': t('research.admin.stepGeo', 'Geo analysis'),
+        'offer:generate': t('research.admin.stepOffer', 'Offer generation'),
+        'hs:match': t('research.admin.stepHs', 'HS code match'),
+        'profile:crawl': t('research.admin.stepProfile', 'Profile crawl (site)'),
+        'harvest:run': t('research.admin.stepHarvest', 'Harvest (discovery)'),
+        'channels:discover': t('research.admin.stepChannels', 'Channel discovery'),
+        'maps:harvest': t('research.admin.stepMaps', 'Maps harvest'),
+        'trade:harvest': t('research.admin.stepTrade', 'Trade data harvest'),
+    };
+    return map[jobType] ?? jobType;
+}
+
+/** Editable model picker for one router role. Remounted (via key) when the server value
+ *  changes so the draft re-initializes without a state-sync effect. Provider is fixed. */
+function ModelEditor({
+    row, saving, onSave, onReset, t,
+}: {
+    row: LlmConfigRole;
+    saving: boolean;
+    onSave: (model: string) => void;
+    onReset: () => void;
+    t: (key: string, def: string, opts?: Record<string, unknown>) => string;
+}) {
+    const [draft, setDraft] = useState(row.model);
+    const dirty = draft.trim() !== row.model;
+    return (
+        <Paper withBorder radius="md" p="md">
+            <Stack gap="xs">
+                <Group justify="space-between">
+                    <Text size="sm" fw={600} tt="capitalize">{row.role}</Text>
+                    <Badge variant="light" color={row.source === 'override' ? 'blue' : 'gray'}>
+                        {row.source === 'override'
+                            ? t('research.admin.modelOverride', 'Custom')
+                            : t('research.admin.modelDefault', 'Default (env)')}
+                    </Badge>
+                </Group>
+                <Text size="xs" c="dimmed">{row.provider_label}</Text>
+                <Autocomplete
+                    data={row.catalog.map((c) => c.value)}
+                    value={draft}
+                    onChange={setDraft}
+                    placeholder="model id"
+                    size="sm"
+                />
+                <Group gap="xs">
+                    <Button
+                        size="xs"
+                        variant="light"
+                        disabled={!dirty || draft.trim() === ''}
+                        loading={saving}
+                        onClick={() => onSave(draft.trim())}
+                    >
+                        {t('research.admin.modelSave', 'Save')}
+                    </Button>
+                    <Button
+                        size="xs"
+                        variant="subtle"
+                        color="gray"
+                        disabled={row.source !== 'override' || saving}
+                        onClick={onReset}
+                    >
+                        {t('research.admin.modelReset', 'Reset to default')}
+                    </Button>
+                </Group>
+            </Stack>
+        </Paper>
     );
 }
 
@@ -230,6 +336,32 @@ export default function ResearchAdminPage() {
         onError: (err: unknown) => showErrorFromApi(err),
     });
 
+    // ── Step / model cost breakdown + editable per-role models ────────────────
+    const breakdownQuery = useQuery<{ data: CostBreakdown }>({
+        queryKey: ['research', 'admin', 'cost-breakdown'],
+        queryFn: async () => (await api.get('/research/admin/cost-breakdown')).data,
+        enabled: isInternal,
+    });
+    const breakdown = breakdownQuery.data?.data;
+
+    const llmConfigQuery = useQuery<{ data: { roles: LlmConfigRole[] } }>({
+        queryKey: ['research', 'admin', 'llm-config'],
+        queryFn: async () => (await api.get('/research/admin/llm-config')).data,
+        enabled: isInternal,
+    });
+    const llmRoles = llmConfigQuery.data?.data?.roles ?? [];
+
+    const saveModelMut = useMutation({
+        mutationFn: async (v: { role: string; model: string | null }) =>
+            (await api.put('/research/admin/llm-config', v)).data,
+        onSuccess: () => {
+            showSuccess(t('research.admin.modelSaved', 'Model updated'));
+            qc.invalidateQueries({ queryKey: ['research', 'admin', 'llm-config'] });
+            qc.invalidateQueries({ queryKey: ['research', 'admin', 'cost-breakdown'] });
+        },
+        onError: (err: unknown) => showErrorFromApi(err),
+    });
+
     // Route guard: client roles never see this page (nav is hidden too; API 403s regardless).
     if (!isInternal) return <Navigate to="/research" replace />;
 
@@ -284,6 +416,9 @@ export default function ResearchAdminPage() {
                         </Tabs.Tab>
                         <Tabs.Tab value="runs" leftSection={<IconListDetails size={16} />}>
                             {t('research.admin.tabRuns', 'Run history')}
+                        </Tabs.Tab>
+                        <Tabs.Tab value="models" leftSection={<IconCpu size={16} />}>
+                            {t('research.admin.tabModels', 'Models & steps')}
                         </Tabs.Tab>
                         <Tabs.Tab value="credits" leftSection={<IconCoins size={16} />}>
                             {t('research.admin.tabCredits', 'Grant credits')}
@@ -426,6 +561,121 @@ export default function ResearchAdminPage() {
                                 </Table.ScrollContainer>
                             )}
                         </Paper>
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="models">
+                        <Stack gap="lg">
+                            {/* Editable model per role */}
+                            <Paper withBorder radius="md" p="md">
+                                <Text size="sm" fw={600} mb="xs">{t('research.admin.modelsTitle', 'Which model each role runs')}</Text>
+                                <Text size="xs" c="dimmed" mb="md">
+                                    {t('research.admin.modelsHint', 'The provider per role is fixed in code; the model it runs is editable here. Changes apply to new runs within ~30s. Reset reverts to the environment default.')}
+                                </Text>
+                                {llmConfigQuery.isLoading ? (
+                                    <Group justify="center" py="md"><Loader size="sm" /></Group>
+                                ) : (
+                                    <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
+                                        {llmRoles.map((r) => (
+                                            <ModelEditor
+                                                key={`${r.role}:${r.model}:${r.source}`}
+                                                row={r}
+                                                saving={saveModelMut.isPending}
+                                                onSave={(model) => saveModelMut.mutate({ role: r.role, model })}
+                                                onReset={() => saveModelMut.mutate({ role: r.role, model: null })}
+                                                t={t}
+                                            />
+                                        ))}
+                                    </SimpleGrid>
+                                )}
+                            </Paper>
+
+                            {/* Per-step AI spend */}
+                            <Paper withBorder radius="md" p="md">
+                                <Group justify="space-between" mb="xs">
+                                    <Text size="sm" fw={600}>{t('research.admin.stepCostsTitle', 'Spend by step')}</Text>
+                                    {breakdown && (
+                                        <Text size="sm" c="dimmed">
+                                            {t('research.admin.totalAiSpend', 'Total AI spend: {{cost}}', { cost: usd(breakdown.totals.ai_usd) })}
+                                        </Text>
+                                    )}
+                                </Group>
+                                <Text size="xs" c="dimmed" mb="md">
+                                    {t('research.admin.stepCostsHint', 'Every metered AI step — including the wizard steps (profile crawl, geo, offer, ICP revise) that the per-tenant COGS line does not include.')}
+                                </Text>
+                                {breakdownQuery.isLoading ? (
+                                    <Group justify="center" py="md"><Loader size="sm" /></Group>
+                                ) : !breakdown || breakdown.steps.length === 0 ? (
+                                    <Text c="dimmed" ta="center" py="lg">{t('research.admin.noData', 'No research activity yet.')}</Text>
+                                ) : (
+                                    <Table.ScrollContainer minWidth={640}>
+                                        <Table striped highlightOnHover verticalSpacing="sm">
+                                            <Table.Thead>
+                                                <Table.Tr>
+                                                    <Table.Th>{t('research.admin.step', 'Step')}</Table.Th>
+                                                    <Table.Th>{t('research.admin.role', 'Role')}</Table.Th>
+                                                    <Table.Th>{t('research.admin.model', 'Model')}</Table.Th>
+                                                    <Table.Th ta="right">{t('research.admin.runs', 'Runs')}</Table.Th>
+                                                    <Table.Th ta="right">{t('research.admin.spend', 'Spend')}</Table.Th>
+                                                </Table.Tr>
+                                            </Table.Thead>
+                                            <Table.Tbody>
+                                                {breakdown.steps.map((s) => (
+                                                    <Table.Tr key={s.job_type}>
+                                                        <Table.Td><Text size="sm" fw={600}>{stepLabel(t, s.job_type)}</Text></Table.Td>
+                                                        <Table.Td>
+                                                            {s.role
+                                                                ? <Badge variant="light" color={s.role === 'mixed' ? 'grape' : 'teal'}>{s.role}</Badge>
+                                                                : <Text size="sm" c="dimmed">—</Text>}
+                                                        </Table.Td>
+                                                        <Table.Td><Text size="sm" ff="monospace" c="dimmed">{s.model ?? '—'}</Text></Table.Td>
+                                                        <Table.Td ta="right">{s.runs}</Table.Td>
+                                                        <Table.Td ta="right"><Text size="sm" ff="monospace" fw={600}>{usd(s.total_usd)}</Text></Table.Td>
+                                                    </Table.Tr>
+                                                ))}
+                                            </Table.Tbody>
+                                        </Table>
+                                    </Table.ScrollContainer>
+                                )}
+                            </Paper>
+
+                            {/* Per-model / provider historical spend */}
+                            <Paper withBorder radius="md" p="md">
+                                <Text size="sm" fw={600} mb="xs">{t('research.admin.modelCostsTitle', 'Spend by model')}</Text>
+                                <Text size="xs" c="dimmed" mb="md">
+                                    {t('research.admin.modelCostsHint', 'Historical spend attributed per provider/model, recomputed at current rates.')}
+                                </Text>
+                                {breakdownQuery.isLoading ? (
+                                    <Group justify="center" py="md"><Loader size="sm" /></Group>
+                                ) : !breakdown || breakdown.providers.length === 0 ? (
+                                    <Text c="dimmed" ta="center" py="lg">{t('research.admin.noData', 'No research activity yet.')}</Text>
+                                ) : (
+                                    <Table.ScrollContainer minWidth={720}>
+                                        <Table striped highlightOnHover verticalSpacing="sm">
+                                            <Table.Thead>
+                                                <Table.Tr>
+                                                    <Table.Th>{t('research.admin.provider', 'Provider')}</Table.Th>
+                                                    <Table.Th>{t('research.admin.model', 'Model')}</Table.Th>
+                                                    <Table.Th ta="right">{t('research.admin.calls', 'Calls')}</Table.Th>
+                                                    <Table.Th ta="right">{t('research.admin.tokens', 'Tokens (in/out)')}</Table.Th>
+                                                    <Table.Th ta="right">{t('research.admin.spend', 'Spend')}</Table.Th>
+                                                </Table.Tr>
+                                            </Table.Thead>
+                                            <Table.Tbody>
+                                                {breakdown.providers.map((p) => (
+                                                    <Table.Tr key={`${p.provider}:${p.model ?? ''}`}>
+                                                        <Table.Td><Text size="sm" fw={600}>{p.label}</Text></Table.Td>
+                                                        <Table.Td><Text size="sm" ff="monospace" c="dimmed">{p.model ?? '—'}</Text></Table.Td>
+                                                        <Table.Td ta="right">{p.calls}</Table.Td>
+                                                        <Table.Td ta="right"><Text size="xs" c="dimmed">{p.input_tokens.toLocaleString()} / {p.output_tokens.toLocaleString()}</Text></Table.Td>
+                                                        <Table.Td ta="right"><Text size="sm" ff="monospace" fw={600}>{usd(p.cost_usd)}</Text></Table.Td>
+                                                    </Table.Tr>
+                                                ))}
+                                            </Table.Tbody>
+                                        </Table>
+                                    </Table.ScrollContainer>
+                                )}
+                            </Paper>
+                        </Stack>
                     </Tabs.Panel>
 
                     <Tabs.Panel value="credits">

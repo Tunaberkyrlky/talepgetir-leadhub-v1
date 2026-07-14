@@ -27,12 +27,19 @@ export interface LlmCallRecord {
     finish: string;
 }
 
-export interface ProviderUsage {
+export interface ModelUsage {
     calls: number;
     inputTokens: number;
     cachedInputTokens: number;
     outputTokens: number;
     groundedQueries: number;
+}
+
+export interface ProviderUsage extends ModelUsage {
+    /** Per-model sub-tally within this provider. Lets COGS attribute historical spend to the
+     *  ACTUAL model that ran (not the currently-configured one) — the model is operator-editable,
+     *  so provider-only attribution would relabel history after a model switch. */
+    models: Record<string, ModelUsage>;
 }
 
 export interface LlmUsageSummary {
@@ -65,12 +72,20 @@ function summarize(calls: LlmCallRecord[]): LlmUsageSummary {
         totalOutputTokens = 0,
         totalGroundedQueries = 0;
     for (const c of calls) {
-        const p = (byProvider[c.provider] ??= { calls: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, groundedQueries: 0 });
+        // models: null-prototype map so a model id that collides with an Object.prototype key
+        // (e.g. "constructor", "toString") gets its own tally instead of reusing the inherited value.
+        const p = (byProvider[c.provider] ??= { calls: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, groundedQueries: 0, models: Object.create(null) as Record<string, ModelUsage> });
         p.calls += 1;
         p.inputTokens += c.inputTokens;
         p.cachedInputTokens += c.cachedInputTokens;
         p.outputTokens += c.outputTokens;
         p.groundedQueries += c.groundedQueries;
+        const m = (p.models[c.model] ??= { calls: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, groundedQueries: 0 });
+        m.calls += 1;
+        m.inputTokens += c.inputTokens;
+        m.cachedInputTokens += c.cachedInputTokens;
+        m.outputTokens += c.outputTokens;
+        m.groundedQueries += c.groundedQueries;
         totalCalls += 1;
         totalInputTokens += c.inputTokens;
         totalCachedInputTokens += c.cachedInputTokens;

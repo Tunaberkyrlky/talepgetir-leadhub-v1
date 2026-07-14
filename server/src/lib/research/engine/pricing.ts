@@ -110,6 +110,23 @@ export function costOfFetch(cacheHit: boolean): number {
     return cacheHit ? 0 : round6(JINA_PER_FETCH);
 }
 
+/** Dollar cost of one aggregated usage bucket (a provider tally OR a per-model sub-tally) at the
+ *  current rate book: tokens + Gemini grounding. Pricing is provider-based, so the same rates apply
+ *  whether the bucket is the provider total or one model within it. Used by the admin breakdown to
+ *  attribute historical spend per actual model. */
+export function costOfUsageBucket(
+    provider: string,
+    u: { inputTokens?: number; cachedInputTokens?: number; outputTokens?: number; groundedQueries?: number }
+): number {
+    const tok = tokenCost(provider, {
+        inputTokens: u.inputTokens ?? 0,
+        cachedInputTokens: u.cachedInputTokens ?? 0,
+        outputTokens: u.outputTokens ?? 0,
+    });
+    const grounding = provider === 'gemini' ? (u.groundedQueries ?? 0) * GEMINI_GROUNDING_PER_QUERY : 0;
+    return round6(tok + grounding);
+}
+
 function round6(n: number): number {
     return Math.round(n * 1_000_000) / 1_000_000;
 }

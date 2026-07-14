@@ -10,6 +10,7 @@ import { anthropicProvider } from './providers/anthropic.js';
 import { geminiProvider } from './providers/gemini.js';
 import { deepseekProvider } from './providers/deepseek.js';
 import { recordLlmCall } from './meter.js';
+import { getModelForRole } from './llmConfig.js';
 import { createLogger } from '../../logger.js';
 
 const log = createLogger('research:llm');
@@ -29,7 +30,11 @@ export async function runLlm(role: LlmRole, opts: LlmRunOptions): Promise<LlmRes
     const provider = ROUTE[role];
     const started = Date.now();
     try {
-        const res = await provider.run(opts);
+        // Resolve the role's model (operator override → env default) unless the caller pinned
+        // one explicitly. getModelForRole is cached and never throws (falls back to env), so this
+        // stays a hot-path-safe single source for "which model does this role run".
+        const model = opts.model ?? (await getModelForRole(role));
+        const res = await provider.run({ ...opts, model });
         // Record raw usage into the active meter scope (no-op when not metered). This is the single
         // choke point for every provider call, so the pilot's usage tally captures discovery's two
         // calls per query AND every runLlmJson retry below — which the dollar CapTracker misses.
