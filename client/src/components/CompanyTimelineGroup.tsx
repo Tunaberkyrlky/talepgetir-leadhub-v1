@@ -8,6 +8,7 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { ACTIVITY_ICONS, ACTIVITY_COLORS } from '../lib/activityConstants';
+import LossReasonDetail from './LossReasonDetail';
 import { useStages } from '../contexts/StagesContext';
 import type { Activity, ActivityType } from '../types/activity';
 
@@ -101,7 +102,10 @@ function ActivityNode({ activity, locale, canEdit, canDeleteItem, onEdit, onDele
                 </Group>
                 <Text size="sm" fw={500} mt={4}>{activity.summary}</Text>
                 {activity.detail && (
-                    <Text size="xs" c="dimmed" mt={2} lineClamp={2}>{activity.detail}</Text>
+                    <LossReasonDetail
+                        detail={activity.detail}
+                        textProps={{ size: 'xs', c: 'dimmed', mt: 2, lineClamp: 2 }}
+                    />
                 )}
             </Paper>
         </div>

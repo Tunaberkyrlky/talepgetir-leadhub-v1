@@ -19,6 +19,7 @@ import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import { useAuth } from '../contexts/AuthContext';
 import { useStages } from '../contexts/StagesContext';
 import { hasRolePermission } from '../lib/permissions';
+import { DEAL_LOSS_REASON_CODES, isWinOutcome } from '../lib/qualification';
 
 interface ClosingReportModalProps {
     opened: boolean;
@@ -52,6 +53,7 @@ export default function ClosingReportModal({
         initialValues: {
             outcome: targetStage as string,
             summary: '',
+            loss_reason_code: null as string | null,
             detail: '',
             visibility: 'client',
         },
@@ -67,6 +69,7 @@ export default function ClosingReportModal({
             form.setValues({
                 outcome: targetStage,
                 summary: '',
+                loss_reason_code: null,
                 detail: '',
                 visibility: 'client',
             });
@@ -80,6 +83,9 @@ export default function ClosingReportModal({
                 company_id: companyId,
                 outcome: values.outcome,
                 summary: values.summary,
+                // A loss reason only applies to a loss — never send it for a won outcome
+                // (the server enforces the same, so a stale value can't leak into a win).
+                loss_reason_code: isWinOutcome(values.outcome) ? null : (values.loss_reason_code || null),
                 detail: values.detail || null,
                 visibility: values.visibility,
             });
@@ -147,6 +153,18 @@ export default function ClosingReportModal({
                         radius="md"
                         {...form.getInputProps('summary')}
                     />
+
+                    {/* Loss reason applies only to a loss — hidden for a won outcome. */}
+                    {!isWinOutcome(form.values.outcome) && (
+                        <Select
+                            label={t('qualification.lossReasonLabel')}
+                            placeholder={t('qualification.lossReasonPlaceholder')}
+                            clearable
+                            radius="md"
+                            data={DEAL_LOSS_REASON_CODES.map((c) => ({ value: c, label: t(`qualification.lossReasonOptions.${c}`) }))}
+                            {...form.getInputProps('loss_reason_code')}
+                        />
+                    )}
 
                     <Textarea
                         label={t('activity.closingReport.reasonLabel')}

@@ -762,3 +762,80 @@ export const recentVisitSchema = z.object({
     entity_type: z.enum(VIEW_ENTITY_TYPES).optional().default('companies'),
     entity_id: uuidField('Invalid entity_id'),
 });
+
+// ── Qualification + tags schemas (v2 Phase 6, slice E4) ─────────────────────
+// Appended (not woven into the base schemas) so a parallel slice editing the
+// company/deal schemas above never collides here. The routes swap to the
+// *Qualified variants so Zod's unknown-key stripping doesn't drop these fields.
+
+export const COMPANY_PRIORITIES = ['low', 'normal', 'high'] as const;
+export const QUALIFICATION_STATUSES = ['unqualified', 'in_progress', 'qualified', 'disqualified'] as const;
+// Standardized deal/closing loss reasons (the free-text loss_reason stays too).
+export const DEAL_LOSS_REASON_CODES = ['price', 'timing', 'competitor', 'no_budget', 'no_need', 'no_response', 'other'] as const;
+// Mantine's default palette minus 'dark' — the 13 colours the shared staging
+// tags.color CHECK admits (see migration 139); the tag route/UI stay a subset.
+export const TAG_COLORS = ['gray', 'red', 'pink', 'grape', 'violet', 'indigo', 'blue', 'cyan', 'teal', 'green', 'lime', 'yellow', 'orange'] as const;
+
+// companies.fit_score is a pre-existing free-TEXT column; the numeric 0-100 score
+// lives in the NEW fit_score_num column (migration 139) so neither clobbers the other.
+const companyQualificationFields = {
+    lead_source: z.string().max(255).optional().nullable(),
+    priority: z.enum(COMPANY_PRIORITIES).optional().nullable(),
+    qualification_status: z.enum(QUALIFICATION_STATUSES).optional().nullable(),
+    fit_score_num: z.number().int().min(0).max(100).optional().nullable(),
+    competitor_notes: z.string().max(5000).optional().nullable(),
+    objection_notes: z.string().max(5000).optional().nullable(),
+};
+
+export const createCompanyQualifiedSchema = createCompanySchema.extend(companyQualificationFields);
+export const updateCompanyQualifiedSchema = updateCompanySchema.extend(companyQualificationFields);
+
+// Deal-level qualification. dealCreateSchema is a plain object (extendable); the
+// refined update/close schemas are re-declared with the extra fields (a ZodEffects
+// from .refine() has no .extend()). currencyField/dealDateField are module-scoped.
+export const dealCreateQualifiedSchema = dealCreateSchema.extend({
+    lead_source: z.string().max(255).optional().nullable(),
+    priority: z.enum(COMPANY_PRIORITIES).optional().nullable(),
+});
+
+export const dealUpdateQualifiedSchema = z.object({
+    contact_id: uuidField('Invalid contact_id').optional().nullable(),
+    stage_id: uuidField('Invalid stage_id').optional(),
+    title: z.string().trim().min(1).max(500).optional(),
+    description: z.string().max(5000).optional().nullable(),
+    amount: z.number().nonnegative('Amount must be zero or positive').nullable().optional(),
+    currency: currencyField.optional(),
+    expected_close: dealDateField,
+    owner: uuidField('Invalid owner').optional().nullable(),
+    lead_source: z.string().max(255).optional().nullable(),
+    priority: z.enum(COMPANY_PRIORITIES).optional().nullable(),
+}).refine((d) => Object.keys(d).length > 0, { message: 'At least one field must be provided' });
+
+export const dealCloseQualifiedSchema = z.object({
+    status: z.enum(DEAL_CLOSE_STATUSES),
+    loss_reason: z.string().trim().max(2000).optional().nullable(),
+    loss_reason_code: z.enum(DEAL_LOSS_REASON_CODES).optional().nullable(),
+}).refine(
+    (d) => d.status !== 'lost' || !!(d.loss_reason && d.loss_reason.trim()),
+    { message: 'loss_reason is required when closing a deal as lost' },
+);
+
+// Company-level closing report gains the same standardized loss-reason code.
+export const closingReportQualifiedSchema = closingReportSchema.extend({
+    loss_reason_code: z.enum(DEAL_LOSS_REASON_CODES).optional().nullable(),
+});
+
+// Tags (shared staging tables — see migration 139). Tenant-scoped CRUD + link.
+export const createTagSchema = z.object({
+    name: z.string().trim().min(1, 'Tag name is required').max(100),
+    color: z.enum(TAG_COLORS).optional().default('blue'),
+});
+
+export const updateTagSchema = z.object({
+    name: z.string().trim().min(1).max(100).optional(),
+    color: z.enum(TAG_COLORS).optional(),
+}).refine((d) => Object.keys(d).length > 0, { message: 'At least one field must be provided' });
+
+export const linkCompanyTagSchema = z.object({
+    tag_id: uuidField('Invalid tag_id'),
+});

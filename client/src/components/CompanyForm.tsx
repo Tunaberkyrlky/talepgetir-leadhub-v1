@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from '@mantine/form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -7,6 +7,7 @@ import {
     TagsInput,
     Textarea,
     Select,
+    NumberInput,
     Button,
     Stack,
     Group,
@@ -15,6 +16,7 @@ import {
     Divider,
     Alert,
 } from '@mantine/core';
+import { COMPANY_PRIORITIES, QUALIFICATION_STATUSES } from '../lib/qualification';
 import { IconAlertTriangle } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -51,6 +53,14 @@ interface Company {
     company_summary: string | null;
     next_step: string | null;
     fit_score: string | null;
+    // Qualification (v2 Phase 6) — optional so callers with a narrower Company row
+    // (e.g. LeadsPage) still satisfy this interface.
+    lead_source?: string | null;
+    priority?: 'low' | 'normal' | 'high' | null;
+    qualification_status?: 'unqualified' | 'in_progress' | 'qualified' | 'disqualified' | null;
+    fit_score_num?: number | null;
+    competitor_notes?: string | null;
+    objection_notes?: string | null;
     custom_field_1: string | null;
     custom_field_2: string | null;
     custom_field_3: string | null;
@@ -89,6 +99,12 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
             company_summary: '',
             next_step: '',
             fit_score: '',
+            lead_source: '',
+            priority: null as string | null,
+            qualification_status: null as string | null,
+            fit_score_num: '' as number | string,
+            competitor_notes: '',
+            objection_notes: '',
             custom_field_1: '',
             custom_field_2: '',
             custom_field_3: '',
@@ -127,6 +143,12 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                 company_summary: company.company_summary || '',
                 next_step: company.next_step || '',
                 fit_score: company.fit_score || '',
+                lead_source: company.lead_source || '',
+                priority: company.priority ?? null,
+                qualification_status: company.qualification_status ?? null,
+                fit_score_num: company.fit_score_num ?? '',
+                competitor_notes: company.competitor_notes || '',
+                objection_notes: company.objection_notes || '',
                 custom_field_1: company.custom_field_1 || '',
                 custom_field_2: company.custom_field_2 || '',
                 custom_field_3: company.custom_field_3 || '',
@@ -144,12 +166,36 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
             form.setFieldValue('assigned_to', user?.id ?? null);
         }
         form.resetDirty();
+        // Touched tracks edit INTENT (stays true even if the value returns to the
+        // baseline), which the qualification omit below relies on — reset it per open.
+        form.resetTouched();
+        editedQualFields.current.clear();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [company, opened]);
 
+    // Edit INTENT for qualification fields: Mantine marks a field touched on FOCUS,
+    // so touched alone can't distinguish focus-then-blur from a deliberate clear.
+    // Only a real onChange counts as intent; the omit logic below keys off this set.
+    const editedQualFields = useRef(new Set<string>());
+    const qualInputProps = (f: string) => {
+        const p = form.getInputProps(f);
+        return {
+            ...p,
+            onChange: (v: unknown) => {
+                editedQualFields.current.add(f);
+                p.onChange(v);
+            },
+        };
+    };
+
+    // NumberInput yields '' when empty — coerce to null (or a finite number) so the
+    // server's z.number().int() never sees an empty string.
+    const coerceFitScoreNum = (v: number | string | null | undefined): number | null =>
+        v === '' || v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v);
+
     const createMutation = useMutation({
         mutationFn: async (values: typeof form.values) => {
-            const payload: Record<string, unknown> = { ...values };
+            const payload: Record<string, unknown> = { ...values, fit_score_num: coerceFitScoreNum(values.fit_score_num) };
             // Owner contract: omit assigned_to when the user never touched the picker so the
             // server assigns the creator; send an explicit value (member id, or null for the
             // unassigned queue) only when the user changed it.
@@ -173,7 +219,20 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
         mutationFn: async (values: typeof form.values & { reopen_reason?: string }) => {
             // Strip contact fields on update, as we manage contacts separately
             const { contact_first_name: _cn, contact_title: _ct, contact_email: _ce, contact_phone_e164: _cp, ...updateValues } = values;
-            const res = await api.put(`/companies/${company!.id}`, updateValues);
+            const payload: Record<string, unknown> = { ...updateValues, fit_score_num: coerceFitScoreNum(values.fit_score_num) };
+            // Qualification fields (v2 Phase 6): when this edit was opened from a source that
+            // does NOT project them (e.g. the ranked search_companies RPC → the prop field is
+            // `undefined`) and the user never touched the input, OMIT the field so the PUT does
+            // not blank out existing DB data with an empty default. Intent = a real
+            // onChange (editedQualFields): touched fires on mere focus and dirty misses a
+            // select-then-clear, so neither is a safe signal on its own.
+            const qualFields = ['lead_source', 'priority', 'qualification_status', 'fit_score_num', 'competitor_notes', 'objection_notes'] as const;
+            for (const f of qualFields) {
+                if (company && company[f] === undefined && !editedQualFields.current.has(f)) {
+                    delete payload[f];
+                }
+            }
+            const res = await api.put(`/companies/${company!.id}`, payload);
             return res.data;
         },
         onSuccess: () => {
@@ -400,6 +459,59 @@ export default function CompanyForm({ opened, onClose, company, onSuccess, onTer
                         placeholder={t('company.fitScore')}
                         radius="md"
                         {...form.getInputProps('fit_score')}
+                    />
+
+                    {/* Qualification (v2 Phase 6) */}
+                    <Divider my="sm" label={t('qualification.sectionTitle')} labelPosition="left" />
+                    <SimpleGrid cols={2}>
+                        <TextInput
+                            label={t('qualification.leadSource')}
+                            placeholder={t('qualification.leadSourcePlaceholder')}
+                            radius="md"
+                            {...qualInputProps('lead_source')}
+                        />
+                        <NumberInput
+                            label={t('qualification.fitScoreNum')}
+                            placeholder="0 - 100"
+                            min={0}
+                            max={100}
+                            allowDecimal={false}
+                            clampBehavior="strict"
+                            radius="md"
+                            {...qualInputProps('fit_score_num')}
+                        />
+                        <Select
+                            label={t('qualification.priority')}
+                            placeholder={t('qualification.priorityPlaceholder')}
+                            clearable
+                            radius="md"
+                            data={COMPANY_PRIORITIES.map((p) => ({ value: p, label: t(`qualification.priorityOptions.${p}`) }))}
+                            {...qualInputProps('priority')}
+                        />
+                        <Select
+                            label={t('qualification.status')}
+                            placeholder={t('qualification.statusPlaceholder')}
+                            clearable
+                            radius="md"
+                            data={QUALIFICATION_STATUSES.map((s) => ({ value: s, label: t(`qualification.statusOptions.${s}`) }))}
+                            {...qualInputProps('qualification_status')}
+                        />
+                    </SimpleGrid>
+                    <Textarea
+                        label={t('qualification.competitorNotes')}
+                        placeholder={t('qualification.competitorNotesPlaceholder')}
+                        autosize
+                        minRows={2}
+                        radius="md"
+                        {...qualInputProps('competitor_notes')}
+                    />
+                    <Textarea
+                        label={t('qualification.objectionNotes')}
+                        placeholder={t('qualification.objectionNotesPlaceholder')}
+                        autosize
+                        minRows={2}
+                        radius="md"
+                        {...qualInputProps('objection_notes')}
                     />
 
                     {/* Custom Fields */}

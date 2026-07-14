@@ -2720,5 +2720,53 @@
         "archiveContactConfirm": "Bu kişi arşivlensin mi? İstediğiniz zaman geri alabilirsiniz.",
         "archivedBannerTitle": "Arşivde",
         "archivedBannerDesc": "Bu kayıt arşivde ve varsayılan görünümlerde gizli. Geri almak için tekrar aktifleştirin."
+    },
+    "qualification": {
+        "sectionTitle": "Niteleme",
+        "leadSource": "Aday Kaynağı",
+        "leadSourcePlaceholder": "örn. Web sitesi, Referans, Fuar",
+        "fitScoreNum": "Uygunluk Puanı (0-100)",
+        "priority": "Öncelik",
+        "priorityPlaceholder": "Öncelik seçin",
+        "priorityOptions": {
+            "low": "Düşük",
+            "normal": "Normal",
+            "high": "Yüksek"
+        },
+        "status": "Niteleme Durumu",
+        "statusPlaceholder": "Durum seçin",
+        "statusOptions": {
+            "unqualified": "Nitelenmemiş",
+            "in_progress": "Değerlendiriliyor",
+            "qualified": "Nitelikli",
+            "disqualified": "Elenmiş"
+        },
+        "competitorNotes": "Rakip Notları",
+        "competitorNotesPlaceholder": "Süreçteki rakipler, konumlandırma notları",
+        "objectionNotes": "İtiraz Notları",
+        "objectionNotesPlaceholder": "Dile getirilen itirazlar ve nasıl ele alındığı",
+        "empty": "Henüz niteleme bilgisi yok.",
+        "tags": "Etiketler",
+        "noTags": "Henüz etiket yok.",
+        "addTag": "Etiket ekle",
+        "existingTag": "Mevcut etiket",
+        "selectTag": "Bir etiket seçin",
+        "noTagsAvailable": "Uygun etiket yok",
+        "orCreate": "ya da oluşturun",
+        "newTagName": "Yeni etiket adı",
+        "createTag": "Oluştur ve ekle",
+        "removeTag": "Etiketi kaldır",
+        "searchFiltersIgnored": "Metin araması sırasında öncelik, yeterlilik ve etiket filtreleri uygulanmaz.",
+        "lossReasonLabel": "Kayıp Nedeni",
+        "lossReasonPlaceholder": "Standart bir neden seçin",
+        "lossReasonOptions": {
+            "price": "Fiyat",
+            "timing": "Zamanlama",
+            "competitor": "Rakibe kaybedildi",
+            "no_budget": "Bütçe yok",
+            "no_need": "İhtiyaç yok",
+            "no_response": "Yanıt yok",
+            "other": "Diğer"
+        }
     }
 }

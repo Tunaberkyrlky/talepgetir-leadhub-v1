@@ -2720,5 +2720,53 @@
         "archiveContactConfirm": "Archive this contact? You can restore it anytime.",
         "archivedBannerTitle": "Archived",
         "archivedBannerDesc": "This record is archived and hidden from the default views. Restore it to bring it back."
+    },
+    "qualification": {
+        "sectionTitle": "Qualification",
+        "leadSource": "Lead Source",
+        "leadSourcePlaceholder": "e.g. Website, Referral, Trade show",
+        "fitScoreNum": "Fit Score (0-100)",
+        "priority": "Priority",
+        "priorityPlaceholder": "Select priority",
+        "priorityOptions": {
+            "low": "Low",
+            "normal": "Normal",
+            "high": "High"
+        },
+        "status": "Qualification Status",
+        "statusPlaceholder": "Select status",
+        "statusOptions": {
+            "unqualified": "Unqualified",
+            "in_progress": "In progress",
+            "qualified": "Qualified",
+            "disqualified": "Disqualified"
+        },
+        "competitorNotes": "Competitor Notes",
+        "competitorNotesPlaceholder": "Competitors in play, positioning notes",
+        "objectionNotes": "Objection Notes",
+        "objectionNotesPlaceholder": "Objections raised and how they were handled",
+        "empty": "No qualification details yet.",
+        "tags": "Tags",
+        "noTags": "No tags yet.",
+        "addTag": "Add tag",
+        "existingTag": "Existing tag",
+        "selectTag": "Select a tag",
+        "noTagsAvailable": "No tags available",
+        "orCreate": "or create",
+        "newTagName": "New tag name",
+        "createTag": "Create & add",
+        "removeTag": "Remove tag",
+        "searchFiltersIgnored": "Priority, qualification and tag filters don't apply during a text search.",
+        "lossReasonLabel": "Loss Reason",
+        "lossReasonPlaceholder": "Select a standard reason",
+        "lossReasonOptions": {
+            "price": "Price",
+            "timing": "Timing",
+            "competitor": "Lost to competitor",
+            "no_budget": "No budget",
+            "no_need": "No need",
+            "no_response": "No response",
+            "other": "Other"
+        }
     }
 }

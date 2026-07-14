@@ -23,6 +23,12 @@ export interface Deal {
     status: DealStatus;
     expected_close: string | null;
     loss_reason: string | null;
+    // Qualification (v2 Phase 6, migration 139). lead_source/priority carry the same
+    // taxonomy as companies; loss_reason_code is the standardized code alongside the
+    // free-text loss_reason.
+    lead_source: string | null;
+    priority: 'low' | 'normal' | 'high' | null;
+    loss_reason_code: string | null;
     owner: string | null;
     created_by: string | null;
     closed_at: string | null;
@@ -73,6 +79,8 @@ export interface DealCreateInput {
     currency?: string;
     expected_close?: string | null;
     owner?: string | null;
+    lead_source?: string | null;
+    priority?: 'low' | 'normal' | 'high' | null;
 }
 
 // PUT /deals/:id — every field optional; status changes go through close/reopen.
@@ -85,12 +93,15 @@ export interface DealUpdateInput {
     currency?: string;
     expected_close?: string | null;
     owner?: string | null;
+    lead_source?: string | null;
+    priority?: 'low' | 'normal' | 'high' | null;
 }
 
 // POST /deals/:id/close — loss_reason is required when closing as lost.
 export interface DealCloseInput {
     status: 'won' | 'lost';
     loss_reason?: string | null;
+    loss_reason_code?: string | null;
 }
 
 // POST /deals/:id/reopen — optional rationale.

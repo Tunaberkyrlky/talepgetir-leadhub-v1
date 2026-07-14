@@ -87,6 +87,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import api from '../lib/api';
 import { invalidateCompanyArchiveCaches } from '../lib/archiveCache';
+import { COMPANY_PRIORITIES, QUALIFICATION_STATUSES } from '../lib/qualification';
 import { localizeCountry } from '../lib/countryNamesTr';
 import { useAuth } from '../contexts/AuthContext';
 import { canWrite } from '../lib/permissions';
@@ -442,6 +443,11 @@ export default function LeadsPage() {
     });
     const [locationSearchValue, setLocationSearchValue] = useState('');
     const [selectedProducts, setSelectedProducts] = useState<string[]>(() => savedState?.selectedProducts ?? []);
+    // Qualification + tag filters (v2 Phase 6). Not persisted to the saved table state
+    // (kept isolated from the LeadsTableState shape that a sibling slice also edits).
+    const [selectedPriorities, setSelectedPriorities] = useState<string[]>([]);
+    const [selectedQualStatuses, setSelectedQualStatuses] = useState<string[]>([]);
+    const [selectedTags, setSelectedTags] = useState<string[]>([]);
     // Owner filter: '' (all), 'me', 'unassigned', or a member UUID.
     // A ?owner= URL param (e.g. dashboard Operations "unowned" card) wins over saved state on entry.
     const [ownerFilter, setOwnerFilter] = useState<string>(() => searchParams.get('owner') || savedState?.owner || '');
@@ -545,11 +551,14 @@ export default function LeadsPage() {
         if (selectedLocations.length) params.set('locations', selectedLocations.join(','));
         if (selectedCountries.length) params.set('country', selectedCountries.join(','));
         if (selectedProducts.length) params.set('products', selectedProducts.join(','));
+        if (selectedPriorities.length) params.set('priority', selectedPriorities.join(','));
+        if (selectedQualStatuses.length) params.set('qualification_status', selectedQualStatuses.join(','));
+        if (selectedTags.length) params.set('tags', selectedTags.join(','));
         if (ownerFilter) params.set('owner', ownerFilter);
         if (dateParams?.dateFrom) params.set('dateFrom', dateParams.dateFrom);
         if (dateParams?.dateTo) params.set('dateTo', dateParams.dateTo);
         if (viewMode === 'archived') params.set('archived', 'only');
-    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, dateParams, viewMode]);
+    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, selectedPriorities, selectedQualStatuses, selectedTags, ownerFilter, dateParams, viewMode]);
 
     // Build query params (moved up so useQuery can be before handleRowSelect)
     const buildQueryParams = useCallback(() => {
@@ -564,11 +573,16 @@ export default function LeadsPage() {
 
     // Fetch companies (moved up so data is available for handleRowSelect and useHotkeys)
     const { data, isLoading, error } = useQuery<PaginatedResponse>({
-        queryKey: ['companies', page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, sortBy, sortOrder, dateParams, viewMode],
-        queryFn: async () => {
-            const res = await api.get(`/companies?${buildQueryParams()}`);
+        // activeTenantId in the key (internal roles switch tenant via X-Tenant-Id) so a
+        // switch refetches and never shows a previous tenant's cached list; the queryFn
+        // pins that tenant to the request so a stale-key refetch targets the right tenant.
+        queryKey: ['companies', activeTenantId, page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, selectedPriorities, selectedQualStatuses, selectedTags, ownerFilter, sortBy, sortOrder, dateParams, viewMode],
+        queryFn: async ({ queryKey, signal }) => {
+            const tid = queryKey[1] as string;
+            const res = await api.get(`/companies?${buildQueryParams()}`, { headers: { 'X-Tenant-Id': tid }, signal });
             return res.data;
         },
+        enabled: !!activeTenantId,
     });
 
     // One-time notice when the server had to drop the owner filter from a search
@@ -645,7 +659,7 @@ export default function LeadsPage() {
     // Clear selection when page/filters change
     useEffect(() => {
         setSelectedIds(new Set());
-    }, [page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, viewMode]);
+    }, [page, debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, selectedPriorities, selectedQualStatuses, selectedTags, ownerFilter, viewMode]);
 
     // Bulk stage update mutation with undo support
     const columnLabels: Record<ColumnKey, string> = {
@@ -711,11 +725,20 @@ export default function LeadsPage() {
     // Reset page when filters change
     useEffect(() => {
         setPage(1);
-    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, ownerFilter, viewMode]);
+    }, [debouncedSearch, selectedStages, selectedIndustries, selectedLocations, selectedCountries, selectedProducts, selectedPriorities, selectedQualStatuses, selectedTags, ownerFilter, viewMode]);
 
     useEffect(() => {
         setPage(1);
     }, [dateParams]);
+
+    // Reset qualification + tag filters when the active tenant changes — tag ids and the
+    // qualification catalogue are tenant-scoped, so a leftover selection from tenant A must
+    // not carry into (and silently mis-filter) tenant B.
+    useEffect(() => {
+        setSelectedTags([]);
+        setSelectedPriorities([]);
+        setSelectedQualStatuses([]);
+    }, [activeTenantId]);
 
     // Fetch filter options
     const { data: filterOptions } = useQuery<FilterOptions>({
@@ -724,6 +747,16 @@ export default function LeadsPage() {
             const res = await api.get('/filter-options');
             return res.data;
         },
+    });
+
+    // Tenant tag catalogue (v2 Phase 6) — options for the tag filter.
+    const { data: tagOptions } = useQuery<Array<{ id: string; name: string; color: string }>>({
+        queryKey: ['tags', activeTenantId],
+        queryFn: async ({ queryKey, signal }) => {
+            const tid = queryKey[1] as string;
+            return (await api.get('/tags', { headers: { 'X-Tenant-Id': tid }, signal })).data.data;
+        },
+        enabled: !!activeTenantId,
     });
 
     const toggleSelectAll = () => {
@@ -844,7 +877,7 @@ export default function LeadsPage() {
         });
     };
 
-    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedCountries.length || selectedProducts.length || ownerFilter);
+    const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedCountries.length || selectedProducts.length || selectedPriorities.length || selectedQualStatuses.length || selectedTags.length || ownerFilter);
 
     const clearAllFilters = () => {
         setSearch('');
@@ -853,6 +886,9 @@ export default function LeadsPage() {
         setSelectedLocations([]);
         setSelectedCountries([]);
         setSelectedProducts([]);
+        setSelectedPriorities([]);
+        setSelectedQualStatuses([]);
+        setSelectedTags([]);
         setOwnerFilter('');
         setPeriodType('all');
         setPeriodAnchor(new Date());
@@ -1806,7 +1842,45 @@ export default function LeadsPage() {
                         radius="md"
                         maxDropdownHeight={240}
                     />
+                    <MultiSelect
+                        placeholder={selectedPriorities.length === 0 ? t('qualification.priority') : undefined}
+                        data={COMPANY_PRIORITIES.map((p) => ({ value: p, label: t(`qualification.priorityOptions.${p}`) }))}
+                        value={selectedPriorities}
+                        onChange={setSelectedPriorities}
+                        clearable
+                        radius="md"
+                        maxDropdownHeight={200}
+                        disabled={!!debouncedSearch}
+                    />
+                    <MultiSelect
+                        placeholder={selectedQualStatuses.length === 0 ? t('qualification.status') : undefined}
+                        data={QUALIFICATION_STATUSES.map((s) => ({ value: s, label: t(`qualification.statusOptions.${s}`) }))}
+                        value={selectedQualStatuses}
+                        onChange={setSelectedQualStatuses}
+                        clearable
+                        radius="md"
+                        maxDropdownHeight={200}
+                        disabled={!!debouncedSearch}
+                    />
+                    <MultiSelect
+                        placeholder={selectedTags.length === 0 ? t('qualification.tags') : undefined}
+                        data={(tagOptions ?? []).map((tag) => ({ value: tag.id, label: tag.name }))}
+                        value={selectedTags}
+                        onChange={setSelectedTags}
+                        clearable
+                        searchable
+                        radius="md"
+                        maxDropdownHeight={200}
+                        disabled={!!debouncedSearch}
+                    />
                 </Group>
+                {/* The ranked search RPC has no parameter for the qualification/tag filters, so
+                    they cannot apply while a free-text search is active — disable + explain. */}
+                {debouncedSearch && (
+                    <Text size="xs" c="dimmed" mt={6}>
+                        {t('qualification.searchFiltersIgnored')}
+                    </Text>
+                )}
                 <Group mt="xs" gap="xs" wrap="nowrap" justify="flex-end">
                     <SegmentedControl
                         size="xs"

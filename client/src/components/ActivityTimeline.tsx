@@ -25,6 +25,7 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS, parseOwnerChange } from '../lib/activityConstants';
+import LossReasonDetail from './LossReasonDetail';
 import { useAuth } from '../contexts/AuthContext';
 import { hasRolePermission, canDelete } from '../lib/permissions';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
@@ -281,9 +282,10 @@ const ActivityTimeline = forwardRef<ActivityTimelineHandle, ActivityTimelineProp
                                         {ownerChange ? t('activity.ownerChanged', ownerChange) : activity.summary}
                                     </Text>
                                     {activity.detail && !ownerChange && (
-                                        <Text size={compact ? 'xs' : 'sm'} c="dimmed" mt={4} style={{ whiteSpace: 'pre-wrap' }}>
-                                            {activity.detail}
-                                        </Text>
+                                        <LossReasonDetail
+                                            detail={activity.detail}
+                                            textProps={{ size: compact ? 'xs' : 'sm', c: 'dimmed', mt: 4, style: { whiteSpace: 'pre-wrap' } }}
+                                        />
                                     )}
                                 </Paper>
                                 {idx < shownList.length - 1 && (

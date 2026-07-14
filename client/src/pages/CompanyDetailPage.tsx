@@ -68,6 +68,7 @@ import TranslatableField from '../components/TranslatableField';
 import EmailStatusIcon from '../components/EmailStatusIcon';
 import OwnerSelect from '../components/OwnerSelect';
 import CompanyForm from '../components/CompanyForm';
+import CompanyQualificationPanel from '../components/CompanyQualificationPanel';
 import ClosingReportModal from '../components/ClosingReportModal';
 import ReopenReasonModal from '../components/ReopenReasonModal';
 import ActivityTimelineUnified from '../components/ActivityTimelineUnified';
@@ -124,6 +125,12 @@ interface Company {
     company_summary: string | null;
     next_step: string | null;
     fit_score: string | null;
+    lead_source: string | null;
+    priority: 'low' | 'normal' | 'high' | null;
+    qualification_status: 'unqualified' | 'in_progress' | 'qualified' | 'disqualified' | null;
+    fit_score_num: number | null;
+    competitor_notes: string | null;
+    objection_notes: string | null;
     custom_field_1: string | null;
     custom_field_2: string | null;
     custom_field_3: string | null;
@@ -957,6 +964,9 @@ export default function CompanyDetailPage() {
                     )}
                 </SimpleGrid>
             </Paper>
+
+            {/* Qualification + tags (v2 Phase 6, slice E4) */}
+            <CompanyQualificationPanel company={company} canEdit={canEdit} />
 
             <NextActionPanel
                 companyId={company.id}

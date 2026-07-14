@@ -6,9 +6,9 @@ import { createLogger } from '../lib/logger.js';
 import { resolveUsers } from '../lib/userResolver.js';
 import {
     validateBody,
-    dealCreateSchema,
-    dealUpdateSchema,
-    dealCloseSchema,
+    dealCreateQualifiedSchema,
+    dealUpdateQualifiedSchema,
+    dealCloseQualifiedSchema,
     dealReopenSchema,
     dealContactSchema,
     DEAL_STATUSES,
@@ -244,7 +244,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
     }
 });
 
-router.post('/', writeRoles, validateBody(dealCreateSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+router.post('/', writeRoles, validateBody(dealCreateQualifiedSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
         // Owner (A2) contract: field omitted -> creator, explicit null -> unassigned queue.
@@ -267,6 +267,8 @@ router.post('/', writeRoles, validateBody(dealCreateSchema), async (req: Request
                 stage_id: req.body.stage_id,
                 stage: stageSlug,
                 expected_close: req.body.expected_close || null,
+                lead_source: req.body.lead_source || null,
+                priority: req.body.priority || null,
                 owner,
                 created_by: req.user!.id,
             })
@@ -287,7 +289,7 @@ router.post('/', writeRoles, validateBody(dealCreateSchema), async (req: Request
     }
 });
 
-router.put('/:id', writeRoles, validateBody(dealUpdateSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+router.put('/:id', writeRoles, validateBody(dealUpdateQualifiedSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         if (!UUID_RE.test(req.params.id as string)) throw new AppError('Invalid deal id', 400);
         const tenantId = req.tenantId!;
@@ -321,6 +323,8 @@ router.put('/:id', writeRoles, validateBody(dealUpdateSchema), async (req: Reque
         if (req.body.amount !== undefined) updates.amount = req.body.amount;
         if (req.body.currency !== undefined) updates.currency = req.body.currency;
         if (req.body.expected_close !== undefined) updates.expected_close = req.body.expected_close;
+        if (req.body.lead_source !== undefined) updates.lead_source = req.body.lead_source;
+        if (req.body.priority !== undefined) updates.priority = req.body.priority;
 
         if (Object.keys(updates).length === 0) throw new AppError('At least one field must be provided', 400);
 
@@ -347,7 +351,7 @@ router.put('/:id', writeRoles, validateBody(dealUpdateSchema), async (req: Reque
     }
 });
 
-router.post('/:id/close', writeRoles, validateBody(dealCloseSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+router.post('/:id/close', writeRoles, validateBody(dealCloseQualifiedSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         if (!UUID_RE.test(req.params.id as string)) throw new AppError('Invalid deal id', 400);
         const tenantId = req.tenantId!;
@@ -369,7 +373,9 @@ router.post('/:id/close', writeRoles, validateBody(dealCloseSchema), async (req:
             .update({
                 status: req.body.status,
                 closed_at: new Date().toISOString(),
+                // Free-text reason + standardized code both persist when lost; cleared on won.
                 loss_reason: isLost ? (req.body.loss_reason?.trim() || null) : null,
+                loss_reason_code: isLost ? (req.body.loss_reason_code || null) : null,
             })
             .eq('id', req.params.id)
             .eq('tenant_id', tenantId)
@@ -419,7 +425,7 @@ router.post('/:id/reopen', writeRoles, validateBody(dealReopenSchema), async (re
 
         const { data, error } = await supabaseAdmin
             .from('deals')
-            .update({ status: 'open', closed_at: null, loss_reason: null })
+            .update({ status: 'open', closed_at: null, loss_reason: null, loss_reason_code: null })
             .eq('id', req.params.id)
             .eq('tenant_id', tenantId)
             .in('status', ['won', 'lost'])

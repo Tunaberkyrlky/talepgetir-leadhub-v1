@@ -35,6 +35,7 @@ import {
 import { useStages } from '../../contexts/StagesContext';
 import api from '../../lib/api';
 import { OUTCOME_COLORS, OUTCOME_ICONS } from '../../lib/activityConstants';
+import LossReasonDetail from '../LossReasonDetail';
 import PipelineCard, { type PipelineCompany } from './PipelineCard';
 
 interface KanbanBoardProps {
@@ -224,7 +225,7 @@ function OutcomeDetailCell({ companyId, closingReport }: { companyId: string; cl
                             </Group>
                             <Text size="xs" fw={500} lineClamp={2}>{closingReport.summary}</Text>
                             {closingReport.detail && (
-                                <Text size="xs" c="dimmed" lineClamp={1}>{closingReport.detail}</Text>
+                                <LossReasonDetail detail={closingReport.detail} textProps={{ size: 'xs', c: 'dimmed', lineClamp: 1 }} />
                             )}
                         </Stack>
                     )}

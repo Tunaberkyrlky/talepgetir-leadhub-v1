@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
     Container,
     Title,
@@ -7,6 +7,7 @@ import {
     TextInput,
     ActionIcon,
     SegmentedControl,
+    MultiSelect,
     Badge,
     Text,
     Paper,
@@ -101,6 +102,9 @@ export default function PipelinePage() {
     // Additive work-signal filter: '' = none, 'overdue' = has an overdue pending task,
     // 'none' = no pending task at all. Threaded into the query so counts stay server-correct.
     const [taskFilter, setTaskFilter] = useState<'' | 'overdue' | 'none'>('');
+    // Tag filter (v2 Phase 6) — kept isolated; threaded through the query + the
+    // optimistic mutation's cache-key snapshot exactly like taskFilter.
+    const [tagFilter, setTagFilter] = useState<string[]>([]);
     const [viewMode, setViewMode] = useState<string>('board');
     const searchRef = useRef<HTMLInputElement>(null);
     const undoStack = useUndoStack();
@@ -145,19 +149,39 @@ export default function PipelinePage() {
 
     const canDrag = hasRolePermission(role, 'pipeline_dragdrop');
 
-    // Fetch pipeline data
+    // Reset the tag filter when the active tenant changes — tag ids are tenant-scoped, so a
+    // leftover selection from tenant A must not carry into (and silently mis-filter) tenant B.
+    useEffect(() => {
+        setTagFilter([]);
+    }, [activeTenantId]);
+
+    // Tenant tag catalogue (v2 Phase 6) — options for the tag filter.
+    const { data: tagOptions } = useQuery<Array<{ id: string; name: string; color: string }>>({
+        queryKey: ['tags', activeTenantId],
+        queryFn: async ({ queryKey, signal }) => {
+            const tid = queryKey[1] as string;
+            return (await api.get('/tags', { headers: { 'X-Tenant-Id': tid }, signal })).data.data;
+        },
+        enabled: !!activeTenantId,
+    });
+
+    // Fetch pipeline data. activeTenantId in the key (internal roles switch tenant via
+    // X-Tenant-Id) so a switch refetches and never shows a previous tenant's cached board;
+    // the queryFn pins that tenant so a stale-key refetch targets the right tenant.
     const { data, isLoading, error } = useQuery<PipelineData>({
-        queryKey: ['pipeline', debouncedSearch, taskFilter],
-        queryFn: async () => {
+        queryKey: ['pipeline', activeTenantId, debouncedSearch, taskFilter, tagFilter],
+        queryFn: async ({ queryKey, signal }) => {
+            const tid = queryKey[1] as string;
             const params = new URLSearchParams();
             if (debouncedSearch) params.set('search', debouncedSearch);
             if (taskFilter === 'overdue') params.set('has_overdue_task', 'true');
             if (taskFilter === 'none') params.set('no_task', 'true');
-            const res = await api.get(`/companies/pipeline?${params.toString()}`);
+            if (tagFilter.length) params.set('tags', tagFilter.join(','));
+            const res = await api.get(`/companies/pipeline?${params.toString()}`, { headers: { 'X-Tenant-Id': tid }, signal });
             return res.data;
         },
         // In deal-mode the company pipeline is never rendered — skip the fetch.
-        enabled: !dealMode,
+        enabled: !dealMode && !!activeTenantId,
     });
 
     // Stage change mutation with optimistic update
@@ -167,13 +191,15 @@ export default function PipelinePage() {
             return res.data;
         },
         onMutate: async ({ companyId, newStage }) => {
-            // Capture search + filter at mutation time — user may change either before onError
-            // fires, which would cause the rollback to write to the wrong cache key.
+            // Capture tenant + search + filter at mutation time — user may change any before
+            // onError fires, which would cause the rollback to write to the wrong cache key.
+            const tenantSnapshot = activeTenantId;
             const searchSnapshot = debouncedSearch;
             const taskFilterSnapshot = taskFilter;
+            const tagFilterSnapshot = tagFilter;
 
             await queryClient.cancelQueries({ queryKey: ['pipeline'] });
-            const previous = queryClient.getQueryData<PipelineData>(['pipeline', searchSnapshot, taskFilterSnapshot]);
+            const previous = queryClient.getQueryData<PipelineData>(['pipeline', tenantSnapshot, searchSnapshot, taskFilterSnapshot, tagFilterSnapshot]);
 
             // Optimistic update
             if (previous) {
@@ -195,15 +221,15 @@ export default function PipelinePage() {
                     updated.columns[newStage] = [movedCompany, ...updated.columns[newStage]];
                 }
 
-                queryClient.setQueryData(['pipeline', searchSnapshot, taskFilterSnapshot], updated);
+                queryClient.setQueryData(['pipeline', tenantSnapshot, searchSnapshot, taskFilterSnapshot, tagFilterSnapshot], updated);
             }
 
-            return { previous, searchSnapshot, taskFilterSnapshot };
+            return { previous, tenantSnapshot, searchSnapshot, taskFilterSnapshot, tagFilterSnapshot };
         },
         onError: (_err, _vars, context) => {
-            // Rollback using the search + filter snapshot captured at mutation start
+            // Rollback using the tenant + search + filter snapshot captured at mutation start
             if (context?.previous) {
-                queryClient.setQueryData(['pipeline', context.searchSnapshot, context.taskFilterSnapshot], context.previous);
+                queryClient.setQueryData(['pipeline', context.tenantSnapshot, context.searchSnapshot, context.taskFilterSnapshot, context.tagFilterSnapshot], context.previous);
             }
             showError(t('pipeline.moveError'));
         },
@@ -576,6 +602,18 @@ export default function PipelinePage() {
                                 ]}
                             />
                         )}
+                        <MultiSelect
+                            size="xs"
+                            placeholder={tagFilter.length === 0 ? t('qualification.tags') : undefined}
+                            data={(tagOptions ?? []).map((tag) => ({ value: tag.id, label: tag.name }))}
+                            value={tagFilter}
+                            onChange={setTagFilter}
+                            clearable
+                            searchable
+                            radius="md"
+                            w={180}
+                            maxDropdownHeight={220}
+                        />
                         <SegmentedControl
                             size="xs"
                             value={viewMode}

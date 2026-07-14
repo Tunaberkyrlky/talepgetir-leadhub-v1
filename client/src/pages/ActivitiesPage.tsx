@@ -19,6 +19,7 @@ import { isInternal, hasRolePermission, canDelete } from '../lib/permissions';
 import api from '../lib/api';
 import StatCard from '../components/StatCard';
 import { ACTIVITY_ICONS, ACTIVITY_COLORS, OUTCOME_COLORS, parseOwnerChange } from '../lib/activityConstants';
+import LossReasonDetail from '../components/LossReasonDetail';
 import ActivityForm from '../components/ActivityForm';
 import CompanyTimelineGroup from '../components/CompanyTimelineGroup';
 import AgendaDayGroup from '../components/AgendaDayGroup';
@@ -244,7 +245,7 @@ function ActivityCard({ activity, navigate, t, locale, canEdit, canDeleteItem, o
                     </Group>
                     <Text size="sm" fw={500}>{ownerChange ? t('activity.ownerChanged', ownerChange) : activity.summary}</Text>
                     {activity.detail && !ownerChange && (
-                        <Text size="xs" c="dimmed" lineClamp={2}>{activity.detail}</Text>
+                        <LossReasonDetail detail={activity.detail} textProps={{ size: 'xs', c: 'dimmed', lineClamp: 2 }} />
                     )}
                 </Stack>
                 <Group gap={4} align="flex-start" wrap="nowrap">

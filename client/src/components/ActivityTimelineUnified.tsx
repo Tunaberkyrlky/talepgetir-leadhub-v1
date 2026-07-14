@@ -28,6 +28,7 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { CHANNEL_ICONS, CHANNEL_COLORS, OUTCOME_COLORS, parseOwnerChange } from '../lib/activityConstants';
+import LossReasonDetail from './LossReasonDetail';
 import { useAuth } from '../contexts/AuthContext';
 import { hasRolePermission, canDelete } from '../lib/permissions';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
@@ -385,15 +386,16 @@ const ActivityTimelineUnified = forwardRef<ActivityTimelineHandle, ActivityTimel
                                             {title}
                                         </Text>
                                         {e.detail && !ownerChange && (
-                                            <Text
-                                                size="sm"
-                                                c="dimmed"
-                                                mt={4}
-                                                lineClamp={isEmail ? 2 : undefined}
-                                                style={isEmail ? undefined : { whiteSpace: 'pre-wrap' }}
-                                            >
-                                                {e.detail}
-                                            </Text>
+                                            <LossReasonDetail
+                                                detail={e.detail}
+                                                textProps={{
+                                                    size: 'sm',
+                                                    c: 'dimmed',
+                                                    mt: 4,
+                                                    lineClamp: isEmail ? 2 : undefined,
+                                                    style: isEmail ? undefined : { whiteSpace: 'pre-wrap' },
+                                                }}
+                                            />
                                         )}
                                     </Paper>
                                     {idx < filtered.length - 1 && (

@@ -3,7 +3,7 @@ import { supabaseAdmin, createUserClient } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
-import { validateBody, createActivitySchema, updateActivitySchema, closingReportSchema } from '../lib/validation.js';
+import { validateBody, createActivitySchema, updateActivitySchema, closingReportQualifiedSchema } from '../lib/validation.js';
 import { transitionCompanyStage } from '../lib/stageTransition.js';
 import { isInternalRole } from '../lib/roles.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
@@ -476,11 +476,23 @@ router.post(
 router.post(
     '/closing-report',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    validateBody(closingReportSchema),
+    validateBody(closingReportQualifiedSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
-            const { company_id, outcome, summary, detail, visibility, occurred_at } = req.body;
+            const { company_id, outcome, summary, detail, visibility, occurred_at, loss_reason_code } = req.body;
+
+            // Standardized loss reason (v2 Phase 6). The close path goes through the atomic
+            // close_company RPC, which we deliberately do NOT change — so the code is folded
+            // into the report's detail as a machine-parseable prefix marker, alongside the
+            // free text. Empty/absent code leaves detail untouched.
+            // A loss reason applies ONLY to a loss: for the canonical 'won' outcome we drop
+            // the code server-side (the client also hides the field), so a win can never carry
+            // a loss reason regardless of a stale/forged client value.
+            const effectiveLossCode = outcome === 'won' ? null : loss_reason_code;
+            const combinedDetail = effectiveLossCode
+                ? `[loss_reason_code:${effectiveLossCode}]${detail ? `\n${detail}` : ''}`
+                : (detail || null);
 
             // Route through the single stageTransition service so every stage change (terminal
             // included) shares one code path. The service delegates to the same atomic
@@ -491,7 +503,7 @@ router.post(
                 userId: req.user!.id,
                 companyId: company_id,
                 targetStage: outcome,
-                closingReport: { outcome, summary, detail: detail || null, visibility, occurred_at: occurred_at || null },
+                closingReport: { outcome, summary, detail: combinedDetail, visibility, occurred_at: occurred_at || null },
             });
             const activity = result.kind === 'closed' ? result.activity : null;
 

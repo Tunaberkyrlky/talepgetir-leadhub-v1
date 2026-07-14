@@ -5,7 +5,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { lookupCoordinates } from '../lib/geocoder.js';
 import { translateTexts } from '../lib/deepl.js';
-import { validateBody, createCompanySchema, updateCompanySchema, bulkOwnerSchema, stagePatchSchema, sanitizeEmail } from '../lib/validation.js';
+import { validateBody, createCompanyQualifiedSchema, updateCompanyQualifiedSchema, bulkOwnerSchema, stagePatchSchema, sanitizeEmail, COMPANY_PRIORITIES, QUALIFICATION_STATUSES } from '../lib/validation.js';
 import { transitionCompanyStage, assertStageTransition, recordStageChangeActivity } from '../lib/stageTransition.js';
 import { resolveUsers, ownerDisplayName } from '../lib/userResolver.js';
 import { parseList } from '../lib/parseList.js';
@@ -219,6 +219,26 @@ async function enrichOwners(rows: Array<Record<string, unknown>>): Promise<void>
     }
 }
 
+// Resolve the DISTINCT set of company ids in a tenant carrying ANY of the given
+// tag ids (v2 Phase 6 tag filter). Returns [] when no company matches — the caller
+// then short-circuits to an empty page rather than passing an empty `.in()`.
+async function resolveTagCompanyIds(
+    db: ReturnType<typeof dbClient>,
+    tenantId: string,
+    tagIds: string[],
+): Promise<string[]> {
+    const { data, error } = await db
+        .from('company_tags')
+        .select('company_id')
+        .eq('tenant_id', tenantId)
+        .in('tag_id', tagIds);
+    if (error) {
+        log.error({ err: error }, 'Tag filter resolution failed');
+        throw new AppError('Failed to filter by tags', 500);
+    }
+    return Array.from(new Set((data || []).map((r) => r.company_id as string)));
+}
+
 // GET /api/companies — List with pagination, search, filter, sort
 router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -234,6 +254,24 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         const locations = (req.query.locations as string || '').split(',').filter(Boolean);
         const countries = (req.query.country as string || '').split(',').map(c => c.trim()).filter(Boolean);
         const products = (req.query.products as string || '').split(',').filter(Boolean);
+        // Qualification filters (v2 Phase 6). These + the tag filter apply on the
+        // no-search path only — the ranked search RPC has no parameter for them, so
+        // they are ignored when a free-text search is also active (documented).
+        const tags = (req.query.tags as string || '').split(',').filter(Boolean);
+        const priorityFilter = (req.query.priority as string || '').split(',').filter(Boolean);
+        const qualStatusFilter = (req.query.qualification_status as string || '').split(',').filter(Boolean);
+        if (tags.some((t) => !UUID_RE.test(t))) {
+            res.status(400).json({ error: 'Invalid tag filter' });
+            return;
+        }
+        if (priorityFilter.some((p) => !COMPANY_PRIORITIES.includes(p as typeof COMPANY_PRIORITIES[number]))) {
+            res.status(400).json({ error: 'Invalid priority filter' });
+            return;
+        }
+        if (qualStatusFilter.some((q) => !QUALIFICATION_STATUSES.includes(q as typeof QUALIFICATION_STATUSES[number]))) {
+            res.status(400).json({ error: 'Invalid qualification status filter' });
+            return;
+        }
 
         // Archive view: the default listing hides archived rows (archived_at IS NULL);
         // ?archived=only returns ONLY archived rows (the "Arşiv" view + restore flow).
@@ -411,7 +449,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         let dataQuery = db
             .from('companies')
-            .select('id, name, website, location, latitude, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at, archived_at, archived_by')
+            .select('id, name, website, location, latitude, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, lead_source, priority, qualification_status, fit_score_num, competitor_notes, objection_notes, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at, archived_at, archived_by')
             .eq('tenant_id', tenantId);
 
         // Archive filter: default hides archived rows; ?archived=only shows only them.
@@ -424,6 +462,30 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         }
 
         // (search handled via RPC in the ranked path above — no ILIKE here)
+
+        // Qualification + tag filters (v2 Phase 6). Applied to BOTH count + data queries
+        // so pagination stays correct. The tag filter pre-resolves matching company ids;
+        // an empty match short-circuits to an empty page below.
+        if (priorityFilter.length > 0) {
+            countQuery = countQuery.in('priority', priorityFilter);
+            dataQuery = dataQuery.in('priority', priorityFilter);
+        }
+        if (qualStatusFilter.length > 0) {
+            countQuery = countQuery.in('qualification_status', qualStatusFilter);
+            dataQuery = dataQuery.in('qualification_status', qualStatusFilter);
+        }
+        if (tags.length > 0) {
+            const tagCompanyIds = await resolveTagCompanyIds(db, tenantId, tags);
+            if (tagCompanyIds.length === 0) {
+                res.json({
+                    data: [],
+                    pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: page > 1 },
+                });
+                return;
+            }
+            countQuery = countQuery.in('id', tagCompanyIds);
+            dataQuery = dataQuery.in('id', tagCompanyIds);
+        }
 
         // Apply stage filter
         if (stages.length > 0) {
@@ -546,6 +608,15 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
         const tenantId = req.tenantId!;
         const search = (req.query.search as string || '').trim();
 
+        // Tag filter (v2 Phase 6). Resolve matching company ids; an empty match uses a
+        // never-matching sentinel so BOTH the pipeline + terminal queries return empty
+        // (the rest of the handler tolerates zero rows). null = no tag filter applied.
+        const tagFilter = (req.query.tags as string || '').split(',').filter(Boolean);
+        if (tagFilter.some((t) => !UUID_RE.test(t))) {
+            res.status(400).json({ error: 'Invalid tag filter' });
+            return;
+        }
+
         // Work-signal filters are mutually exclusive: a company either has an overdue task or
         // has no task at all — never both. AND-ing them always yields an empty board, so reject
         // the combination up front (400) instead of silently returning nothing.
@@ -561,6 +632,13 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
 
         const db = dbClient(req);
 
+        // Resolve the tag filter to a concrete id list (or a never-matching sentinel).
+        let tagIdsForQuery: string[] | null = null;
+        if (tagFilter.length > 0) {
+            const matched = await resolveTagCompanyIds(db, tenantId, tagFilter);
+            tagIdsForQuery = matched.length > 0 ? matched : ['00000000-0000-0000-0000-000000000000'];
+        }
+
         let query = db
             .from('companies')
             .select('id, name, industry, stage, next_step, company_summary, updated_at, stage_changed_at, contact_count, assigned_to')
@@ -568,6 +646,7 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
             // The pipeline board never shows archived companies (no archive view here).
             .is('archived_at', null)
             .in('stage', pipelineStages);
+        if (tagIdsForQuery) query = query.in('id', tagIdsForQuery);
 
         if (search) {
             const safe = sanitizeSearch(search);
@@ -667,6 +746,7 @@ router.get('/pipeline', async (req: Request, res: Response, next: NextFunction):
             .is('archived_at', null)
             .in('stage', terminalStages)
             .order('updated_at', { ascending: false });
+        if (tagIdsForQuery) terminalQuery = terminalQuery.in('id', tagIdsForQuery);
 
         if (search) {
             const safe = sanitizeSearch(search);
@@ -904,7 +984,7 @@ router.get('/:id/timeline', async (req: Request, res: Response, next: NextFuncti
 router.post(
     '/',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    validateBody(createCompanySchema),
+    validateBody(createCompanyQualifiedSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
@@ -913,6 +993,7 @@ router.post(
                 company_email: rawCompanyEmail, email_status,
                 stage, company_summary, internal_notes, next_step, custom_fields,
                 fit_score, custom_field_1, custom_field_2, custom_field_3, assigned_to,
+                lead_source, priority, qualification_status, fit_score_num, competitor_notes, objection_notes,
                 contact_first_name, contact_last_name, contact_title, contact_email: rawContactEmail, contact_phone_e164
             } = req.body;
 
@@ -989,6 +1070,12 @@ router.post(
                 next_step: next_step || null,
                 custom_fields: custom_fields || {},
                 fit_score: fit_score || null,
+                lead_source: lead_source || null,
+                priority: priority || null,
+                qualification_status: qualification_status || null,
+                fit_score_num: fit_score_num ?? null,
+                competitor_notes: competitor_notes || null,
+                objection_notes: objection_notes || null,
                 custom_field_1: custom_field_1 || null,
                 custom_field_2: custom_field_2 || null,
                 custom_field_3: custom_field_3 || null,
@@ -1068,7 +1155,7 @@ router.post(
 router.put(
     '/:id',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    validateBody(updateCompanySchema),
+    validateBody(updateCompanyQualifiedSchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const tenantId = req.tenantId!;
@@ -1087,7 +1174,7 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email: rawCompanyEmail, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3, assigned_to, reopen_reason } = req.body;
+            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email: rawCompanyEmail, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3, assigned_to, reopen_reason, lead_source, priority, qualification_status, fit_score_num, competitor_notes, objection_notes } = req.body;
 
             const company_email = sanitizeEmail(rawCompanyEmail);
 
@@ -1147,6 +1234,12 @@ router.put(
             if (company_summary !== undefined) updateData.company_summary = company_summary;
             if (internal_notes !== undefined && isInternalRole(req.user!.role)) updateData.internal_notes = internal_notes;
             if (fit_score !== undefined) updateData.fit_score = fit_score;
+            if (lead_source !== undefined) updateData.lead_source = lead_source;
+            if (priority !== undefined) updateData.priority = priority;
+            if (qualification_status !== undefined) updateData.qualification_status = qualification_status;
+            if (fit_score_num !== undefined) updateData.fit_score_num = fit_score_num;
+            if (competitor_notes !== undefined) updateData.competitor_notes = competitor_notes;
+            if (objection_notes !== undefined) updateData.objection_notes = objection_notes;
             if (custom_field_1 !== undefined) updateData.custom_field_1 = custom_field_1;
             if (custom_field_2 !== undefined) updateData.custom_field_2 = custom_field_2;
             if (custom_field_3 !== undefined) updateData.custom_field_3 = custom_field_3;
