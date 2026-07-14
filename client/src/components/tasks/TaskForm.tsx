@@ -40,6 +40,8 @@ interface TaskFormProps {
     contacts?: TaskContact[];
     // Öneriyle açıldığında (aktivite/görev sonrası) kişi önceden seçili gelir.
     initialContactId?: string;
+    // Firsat detayından açıldığında görev bu firsata bağlanır (yalnız oluşturmada).
+    dealId?: string;
     task?: CrmTask | null;
     onSuccess?: () => void;
 }
@@ -58,6 +60,7 @@ export default function TaskForm({
     enableCompanyPicker = false,
     contacts = [],
     initialContactId,
+    dealId,
     task,
     onSuccess,
 }: TaskFormProps) {
@@ -181,6 +184,8 @@ export default function TaskForm({
             return (await api.post('/tasks', {
                 ...payload,
                 company_id: values.company_id || companyId,
+                // Firsat detayından oluşturulan görev o firsata bağlanır.
+                ...(dealId ? { deal_id: dealId } : {}),
             })).data;
         },
         onSuccess: () => {

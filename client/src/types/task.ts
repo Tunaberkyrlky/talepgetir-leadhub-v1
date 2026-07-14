@@ -6,6 +6,8 @@ export interface CrmTask {
     tenant_id: string;
     company_id: string;
     contact_id: string | null;
+    // Firsata bağlı görevlerde dolu (v2 Phase 5). Yanıtta firsat başlığı yer almaz.
+    deal_id: string | null;
     title: string;
     detail: string | null;
     status: TaskStatus;

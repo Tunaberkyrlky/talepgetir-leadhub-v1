@@ -21,6 +21,7 @@ import {
     IconDotsVertical,
     IconPencil,
     IconPlus,
+    IconTargetArrow,
     IconX,
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -200,6 +201,16 @@ export default function NextActionPanel({ companyId, contacts = [], canEdit, leg
                                                 {task.priority === 'high' && (
                                                     <Badge size="xs" variant="light" color="red">
                                                         {t('tasks.priorities.high', 'Yüksek')}
+                                                    </Badge>
+                                                )}
+                                                {task.deal_id && (
+                                                    <Badge
+                                                        size="xs"
+                                                        variant="light"
+                                                        color="grape"
+                                                        leftSection={<IconTargetArrow size={11} />}
+                                                    >
+                                                        {t('deals.linkedBadge', 'Firsat')}
                                                     </Badge>
                                                 )}
                                             </Group>

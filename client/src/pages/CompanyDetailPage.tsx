@@ -73,6 +73,7 @@ import CallButton from '../components/coldcall/CallButton';
 import type { ClosingOutcome } from '../types/activity';
 import type { EmailReply } from '../types/emailReply';
 import NextActionPanel from '../components/tasks/NextActionPanel';
+import DealsSection from '../components/deals/DealsSection';
 
 interface Contact {
     id: string;
@@ -835,6 +836,14 @@ export default function CompanyDetailPage() {
                 contacts={company.contacts}
                 canEdit={canEdit}
                 legacyNextStep={company.next_step}
+            />
+
+            {/* Firsatlar (Deals — v2 Phase 5) */}
+            <DealsSection
+                companyId={company.id}
+                companyStage={company.stage}
+                contacts={company.contacts}
+                canEdit={canEdit}
             />
 
             {/* Activities & Contacts Tabs */}

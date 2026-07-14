@@ -25,6 +25,7 @@ interface StagesContextValue {
     getStageLabel: (slug: string) => string;
     stageOptions: { value: string; label: string }[];
     isLoading: boolean;
+    isError: boolean;
     refetch: () => void;
 }
 
@@ -32,13 +33,21 @@ const StagesContext = createContext<StagesContextValue | null>(null);
 
 export function StagesProvider({ children }: { children: React.ReactNode }) {
     const { t, i18n } = useTranslation();
-    const { isAuthenticated } = useAuth();
+    const { isAuthenticated, activeTenantId } = useAuth();
 
-    const { data, isLoading, refetch } = useQuery<StageDefinition[]>({
-        queryKey: ['settings', 'stages'],
-        queryFn: async () => (await api.get('/settings/stages')).data.data,
+    const { data, isLoading, isError, refetch } = useQuery<StageDefinition[]>({
+        // Tenant-scoped key so switching tenants (internal roles switch via X-Tenant-Id)
+        // refetches and never surfaces a previous tenant's cached stages. Prefix-based
+        // invalidations (['settings','stages']) still match this longer key.
+        queryKey: ['settings', 'stages', activeTenantId],
+        queryFn: async ({ queryKey, signal }) => {
+            // Pin the tenant to the KEY being fetched (not mutable closure state) so a stale-key
+            // refetch after a tenant switch still targets the right tenant. Interceptor preserves it.
+            const tid = queryKey[2] as string;
+            return (await api.get('/settings/stages', { headers: { 'X-Tenant-Id': tid }, signal })).data.data;
+        },
         staleTime: 5 * 60 * 1000,
-        enabled: isAuthenticated,
+        enabled: isAuthenticated && !!activeTenantId,
     });
 
     const value = useMemo<StagesContextValue>(() => {
@@ -89,9 +98,10 @@ export function StagesProvider({ children }: { children: React.ReactNode }) {
             getStageLabel,
             stageOptions,
             isLoading,
+            isError,
             refetch: () => { refetch(); },
         };
-    }, [data, isLoading, refetch, t, i18n]);
+    }, [data, isLoading, isError, refetch, t, i18n]);
 
     return (
         <StagesContext.Provider value={value}>
