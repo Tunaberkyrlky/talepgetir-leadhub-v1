@@ -114,7 +114,12 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
         // → first/last prefix → contains across first/last/email → title contains.
         if (search.length > 0) {
             const safe = sanitizeSearch(search);
-            const { data: rows, error: rpcErr } = await db.rpc('search_contacts', {
+            // Always call via supabaseAdmin (service_role): direct EXECUTE on this
+            // SECURITY DEFINER RPC is revoked from anon/authenticated to prevent a
+            // client from passing an arbitrary p_tenant_id (cross-tenant read).
+            // tenantId here is the caller's own tenant — client roles cannot switch
+            // tenants (auth middleware 403s an X-Tenant-Id override), so this is safe.
+            const { data: rows, error: rpcErr } = await supabaseAdmin.rpc('search_contacts', {
                 p_tenant_id:   tenantId,
                 p_search:      safe,
                 p_company_ids: filterCompanyIds.length > 0 ? filterCompanyIds : null,

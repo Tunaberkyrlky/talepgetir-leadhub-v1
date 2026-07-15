@@ -99,7 +99,12 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             const namedLocations = locations.filter(l => l !== '__empty__' && l !== '__not_geocoded__');
             const locationsParam = locations.length > 0 ? locations : null;
 
-            const { data: rows, error: rpcErr } = await db.rpc('search_companies', {
+            // Always call via supabaseAdmin (service_role): direct EXECUTE on this
+            // SECURITY DEFINER RPC is revoked from anon/authenticated to prevent a
+            // client from passing an arbitrary p_tenant_id (cross-tenant read).
+            // tenantId here is the caller's own tenant — client roles cannot switch
+            // tenants (auth middleware 403s an X-Tenant-Id override), so this is safe.
+            const { data: rows, error: rpcErr } = await supabaseAdmin.rpc('search_companies', {
                 p_tenant_id:  tenantId,
                 p_search:     safe,
                 p_stages:     stages.length > 0 ? stages : null,
