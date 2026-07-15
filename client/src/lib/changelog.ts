@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.9',
+        date: '2026-07-15',
+        type: 'improvement',
+        area: 'general',
+        title: { tr: 'Hata Bildiriminde Yazma Alanı Üstte', en: 'Report Field Now on Top' },
+        about: {
+            tr: 'Hata bildirim penceresinde yazma alanı en üste alındı, otomatik doldurulan sayfa ve tarih bilgisi birkaç satır aşağıda duruyor.',
+            en: 'In the error report window the writing area is now at the top, with the auto-filled page and date shown a few lines below.',
+        },
+        usage: {
+            tr: 'Hata Bildir penceresini açtığınızda açıklamayı doğrudan en üstteki boş alana yazabilirsiniz.',
+            en: 'When you open the Report Error window you can type your description directly into the empty area at the top.',
+        },
+    },
+    {
         version: '1.19.8',
         date: '2026-07-13',
         type: 'fix',

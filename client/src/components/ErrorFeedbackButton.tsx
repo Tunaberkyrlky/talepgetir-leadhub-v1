@@ -34,7 +34,9 @@ export default function ErrorFeedbackButton({ context, description, size = 'sm',
                 prefill={{
                     type: 'bug_report',
                     title: `[${context}] `,
-                    description: description || `Sayfa: ${window.location.pathname}\nTarih: ${new Date().toLocaleString('tr-TR')}`,
+                    // Boş satırları üstte bırak: kullanıcı en üste yazsın, otomatik
+                    // doldurulan bağlam (Sayfa/Tarih) 4 satır aşağıda dursun.
+                    description: description || `\n\n\n\nSayfa: ${window.location.pathname}\nTarih: ${new Date().toLocaleString('tr-TR')}`,
                 }}
             />
         </>
