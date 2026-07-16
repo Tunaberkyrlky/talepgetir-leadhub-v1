@@ -1,15 +1,15 @@
 /**
  * Maps scrapers (engine, Y1+). An ASYNC discovery backend: unlike SearXNG (a synchronous
  * query→URLs call), a maps scraper SUBMITS a scrape job to a self-hosted service, POLLS for
- * minutes, then returns structured business rows (name + website + phone + address). Gosom
- * (Google Maps, the West) and — later — a 2GIS finder (CIS) both implement this contract, so
+ * minutes, then returns structured business rows (name + website + phone + address + listing
+ * metadata). Gosom (Google Maps, the West) and — later — a 2GIS finder (CIS) both implement this contract, so
  * the maps discovery source (see engine/sources.ts) is backend-agnostic and geography-routed.
  *
  * The rows are mapped to the engine's Candidate shape (name + registrable domain) and flow
  * through the SAME downstream spine as web-search candidates (canonicalize → dedup → fetch →
- * validate → persist → bill). A business WITH a website validates+bills exactly like a web hit;
- * one WITHOUT is parked domainless as 'review' (its phone/address are captured for the future
- * enrichment phase). The scrape itself is $0 (self-hosted); spend lives entirely in validation.
+ * validate → persist → bill). A business WITH a readable website validates like a web hit; one
+ * WITHOUT can be validated from grounded Maps description/category metadata when available, else
+ * it remains parked as 'review'. The scrape itself is $0; spend lives entirely in validation.
  */
 
 /** One business as returned by a maps scraper (already normalized off the source's CSV/JSON). */
@@ -24,6 +24,8 @@ export interface MapsBusiness {
     address: string | null;
     /** Map category label (e.g. "Wholesaler", "Manufacturer"). */
     category: string | null;
+    /** Public description/about text shown on the map listing, when the backend exposes it. */
+    description: string | null;
     /** Any emails the scraper surfaced (Gosom email mode; usually empty — we do our own fetch). */
     emails: string | null;
 }

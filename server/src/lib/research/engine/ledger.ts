@@ -32,6 +32,9 @@ export interface UpsertCompanyInput {
     city?: string | null;
     phone?: string | null;
     address?: string | null;
+    /** Raw Maps listing metadata. NULL preserves an existing non-null value in the RPC. */
+    mapsDescription?: string | null;
+    mapsCategory?: string | null;
     /** null preserves an existing rollup status; a new row defaults to review in the RPC. */
     status: string | null;
     score?: number | null;
@@ -79,6 +82,8 @@ export async function upsertCompany(input: UpsertCompanyInput): Promise<CompanyR
         p_worker: input.worker,
         p_lease: input.lease,
         p_channel: input.channelId ?? null,
+        p_maps_description: input.mapsDescription ?? null,
+        p_maps_category: input.mapsCategory ?? null,
     });
     if (error) {
         // Structured suppression marker (069/070). The insert-trigger path (060) has no DETAIL,

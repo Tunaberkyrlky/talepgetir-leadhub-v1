@@ -120,7 +120,7 @@ export interface CandidateSource {
     readonly name: string;
     /** Ledger provenance for companies first written by this source. */
     readonly sourcePath?: 'Y1' | 'Y2' | 'Y3';
-    /** Explicit sources (Y2) may fetch an existing seed that lacks a current ICP verdict. */
+    /** Explicit sources (Maps/Y2) may process an existing seed that lacks a current ICP verdict. */
     readonly fetchExisting?: boolean;
     /** Y1 channel provenance (WP3): companies written by this run carry this channel ref. */
     readonly channelId?: string;
@@ -232,6 +232,9 @@ export function buildMapsKeywords(icp: GatherContext['icp'], geography: string, 
 export const mapsSource: CandidateSource = {
     name: 'maps',
     sourcePath: 'Y1',
+    // A known company without a current ICP verdict may now be evaluated from its cached website or
+    // newly-captured Maps metadata instead of being stranded in the website-only re-score pass.
+    fetchExisting: true,
     async gather(ctx: GatherContext): Promise<GatherResult> {
         await ctx.heartbeat({ stage: 'maps_discovery' });
         const scraper = pickMapsBackend(ctx.geography);
@@ -260,7 +263,8 @@ export const mapsSource: CandidateSource = {
 
         // Map business rows → the engine's Candidate shape. website → registrable domain (validated
         // + billed like a web hit); no website → domainless Candidate (canonicalKey falls back to
-        // name|country, and the pipeline parks it as 'review'). country = the harvested geography.
+        // name|country). Description/category can ground a lower-confidence Maps validation when no
+        // readable website exists; metadata-empty candidates remain 'review'. country = geography.
         //
         // JUNK GUARD (mirrors the web path at discovery.ts:173): Maps SMBs routinely list a Facebook
         // page or a directory profile as their "website". Left as-is, that junk domain becomes the
@@ -280,6 +284,8 @@ export const mapsSource: CandidateSource = {
                 city: null,
                 phone: b.phone,
                 address: b.address,
+                mapsDescription: b.description,
+                mapsCategory: b.category,
             };
         });
         if (businesses.length === 0) log.info({ backend: scraper.name, geography: ctx.geography }, 'maps scrape yielded no businesses');

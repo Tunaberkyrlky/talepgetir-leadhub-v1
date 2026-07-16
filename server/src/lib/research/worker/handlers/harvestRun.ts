@@ -14,8 +14,8 @@
  * control — refuses to start and burn COGS if the tenant has no available credit), caps billing
  * at the reservation so the balance can never go negative, settles the realized count on success,
  * and releases the remainder. A hard failure releases the whole reservation; a crashed worker's
- * stranded hold is freed by the worker's stale-hold reaper. Domainless candidates are parked as
- * 'review' (no site to read) for the enrichment phase.
+ * stranded hold is freed by the worker's stale-hold reaper. Domainless Maps candidates can be
+ * validated from grounded listing metadata; metadata-empty candidates remain parked as 'review'.
  *
  * Sub-ICP geo cell (WP2, optional): payload.geo_id targets an APPROVED research_geographies cell
  * of this ICP. Its spec feeds discovery (local-language terms + named directories) and validation
@@ -31,7 +31,7 @@ import type { Candidate, GeoQuerySpec } from '../../engine/discovery.js';
 import { webSearchSource, type CandidateSource, type PriorCellStats } from '../../engine/sources.js';
 import { readCellChunk, updateChunkCoverageSafe, type ChunkRow } from '../../channels/coverage.js';
 import { fetchPage, cachedPageContent } from '../../engine/fetch.js';
-import { validateCompany } from '../../engine/validate.js';
+import { prepareMapsEvidence, validateCompany, validateCompanyFromMaps } from '../../engine/validate.js';
 import { costOfLlm, costOfFetch, costFromUsageSummary, PRICING_VERSION } from '../../engine/pricing.js';
 import { withLlmMeter, type MeteredError } from '../../llm/meter.js';
 import {
@@ -326,6 +326,8 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
         await heartbeat({ stage: 'validating', fresh: fresh.length, rescore: reScoreTargets.length });
         let matches = 0, partial = 0, eliminated = 0, review = 0;
         let fetchErrors = 0, suppressedAtWrite = 0, domainless = 0, processed = 0;
+        let mapsMetadataValidations = 0, mapsDomainlessValidations = 0;
+        let mapsUnreachableFallbacks = 0, mapsMetadataRefreshed = 0;
         // Cross-ICP re-score tally (subset of the verdicts above): rescored = re-scored existing firms,
         // rescoreMatches = matches among them, rescoreSkippedNoContent = existing firms with no cached
         // text to score (left for the enrichment phase).
@@ -373,72 +375,130 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
             return persisted;
         };
 
+        // Maps may resurface a company that already has a current verdict. Preserve the new public
+        // listing metadata without changing its rollup status, per-ICP verdict, or billing state.
+        // The common upsert intentionally advances last_checked_at: it records the latest public-source
+        // observation, not only the last LLM verdict evaluation.
+        if (source.name === 'maps') {
+            for (const c of canon) {
+                const existing = existingMap.get(c.canonicalKey);
+                if (suppressed.has(c.canonicalKey) || !existing || !haveCurrentVerdict.has(existing.id)) continue;
+                if (c.mapsDescription == null && c.mapsCategory == null && c.phone == null && c.address == null) continue;
+                try {
+                    await upsertCompany({
+                        tenantId, canonicalKey: c.canonicalKey, name: c.name,
+                        phone: c.phone, address: c.address,
+                        mapsDescription: c.mapsDescription, mapsCategory: c.mapsCategory,
+                        status: null, jobId: job.id, worker, lease,
+                    });
+                    mapsMetadataRefreshed++;
+                } catch (e) {
+                    if (e instanceof SuppressedError) {
+                        // Move the newly-suppressed key into the shared set: later passes skip it and
+                        // the summary counts it once via suppressed.size (not again in suppressedAtWrite).
+                        suppressed.add(c.canonicalKey);
+                        continue;
+                    }
+                    throw e;
+                }
+            }
+        }
+
         for (const c of fresh) {
+            if (suppressed.has(c.canonicalKey)) continue;
             if (!tracker.canTakeCandidate()) break;
             tracker.countCandidate();
             const regDomain = normalizeDomain(c.domain);
+            const mapsEvidence = source.name === 'maps'
+                ? prepareMapsEvidence({ description: c.mapsDescription, category: c.mapsCategory })
+                : null;
+            let validation: Awaited<ReturnType<typeof validateCompany>>;
 
-            // Domainless candidate → no site to read; park as 'review' for enrichment (no LLM cost).
             if (!regDomain) {
                 domainless++;
-                try {
-                    await upsertCompany({
-                        tenantId, canonicalKey: c.canonicalKey, projectId,
-                        domain: null, name: c.name, website: c.domain ?? null, country: c.country, city: c.city,
-                        phone: c.phone, address: c.address,
-                        status: 'review', siteSummary: 'domainless candidate (no website resolved)',
-                        icpId, geoId, sourcePath, channelId: source.channelId ?? null, jobId: job.id, worker, lease,
-                    });
-                    review++;
-                } catch (e) {
-                    if (e instanceof SuppressedError) { suppressedAtWrite++; continue; }
-                    throw e;
-                }
-                continue;
-            }
-
-            if (!tracker.canFetch()) break;
-            const page = await fetchPage(regDomain);
-            // Count + cost ONLY a real network attempt — a cache hit is free and doesn't burn the cap.
-            if (page.networkCall) {
-                tracker.countFetch(); // bounds total fetch work (Jina + direct fallback) against the cap
-                // Only Jina is provider-billable; the SSRF-guarded direct fallback ('fetch') and a
-                // failed attempt ('error') use our own egress (not Jina-billed). Charge + count Jina
-                // separately so COGS is correct if Jina's per-fetch rate (currently $0) goes non-zero.
-                if (page.method === 'jina') {
-                    jinaFetches++;
-                    tracker.addFetchCost(costOfFetch(page.cacheHit));
+                if (mapsEvidence) {
+                    mapsMetadataValidations++;
+                    mapsDomainlessValidations++;
+                    validation = await validateCompanyFromMaps(
+                        icpFields,
+                        { name: c.name, domain: null, country: c.country },
+                        mapsEvidence
+                    );
                 } else {
-                    directFetches++;
+                    // No website and no meaningful listing evidence → deterministic review, no LLM cost.
+                    try {
+                        await upsertCompany({
+                            tenantId, canonicalKey: c.canonicalKey, projectId,
+                            domain: null, name: c.name, website: c.domain ?? null, country: c.country, city: c.city,
+                            phone: c.phone, address: c.address,
+                            mapsDescription: c.mapsDescription, mapsCategory: c.mapsCategory,
+                            status: 'review', siteSummary: 'domainless candidate (no website resolved)',
+                            icpId, geoId, sourcePath, channelId: source.channelId ?? null, jobId: job.id, worker, lease,
+                        });
+                        review++;
+                    } catch (e) {
+                        if (e instanceof SuppressedError) { suppressedAtWrite++; continue; }
+                        throw e;
+                    }
+                    continue;
+                }
+            } else {
+                if (!tracker.canFetch()) break;
+                const page = await fetchPage(regDomain);
+                // Count + cost ONLY a real network attempt — a cache hit is free and doesn't burn the cap.
+                if (page.networkCall) {
+                    tracker.countFetch(); // bounds total fetch work (Jina + direct fallback) against the cap
+                    // Only Jina is provider-billable; the SSRF-guarded direct fallback ('fetch') and a
+                    // failed attempt ('error') use our own egress (not Jina-billed). Charge + count Jina
+                    // separately so COGS is correct if Jina's per-fetch rate (currently $0) goes non-zero.
+                    if (page.method === 'jina') {
+                        jinaFetches++;
+                        tracker.addFetchCost(costOfFetch(page.cacheHit));
+                    } else {
+                        directFetches++;
+                    }
+                }
+
+                if (page.content) {
+                    // A readable first-party website remains authoritative; Maps metadata is stored but
+                    // never mixed into this verdict or used as a second pass after an inconclusive result.
+                    validation = await validateCompany(
+                        icpFields,
+                        { name: c.name, domain: regDomain, country: c.country },
+                        page.content
+                    );
+                } else if (mapsEvidence) {
+                    fetchErrors++;
+                    mapsMetadataValidations++;
+                    mapsUnreachableFallbacks++;
+                    validation = await validateCompanyFromMaps(
+                        icpFields,
+                        { name: c.name, domain: regDomain, country: c.country },
+                        mapsEvidence
+                    );
+                } else {
+                    // Empty site and no meaningful Maps evidence → deterministic review without LLM spend.
+                    fetchErrors++;
+                    try {
+                        await upsertCompany({
+                            tenantId, canonicalKey: c.canonicalKey, projectId,
+                            domain: regDomain, name: c.name, website: c.domain ?? regDomain, country: c.country, city: c.city,
+                            phone: c.phone, address: c.address,
+                            mapsDescription: c.mapsDescription, mapsCategory: c.mapsCategory,
+                            status: 'review', siteSummary: `site unreachable (status ${page.status})`, icpId, geoId, sourcePath,
+                            channelId: source.channelId ?? null, jobId: job.id, worker, lease,
+                        });
+                        review++;
+                    } catch (e) {
+                        if (e instanceof SuppressedError) { suppressedAtWrite++; continue; }
+                        throw e;
+                    }
+                    if (tracker.reasonToStop()) break;
+                    continue;
                 }
             }
 
-            // Unreachable/empty site → deterministic 'review' WITHOUT an LLM call (saves cost; an empty
-            // page can't ground a match anyway).
-            if (!page.content) {
-                fetchErrors++;
-                try {
-                    await upsertCompany({
-                        tenantId, canonicalKey: c.canonicalKey, projectId,
-                        domain: regDomain, name: c.name, website: c.domain ?? regDomain, country: c.country, city: c.city,
-                        phone: c.phone, address: c.address,
-                        status: 'review', siteSummary: `site unreachable (status ${page.status})`, icpId, geoId, sourcePath,
-                        channelId: source.channelId ?? null, jobId: job.id, worker, lease,
-                    });
-                    review++;
-                } catch (e) {
-                    if (e instanceof SuppressedError) { suppressedAtWrite++; continue; }
-                    throw e;
-                }
-                if (tracker.reasonToStop()) break;
-                continue;
-            }
-
-            const { value: verdict, result } = await validateCompany(
-                icpFields,
-                { name: c.name, domain: regDomain, country: c.country },
-                page.content
-            );
+            const { value: verdict, result } = validation;
             tracker.addLlmCost(costOfLlm(result));
 
             let companyId: string;
@@ -447,6 +507,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                     tenantId, canonicalKey: c.canonicalKey, projectId,
                     domain: regDomain, name: c.name, website: c.domain ?? regDomain, country: c.country, city: c.city,
                     phone: c.phone, address: c.address,
+                    mapsDescription: c.mapsDescription, mapsCategory: c.mapsCategory,
                     status: verdict.verdict, score: verdict.score,
                     siteSummary: verdict.summary || null, evidence: verdict.evidence,
                     eliminationReason: verdict.elimination_reason || null, icpId, geoId, sourcePath,
@@ -525,6 +586,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
         if (RESCORE_EXISTING && !reservationExhausted) {
             await heartbeat({ stage: 'rescoring', targets: reScoreTargets.length });
             for (const ex of reScoreTargets) {
+                if (suppressed.has(ex.canonicalKey)) continue;
                 // Re-score is zero-fetch, so it must NOT stop on the fetch cap. canTakeCandidate gates
                 // the candidate + spend caps (the only limits that apply to a validate-only pass); the
                 // primary pass may have exhausted maxFetches, which is irrelevant here (codex P1).
@@ -631,6 +693,10 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
             rescore_matches: rescoreMatches,
             rescore_skipped_no_content: rescoreSkippedNoContent,
             domainless,
+            maps_metadata_validations: mapsMetadataValidations,
+            maps_domainless_validations: mapsDomainlessValidations,
+            maps_unreachable_fallbacks: mapsUnreachableFallbacks,
+            maps_metadata_refreshed: mapsMetadataRefreshed,
             matches, partial, eliminated, review,
             // newly_billed = actual quota decrements this run (exact); reconciled = matches settled by
             // the safety-net pass (crash-gap / previously-unbilled).

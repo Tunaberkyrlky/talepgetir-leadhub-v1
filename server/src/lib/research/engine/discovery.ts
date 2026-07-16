@@ -48,6 +48,9 @@ export interface Candidate {
     /** Optional discovery-source enrichment (Maps/2GIS); web search leaves these unset. */
     phone?: string | null;
     address?: string | null;
+    /** Raw public listing metadata; never populated by web/trade/channel discovery. */
+    mapsDescription?: string | null;
+    mapsCategory?: string | null;
 }
 
 // Bump when the discovery/extraction prompt or model routing changes, so a stale cache entry

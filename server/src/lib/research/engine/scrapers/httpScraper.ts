@@ -56,6 +56,35 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
     }
 }
 
+const EMPTY_LISTING_VALUES = new Set(['n/a', 'na', 'none', 'null', 'unknown', 'not specified']);
+
+/** Read one bounded, normalized listing-metadata string without coercing objects to junk text. */
+function listingText(
+    row: Record<string, unknown>,
+    keys: string[],
+    maxLength: number,
+    rejectStructuredJson = false
+): string | null {
+    for (const key of keys) {
+        const raw = row[key];
+        if (typeof raw !== 'string') continue;
+        const value = raw.replace(/\s+/g, ' ').trim();
+        if (!value || EMPTY_LISTING_VALUES.has(value.toLowerCase())) continue;
+        // Gosom's `about` CSV column is a JSON array of amenities (accessibility, payments, etc.),
+        // not a prose business description. Never feed that structured blob to the validator.
+        if (rejectStructuredJson && /^[\[{]/.test(value)) {
+            try {
+                const parsed = JSON.parse(value) as unknown;
+                if (parsed !== null && typeof parsed === 'object') continue;
+            } catch {
+                // A prose value that merely starts with a bracket is still usable listing text.
+            }
+        }
+        return value.slice(0, maxLength);
+    }
+    return null;
+}
+
 /** Download + parse the result CSV into normalized business rows (shared column mapping). */
 function parseCsv(csv: string, maxResults: number): MapsBusiness[] {
     const parsed = Papa.parse<Record<string, string>>(csv, { header: true, skipEmptyLines: 'greedy' });
@@ -69,7 +98,8 @@ function parseCsv(csv: string, maxResults: number): MapsBusiness[] {
             website: (r.website ?? r.web_site ?? r.site ?? '').trim() || null,
             phone: (r.phone ?? '').trim() || null,
             address: (r.address ?? '').trim() || null,
-            category: (r.category ?? '').trim() || null,
+            category: listingText(r, ['category', 'type', 'main_category', 'business_category'], 255),
+            description: listingText(r, ['descriptions', 'description', 'business_description', 'businessDescription', 'place_description', 'about_text', 'about'], 4_000, true),
             emails: (r.emails ?? '').trim() || null,
         });
         if (out.length >= maxResults) break;
@@ -90,7 +120,8 @@ function parseResultObjects(rows: unknown, maxResults: number): MapsBusiness[] {
             website: String(r.website ?? r.web_site ?? r.site ?? '').trim() || null,
             phone: String(r.phone ?? r.phone_number ?? '').trim() || null,
             address: String(r.address ?? r.full_address ?? '').trim() || null,
-            category: String(r.category ?? r.type ?? '').trim() || null,
+            category: listingText(r, ['category', 'type', 'main_category', 'business_category'], 255),
+            description: listingText(r, ['descriptions', 'description', 'business_description', 'businessDescription', 'place_description', 'about_text', 'about'], 4_000, true),
             emails: Array.isArray(r.emails) ? r.emails.join(',') : String(r.emails ?? '').trim() || null,
         });
         if (out.length >= maxResults) break;
