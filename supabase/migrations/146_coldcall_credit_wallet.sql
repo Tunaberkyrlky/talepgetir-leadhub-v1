@@ -64,11 +64,20 @@ ALTER TABLE coldcall_credit_ledger ENABLE ROW LEVEL SECURITY;
 
 -- 3.2b Tek in-flight çağrı (codex P1): tenant başına EN FAZLA bir terminal-olmayan çağrı.
 -- Eşzamanlı POST'larda bakiye aşımını ATOMİK sınırlar (app-seviyesi count-then-insert
--- TOCTOU'ya açıktı; INSERT artık 23505 ile reddedilir → calls.ts 409'a çevirir). Önce mevcut
--- takılı/çoklu terminal-olmayan satırları temizle (yoksa unique index yaratımı çakışır —
--- izole test DB'de eski smoke satırları olabilir; deploy anında uçuşta çağrı olmaz).
-UPDATE coldcall_calls SET status = 'failed', ended_at = COALESCE(ended_at, now())
-  WHERE status NOT IN ('completed','busy','no_answer','failed','canceled');
+-- TOCTOU'ya açıktı; INSERT artık 23505 ile reddedilir → calls.ts 409'a çevirir). Unique
+-- index yaratımından önce yalnızca tenant başına birden fazla aktif satır varsa eskileri
+-- deterministik olarak kapat; en yeni meşru çağrı korunur (created_at eşitse UUID tie-break).
+WITH ranked_active AS (
+  SELECT id,
+         row_number() OVER (PARTITION BY tenant_id ORDER BY created_at DESC, id DESC) AS active_rank
+  FROM coldcall_calls
+  WHERE status NOT IN ('completed','busy','no_answer','failed','canceled')
+)
+UPDATE coldcall_calls AS calls
+  SET status = 'failed', ended_at = COALESCE(calls.ended_at, now())
+  FROM ranked_active
+  WHERE calls.id = ranked_active.id
+    AND ranked_active.active_rank > 1;
 CREATE UNIQUE INDEX idx_coldcall_calls_one_active ON coldcall_calls(tenant_id)
   WHERE status NOT IN ('completed','busy','no_answer','failed','canceled');
 
