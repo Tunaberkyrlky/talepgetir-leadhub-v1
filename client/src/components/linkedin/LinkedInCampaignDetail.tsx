@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-    ActionIcon, Alert, Badge, Button, Checkbox, Divider, FileInput, Group, Loader, LoadingOverlay,
-    Modal, MultiSelect, NumberInput, Paper, Popover, ScrollArea, SegmentedControl, Select, Stack,
-    Switch, Table, Tabs, Text, Textarea, TextInput, Tooltip,
+    ActionIcon, Alert, Avatar, Badge, Button, Checkbox, Divider, FileInput, Group, Loader,
+    LoadingOverlay, Modal, MultiSelect, NumberInput, Paper, Popover, Progress, ScrollArea,
+    SegmentedControl, Select, Stack, Switch, Table, Tabs, Text, Textarea, TextInput, Tooltip,
 } from '@mantine/core';
 import {
-    IconArrowDown, IconArrowLeft, IconArrowUp, IconArchive, IconCirclePlus, IconFileText,
-    IconInfoCircle, IconList, IconPlayerPause, IconPlayerPlay, IconPlus, IconSparkles, IconTrash,
-    IconUserPlus, IconUsers,
+    IconArrowDown, IconArrowLeft, IconArrowUp, IconArchive, IconCircleCheck, IconCirclePlus,
+    IconFileText, IconInfoCircle, IconList, IconPlayerPause, IconPlayerPlay, IconPlus,
+    IconSparkles, IconTrash, IconUserPlus, IconUsers,
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -24,7 +24,7 @@ type AiMode = 'off' | 'sections' | 'full';
 interface AiSection { key: string; prompt: string }
 /** Local draft shape: always fully populated so switching modes preserves the other fields. */
 interface AiConfigDraft { mode: AiMode; prompt: string; sections: AiSection[] }
-interface StepDraft { type: StepType; wait_days: number; template: string; ai: AiConfigDraft }
+interface StepDraft { uid: number; type: StepType; wait_days: number; template: string; ai: AiConfigDraft }
 
 /** Wire shape from GET / to PUT — `{}` means off. */
 interface AiConfigWire { mode?: AiMode; prompt?: string; sections?: AiSection[] }
@@ -188,6 +188,7 @@ export default function LinkedInCampaignDetail({ campaignId, accounts, onBack }:
     // ── Steps editor (local draft; PUT replaces the whole ordered list) ──────────
     const [steps, setSteps] = useState<StepDraft[]>([]);
     const [stepsDirty, setStepsDirty] = useState(false);
+    const nextStepUid = useRef(0);
     // Monotonic edit counter: a keystroke during an in-flight save advances it, so onSuccess
     // only clears dirty (letting the server resync) when NO edit happened since the save started —
     // otherwise the just-typed edits would be silently reverted by the resync effect (review P3).
@@ -195,6 +196,7 @@ export default function LinkedInCampaignDetail({ campaignId, accounts, onBack }:
     useEffect(() => {
         if (detailQuery.data && !stepsDirty) {
             setSteps(detailQuery.data.steps.map((s) => ({
+                uid: nextStepUid.current++,
                 type: s.type, wait_days: Number(s.wait_days) || 0, template: s.template ?? '',
                 ai: normalizeAi(s.ai_config),
             })));
@@ -353,14 +355,21 @@ export default function LinkedInCampaignDetail({ campaignId, accounts, onBack }:
             <Paper withBorder radius="md" p="md">
                 <Group justify="space-between" mb="sm">
                     <div>
-                        <Text fw={600}>{t('research.linkedin.camp.steps', 'Sequence steps')}</Text>
+                        <Group gap="xs">
+                            <Text fw={600}>{t('research.linkedin.camp.steps', 'Sequence steps')}</Text>
+                            {stepsDirty && (
+                                <Badge size="sm" color="yellow" variant="light">
+                                    {t('research.linkedin.camp.unsavedChanges', 'Unsaved changes')}
+                                </Badge>
+                            )}
+                        </Group>
                         <Text size="xs" c="dimmed">
-                            {t('research.linkedin.camp.stepsHint', 'Templates support {first_name} {last_name} {company} {title} variables, {{spintax}} spintax and {ai:key} tokens where AI text is inserted. Invite notes over 300 characters are trimmed.', { spintax: '{{a|b}}' })}
+                            {t('research.linkedin.camp.stepsHint', 'Use {{spintax}} for variants. LinkedIn trims invite notes over 300 characters.', { spintax: '{{a|b}}' })}
                         </Text>
                     </div>
                     <Group gap="xs">
                         <Button size="xs" variant="light" leftSection={<IconPlus size={14} />}
-                            onClick={() => mutateSteps([...steps, { type: steps.length === 0 ? 'invite' : 'message', wait_days: steps.length === 0 ? 0 : 1, template: '', ai: { mode: 'off', prompt: '', sections: [] } }])}>
+                            onClick={() => mutateSteps([...steps, { uid: nextStepUid.current++, type: steps.length === 0 ? 'invite' : 'message', wait_days: steps.length === 0 ? 0 : 1, template: '', ai: { mode: 'off', prompt: '', sections: [] } }])}>
                             {t('research.linkedin.camp.addStep', 'Add step')}
                         </Button>
                         <Button size="xs" onClick={() => saveStepsMut.mutate(editSeq.current)} loading={saveStepsMut.isPending} disabled={!stepsDirty || anyStepInvalid}>
@@ -378,7 +387,7 @@ export default function LinkedInCampaignDetail({ campaignId, accounts, onBack }:
                 ) : (
                     <Stack gap="xs">
                         {steps.map((s, i) => (
-                            <Paper key={i} withBorder radius="sm" p="sm">
+                            <Paper key={s.uid} withBorder radius="sm" p="sm">
                                 <Stack gap="sm">
                                     {/* Row 1: order + type + wait, then preview + reorder/delete controls. */}
                                     <Group align="center" wrap="nowrap" gap="xs">
@@ -704,7 +713,10 @@ function AddLeadsModal({ opened, campaignId, onClose, onDone }: {
                     {t('research.linkedin.camp.addLeadsHint', 'Suppressed people and leads already in another active campaign are skipped automatically.')}
                 </Text>
                 {summary && (
-                    <Alert color={summary.tone === 'error' ? 'red' : 'green'} icon={<IconInfoCircle size={16} />}>
+                    <Alert
+                        color={summary.tone === 'error' ? 'red' : 'green'}
+                        icon={summary.tone === 'error' ? <IconInfoCircle size={16} /> : <IconCircleCheck size={16} />}
+                    >
                         {summary.text}
                     </Alert>
                 )}
@@ -737,7 +749,13 @@ function SavedLeadsTab({ campaignId, active, onSummary }: {
 
     const rowLabel = (l: LeadOption) => {
         const name = `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim() || l.public_id || '—';
-        return [name, l.company, l.title].filter(Boolean).join(' — ');
+        const details = [l.company, l.title].filter(Boolean).join(' · ');
+        return (
+            <Stack gap={0}>
+                <Text size="sm" fw={500}>{name}</Text>
+                {details && <Text size="xs" c="dimmed">{details}</Text>}
+            </Stack>
+        );
     };
 
     const mut = useMutation({
@@ -771,7 +789,7 @@ function SavedLeadsTab({ campaignId, active, onSummary }: {
             ) : (
                 <ScrollArea.Autosize mah={260}>
                     <Checkbox.Group value={selected} onChange={setSelected}>
-                        <Stack gap={6}>
+                        <Stack gap={8}>
                             {leads.map((l) => (<Checkbox key={l.id} value={l.id} label={rowLabel(l)} />))}
                         </Stack>
                     </Checkbox.Group>
@@ -815,10 +833,12 @@ function CsvTab({ campaignId, onSummary }: { campaignId: string; onSummary: OnSu
             }
             const dataRows = rows.slice(1);
             const parsed: Array<Record<string, string>> = [];
+            // Preview must mirror what will actually import, so only accepted raw rows qualify.
+            const acceptedRows: string[][] = [];
             let invalid = 0, empty = 0;
             for (const r of dataRows) {
                 const res = csvRowToLead(r, cols);
-                if ('lead' in res) parsed.push(res.lead);
+                if ('lead' in res) { parsed.push(res.lead); acceptedRows.push(r); }
                 else if (res.skip === 'invalid_identity') invalid += 1;
                 else empty += 1;
             }
@@ -831,7 +851,7 @@ function CsvTab({ campaignId, onSummary }: { campaignId: string; onSummary: OnSu
                     : t('research.linkedin.camp.csvNoRows', 'The CSV has no data rows.'));
                 return;
             }
-            setMap(cols); setLeads(parsed); setPreview(dataRows.slice(0, 5)); setSkipped({ invalid, empty });
+            setMap(cols); setLeads(parsed); setPreview(acceptedRows.slice(0, 5)); setSkipped({ invalid, empty });
         } catch {
             setError(t('research.linkedin.camp.csvParseError', 'Could not read the CSV.'));
         }
@@ -842,6 +862,9 @@ function CsvTab({ campaignId, onSummary }: { campaignId: string; onSummary: OnSu
         skipped.empty > 0 ? t('research.linkedin.camp.csvSkippedEmpty', '{{n}} rows skipped (no identity value).', { n: skipped.empty }) : '',
     ].filter(Boolean);
     const skipNote = skipParts.length > 0 ? ` ${skipParts.join(' ')}` : '';
+    const csvProgress = progress
+        ? t('research.linkedin.camp.csvProgress', 'Importing {{i}}/{{n}}', { i: progress.i, n: progress.n })
+        : '';
     const mut = useMutation({
         mutationFn: async () => {
             const ids = await createLeads(leads, 'csv', (i, n) => setProgress({ i, n }));
@@ -898,7 +921,17 @@ function CsvTab({ campaignId, onSummary }: { campaignId: string; onSummary: OnSu
                         </Table>
                     </ScrollArea.Autosize>
                     {progress && (
-                        <Text size="xs" c="dimmed">{t('research.linkedin.camp.csvProgress', 'Importing {{i}}/{{n}}', { i: progress.i, n: progress.n })}</Text>
+                        <Stack gap={4}>
+                            <Text size="xs" c="dimmed" ta="right">
+                                {csvProgress}
+                            </Text>
+                            <Progress
+                                aria-label={csvProgress}
+                                size="sm"
+                                value={progress.n > 0 ? (progress.i / progress.n) * 100 : 0}
+                                animated={mut.isPending}
+                            />
+                        </Stack>
                     )}
                     <Group justify="flex-end">
                         <Button onClick={() => mut.mutate()} loading={mut.isPending} disabled={leads.length === 0}>
@@ -974,11 +1007,17 @@ function StepEditor({ step, validation, invitePlaceholder, onTemplate, onMode, o
     // Template bodies carry {{spintax}}; resolve them with interpolation disabled (a prefix/suffix
     // that never appears) so i18next leaves the double braces untouched instead of eating them.
     const rawT = (key: string) => t(key, { interpolation: { prefix: '\0', suffix: '\0' } });
-    const [tplValue, setTplValue] = useState<string | null>(null);
+    const templateRef = useRef<HTMLTextAreaElement>(null);
+    const templateSelection = useRef<{ start: number; end: number } | null>(null);
+    const [galleryOpen, setGalleryOpen] = useState(false);
     const [confirmTpl, setConfirmTpl] = useState<StarterTemplate | null>(null);
-    const tplOptions = STARTER_TEMPLATES
-        .filter((x) => x.stepType === step.type)
-        .map((x) => ({ value: x.id, label: t(x.nameKey) }));
+    const templates = STARTER_TEMPLATES.filter((x) => x.stepType === step.type);
+    const templateLevels: Array<{ mode: StarterTemplate['mode']; label: string; color: string }> = [
+        { mode: 'off', label: t('research.linkedin.camp.templateLevelOff', 'No AI'), color: 'gray' },
+        { mode: 'sections', label: t('research.linkedin.camp.templateLevelSections', 'Partial AI'), color: 'blue' },
+        { mode: 'full', label: t('research.linkedin.camp.templateLevelFull', 'Full AI'), color: 'grape' },
+    ];
+    const presentLevels = templateLevels.filter((level) => templates.some((tpl) => tpl.mode === level.mode));
     // Mode-independent: a full-AI prompt or sections written earlier are PRESERVED across a mode
     // switch (normalizeAi keeps them), so applying a starter template would silently erase them —
     // the confirm must fire even when the current mode hides that content.
@@ -986,6 +1025,7 @@ function StepEditor({ step, validation, invitePlaceholder, onTemplate, onMode, o
         || ai.prompt.trim().length > 0
         || ai.sections.some((s) => s.key || s.prompt.trim());
     const applyTemplate = (tpl: StarterTemplate) => {
+        templateSelection.current = null;
         onApplyTemplate({
             template: tpl.templateKey ? rawT(tpl.templateKey) : '',
             ai: {
@@ -994,18 +1034,14 @@ function StepEditor({ step, validation, invitePlaceholder, onTemplate, onMode, o
                 sections: (tpl.sections ?? []).map((s) => ({ key: s.key, prompt: rawT(s.promptKey) })),
             },
         });
-        setTplValue(null);
         setConfirmTpl(null);
+        setGalleryOpen(false);
     };
-    const pickTemplate = (val: string | null) => {
-        if (!val) { setTplValue(null); return; }
-        const tpl = STARTER_TEMPLATES.find((x) => x.id === val);
-        if (!tpl) return;
-        setTplValue(val);
+    const pickTemplate = (tpl: StarterTemplate) => {
         if (hasContent) setConfirmTpl(tpl); // confirm before clobbering existing content
         else applyTemplate(tpl);
     };
-    const cancelTemplate = () => { setConfirmTpl(null); setTplValue(null); };
+    const closeGallery = () => { setGalleryOpen(false); setConfirmTpl(null); };
 
     // Template-level error (malformed {ai:…} beats a well-formed token with no matching section).
     const templateError = validation.templateMalformed
@@ -1014,17 +1050,89 @@ function StepEditor({ step, validation, invitePlaceholder, onTemplate, onMode, o
             ? t('research.linkedin.camp.ai.errTemplateMissing', 'The template uses {ai:key} that has no matching section.')
             : undefined;
 
-    const templateBox = (hint?: string) => (
-        <Textarea
-            autosize minRows={2} maxRows={10}
-            resize="vertical"
-            placeholder={invitePlaceholder}
-            description={hint}
-            error={templateError}
-            value={step.template}
-            onChange={(e) => onTemplate(e.currentTarget.value)}
-        />
-    );
+    const insertAtCursor = (token: string) => {
+        const start = templateSelection.current?.start ?? step.template.length;
+        const end = templateSelection.current?.end ?? start;
+        const caret = start + token.length;
+        templateSelection.current = { start: caret, end: caret };
+        onTemplate(`${step.template.slice(0, start)}${token}${step.template.slice(end)}`);
+        requestAnimationFrame(() => {
+            templateRef.current?.focus();
+            templateRef.current?.setSelectionRange(caret, caret);
+        });
+    };
+    const variableTokens = [
+        '{first_name}', '{last_name}', '{company}', '{title}', '{{a|b}}',
+        ...(ai.mode === 'sections'
+            ? [...new Set(ai.sections.filter((s) => KEY_RE.test(s.key)).map((s) => `{ai:${s.key}}`))]
+            : []),
+    ];
+    const templateBox = (hint?: string) => {
+        const inviteOverLimit = step.type === 'invite' && ai.mode === 'off' && step.template.length > 300;
+        return (
+            <Stack gap="xs">
+                <Textarea
+                    ref={templateRef}
+                    autosize minRows={2} maxRows={10}
+                    resize="vertical"
+                    placeholder={invitePlaceholder}
+                    description={hint}
+                    error={templateError}
+                    value={step.template}
+                    onClick={(e) => {
+                        templateSelection.current = {
+                            start: e.currentTarget.selectionStart,
+                            end: e.currentTarget.selectionEnd,
+                        };
+                    }}
+                    onSelect={(e) => {
+                        templateSelection.current = {
+                            start: e.currentTarget.selectionStart,
+                            end: e.currentTarget.selectionEnd,
+                        };
+                    }}
+                    onChange={(e) => {
+                        templateSelection.current = {
+                            start: e.currentTarget.selectionStart,
+                            end: e.currentTarget.selectionEnd,
+                        };
+                        onTemplate(e.currentTarget.value);
+                    }}
+                />
+                <Group gap="xs" align="center">
+                    <Text size="xs" c="dimmed">
+                        {t('research.linkedin.camp.variablesLabel', 'Insert variable')}
+                    </Text>
+                    <Group gap="xs">
+                        {variableTokens.map((token) => (
+                            <Button
+                                key={token}
+                                size="compact-xs"
+                                variant="light"
+                                ff="var(--mantine-font-family-monospace)"
+                                aria-label={t('research.linkedin.camp.insertVariableAria', 'Insert {{token}}', { token })}
+                                onClick={() => insertAtCursor(token)}
+                            >
+                                {token}
+                            </Button>
+                        ))}
+                    </Group>
+                </Group>
+                {step.type === 'invite' && ai.mode === 'off' && (
+                    <Stack gap={0} align="flex-end">
+                        <Text size="xs" c={inviteOverLimit ? 'red' : 'dimmed'}>
+                            {step.template.length}/300
+                        </Text>
+                        {inviteOverLimit && (
+                            <Text size="xs" c="red" ta="right">
+                                {t('research.linkedin.camp.inviteOverLimit', 'LinkedIn trims invite notes at 300 characters.')}
+                            </Text>
+                        )}
+                    </Stack>
+                )}
+            </Stack>
+        );
+    };
 
     const addSection = () => {
         if (ai.sections.length >= 5) return;
@@ -1034,11 +1142,7 @@ function StepEditor({ step, validation, invitePlaceholder, onTemplate, onMode, o
     const updateSection = (idx: number, patch: Partial<AiSection>) =>
         onSections(ai.sections.map((x, j) => (j === idx ? { ...x, ...patch } : x)));
     const removeSection = (idx: number) => onSections(ai.sections.filter((_, j) => j !== idx));
-    const insertToken = (key: string) => {
-        if (!key) return;
-        const sep = step.template && !step.template.endsWith(' ') ? ' ' : '';
-        onTemplate(`${step.template}${sep}{ai:${key}}`);
-    };
+    const insertToken = (key: string) => { if (key) insertAtCursor(`{ai:${key}}`); };
 
     return (
         <Stack gap="xs">
@@ -1046,31 +1150,83 @@ function StepEditor({ step, validation, invitePlaceholder, onTemplate, onMode, o
                 <SegmentedControl
                     size="xs"
                     value={ai.mode}
-                    onChange={(v) => onMode(v as AiMode)}
+                    onChange={(v) => { templateSelection.current = null; onMode(v as AiMode); }}
                     data={[
                         { value: 'off', label: t('research.linkedin.camp.ai.modeOff', 'AI off') },
                         { value: 'sections', label: t('research.linkedin.camp.ai.modeSections', 'AI sections') },
                         { value: 'full', label: t('research.linkedin.camp.ai.modeFull', 'Full AI') },
                     ]}
                 />
-                <Popover opened={confirmTpl !== null} position="bottom-end" withArrow shadow="md" onClose={cancelTemplate}>
+                <Popover opened={galleryOpen} position="bottom-end" withArrow shadow="md" trapFocus returnFocus onClose={closeGallery}>
                     <Popover.Target>
-                        <Select
-                            size="xs" w={210} clearable
-                            placeholder={t('research.linkedin.camp.templateSelect', 'Start from a template')}
-                            data={tplOptions}
-                            value={tplValue}
-                            onChange={pickTemplate}
-                        />
+                        <Button
+                            size="xs"
+                            variant="light"
+                            leftSection={<IconFileText size={14} />}
+                            onClick={() => setGalleryOpen((opened) => !opened)}
+                        >
+                            {t('research.linkedin.camp.templateSelect', 'Start from a template')}
+                        </Button>
                     </Popover.Target>
                     <Popover.Dropdown>
-                        <Stack gap="xs" maw={240}>
-                            <Text size="sm">{t('research.linkedin.camp.templateOverwrite', 'Replace the current content with this template?')}</Text>
-                            <Group gap="xs" justify="flex-end">
-                                <Button size="xs" variant="default" onClick={cancelTemplate}>{t('research.linkedin.camp.cancel', 'Cancel')}</Button>
-                                <Button size="xs" color="red" onClick={() => confirmTpl && applyTemplate(confirmTpl)}>{t('research.linkedin.camp.templateApply', 'Apply')}</Button>
-                            </Group>
-                        </Stack>
+                        {confirmTpl ? (
+                            <Stack gap="xs" maw={320}>
+                                <Text size="sm">{t('research.linkedin.camp.templateOverwrite', 'Replace the current content with this template?')}</Text>
+                                <Group gap="xs" justify="flex-end">
+                                    <Button size="xs" variant="default" onClick={() => setConfirmTpl(null)}>{t('research.linkedin.camp.cancel', 'Cancel')}</Button>
+                                    <Button size="xs" color="red" onClick={() => applyTemplate(confirmTpl)}>{t('research.linkedin.camp.templateApply', 'Apply')}</Button>
+                                </Group>
+                            </Stack>
+                        ) : (
+                            <Stack gap="sm" w={360}>
+                                {presentLevels.map((level) => (
+                                    <Stack key={level.mode} gap="xs">
+                                        {presentLevels.length > 1 && (
+                                            <Text size="xs" fw={600} c="dimmed">{level.label}</Text>
+                                        )}
+                                        {templates.filter((tpl) => tpl.mode === level.mode).map((tpl) => {
+                                            const snippet = tpl.promptKey
+                                                ? rawT(tpl.promptKey)
+                                                : tpl.templateKey ? rawT(tpl.templateKey) : '';
+                                            return (
+                                                <Button
+                                                    key={tpl.id}
+                                                    variant="default"
+                                                    fullWidth
+                                                    h="auto"
+                                                    p="sm"
+                                                    onClick={() => pickTemplate(tpl)}
+                                                    styles={{
+                                                        inner: { justifyContent: 'flex-start' },
+                                                        label: { display: 'block', width: '100%', whiteSpace: 'normal' },
+                                                    }}
+                                                >
+                                                    <Stack gap="xs" w="100%">
+                                                        <Group gap="xs" justify="space-between" wrap="nowrap">
+                                                            <Text size="sm" fw={600} ta="left">{t(tpl.nameKey)}</Text>
+                                                            <Badge size="sm" color={level.color} variant="light">{level.label}</Badge>
+                                                        </Group>
+                                                        <Text
+                                                            size="xs"
+                                                            c="dimmed"
+                                                            ta="left"
+                                                            style={{
+                                                                display: '-webkit-box',
+                                                                WebkitBoxOrient: 'vertical',
+                                                                WebkitLineClamp: 2,
+                                                                overflow: 'hidden',
+                                                            }}
+                                                        >
+                                                            {snippet}
+                                                        </Text>
+                                                    </Stack>
+                                                </Button>
+                                            );
+                                        })}
+                                    </Stack>
+                                ))}
+                            </Stack>
+                        )}
                     </Popover.Dropdown>
                 </Popover>
             </Group>
@@ -1221,6 +1377,16 @@ function StepPreviewModal({ opened, campaignId, step, onClose }: {
     const result = previewMut.data;
     const isInvite = step?.type === 'invite';
     const overLimit = Boolean(isInvite && result && result.char_count > 300);
+    const previewName = selectedLead
+        ? `${selectedLead.first_name ?? ''} ${selectedLead.last_name ?? ''}`.trim() || selectedLead.public_id || '—'
+        : 'Ayşe Yılmaz';
+    const previewCompany = selectedLead ? selectedLead.company : 'Acme GmbH';
+    const previewInitials = selectedLead
+        ? [selectedLead.first_name, selectedLead.last_name]
+            .map((part) => part?.trim().charAt(0) ?? '')
+            .join('')
+            .toLocaleUpperCase()
+        : 'AY';
 
     return (
         <Modal opened={opened} onClose={onClose} size="lg" title={t('research.linkedin.camp.ai.previewTitle', 'Preview message')}>
@@ -1280,10 +1446,41 @@ function StepPreviewModal({ opened, campaignId, step, onClose }: {
                                 {t(`research.linkedin.camp.ai.warn.${w}`, w)}
                             </Alert>
                         ))}
-                        <Paper withBorder radius="sm" p="sm">
-                            <Text size="sm" style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--mantine-font-family-monospace)' }}>
-                                {result.rendered}
+                        <Paper
+                            radius="md"
+                            p="md"
+                            style={{ background: 'light-dark(#f4f2ee, var(--mantine-color-dark-6))' }}
+                        >
+                            <Text size="xs" c="dimmed" mb="xs">
+                                {isInvite
+                                    ? t('research.linkedin.camp.previewAsInvite', 'Invite note preview')
+                                    : t('research.linkedin.camp.previewAsMessage', 'Message preview')}
                             </Text>
+                            <Group align="flex-start" gap="sm" wrap="nowrap">
+                                <Avatar
+                                    radius="xl"
+                                    variant="filled"
+                                    color="#0a66c2"
+                                    style={{ flexShrink: 0 }}
+                                >
+                                    {previewInitials}
+                                </Avatar>
+                                <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
+                                    <div>
+                                        <Text size="xs" fw={600}>{previewName}</Text>
+                                        {previewCompany && <Text size="xs" c="dimmed">{previewCompany}</Text>}
+                                    </div>
+                                    <Paper
+                                        radius="md"
+                                        p="sm"
+                                        style={{ background: 'light-dark(var(--mantine-color-white), var(--mantine-color-dark-5))' }}
+                                    >
+                                        <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
+                                            {result.rendered}
+                                        </Text>
+                                    </Paper>
+                                </Stack>
+                            </Group>
                         </Paper>
                         <Group gap="xs">
                             <Tooltip
