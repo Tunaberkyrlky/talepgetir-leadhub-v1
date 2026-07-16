@@ -1,12 +1,13 @@
 import { Navigate, useParams, useNavigate } from 'react-router-dom';
 import { Container, Title, Tabs } from '@mantine/core';
-import { IconUsers, IconBuilding, IconLink, IconMessageReport } from '@tabler/icons-react';
+import { IconUsers, IconBuilding, IconLink, IconMessageReport, IconPhone } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import AdminUsersTab from '../components/admin/AdminUsersTab';
 import AdminTenantsTab from '../components/admin/AdminTenantsTab';
 import AdminMembershipsTab from '../components/admin/AdminMembershipsTab';
 import AdminFeedbackTab from '../components/admin/AdminFeedbackTab';
+import AdminColdCallTab from '../components/admin/AdminColdCallTab';
 
 export default function AdminPage() {
     const { user } = useAuth();
@@ -43,6 +44,9 @@ export default function AdminPage() {
                     <Tabs.Tab value="feedback" leftSection={<IconMessageReport size={16} />}>
                         {t('admin.feedback')}
                     </Tabs.Tab>
+                    <Tabs.Tab value="coldcall" leftSection={<IconPhone size={16} />}>
+                        {t('admin.coldcall.tabTitle', 'Telefoni / Cold Call')}
+                    </Tabs.Tab>
                 </Tabs.List>
 
                 <Tabs.Panel value="users">
@@ -56,6 +60,9 @@ export default function AdminPage() {
                 </Tabs.Panel>
                 <Tabs.Panel value="feedback">
                     <AdminFeedbackTab />
+                </Tabs.Panel>
+                <Tabs.Panel value="coldcall">
+                    <AdminColdCallTab />
                 </Tabs.Panel>
             </Tabs>
         </Container>

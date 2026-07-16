@@ -4,12 +4,27 @@ export interface ColdcallConfig {
     provider: 'mock' | 'twilio';
     call_mode: 'simulated' | 'webrtc';
     recording_mode: 'always' | 'announce' | 'off';
-    minutes_quota: number;
-    minutes_used: number;
+    /** Ön-ödemeli dakika cüzdanı — kalan bakiye (negatif olabilir, UI'da 0'a clamp'lenir). */
+    minutes_balance: number;
+    /** Bilgi amaçlı: bu dönem (ay başından itibaren) kullanılan dakika, ledger'dan türetilir. */
+    minutes_used_period: number;
+    /** Bakiye eşiğin (server sabiti) altındaysa true — UI uyarı gösterir. */
+    low_balance: boolean;
     max_numbers: number;
     daily_cap_per_number: number;
     active_numbers: number;
     twilio_configured: boolean;
+}
+
+/** Kredi cüzdanı hareket satırı — müşteri görünümü, $ YOK. */
+export interface CreditLedgerRow {
+    id: string;
+    /** İşaretli: + grant/refund/initial, - usage/aşağı-düzeltme. */
+    delta_minutes: number;
+    kind: 'grant' | 'usage' | 'adjustment' | 'refund' | 'initial';
+    balance_after: number;
+    reason: string | null;
+    created_at: string;
 }
 
 export interface CountryInfo {
@@ -20,12 +35,16 @@ export interface CountryInfo {
     callable: boolean;
     blocked_reason: 'sanctioned' | 'provider_unsupported' | 'premium_rate_risk' | null;
     tier: 'standard' | 'expensive' | 'very_expensive' | 'blocked';
-    multiplier: number;
+    /** Origin-aware fiyat: menşe (numaranızın ülkesi) × hedef + hat tipine göre değişir — aralık. */
+    multiplier_min: number;
+    multiplier_max: number;
     can_buy_number: boolean;
     number_requires_docs: boolean | null;
+    number_doc_status: 'docless' | 'low_friction' | 'docs' | null;
     /** Yalnız internal rollerde döner */
-    out_usd_per_min?: number;
+    usd?: { euMobile: number; euFixed: number; intlMobile: number; intlFixed: number };
     number_monthly_usd?: number | null;
+    number_types?: { type: string; monthly_usd: number; doc_status: string }[];
 }
 
 export type NumberHealth = 'warming' | 'good' | 'watch' | 'risk' | 'insufficient_data';

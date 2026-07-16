@@ -159,6 +159,11 @@ router.post('/voice', async (req: VerifiedRequest, res: Response): Promise<void>
     }
     const dial = twiml.dial({
         callerId: call.from_e164,
+        // Sert süre tavanı (codex): çağrı 60 dk'da Twilio tarafından kapatılır → doğal
+        // terminal (status webhook) her zaman 90 dk'lık stale-sweep'ten ÖNCE gelir; böylece
+        // sweep asla canlı bir çağrıyı yanlışlıkla 'failed' yapıp tek-in-flight slotunu açmaz,
+        // takılı çağrı da kredi/maliyeti sonsuza dek yakmaz.
+        timeLimit: 3600,
         ...(settings.recording_mode !== 'off'
             ? {
                 record: 'record-from-answer-dual' as const,

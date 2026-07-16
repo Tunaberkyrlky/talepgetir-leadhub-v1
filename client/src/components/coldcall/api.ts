@@ -1,7 +1,7 @@
 /** Cold Call modülü — API çağrıları (paylaşılan axios instance'ı üzerinden). */
 import api from '../../lib/api';
 import type {
-    AvailableNumber, CallDetail, CallRow, ColdcallConfig, CountryInfo, Disposition, PhoneNumber,
+    AvailableNumber, CallDetail, CallRow, ColdcallConfig, CountryInfo, CreditLedgerRow, Disposition, PhoneNumber,
 } from './types';
 
 export const coldcallApi = {
@@ -49,6 +49,10 @@ export const coldcallApi = {
 
     voiceToken: async (): Promise<{ token: string; identity: string }> =>
         (await api.get('/coldcall/calls/token')).data,
+
+    /** Kendi kredi (dakika) hareket geçmişi — $ YOK, cursor sayfalama (`before`=created_at). */
+    creditsLedger: async (params?: { limit?: number; before?: string }): Promise<CreditLedgerRow[]> =>
+        (await api.get('/coldcall/credits/ledger', { params })).data.ledger,
 };
 
 /** E.164 girdisinden ülke bul — en uzun dial code eşleşmesi (server ile aynı kural). */

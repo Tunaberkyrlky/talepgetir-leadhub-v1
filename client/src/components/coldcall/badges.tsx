@@ -18,20 +18,29 @@ export function TierBadge({ country }: { country: CountryInfo }) {
             </Tooltip>
         );
     }
-    const colors: Record<number, string> = { 1: 'green', 2: 'yellow', 4: 'orange' };
-    const labels: Record<number, string> = {
-        1: t('coldcall.tierStandard', 'Standard'),
-        2: t('coldcall.tierExpensive', 'Expensive'),
-        4: t('coldcall.tierVeryExpensive', 'Very expensive'),
+    const colors: Record<string, string> = { standard: 'green', expensive: 'yellow', very_expensive: 'orange' };
+    const labels: Record<string, string> = {
+        standard: t('coldcall.tierStandard', 'Standard'),
+        expensive: t('coldcall.tierExpensive', 'Expensive'),
+        very_expensive: t('coldcall.tierVeryExpensive', 'Very expensive'),
     };
+    // Origin-aware: fiyat arayan numaranın bölgesine (EU/INTL) ve hat tipine göre değişir —
+    // burada tek bir ülke satırı için olası aralık gösterilir (min=en iyi, max=en kötü menşe).
+    const rangeLabel = country.multiplier_min === country.multiplier_max
+        ? `${country.multiplier_max}x`
+        : `${country.multiplier_min}x–${country.multiplier_max}x`;
     return (
-        <Tooltip label={t('coldcall.multiplierHint', '1 talk minute uses {{m}} quota minutes', { m: country.multiplier })} withArrow>
-            <Badge color={colors[country.multiplier] ?? 'gray'} variant="light">
-                {labels[country.multiplier] ?? '?'} · {country.multiplier}x
+        <Tooltip
+            label={t('coldcall.multiplierRangeHint', "Depends on your caller number's region: {{min}}x–{{max}}x quota minutes per talk minute", { min: country.multiplier_min, max: country.multiplier_max })}
+            withArrow
+        >
+            <Badge color={colors[country.tier] ?? 'gray'} variant="light">
+                {labels[country.tier] ?? '?'} · {rangeLabel}
             </Badge>
         </Tooltip>
     );
 }
+
 
 export function CallStatusBadge({ status }: { status: CallStatus }) {
     const { t } = useTranslation();
@@ -86,4 +95,3 @@ export function SentimentBadge({ sentiment }: { sentiment: string | null | undef
     if (!item) return null;
     return <Badge color={item.color} variant="dot">{item.label}</Badge>;
 }
-

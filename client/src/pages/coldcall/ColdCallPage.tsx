@@ -5,8 +5,8 @@
  *   • Numaralarım: ülke bazlı numara satın alma/iade.
  *   • Ülke Tarifeleri: pahalı ve aranamayan ülkeler dahil tam tablo.
  */
-import { Container, Group, Progress, Stack, Tabs, Text, Title } from '@mantine/core';
-import { IconGlobe, IconHistory, IconPhone, IconPhonePlus } from '@tabler/icons-react';
+import { Alert, Container, Group, Stack, Tabs, Text, Title } from '@mantine/core';
+import { IconAlertTriangle, IconGlobe, IconHelpCircle, IconHistory, IconPhone, IconPhonePlus, IconReceipt } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
@@ -15,6 +15,8 @@ import DialerTab from '../../components/coldcall/DialerTab';
 import CallsTab from '../../components/coldcall/CallsTab';
 import NumbersTab from '../../components/coldcall/NumbersTab';
 import CountriesTab from '../../components/coldcall/CountriesTab';
+import CreditHistoryTab from '../../components/coldcall/CreditHistoryTab';
+import GuideTab from '../../components/coldcall/GuideTab';
 
 export default function ColdCallPage() {
     const { t } = useTranslation();
@@ -30,10 +32,15 @@ export default function ColdCallPage() {
         : undefined;
     const configQuery = useQuery({ queryKey: ['coldcall', 'config'], queryFn: coldcallApi.config });
     const config = configQuery.data;
-    const quotaPct = config ? Math.min(100, (config.minutes_used / Math.max(1, config.minutes_quota)) * 100) : 0;
+    const balanceDisplay = config ? Math.max(0, Math.round(config.minutes_balance * 10) / 10) : 0;
 
     return (
         <Container size="xl" py="md">
+            {config?.low_balance && (
+                <Alert color="red" variant="light" icon={<IconAlertTriangle size={18} />} mb="md">
+                    {t('coldcall.credit.lowBalanceBanner', 'Krediniz azalıyor ({{balance}} dk). Yükleme için bizimle iletişime geçin.', { balance: balanceDisplay })}
+                </Alert>
+            )}
             <Group justify="space-between" align="flex-start" mb="md">
                 <div>
                     <Title order={2}>{t('coldcall.title', 'Cold Call')}</Title>
@@ -42,14 +49,18 @@ export default function ColdCallPage() {
                     </Text>
                 </div>
                 {config && (
-                    <Stack gap={4} w={220}>
-                        <Group justify="space-between">
-                            <Text size="xs" c="dimmed">{t('coldcall.quota', 'Minute quota')}</Text>
-                            <Text size="xs" fw={600}>
-                                {Math.round(config.minutes_used * 10) / 10} / {config.minutes_quota}
+                    <Stack gap={2} align="flex-end">
+                        <Group gap={6} align="baseline">
+                            <Text size="xs" c="dimmed">{t('coldcall.credit.balanceLabel', 'Kalan bakiye')}</Text>
+                            <Text size="xl" fw={700} c={config.low_balance ? 'red' : undefined}>
+                                {balanceDisplay} {t('coldcall.credit.minutesShort', 'dk')}
                             </Text>
                         </Group>
-                        <Progress value={quotaPct} color={quotaPct > 90 ? 'red' : quotaPct > 70 ? 'orange' : 'violet'} size="sm" />
+                        <Text size="xs" c="dimmed">
+                            {t('coldcall.credit.usedPeriodLabel', 'Bu ay kullanılan: {{used}} dk', {
+                                used: Math.round(config.minutes_used_period * 10) / 10,
+                            })}
+                        </Text>
                     </Stack>
                 )}
             </Group>
@@ -68,12 +79,20 @@ export default function ColdCallPage() {
                     <Tabs.Tab value="countries" leftSection={<IconGlobe size={16} />}>
                         {t('coldcall.tabCountries', 'Country tariffs')}
                     </Tabs.Tab>
+                    <Tabs.Tab value="credits" leftSection={<IconReceipt size={16} />}>
+                        {t('coldcall.credit.tabHistory', 'Kredi Geçmişi')}
+                    </Tabs.Tab>
+                    <Tabs.Tab value="guide" leftSection={<IconHelpCircle size={16} />}>
+                        {t('coldcall.credit.tabGuide', 'Nasıl Kullanılır?')}
+                    </Tabs.Tab>
                 </Tabs.List>
 
                 <Tabs.Panel value="dialer"><DialerTab initial={initialCall} /></Tabs.Panel>
                 <Tabs.Panel value="calls"><CallsTab /></Tabs.Panel>
                 <Tabs.Panel value="numbers"><NumbersTab /></Tabs.Panel>
                 <Tabs.Panel value="countries"><CountriesTab /></Tabs.Panel>
+                <Tabs.Panel value="credits"><CreditHistoryTab /></Tabs.Panel>
+                <Tabs.Panel value="guide"><GuideTab /></Tabs.Panel>
             </Tabs>
         </Container>
     );

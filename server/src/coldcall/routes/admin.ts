@@ -9,7 +9,7 @@ import { requireRole } from '../../middleware/auth.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { createLogger } from '../../lib/logger.js';
 import { validateBody, uuidField } from '../../lib/validation.js';
-import { getSettings } from '../lib/settings.js';
+import { getSettings, grantMinutes } from '../lib/settings.js';
 import { provisionTenantForTwilio } from '../providers/twilio.js';
 import { twilioConfigured } from '../providers/index.js';
 
@@ -25,7 +25,7 @@ router.get('/usage', async (_req: Request, res: Response, next: NextFunction): P
             supabaseAdmin
                 .from('coldcall_calls')
                 .select('tenant_id, status, duration_sec, billed_minutes, cogs_usd'),
-            supabaseAdmin.from('coldcall_settings').select('tenant_id, provider, minutes_quota, minutes_used, period_start'),
+            supabaseAdmin.from('coldcall_settings').select('tenant_id, provider, minutes_balance'),
             supabaseAdmin.from('coldcall_phone_numbers').select('tenant_id, monthly_cost_usd').neq('status', 'released'),
             supabaseAdmin.from('tenants').select('id, name'),
         ]);
@@ -47,8 +47,7 @@ router.get('/usage', async (_req: Request, res: Response, next: NextFunction): P
             call_cogs_usd: number;
             numbers_count: number;
             numbers_monthly_usd: number;
-            minutes_quota?: number;
-            minutes_used?: number;
+            minutes_balance?: number;
             provider?: string;
         }
         const byTenant = new Map<string, Agg>();
@@ -86,8 +85,7 @@ router.get('/usage', async (_req: Request, res: Response, next: NextFunction): P
         }
         for (const s of settingsRes.data ?? []) {
             const a = agg(s.tenant_id);
-            a.minutes_quota = s.minutes_quota;
-            a.minutes_used = Number(s.minutes_used);
+            a.minutes_balance = Number(s.minutes_balance);
             a.provider = s.provider;
         }
 
@@ -116,6 +114,79 @@ router.post('/provision', validateBody(provisionSchema), async (req: Request, re
         const settings = await getSettings(tenant_id);
         await provisionTenantForTwilio(tenant_id, settings);
         res.json({ ok: true });
+    } catch (err) {
+        next(err);
+    }
+});
+
+// ── POST /credits/grant — dakika kredisi yükle/düzelt (yalnız superadmin) ───
+// minutes>0 → kind='grant' (yükleme); minutes<0 → kind='adjustment' (aşağı düzeltme).
+// idempotency_key client'ta üretilir (crypto.randomUUID) — çift-tık/retry koruması,
+// coldcall_grant_minutes RPC'sinde partial unique index ile enforce edilir (migration 146).
+const grantSchema = z.object({
+    tenant_id: uuidField('Invalid tenant ID'),
+    minutes: z.number()
+        .refine((m) => m !== 0, { message: 'minutes sıfır olamaz' })
+        .refine((m) => Math.abs(m) <= 100000, { message: 'minutes çok büyük (|m| <= 100000)' }),
+    reason: z.string().trim().min(1, 'reason zorunlu').max(500),
+    idempotency_key: uuidField('Invalid idempotency_key'),
+});
+
+router.post(
+    '/credits/grant',
+    requireRole('superadmin'), // yükleme yalnız superadmin (ops_agent salt-görüntüleme, plan §11.2)
+    validateBody(grantSchema),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { tenant_id, minutes, reason, idempotency_key } = req.body as z.infer<typeof grantSchema>;
+            // Hedef tenant daha önce Cold Call'u hiç açmamış olabilir (coldcall_settings satırı
+            // yok) — grantMinutes RPC'si satır yoksa RAISE EXCEPTION atar. getSettings() idempotent
+            // upsert ile satırı garantiler (admin'in tenant açmadan önceden kredi yüklemesi mümkün olsun).
+            await getSettings(tenant_id);
+            const kind = minutes > 0 ? 'grant' : 'adjustment';
+            const newBalance = await grantMinutes({
+                tenantId: tenant_id,
+                minutes,
+                kind,
+                reason,
+                createdBy: req.user?.id ?? null,
+                source: 'manual',
+                idempotencyKey: idempotency_key,
+            });
+            res.json({ ok: true, minutes_balance: newBalance });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+// ── GET /credits/:tenantId/ledger — tenant'ın TAM kredi geçmişi (created_by/source dahil) ──
+const adminLedgerQuerySchema = z.object({
+    limit: z.coerce.number().int().min(1).max(200).optional().default(50),
+    before: z.string().datetime().optional(),
+});
+
+router.get('/credits/:tenantId/ledger', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const idCheck = uuidField().safeParse(req.params.tenantId);
+        if (!idCheck.success) throw new AppError('Invalid tenant ID', 400);
+        const q = adminLedgerQuerySchema.safeParse(req.query);
+        if (!q.success) throw new AppError('Invalid query', 400);
+
+        let query = supabaseAdmin
+            .from('coldcall_credit_ledger')
+            .select('id, delta_minutes, kind, balance_after, reason, call_id, created_by, source, idempotency_key, created_at')
+            .eq('tenant_id', idCheck.data)
+            .order('created_at', { ascending: false })
+            .limit(q.data.limit);
+        if (q.data.before) query = query.lt('created_at', q.data.before);
+
+        const { data, error } = await query;
+        if (error) {
+            log.error({ err: error, tenantId: idCheck.data }, 'admin ledger fetch failed');
+            throw new AppError('Failed to load ledger', 500);
+        }
+        res.json({ ledger: data ?? [] });
     } catch (err) {
         next(err);
     }

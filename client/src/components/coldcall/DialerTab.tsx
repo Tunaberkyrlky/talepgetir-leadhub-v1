@@ -178,12 +178,12 @@ export default function DialerTab({ initial }: { initial?: DialerInitialCall }) 
     }
 
     const config = configQuery.data;
-    const quotaExhausted = !!config && config.minutes_used >= config.minutes_quota;
+    const balanceExhausted = !!config && config.minutes_balance <= 0;
     const countryName = matchedCountry ? (i18n.language === 'tr' ? matchedCountry.name_tr : matchedCountry.name_en) : null;
 
     const canStart =
         !!config &&
-        !quotaExhausted &&
+        !balanceExhausted &&
         activeNumbers.length > 0 &&
         /^\+\d{7,15}$/.test(toNumber.replace(/[\s()-]/g, '')) &&
         !!matchedCountry?.callable &&
@@ -276,9 +276,9 @@ export default function DialerTab({ initial }: { initial?: DialerInitialCall }) 
                     {t('coldcall.noNumbers', 'Buy a phone number first (Numbers tab) to start calling.')}
                 </Alert>
             )}
-            {quotaExhausted && (
+            {balanceExhausted && (
                 <Alert color="red" icon={<IconAlertTriangle size={18} />}>
-                    {t('coldcall.quotaExhausted', 'Monthly minute quota is exhausted.')}
+                    {t('coldcall.credit.balanceExhausted', 'Arama krediniz tükendi. Yükleme için bizimle iletişime geçin.')}
                 </Alert>
             )}
 
@@ -366,11 +366,11 @@ export default function DialerTab({ initial }: { initial?: DialerInitialCall }) 
             </Button>
 
             {config && (
-                <Text size="xs" c="dimmed">
-                    {t('coldcall.quotaLine', '{{used}} / {{quota}} minutes used this month', {
-                        used: Math.round(config.minutes_used * 10) / 10,
-                        quota: config.minutes_quota,
+                <Text size="xs" c={config.low_balance ? 'red' : 'dimmed'}>
+                    {t('coldcall.credit.remainingLine', 'Kalan bakiye: {{balance}} dk', {
+                        balance: Math.max(0, Math.round(config.minutes_balance * 10) / 10),
                     })}
+                    {config.low_balance && ` (${t('coldcall.credit.lowBalanceInline', 'azalıyor')})`}
                     {' · '}
                     {config.recording_mode === 'off'
                         ? t('coldcall.recordingOff', 'recording off')

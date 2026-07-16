@@ -200,9 +200,19 @@ export const twilioProvider: TelephonyProvider = {
     name: 'twilio',
     callMode: 'webrtc',
 
-    async searchNumbers(settings, country, contains) {
+    async searchNumbers(settings, country, contains, numberType) {
         const client = subClient(settings);
-        const list = await client.availablePhoneNumbers(country).local.list({
+        const avail = client.availablePhoneNumbers(country);
+        // primaryNumberOffer.type → Twilio alt-kaynağı. Belgesiz-mobil ülkelerde (GB/SE) doğru
+        // envanterde arar; kaydedilen COGS gerçekten satın alınan tiple eşleşir (codex P1).
+        const byType: Record<string, { list: (opts: Record<string, unknown>) => Promise<Array<{ phoneNumber: string; friendlyName: string; locality?: string | null }>> }> = {
+            local: avail.local,
+            mobile: avail.mobile,
+            national: avail.national,
+            'toll free': avail.tollFree,
+        };
+        const resource = byType[numberType ?? 'local'] ?? avail.local;
+        const list = await resource.list({
             voiceEnabled: true,
             ...(contains ? { contains } : {}),
             limit: 8,

@@ -8,11 +8,14 @@ import { Router } from 'express';
 import numbersRouter from './numbers.js';
 import callsRouter from './calls.js';
 import adminRouter from './admin.js';
+import creditsRouter from './credits.js';
 
 const router = Router();
 
 router.use('/numbers', numbersRouter);
 router.use('/calls', callsRouter);
+// Müşteri kredi geçmişi (tenant-scoped, $ YOK)
+router.use('/credits', creditsRouter);
 // Internal-only kullanım/COGS paneli (superadmin, ops_agent — router içinde enforce edilir)
 router.use('/admin', adminRouter);
 

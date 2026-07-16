@@ -14,8 +14,13 @@ export interface ColdcallSettingsRow {
     webhook_secret: string | null;
     recording_mode: 'always' | 'announce' | 'off';
     default_phone_number_id: string | null;
+    /** Ön-ödemeli dakika cüzdanı bakiyesi — rollover, ay başında sıfırlanmaz. */
+    minutes_balance: number;
+    /** @deprecated Wallet modeline geçildi (migration 146) — kolon DB'de durur ama okunmaz/yazılmaz. */
     minutes_quota: number;
+    /** @deprecated Wallet modeline geçildi — okunmaz/yazılmaz. */
     minutes_used: number;
+    /** @deprecated Wallet modeline geçildi — okunmaz/yazılmaz. */
     period_start: string;
     max_numbers: number;
     daily_cap_per_number: number;
@@ -65,7 +70,10 @@ export interface TelephonyProvider {
     /** 'simulated' → client durum poll'lar; 'webrtc' → client Voice SDK ile bağlanır */
     readonly callMode: 'simulated' | 'webrtc';
 
-    searchNumbers(settings: ColdcallSettingsRow, country: string, contains?: string): Promise<AvailableNumber[]>;
+    // numberType: 'local' | 'mobile' | 'national' | 'toll free' — hangi envanterde arayacağı
+    // (primaryNumberOffer.type). Belirtilmezse 'local'. GB/SE gibi belgesiz-mobil ülkelerde
+    // yanlış (yerel/belgeli) envanter aranıp kaydedilen COGS'un tip uyuşmazlığını önler (codex P1).
+    searchNumbers(settings: ColdcallSettingsRow, country: string, contains?: string, numberType?: string): Promise<AvailableNumber[]>;
     purchaseNumber(settings: ColdcallSettingsRow, e164: string, country: string): Promise<PurchasedNumber>;
     releaseNumber(settings: ColdcallSettingsRow, providerSid: string): Promise<void>;
 

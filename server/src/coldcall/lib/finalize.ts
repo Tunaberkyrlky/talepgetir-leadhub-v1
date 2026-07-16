@@ -5,22 +5,30 @@
  */
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { createLogger } from '../../lib/logger.js';
-import { countryForE164 } from '../data/countryPricing.js';
-import { addUsedMinutes } from './settings.js';
+import { countryForE164, rateFor, isBlockedRate } from '../data/countryPricing.js';
+import { deductMinutes, reconcilePendingUsage } from './settings.js';
 import type { ColdcallCallRow } from '../providers/types.js';
 
 const log = createLogger('coldcall:finalize');
 
 export const TERMINAL_STATUSES = ['completed', 'busy', 'no_answer', 'failed', 'canceled'] as const;
 
-// İndikatif COGS bileşenleri ($/dk) — PSTN yönü countryPricing'ten gelir
+// İndikatif COGS bileşenleri ($/dk) — PSTN yönü countryPricing'ten (origin-aware) gelir
 const CLIENT_LEG_USD_PER_MIN = 0.004;
 const RECORDING_USD_PER_MIN = 0.0025;
 const TRANSCRIPTION_USD_PER_MIN = 0.0043;
 
-export function computeCogsUsd(toE164: string, durationSec: number, withRecording: boolean): number {
-    const country = countryForE164(toE164);
-    const pstn = country?.outUsdPerMin ?? 0.15; // bilinmeyen yön: temkinli varsayım
+/**
+ * Menşe (arayan numaranın ülkesi) çağrı satırındaki from_e164'ten çözülür — ekstra
+ * bir coldcall_phone_numbers sorgusu gerekmez, çünkü from_e164 zaten çağrı
+ * başlatılırken SEÇİLEN numaranın e164'üdür (aynı kaynak veri, drift riski yok).
+ */
+export function computeCogsUsd(fromE164: string, toE164: string, durationSec: number, withRecording: boolean): number {
+    const originCode = countryForE164(fromE164)?.code;
+    const rate = originCode ? rateFor(originCode, toE164) : undefined;
+    // Bilinmeyen/blok yön: temkinli varsayım (eski davranışla tutarlı) — pratikte buraya
+    // düşülmez çünkü çağrı zaten calls.ts'te callable kontrolünden geçmiş olmalı.
+    const pstn = rate && !isBlockedRate(rate) ? rate.usdPerMin : (countryForE164(toE164)?.intlMobileUsd ?? 0.15);
     const minutes = Math.ceil(durationSec / 60);
     const perMin = pstn + CLIENT_LEG_USD_PER_MIN + (withRecording ? RECORDING_USD_PER_MIN + TRANSCRIPTION_USD_PER_MIN : 0);
     return Math.round(minutes * perMin * 10000) / 10000;
@@ -55,7 +63,7 @@ export async function finalizeCall(call: ColdcallCallRow, input: FinalizeInput):
         }
     }
     const billedMinutes = durationSec > 0 ? Math.ceil(durationSec / 60) * Number(call.rate_multiplier || 1) : 0;
-    const cogs = durationSec > 0 ? computeCogsUsd(call.to_e164, durationSec, !!input.withRecording) : 0;
+    const cogs = durationSec > 0 ? computeCogsUsd(call.from_e164, call.to_e164, durationSec, !!input.withRecording) : 0;
 
     const { data, error } = await supabaseAdmin
         .from('coldcall_calls')
@@ -78,7 +86,7 @@ export async function finalizeCall(call: ColdcallCallRow, input: FinalizeInput):
     }
     if (!data) return null; // yarışı kaybettik — başka path finalize etmiş
 
-    if (billedMinutes > 0) await addUsedMinutes(call.tenant_id, billedMinutes);
+    if (billedMinutes > 0) await deductMinutes(call.tenant_id, billedMinutes, call.id, 'call');
     log.info({ callId: call.id, status: input.status, durationSec, billedMinutes }, 'call finalized');
     return data as ColdcallCallRow;
 }
@@ -88,7 +96,10 @@ export async function finalizeCall(call: ColdcallCallRow, input: FinalizeInput):
  * Liste/detay okumalarından önce lazy çağrılır.
  */
 export async function sweepStaleCalls(tenantId: string): Promise<void> {
-    const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    // 90 dk backstop (codex): TwiML Dial timeLimit=3600 (60 dk) çağrıyı sert kapatır →
+    // doğal terminal her zaman bu 90 dk eşiğinden ÖNCE gelir; sweep yalnızca gerçekten takılı
+    // (crash/webhook kaybı) satırları süpürür, canlı çağrıyı asla yanlış 'failed' yapmaz.
+    const cutoff = new Date(Date.now() - 90 * 60 * 1000).toISOString();
     const { error } = await supabaseAdmin
         .from('coldcall_calls')
         .update({ status: 'failed', ended_at: new Date().toISOString(), duration_sec: 0, billed_minutes: 0 })
@@ -96,4 +107,8 @@ export async function sweepStaleCalls(tenantId: string): Promise<void> {
         .not('status', 'in', `(${TERMINAL_STATUSES.join(',')})`)
         .lt('started_at', cutoff);
     if (error) log.warn({ err: error, tenantId }, 'stale sweep failed');
+
+    // Telafi (codex P1): finalize'da terminal olup krediyi düşülememiş çağrıları düş
+    // (call_id idempotent → zaten düşülenlere dokunmaz). Best-effort, okuma yolunu bloklamaz.
+    await reconcilePendingUsage(tenantId);
 }

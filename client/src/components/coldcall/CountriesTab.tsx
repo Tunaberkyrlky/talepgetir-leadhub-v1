@@ -30,10 +30,10 @@ export default function CountriesTab() {
                 c.dial_code.includes(q) ||
                 c.code.toLowerCase().includes(q))
             : list;
-        // Aranabilirler önce (ucuzdan pahalıya), engelliler sonda
+        // Aranabilirler önce (ucuzdan pahalıya, en kötü-menşe çarpanına göre), engelliler sonda
         return [...filtered].sort((a, b) => {
             if (a.callable !== b.callable) return a.callable ? -1 : 1;
-            if (a.multiplier !== b.multiplier) return a.multiplier - b.multiplier;
+            if (a.multiplier_max !== b.multiplier_max) return a.multiplier_max - b.multiplier_max;
             return (i18n.language === 'tr' ? a.name_tr : a.name_en).localeCompare(i18n.language === 'tr' ? b.name_tr : b.name_en);
         });
     }, [countriesQuery.data, search, i18n.language]);
@@ -52,8 +52,8 @@ export default function CountriesTab() {
                 />
                 <Group gap="xs">
                     <Badge color="green" variant="light">1x</Badge>
-                    <Badge color="yellow" variant="light">2x</Badge>
-                    <Badge color="orange" variant="light">4x</Badge>
+                    <Badge color="yellow" variant="light">2-3x</Badge>
+                    <Badge color="orange" variant="light">4-6x</Badge>
                     <Text size="xs" c="dimmed">{t('coldcall.multiplierLegend', 'Quota multiplier: 1 talk minute uses this many quota minutes')}</Text>
                 </Group>
             </Group>
@@ -78,7 +78,13 @@ export default function CountriesTab() {
                             <Table.Td><TierBadge country={c} /></Table.Td>
                             {internal && (
                                 <Table.Td>
-                                    <Text size="sm">{c.out_usd_per_min != null ? `$${c.out_usd_per_min.toFixed(3)}` : '—'}</Text>
+                                    {c.usd ? (
+                                        <Text size="sm" ff="monospace">
+                                            {`$${Math.min(c.usd.euMobile, c.usd.euFixed, c.usd.intlMobile, c.usd.intlFixed).toFixed(3)}–$${Math.max(c.usd.euMobile, c.usd.euFixed, c.usd.intlMobile, c.usd.intlFixed).toFixed(3)}`}
+                                        </Text>
+                                    ) : (
+                                        <Text size="sm">—</Text>
+                                    )}
                                 </Table.Td>
                             )}
                             <Table.Td>

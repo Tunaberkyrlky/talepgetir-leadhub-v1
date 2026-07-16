@@ -12,7 +12,7 @@ import { supabaseAdmin } from '../../lib/supabase.js';
 import { createLogger } from '../../lib/logger.js';
 import { finalizeCall } from '../lib/finalize.js';
 import { runMockPostCallPipeline } from '../lib/pipeline.js';
-import { countryByCode } from '../data/countryPricing.js';
+import { countryByCode, primaryNumberOffer } from '../data/countryPricing.js';
 import type { AvailableNumber, ColdcallCallRow, ColdcallSettingsRow, PurchasedNumber, TelephonyProvider } from './types.js';
 
 const log = createLogger('coldcall:mock');
@@ -72,7 +72,7 @@ export const mockProvider: TelephonyProvider = {
 
     async searchNumbers(_settings, country, contains) {
         const info = countryByCode(country);
-        if (!info?.numbers) return [];
+        if (!info || !primaryNumberOffer(info.numbers)) return [];
         const results: AvailableNumber[] = [];
         for (let i = 0; i < 8; i++) {
             let national = '';
@@ -90,10 +90,11 @@ export const mockProvider: TelephonyProvider = {
 
     async purchaseNumber(_settings, e164, country) {
         const info = countryByCode(country);
+        const primary = info ? primaryNumberOffer(info.numbers) : null;
         return {
             provider_sid: `PN_mock_${randomUUID()}`,
             e164,
-            status: info?.numbers?.requiresDocs ? 'pending_regulatory' : 'active',
+            status: primary && primary.docStatus !== 'docless' ? 'pending_regulatory' : 'active',
         } as PurchasedNumber;
     },
 

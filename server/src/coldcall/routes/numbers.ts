@@ -11,7 +11,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { createLogger } from '../../lib/logger.js';
 import { validateBody, uuidField } from '../../lib/validation.js';
 import { isInternalRole } from '../../lib/roles.js';
-import { COUNTRY_PRICING, countryByCode, multiplierFor, tierFor } from '../data/countryPricing.js';
+import { COUNTRY_PRICING, countryByCode, multiplierForRate, tierForMultiplier, primaryNumberOffer } from '../data/countryPricing.js';
 import { getSettings } from '../lib/settings.js';
 import { usageForNumbers } from '../lib/reputation.js';
 import { providerFor } from '../providers/index.js';
@@ -39,23 +39,47 @@ function shapeNumber(n: Record<string, unknown>, internal: boolean): Record<stri
 }
 
 // ── GET /countries — ülke tarife/erişim tablosu ──────────────────────────────
+// Origin-aware fiyat: fiyat menşe (arayan numaranın ülkesi) × hedef + hat tipine göre
+// değiştiğinden bu genel liste TEK bir multiplier gösteremez — müşteriye çarpan
+// ARALIĞI (min=en iyi menşe/hat, max=en kötü) + max'a göre konservatif tier gösterilir.
 router.get('/countries', (req: Request, res: Response) => {
     const internal = isInternalRole(req.user?.role ?? '');
-    const rows = COUNTRY_PRICING.map((c) => ({
-        code: c.code,
-        name_tr: c.nameTr,
-        name_en: c.nameEn,
-        dial_code: c.dialCode,
-        callable: c.callable,
-        blocked_reason: c.blockedReason ?? null,
-        tier: tierFor(c),
-        multiplier: c.callable ? multiplierFor(c.outUsdPerMin) : 0,
-        can_buy_number: !!c.numbers,
-        number_requires_docs: c.numbers?.requiresDocs ?? null,
-        ...(internal
-            ? { out_usd_per_min: c.outUsdPerMin, number_monthly_usd: c.numbers?.monthlyUsd ?? null }
-            : {}),
-    }));
+    const rows = COUNTRY_PRICING.map((c) => {
+        const primary = primaryNumberOffer(c.numbers);
+        const mults = c.callable
+            ? [
+                multiplierForRate(c.euMobileUsd),
+                multiplierForRate(c.euFixedUsd),
+                multiplierForRate(c.intlMobileUsd),
+                multiplierForRate(c.intlFixedUsd),
+            ]
+            : [0];
+        const multiplierMin = Math.min(...mults);
+        const multiplierMax = Math.max(...mults);
+        return {
+            code: c.code,
+            name_tr: c.nameTr,
+            name_en: c.nameEn,
+            dial_code: c.dialCode,
+            callable: c.callable,
+            blocked_reason: c.blockedReason ?? null,
+            tier: tierForMultiplier(multiplierMax),
+            multiplier_min: multiplierMin,
+            multiplier_max: multiplierMax,
+            can_buy_number: !!primary,
+            number_doc_status: primary?.docStatus ?? null,
+            number_requires_docs: primary ? primary.docStatus !== 'docless' : null,
+            ...(internal
+                ? {
+                    usd: { euMobile: c.euMobileUsd, euFixed: c.euFixedUsd, intlMobile: c.intlMobileUsd, intlFixed: c.intlFixedUsd },
+                    number_monthly_usd: primary?.monthlyUsd ?? null,
+                    number_types: Object.entries(c.numbers).map(([type, offer]) => ({
+                        type, monthly_usd: offer.monthlyUsd, doc_status: offer.docStatus,
+                    })),
+                }
+                : {}),
+        };
+    });
     res.json({ countries: rows });
 });
 
@@ -93,15 +117,19 @@ router.get('/search', requireBuyer, async (req: Request, res: Response, next: Ne
         const contains = req.query.contains ? String(req.query.contains).replace(/\D/g, '').slice(0, 10) : undefined;
         const info = countryByCode(country);
         if (!info) throw new AppError('Unknown country', 400);
-        if (!info.numbers) {
+        const primary = primaryNumberOffer(info.numbers);
+        if (!primary) {
             res.status(422).json({ error: 'Bu ülkede numara envanteri yok', code: 'no_inventory' });
             return;
         }
         const settings = await getSettings(req.tenantId!);
-        const results = await providerFor(settings).searchNumbers(settings, country, contains);
+        // primary.type ile ara: seçilen tip (GB/SE'de mobil belgesiz) doğru envanterde bulunur,
+        // satın alınan numara ve kaydedilen COGS ile eşleşir (codex P1).
+        const results = await providerFor(settings).searchNumbers(settings, country, contains, primary.type);
         res.json({
             numbers: results,
-            requires_docs: info.numbers.requiresDocs,
+            number_type: primary.type,
+            requires_docs: primary.docStatus !== 'docless',
         });
     } catch (err) {
         next(err);
@@ -119,7 +147,8 @@ router.post('/', requireBuyer, validateBody(purchaseSchema), async (req: Request
         const tenantId = req.tenantId!;
         const { country, e164 } = req.body as z.infer<typeof purchaseSchema>;
         const info = countryByCode(country);
-        if (!info?.numbers) throw new AppError('Bu ülkede numara satın alınamıyor', 422);
+        const primary = info ? primaryNumberOffer(info.numbers) : null;
+        if (!info || !primary) throw new AppError('Bu ülkede numara satın alınamıyor', 422);
         // Numara istenen ülkeye ait olmalı (codex P2) — dial code prefix kontrolü
         if (!e164.startsWith(info.dialCode)) {
             throw new AppError('Numara seçilen ülkenin alan koduyla uyuşmuyor', 422);
@@ -149,7 +178,7 @@ router.post('/', requireBuyer, validateBody(purchaseSchema), async (req: Request
                 country_code: country.toUpperCase(),
                 friendly_name: purchased.e164,
                 status: purchased.status,
-                monthly_cost_usd: info.numbers.monthlyUsd,
+                monthly_cost_usd: primary.monthlyUsd,
                 created_by: req.user?.id ?? null,
             })
             .select('*')

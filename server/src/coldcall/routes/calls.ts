@@ -11,10 +11,10 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { createLogger } from '../../lib/logger.js';
 import { validateBody, uuidField } from '../../lib/validation.js';
 import { isInternalRole } from '../../lib/roles.js';
-import { countryForE164, multiplierFor } from '../data/countryPricing.js';
-import { getSettings, assertQuota } from '../lib/settings.js';
+import { countryForE164, rateFor, isBlockedRate } from '../data/countryPricing.js';
+import { getSettings, assertBalance, usedThisPeriod } from '../lib/settings.js';
 import { usageForNumbers } from '../lib/reputation.js';
-import { sweepStaleCalls, TERMINAL_STATUSES } from '../lib/finalize.js';
+import { sweepStaleCalls, TERMINAL_STATUSES, finalizeCall } from '../lib/finalize.js';
 import { providerFor, twilioConfigured } from '../providers/index.js';
 import { summarizeTranscript } from '../lib/summarize.js';
 import type { ColdcallCallRow } from '../providers/types.js';
@@ -26,6 +26,8 @@ const requireCaller = requireRole('superadmin', 'ops_agent', 'client_admin');
 
 const BUCKET = 'coldcall-recordings';
 const SIGNED_URL_TTL_SEC = 300;
+/** Düşük bakiye uyarı eşiği (dakika) — plan §11.1, ileride coldcall_settings kolonu olabilir. */
+const LOW_BALANCE_THRESHOLD = 30;
 
 function shapeCall(row: Record<string, unknown>, internal: boolean): Record<string, unknown> {
     if (internal) return row;
@@ -37,19 +39,22 @@ function shapeCall(row: Record<string, unknown>, internal: boolean): Record<stri
 // ── GET /config — dialer'ın ihtiyaç duyduğu her şey ──────────────────────────
 router.get('/config', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const settings = await getSettings(req.tenantId!);
+        const tenantId = req.tenantId!;
+        const settings = await getSettings(tenantId);
         const provider = providerFor(settings);
         const { count } = await supabaseAdmin
             .from('coldcall_phone_numbers')
             .select('id', { count: 'exact', head: true })
-            .eq('tenant_id', req.tenantId!)
+            .eq('tenant_id', tenantId)
             .eq('status', 'active');
+        const balance = Number(settings.minutes_balance);
         res.json({
             provider: provider.name,
             call_mode: provider.callMode,
             recording_mode: settings.recording_mode,
-            minutes_quota: settings.minutes_quota,
-            minutes_used: Number(settings.minutes_used),
+            minutes_balance: balance,
+            minutes_used_period: await usedThisPeriod(tenantId),
+            low_balance: balance <= LOW_BALANCE_THRESHOLD,
             max_numbers: settings.max_numbers,
             daily_cap_per_number: settings.daily_cap_per_number ?? 100,
             active_numbers: count ?? 0,
@@ -87,22 +92,22 @@ router.post('/', requireCaller, validateBody(createSchema), async (req: Request,
         const tenantId = req.tenantId!;
         const body = req.body as z.infer<typeof createSchema>;
 
-        // Yön kontrolü — fail-closed: tarifesi tanımsız yön aranamaz
-        const country = countryForE164(body.to_e164);
-        if (!country) throw new AppError('Bu yön için tarife tanımlı değil, arama yapılamaz', 422);
-        if (!country.callable) {
+        // Erken hedef kontrolü — fail-closed: tarifesi tanımsız/engelli yön menşe
+        // (arayan numaranın ülkesi) bilinmeden reddedilir; asıl oran/çarpan aşağıda
+        // fromNumber seçildikten SONRA hesaplanır (origin-aware, plan §4).
+        const destCheck = countryForE164(body.to_e164);
+        if (!destCheck) throw new AppError('Bu yön için tarife tanımlı değil, arama yapılamaz', 422);
+        if (!destCheck.callable) {
             const reasons: Record<string, string> = {
                 sanctioned: 'yaptırım kapsamında',
                 provider_unsupported: 'sağlayıcı tarafından desteklenmiyor',
                 premium_rate_risk: 'yüksek ücret/IRSF riski nedeniyle engelli',
             };
-            throw new AppError(`${country.nameTr} aranamaz (${reasons[country.blockedReason ?? ''] ?? 'engelli'})`, 422);
+            throw new AppError(`${destCheck.nameTr} aranamaz (${reasons[destCheck.blockedReason ?? ''] ?? 'engelli'})`, 422);
         }
-        const multiplier = multiplierFor(country.outUsdPerMin);
-        if (multiplier === 0) throw new AppError(`${country.nameTr} aranamaz (tarife engelli)`, 422);
 
         const settings = await getSettings(tenantId);
-        assertQuota(settings);
+        assertBalance(settings);
 
         // Arayan numara: günlük tavan (warm-up dahil) enforce edilir; numara
         // belirtilmemişse rotasyon — default tavan altındaysa o, değilse bugün
@@ -137,6 +142,14 @@ router.post('/', requireCaller, validateBody(createSchema), async (req: Request,
                 [...underCap].sort(
                     (a, b) => (usage.get(a.id)?.calls_today ?? 0) - (usage.get(b.id)?.calls_today ?? 0)
                 )[0];
+        }
+
+        // Origin-aware oran: arayan (fromNumber) numaranın ülkesi × hedef + hat tipi (plan §4).
+        // destCheck yukarıda callable dedi ama fail-closed: rateFor'un blocked dönmesi ihtimaline
+        // karşı burada da guard var (ör. veri tutarsızlığı).
+        const rate = rateFor(fromNumber.country_code, body.to_e164);
+        if (isBlockedRate(rate)) {
+            throw new AppError('Bu yön için tarife hesaplanamadı, arama yapılamaz', 422);
         }
 
         // company doğrulaması — başka tenant'ın şirketine bağlanamaz
@@ -176,19 +189,33 @@ router.post('/', requireCaller, validateBody(createSchema), async (req: Request,
                 direction: 'outbound',
                 from_e164: fromNumber.e164,
                 to_e164: body.to_e164,
-                to_country: country.code,
+                to_country: rate.destCountry.code,
                 status: 'queued',
-                rate_multiplier: multiplier,
+                rate_multiplier: rate.multiplier,
             })
             .select('*')
             .single();
         if (error) {
+            // Tek in-flight çağrı — partial unique index (migration 146) ihlali: tenant'ın
+            // zaten terminal-olmayan bir çağrısı var. Eşzamanlı POST'larda bakiye aşımını
+            // ATOMİK olarak tek çağrıyla sınırlar (codex P1 — app-seviyesi TOCTOU'yu kapatır).
+            if ((error as { code?: string }).code === '23505') {
+                throw new AppError('Zaten devam eden bir aramanız var. O bitince yeni arama başlatabilirsiniz.', 409);
+            }
             log.error({ err: error }, 'call insert failed');
             throw new AppError('Çağrı başlatılamadı', 500);
         }
 
         const provider = providerFor(settings);
-        await provider.placeCall(call as ColdcallCallRow, settings);
+        try {
+            await provider.placeCall(call as ColdcallCallRow, settings);
+        } catch (placeErr) {
+            // placeCall başarısızsa queued satır in-flight kilidini tutar → telafi: iptal et
+            // (yoksa tenant sweep'e/60dk'ya kadar yeni arama açamaz — codex P2 regression fix).
+            log.error({ err: placeErr, callId: call.id }, 'placeCall failed — canceling queued call');
+            await finalizeCall(call as ColdcallCallRow, { status: 'canceled' });
+            throw new AppError('Çağrı başlatılamadı', 502);
+        }
 
         const internal = isInternalRole(req.user?.role ?? '');
         res.status(201).json({ call: shapeCall(call, internal), mode: provider.callMode });
