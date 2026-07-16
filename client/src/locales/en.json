@@ -840,6 +840,7 @@
                 "addLeadsHint": "Suppressed people and leads already in another active campaign are skipped automatically.",
                 "enrollNow": "Import + enroll",
                 "enrollSummary": "{{enrolled}}/{{total}} enrolled.",
+                "enrollPartial": "{{done}}/{{total}} batches enrolled before the request failed. Retry to add the rest.",
                 "reason": {
                     "suppressed": "suppressed",
                     "in_another_campaign": "in another campaign",
@@ -850,12 +851,74 @@
                 "pageEmpty": "No rows on this page.",
                 "firstPage": "First page",
                 "noValidLeads": "No valid leads found — add a profile URL, public id or URN on each line.",
+                "tabSaved": "Saved people",
+                "tabCsv": "CSV",
+                "tabUrls": "URL list",
+                "savedSearchPlaceholder": "Search by name, company or title",
+                "selectAll": "Select all",
+                "selectedCount": "{{n}} selected",
+                "savedEmpty": "No people found.",
+                "enrollSelected": "Enroll selected",
+                "csvPick": "Choose a CSV file",
+                "csvPickPlaceholder": "profiles.csv",
+                "csvNeedIdentity": "No URL or public id column found. Headers found: {{headers}}",
+                "csvNoRows": "The CSV has no data rows.",
+                "csvParseError": "Could not read the CSV.",
+                "csvPreview": "Previewing the first {{n}} of {{total}} rows.",
+                "csvColIdentity": "Identity",
+                "csvColFirst": "First name",
+                "csvColLast": "Last name",
+                "csvColTitle": "Title",
+                "csvProgress": "Importing {{i}}/{{n}}",
+                "csvSkipped": "{{n}} rows skipped (invalid identity).",
+                "csvSkippedEmpty": "{{n}} rows skipped (no identity value).",
+                "csvAllSkipped": "No importable rows: {{invalid}} with an invalid identity, {{empty}} without an identity value.",
+                "templateSelect": "Start from a template",
+                "templateOverwrite": "Replace the current content with this template?",
+                "templateApply": "Apply",
+                "templates": {
+                    "offInvite": {
+                        "name": "Invite note — simple",
+                        "body": "Hello {first_name}, I have been following the work you do at {company}. I believe there may be areas where we can {{add value together|be genuinely useful}} on the export side, and I would be glad to connect."
+                    },
+                    "offMessage": {
+                        "name": "First message — introduction",
+                        "body": "Hello {first_name}, thank you for connecting. I am curious how you approach exports and new-market development as {title} at {company}. Could you tell me a little about your priorities there?"
+                    },
+                    "offFollowup": {
+                        "name": "Follow-up — gentle reminder",
+                        "body": "Hello {first_name}, I wanted to add a short note to my previous message. If you are exploring new markets on the {company} side, I would be glad to share a few concrete ideas. Feel free to write whenever it suits you."
+                    },
+                    "sectionsIcebreaker": {
+                        "name": "First message — with AI icebreaker",
+                        "body": "Hello {first_name}, {ai:icebreaker} I would love to briefly discuss how we could support {company} in your export processes. Would that be alright?",
+                        "icebreaker": "Write a single, warm, personalized opening sentence based on the person's company and title. Avoid exaggeration and use a respectful, professional tone."
+                    },
+                    "sectionsFollowup": {
+                        "name": "Follow-up — with AI value note",
+                        "body": "Hello {first_name}, just a short reminder. {ai:deger_onerisi} If you are interested, we could arrange a brief call.",
+                        "degerOnerisi": "In one sentence, summarize a concrete value we could offer around exports and new-customer acquisition, tailored to the person's company and sector. Use a respectful, professional tone."
+                    },
+                    "fullInvite": {
+                        "name": "Invite note — full AI",
+                        "prompt": "Write a LinkedIn invite note. At most 280 characters, one paragraph, respectful and professional. Personalize to the person's company and title; gently express interest in connecting in the context of exports and new-market development. Do not apply sales pressure."
+                    },
+                    "fullMessage": {
+                        "name": "First message — full AI",
+                        "prompt": "Write the first message to send after a connection is accepted. Short (3-4 sentences), warm and respectful. Personalize to the person's company, sector and title; offer a brief conversation about exports and new-customer acquisition. Do not sell directly."
+                    },
+                    "fullFollowup": {
+                        "name": "Follow-up — full AI",
+                        "prompt": "Write a gentle follow-up to send when the previous message went unanswered. At most 3 sentences, no pressure. Recall one concrete value point about exports or new markets tailored to the person's company, and kindly invite them to reply when convenient. Use a respectful, professional tone."
+                    }
+                },
                 "ai": {
+                    "previewMissingHint": "Missing fields render empty in the message.",
                     "preview": "Preview",
                     "modeOff": "AI off",
                     "modeSections": "AI sections",
                     "modeFull": "Full AI",
-                    "sectionsTemplateHint": "Put {ai:key} in the text to mark where each AI section is inserted.",
+                    "sectionsTemplateHint": "You can write a section key in the template as {ai:key} or directly as {key} to mark where each AI section is inserted.",
                     "sectionsTitle": "AI sections",
                     "sectionsDataNote": "The lead’s fields, including the custom fields from your import, are shared with the AI model when sections are generated.",
                     "noSections": "No AI sections yet. Add one to generate part of the message, such as an icebreaker.",

@@ -16,7 +16,7 @@ import { enqueueJob } from '../../lib/research/queue.js';
 import { RESEARCH_JOB_TYPES } from '../../lib/research/jobTypes.js';
 import { dedupeKey, enrollLead, pickSenderForEnroll, suppressIdentity } from '../../lib/linkedin/sequences/enroll.js';
 import { ensureRetentionLoop } from '../../lib/research/worker/handlers/linkedinRetention.js';
-import { AiConfigSchema, renderStepText, parseAiConfig, validateStepAi, recordAiGenerationCogs } from '../../lib/linkedin/sequences/aiGenerate.js';
+import { AiConfigSchema, renderStepText, parseAiConfig, validateStepAi, recordAiGenerationCogs, extractAiTokens } from '../../lib/linkedin/sequences/aiGenerate.js';
 import type { PersonalizeVars } from '../../lib/linkedin/sequences/personalize.js';
 import { withLlmMeter, type MeteredError } from '../../lib/research/llm/meter.js';
 import { LlmError } from '../../lib/research/llm/types.js';
@@ -369,9 +369,14 @@ router.post('/:id/steps/preview', requireWriter, aiPreviewLimiter, validateBody(
 
         const warnings: string[] = [];
         if (b.step.type === 'invite' && out.rendered.length > 300) warnings.push('invite_note_over_300');
-        // A 'sections' config whose template has no {ai:...} slot means the generated sections are
-        // computed but never spliced in — a likely operator mistake worth flagging.
-        if (out.parts.sections && !/\{ai:[a-z][a-z0-9_]{0,29}\}/.test(b.step.template ?? '')) warnings.push('no_ai_token_in_template');
+        // A 'sections' config whose template references NO section slot means the generated sections
+        // are computed but never spliced in — a likely operator mistake worth flagging. A slot is
+        // EITHER {ai:key} OR a bare {key} matching a configured section, so a template whose only
+        // reference is a bare {icebreaker} (with an icebreaker section) is valid and warns nothing.
+        if (out.parts.sections) {
+            const sectionKeys = new Set((parseAiConfig(b.step.ai_config).sections ?? []).map((s) => s.key));
+            if (extractAiTokens(b.step.template ?? '', sectionKeys).size === 0) warnings.push('no_ai_token_in_template');
+        }
 
         res.json({ rendered: out.rendered, parts: out.parts, char_count: out.rendered.length, warnings });
     } catch (err) { if (err instanceof AppError) return next(err); log.error({ err }, 'preview step'); next(new AppError('Failed to preview step', 500)); }
@@ -497,7 +502,7 @@ leadsRouter.get('/leads', async (req: Request, res: Response, next: NextFunction
             .select('id, first_name, last_name, company, title, public_id, profile_urn, source, dedupe_key, created_at', { count: 'exact' })
             .eq('tenant_id', tenantId);
         if (needle) {
-            q = q.or(`first_name.ilike.%${needle}%,last_name.ilike.%${needle}%,company.ilike.%${needle}%,public_id.ilike.%${needle}%`);
+            q = q.or(`first_name.ilike.%${needle}%,last_name.ilike.%${needle}%,company.ilike.%${needle}%,title.ilike.%${needle}%,public_id.ilike.%${needle}%`);
         }
         const { data, error, count } = await q.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
         if (error) throw new AppError('Failed to list leads', 500);

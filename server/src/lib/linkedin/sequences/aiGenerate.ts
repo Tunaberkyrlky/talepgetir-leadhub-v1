@@ -205,15 +205,40 @@ export async function generateAiText(
 const AI_TOKEN_SOURCE = '\\{ai:([a-z][a-z0-9_]{0,29})\\}';
 function aiTokenRegex(): RegExp { return new RegExp(AI_TOKEN_SOURCE, 'g'); }
 
+// A BARE section token {key} — same key grammar as {ai:key} but no `ai:` prefix. This is how an
+// operator naturally spells a section slot ({icebreaker} rather than {ai:icebreaker}). A bare token
+// is only treated as a section when its key matches a CONFIGURED section; otherwise it stays a
+// plain {var} personalize token (resolved by personalize()). The `ai:`-prefixed form never matches
+// this regex (the colon is not in the key charset), so the two grammars can't collide.
+//
+// S4: the lookarounds require GENUINELY single braces. Without them `\{(key)\}` also matches the
+// INNER braces of a `{{spintax}}` group — a one-option spintax word that collides with a section key
+// (e.g. `{{icebreaker}}`) would be mangled (the AI fragment wrapped in stray leftover braces). The
+// `(?<!\{)` / `(?!\})` guards make `{{icebreaker}}` fail to match, so spintax survives untouched to
+// the personalize/spintax pass. NOTE: the client applies the IDENTICAL lookaround fix — keep in sync.
+// Lookbehind alone excludes {{spintax}} inner braces; a trailing (?!\}) would ALSO wrongly
+// reject a legit token followed by a literal '}' (e.g. `{"note": {icebreaker}}`) — codex r2.
+const BARE_TOKEN_SOURCE = '(?<!\\{)\\{([a-z][a-z0-9_]{0,29})\\}';
+function bareTokenRegex(): RegExp { return new RegExp(BARE_TOKEN_SOURCE, 'g'); }
+
 /**
- * The set of section keys a template actually references via {ai:key} tokens (deduped). A section
- * configured but not referenced here is never generated (F8: it costs nothing). Exported + unit-
- * tested — it is the single source of truth shared by rendering and route validation.
+ * The set of section keys a template actually references (deduped). Always includes every explicit
+ * {ai:key} token. When `sectionKeys` is supplied, ALSO includes bare {key} tokens whose key is in
+ * that configured set — the natural {icebreaker} spelling behaves exactly like {ai:icebreaker}. A
+ * bare token can only be recognized against the configured set: a bare {foo} with no matching
+ * section is a plain personalize var, NOT a section (and never an error). A section configured but
+ * not referenced here is never generated (F8: it costs nothing). Exported + unit-tested — it is the
+ * single source of truth shared by rendering and route validation.
  */
-export function extractAiTokens(template: string | null | undefined): Set<string> {
+export function extractAiTokens(template: string | null | undefined, sectionKeys?: Set<string>): Set<string> {
     const keys = new Set<string>();
     if (!template) return keys;
     for (const m of template.matchAll(aiTokenRegex())) keys.add(m[1]);
+    if (sectionKeys && sectionKeys.size > 0) {
+        for (const m of template.matchAll(bareTokenRegex())) {
+            if (sectionKeys.has(m[1])) keys.add(m[1]);
+        }
+    }
     return keys;
 }
 
@@ -272,6 +297,9 @@ export function validateStepAi(template: string | null, aiConfigRaw: unknown): s
             if (keys.has(s.key)) return `ai_config has duplicate section key '${s.key}'`;
             keys.add(s.key);
         }
+        // The missing-section check applies ONLY to explicit {ai:key} tokens (naming an unconfigured
+        // section is an operator error). extractAiTokens WITHOUT sectionKeys returns just those, so a
+        // bare {key} never triggers this: an unmatched bare token is a personalize var, not an error.
         for (const key of extractAiTokens(tpl)) {
             if (!keys.has(key)) return `template references {ai:${key}} but ai_config has no matching section`;
         }
@@ -280,11 +308,29 @@ export function validateStepAi(template: string | null, aiConfigRaw: unknown): s
 }
 
 /**
- * Replace {ai:key} tokens in a template with generated section text. Unknown key → '' (mirrors
- * personalize's unknown-var behavior: a visible placeholder is worse than a gap).
+ * Replace BOTH {ai:key} and bare {key} tokens whose key is present in the sections map with the
+ * generated section text. An {ai:key} with no matching section → '' (mirrors personalize's unknown-
+ * var behavior: a visible placeholder is worse than a gap). A bare {key} with no matching section is
+ * left INTACT so the later personalize() pass can resolve it as a lead var.
+ *
+ * PRECEDENCE: this runs BEFORE personalize(), so a section key SHADOWS a same-named lead custom var
+ * — e.g. a 'company' section replaces {company} with the generated fragment, and the lead's company
+ * value never gets a chance to resolve it. Name a section distinctly if you want the raw var instead.
  */
 export function applyAiSections(template: string, sections: Record<string, string>): string {
-    return template.replace(aiTokenRegex(), (_m, key: string) => sections[key] ?? '');
+    // S3 (prototype-pollution defense): look sections up with hasOwnProperty, NEVER `key in` /
+    // `sections[key] ?? ''`. On a plain `{}` map those walk the prototype chain, so a token like
+    // {constructor} or {toString} would resolve to a Function/method string and leak into a sent
+    // message. hasOwnProperty.call limits matches to real generated sections. (renderStepText also
+    // builds the map with Object.create(null) so an untrusted section key can't shadow a proto slot.)
+    const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(sections, key);
+    // {ai:key}: prefixed form — unknown (non-own) key collapses to '' (it was explicitly asked for).
+    let out = template.replace(aiTokenRegex(), (_m, key: string) => (has(key) ? sections[key] : ''));
+    // bare {key}: only substitute when it names a generated (own-property) section; otherwise keep
+    // the literal token so personalize() can treat it as a lead var (no blanking of {firstName} etc.,
+    // and no {constructor} resolving through the prototype).
+    out = out.replace(bareTokenRegex(), (m, key: string) => (has(key) ? sections[key] : m));
+    return out;
 }
 
 /**
@@ -354,9 +400,14 @@ export async function renderStepText(
 
     if (cfg.mode === 'sections') {
         // F8: generate ONLY sections the template actually references — a configured-but-unreferenced
-        // section is never spliced in, so paying to generate it would be pure waste.
-        const referenced = extractAiTokens(template);
-        const sections: Record<string, string> = {};
+        // section is never spliced in, so paying to generate it would be pure waste. "Referenced"
+        // means EITHER {ai:key} OR a bare {key} matching a configured section (the natural spelling).
+        const sectionKeys = new Set((cfg.sections ?? []).map((s) => s.key));
+        const referenced = extractAiTokens(template, sectionKeys);
+        // S3: prototype-free map — an operator section key (validated to /^[a-z].../, so it can't BE
+        // 'constructor'/'__proto__' anyway) still gets a clean own-property-only bag, so applyAiSections'
+        // hasOwnProperty lookup can never fall through to Object.prototype for an unrelated {constructor}.
+        const sections: Record<string, string> = Object.create(null);
         // Sequential is fine — at most 5 sections, and it keeps provider load per send low.
         for (const s of cfg.sections ?? []) {
             if (!referenced.has(s.key)) continue;
