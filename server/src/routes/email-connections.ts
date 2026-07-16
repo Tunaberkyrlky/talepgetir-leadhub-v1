@@ -10,6 +10,7 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
+import type { PostConnectSessions } from '@nangohq/node' with { 'resolution-mode': 'import' };
 import { z } from 'zod/v4';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
@@ -19,6 +20,7 @@ import { validateBody, smtpConnectionSchema, uuidField } from '../lib/validation
 import { listConnections, recordSmtpVerify, PUBLIC_COLUMNS } from '../lib/emailConnections.js';
 import { buildDeliverabilityHealth, type DeliverabilityHealthInput } from '../lib/mail/deliverabilityHealth.js';
 import { verifySmtp } from '../lib/mail/smtpAdapter.js';
+import { describeMailVerifyError } from '../lib/mail/verifyErrors.js';
 import { verifyImap } from '../lib/imapInbound.js';
 import { encrypt } from '../lib/encryption.js';
 import { assertPublicHost } from '../lib/ssrfGuard.js';
@@ -131,8 +133,8 @@ router.post('/smtp', validateBody(smtpConnectionSchema), async (req: Request, re
         }
 
         // Verify SMTP credentials BEFORE saving — catch typos/wrong password early.
-        // Return a generic message: the raw connection error leaks whether arbitrary
-        // host:port pairs are reachable (information oracle). Detail stays in the log.
+        // The SSRF guard above limits probes to public mail hosts, so we can return
+        // a classified, actionable message while keeping raw provider detail in logs.
         // verifiedAt is captured the MOMENT verifySmtp settles (not at persist time) so
         // recordSmtpVerify can keep the LATEST verify when two attempts for the same box race.
         let smtpVerifiedAt: string;
@@ -149,7 +151,7 @@ router.post('/smtp', validateBody(smtpConnectionSchema), async (req: Request, re
             // Persist the failure freshness signal (best-effort; a no-op for a brand-new
             // box with no row yet — that's fine, there's nothing to attach it to).
             await recordSmtpVerify(tenantId, b.email_address, false, verifyErr instanceof Error ? verifyErr.message : String(verifyErr), failedAt);
-            res.status(422).json({ error: 'SMTP bağlantısı doğrulanamadı. Sunucu, port, kullanıcı adı ve şifreyi kontrol edin.' });
+            res.status(422).json({ error: describeMailVerifyError(verifyErr, 'smtp') });
             return;
         }
 
@@ -168,7 +170,7 @@ router.post('/smtp', validateBody(smtpConnectionSchema), async (req: Request, re
                 });
             } catch (verifyErr) {
                 log.warn({ err: verifyErr, host: b.imap_host }, 'IMAP verify failed');
-                res.status(422).json({ error: 'IMAP (gelen) bağlantısı doğrulanamadı. Gmail için 2 adımlı doğrulama + uygulama şifresi ve IMAP erişimi gereklidir.' });
+                res.status(422).json({ error: describeMailVerifyError(verifyErr, 'imap') });
                 return;
             }
         }
@@ -255,10 +257,19 @@ router.post('/start-session', async (req: Request, res: Response, next: NextFunc
         }
 
         const nango = await getNango();
-        const result = await nango.createConnectSession({
+        // Nango's Microsoft Graph integration needs the `common` tenant so both
+        // work/school (Microsoft 365) and personal Outlook accounts can connect.
+        // Google does not need an integration-specific connection config.
+        const sessionParams: PostConnectSessions['Body'] = {
             end_user: { id: tenantId },
             allowed_integrations: [provider],
-        });
+        };
+        if (provider === 'microsoft-outlook') {
+            sessionParams.integrations_config_defaults = {
+                'microsoft-outlook': { connection_config: { tenant: 'common' } },
+            };
+        }
+        const result = await nango.createConnectSession(sessionParams);
 
         const token = result?.data?.token;
         if (!token) {
