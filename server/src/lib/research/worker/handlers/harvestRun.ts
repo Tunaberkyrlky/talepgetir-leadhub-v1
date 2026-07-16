@@ -23,6 +23,7 @@
  * billing stays keyed to (icp, ruleset_version), and a run without geo_id behaves exactly as before.
  */
 import type { HandlerContext, JobHandler } from '../types.js';
+import { createHash } from 'node:crypto';
 import { researchSupabaseAdmin } from '../../supabase.js';
 import { createLogger } from '../../../logger.js';
 import { resolveCaps, CapTracker, type EngineCaps } from '../../engine/caps.js';
@@ -40,6 +41,7 @@ import {
     billMatch,
     existingCompanies,
     companiesWithCurrentVerdict,
+    shouldRevalidateEvidence,
     suppressedCanonicalKeys,
     unbilledMatchVerdicts,
     creditBalance,
@@ -235,7 +237,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
         // cost to the tracker and logs its per-tenant COGS; everything below is source-agnostic.
         const { candidates: rawCandidates, queriesRun, meta: sourceMeta } = await source.gather({
             icp: icpRow, geography, geoSpec, priorStats, caps, tracker, heartbeat,
-            tenantId, projectId, jobId: job.id,
+            tenantId, projectId, jobId: job.id, worker, lease,
         });
 
         // ── Canonicalize + within-run dedup ──────────────────────────────────────
@@ -268,24 +270,45 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
         // When re-scoring is OFF, legacy open-web discovery skips all existing firms. Sources that
         // explicitly fetch existing seeded companies (trade imports) still need the verdict lookup.
         const shouldLookupCurrentVerdict = RESCORE_EXISTING || source.fetchExisting === true;
-        const haveCurrentVerdict = shouldLookupCurrentVerdict
+        const currentVerdicts = shouldLookupCurrentVerdict
             ? await companiesWithCurrentVerdict({ tenantId, icpId, rulesetVersion: icpRow.ruleset_version, companyIds: existingIds })
-            : new Set<string>(existingIds);
+            : new Map(existingIds.map((id) => [id, { evidenceSource: null, evidenceHash: null }]));
+
+        const mapsHash = (c: Candidate): string | null => {
+            const evidence = prepareMapsEvidence({ description: c.mapsDescription, category: c.mapsCategory });
+            return evidence ? createHash('sha256').update(evidence.text).digest('hex') : null;
+        };
+        const needsVerdict = (c: CanonCandidate, existing: ExistingCompany | undefined): boolean => {
+            if (!existing) return true;
+            const current = currentVerdicts.get(existing.id);
+            return shouldRevalidateEvidence(current, {
+                hasWebsite: Boolean(c.domain), source: source.name, mapsEvidenceHash: mapsHash(c),
+            });
+        };
 
         const fresh = canon.filter((c) => {
             if (suppressed.has(c.canonicalKey)) return false;
             const existing = existingMap.get(c.canonicalKey);
-            return !existing || (source.fetchExisting === true && !haveCurrentVerdict.has(existing.id));
+            if (!existing) return true;
+            const current = currentVerdicts.get(existing.id);
+            const websiteSupersedesMaps = Boolean(c.domain) && current?.evidenceSource === 'maps';
+            return needsVerdict(c, existing) && (source.fetchExisting === true || websiteSupersedesMaps);
         });
+        const freshKeys = new Set(fresh.map((c) => c.canonicalKey));
         const reScoreTargets: ExistingCompany[] = RESCORE_EXISTING
             && source.fetchExisting !== true
             ? canon
                 .filter((c) => !suppressed.has(c.canonicalKey))
+                .filter((c) => !freshKeys.has(c.canonicalKey))
                 .map((c) => existingMap.get(c.canonicalKey))
-                .filter((e): e is ExistingCompany => e !== undefined && !haveCurrentVerdict.has(e.id))
+                .filter((e): e is ExistingCompany => e !== undefined)
+                .filter((e) => {
+                    const c = canon.find((candidate) => candidate.canonicalKey === e.canonicalKey);
+                    return c ? needsVerdict(c, e) : false;
+                })
             : [];
         const skippedCurrentVerdict = [...existingMap.values()].filter(
-            (e) => !suppressed.has(e.canonicalKey) && haveCurrentVerdict.has(e.id)
+            (e) => !suppressed.has(e.canonicalKey) && currentVerdicts.has(e.id)
         ).length;
 
         // Approved offer angles (WP4): read once per run — the SAME validation pass then returns
@@ -361,10 +384,15 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
         // Persist a verdict through the fenced RPC and return the ROW OF RECORD — which is the
         // computed verdict except when the RPC preserved an existing BILLED match (immutable, 067);
         // tallies and billing decisions below use the returned row, never the local computation.
-        const persistOne = async (companyId: string, verdict: Parameters<typeof persistVerdict>[0]['verdict'], model: string): Promise<PersistedVerdict> => {
+        const persistOne = async (
+            companyId: string, verdict: Parameters<typeof persistVerdict>[0]['verdict'], model: string,
+            evidenceSource: 'website' | 'maps', evidenceSnapshot: string
+        ): Promise<PersistedVerdict> => {
             const persisted = await persistVerdict({
                 tenantId, companyId, icpId, rulesetVersion: icpRow.ruleset_version,
                 verdict, model, jobId: job.id, worker, lease,
+                evidenceSource, evidenceSnapshot,
+                evidenceHash: createHash('sha256').update(evidenceSnapshot).digest('hex'),
             });
             if (persisted.verdict !== verdict.verdict) {
                 log.info(
@@ -382,7 +410,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
         if (source.name === 'maps') {
             for (const c of canon) {
                 const existing = existingMap.get(c.canonicalKey);
-                if (suppressed.has(c.canonicalKey) || !existing || !haveCurrentVerdict.has(existing.id)) continue;
+                if (suppressed.has(c.canonicalKey) || !existing || !currentVerdicts.has(existing.id)) continue;
                 if (c.mapsDescription == null && c.mapsCategory == null && c.phone == null && c.address == null) continue;
                 try {
                     await upsertCompany({
@@ -413,6 +441,8 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                 ? prepareMapsEvidence({ description: c.mapsDescription, category: c.mapsCategory })
                 : null;
             let validation: Awaited<ReturnType<typeof validateCompany>>;
+            let evidenceSource: 'website' | 'maps';
+            let evidenceSnapshot: string;
 
             if (!regDomain) {
                 domainless++;
@@ -424,6 +454,8 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                         { name: c.name, domain: null, country: c.country },
                         mapsEvidence
                     );
+                    evidenceSource = 'maps';
+                    evidenceSnapshot = mapsEvidence.text;
                 } else {
                     // No website and no meaningful listing evidence → deterministic review, no LLM cost.
                     try {
@@ -467,6 +499,8 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                         { name: c.name, domain: regDomain, country: c.country },
                         page.content
                     );
+                    evidenceSource = 'website';
+                    evidenceSnapshot = page.content;
                 } else if (mapsEvidence) {
                     fetchErrors++;
                     mapsMetadataValidations++;
@@ -476,6 +510,8 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                         { name: c.name, domain: regDomain, country: c.country },
                         mapsEvidence
                     );
+                    evidenceSource = 'maps';
+                    evidenceSnapshot = mapsEvidence.text;
                 } else {
                     // Empty site and no meaningful Maps evidence → deterministic review without LLM spend.
                     fetchErrors++;
@@ -523,7 +559,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
             // pre-filter) is refused UNDER the lock — count + skip, exactly like the upsert path.
             let persisted: PersistedVerdict;
             try {
-                persisted = await persistOne(companyId, verdict, result.model);
+                persisted = await persistOne(companyId, verdict, result.model, evidenceSource, evidenceSnapshot);
             } catch (e) {
                 if (e instanceof SuppressedError) { suppressedAtWrite++; continue; }
                 throw e;
@@ -611,7 +647,7 @@ export async function runHarvest({ job, heartbeat }: HandlerContext, source: Can
                 // under the lock (suppression > dedup, no TOCTOU) — count + skip.
                 let persisted: PersistedVerdict;
                 try {
-                    persisted = await persistOne(ex.id, verdict, result.model);
+                    persisted = await persistOne(ex.id, verdict, result.model, 'website', content);
                 } catch (e) {
                     if (e instanceof SuppressedError) { suppressedAtWrite++; continue; }
                     throw e;

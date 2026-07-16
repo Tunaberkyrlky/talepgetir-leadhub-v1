@@ -125,6 +125,10 @@ export async function persistVerdict(params: {
     jobId: string;
     worker: string;
     lease: string;
+    evidenceSource: 'website' | 'maps';
+    evidenceHash: string;
+    evidenceSnapshot: string;
+    evidenceObservedAt?: string;
 }): Promise<PersistedVerdict> {
     const { data, error } = await researchSupabaseAdmin.rpc('research_persist_verdict', {
         p_tenant: params.tenantId,
@@ -143,6 +147,10 @@ export async function persistVerdict(params: {
         // ignores these entirely (the RPC returns the row of record before any write).
         p_hooks: params.verdict.hooks && params.verdict.hooks.length > 0 ? params.verdict.hooks : null,
         p_angle_suggestion: params.verdict.angle_suggestion ?? null,
+        p_evidence_source: params.evidenceSource,
+        p_evidence_hash: params.evidenceHash,
+        p_evidence_snapshot: params.evidenceSnapshot,
+        p_evidence_observed_at: params.evidenceObservedAt ?? new Date().toISOString(),
     });
     if (error) {
         // Suppression is signalled by a STRUCTURED marker (069): check_violation + DETAIL of
@@ -323,8 +331,20 @@ export async function logSearch(params: {
     resultCount: number;
     cacheHit: boolean;
     costUsd: number;
+    worker?: string;
+    lease?: string;
 }): Promise<void> {
     const { createHash } = await import('crypto');
+    if (params.jobId && params.worker && params.lease) {
+        const { error } = await researchSupabaseAdmin.rpc('research_log_search_fenced', {
+            p_tenant: params.tenantId, p_project_id: params.projectId ?? null, p_job_id: params.jobId,
+            p_worker: params.worker, p_lease: params.lease, p_engine: params.engine ?? 'gemini',
+            p_query: params.query, p_query_hash: createHash('sha256').update(params.query).digest('hex'),
+            p_result_count: params.resultCount, p_cache_hit: params.cacheHit, p_cost_usd: params.costUsd,
+        });
+        if (error) throw error;
+        return;
+    }
     const { error } = await researchSupabaseAdmin.from('research_search_log').insert({
         tenant_id: params.tenantId,
         project_id: params.projectId ?? null,
@@ -387,16 +407,27 @@ export async function existingCompanies(tenantId: string, keys: string[]): Promi
  * has a verdict?", not "company exists?". Re-scoring under a bumped ruleset_version naturally re-runs
  * (old-version verdicts don't satisfy the predicate). Tenant-scoped.
  */
+export interface CurrentVerdictProvenance { evidenceSource: 'website' | 'maps' | null; evidenceHash: string | null; }
+export function shouldRevalidateEvidence(
+    current: CurrentVerdictProvenance | undefined,
+    input: { hasWebsite: boolean; source: string; mapsEvidenceHash: string | null }
+): boolean {
+    if (!current) return true;
+    if (current.evidenceSource === null || current.evidenceHash === null) return true; // one-time legacy self-heal
+    if (input.hasWebsite && current.evidenceSource === 'maps') return true;
+    return input.source === 'maps' && current.evidenceSource === 'maps'
+        && input.mapsEvidenceHash !== current.evidenceHash;
+}
 export async function companiesWithCurrentVerdict(params: {
     tenantId: string;
     icpId: string;
     rulesetVersion: number;
     companyIds: string[];
-}): Promise<Set<string>> {
-    if (params.companyIds.length === 0) return new Set();
+}): Promise<Map<string, CurrentVerdictProvenance>> {
+    if (params.companyIds.length === 0) return new Map();
     const { data, error } = await researchSupabaseAdmin
         .from('research_company_verdicts')
-        .select('company_id')
+        .select('company_id, evidence_source, evidence_hash')
         .eq('tenant_id', params.tenantId)
         .eq('icp_id', params.icpId)
         .eq('ruleset_version', params.rulesetVersion)
@@ -405,7 +436,10 @@ export async function companiesWithCurrentVerdict(params: {
         log.error({ err: error }, 'companiesWithCurrentVerdict failed');
         throw error;
     }
-    return new Set((data ?? []).map((r) => (r as { company_id: string }).company_id));
+    return new Map((data ?? []).map((r) => {
+        const row = r as { company_id: string; evidence_source: 'website' | 'maps' | null; evidence_hash: string | null };
+        return [row.company_id, { evidenceSource: row.evidence_source, evidenceHash: row.evidence_hash }];
+    }));
 }
 
 /** Suppressed canonical keys for this tenant (pre-filter so one suppressed row can't abort work). */

@@ -47,13 +47,12 @@ export interface ScrapeOptions {
 
 /**
  * A maps discovery backend. `scrape` takes one or more keywords, runs the source's submit→poll→
- * download cycle, and returns normalized business rows. It NEVER throws — a failed scrape yields
- * an empty array (the discovery contract: no candidates → harvest stops gracefully), exactly like
- * searxngSearch swallows page errors.
+ * download cycle, and returns normalized business rows. Provider failures yield an empty array;
+ * heartbeat/lease failures propagate so a reaped worker stops immediately.
  */
 export interface MapsScraper {
     /** Stable backend id, surfaced in the job summary (e.g. 'gosom', 'twogis'). */
     readonly name: string;
-    /** Run the scrape for these keywords and return normalized business rows (never throws). */
+    /** Run the scrape; provider errors are non-fatal, heartbeat/lease errors are fatal. */
     scrape(keywords: string[], opts?: ScrapeOptions): Promise<MapsBusiness[]>;
 }

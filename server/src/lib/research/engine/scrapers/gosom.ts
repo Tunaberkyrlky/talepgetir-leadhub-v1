@@ -21,10 +21,10 @@ export function gosomBaseUrl(): string | null {
     return u ? u.replace(/\/+$/, '') : null;
 }
 
-function buildGosomBody(keyword: string, opts: ScrapeOptions): Record<string, unknown> {
+function buildGosomBody(keywords: string[], opts: ScrapeOptions): Record<string, unknown> {
     const body: Record<string, unknown> = {
         name: `tg-research ${new Date().toISOString()}`,
-        keywords: [keyword],
+        keywords,
         lang: opts.lang ?? DEFAULT_LANG,
         zoom: DEFAULT_ZOOM,
         depth: opts.depth ?? DEFAULT_DEPTH,
@@ -39,8 +39,7 @@ function buildGosomBody(keyword: string, opts: ScrapeOptions): Record<string, un
 export const gosomScraper = createHttpMapsScraper({
     name: 'gosom',
     baseUrl: gosomBaseUrl,
-    buildSubmitBody: (keywords, opts) => buildGosomBody(keywords[0] ?? '', opts),
-    buildSubmitBodies: (keywords, opts) => keywords.map((keyword) => buildGosomBody(keyword, opts)),
+    buildSubmitBody: (keywords, opts) => buildGosomBody(keywords, opts),
     submitPath: '/api/v1/jobs',
     resultsInStatus: false,
     defaults: {
@@ -48,5 +47,6 @@ export const gosomScraper = createHttpMapsScraper({
         maxWaitMs: Number(process.env.RESEARCH_GOSOM_MAX_WAIT_MS) || undefined,
         maxResults: Number(process.env.RESEARCH_GOSOM_MAX_RESULTS) || undefined,
         httpTimeoutMs: Number(process.env.RESEARCH_GOSOM_HTTP_TIMEOUT_MS) || undefined,
+        maxResponseBytes: Number(process.env.RESEARCH_GOSOM_MAX_RESPONSE_BYTES) || undefined,
     },
 });

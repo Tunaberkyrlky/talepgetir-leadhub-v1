@@ -264,6 +264,13 @@ function unicodeTokens(s: string): string[] {
     return (s.toLocaleLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []);
 }
 
+function evidenceOverlap(evidence: string, sourceText: string, tokenize: (text: string) => string[]): number {
+    const sourceSet = new Set(tokenize(sourceText));
+    const evidenceTokens = tokenize(evidence);
+    if (evidenceTokens.length === 0) return 0;
+    return evidenceTokens.filter((token) => sourceSet.has(token)).length / evidenceTokens.length;
+}
+
 const MIN_EVIDENCE_OVERLAP = Number(process.env.RESEARCH_MIN_EVIDENCE_OVERLAP ?? 0.25);
 
 /**
@@ -282,13 +289,11 @@ function gateMatchOnEvidence(
     if (!sourceText.trim()) {
         return { ...verdict, verdict: 'review', elimination_reason: `no ${sourceLabel} content to verify match evidence` };
     }
-    const sourceSet = new Set(tokenize(sourceText));
     const ev = tokenize(verdict.evidence);
     if (ev.length === 0) {
         return { ...verdict, verdict: 'review', elimination_reason: 'empty evidence for match' };
     }
-    const present = ev.filter((t) => sourceSet.has(t)).length;
-    const overlap = present / ev.length;
+    const overlap = evidenceOverlap(verdict.evidence, sourceText, tokenize);
     if (overlap < MIN_EVIDENCE_OVERLAP) {
         return { ...verdict, verdict: 'review', elimination_reason: `match evidence not grounded in ${sourceLabel} (overlap ${overlap.toFixed(2)})` };
     }
@@ -349,11 +354,19 @@ const MAPS_INSTRUCTION_PATTERNS = [
 /** Maps-only matches receive an additional deterministic billability gate. Directory descriptions
  *  are shorter and easier to poison than first-party pages, so category-only/thin/instruction-like
  *  evidence may still inform partial/eliminated verdicts but can never become a billed MATCH. */
-function gateMapsMatchSafety(verdict: Verdict, icp: ValidationIcp, maps: PreparedMapsEvidence): Verdict {
-    if (verdict.verdict !== 'match') return verdict;
+export function gateMapsVerdictSafety(verdict: Verdict, icp: ValidationIcp, maps: PreparedMapsEvidence): Verdict {
     if (MAPS_INSTRUCTION_PATTERNS.some((pattern) => pattern.test(maps.text))) {
-        return { ...verdict, verdict: 'review', elimination_reason: 'Maps metadata contains instruction-like text; match not billable' };
+        return { ...verdict, verdict: 'review', elimination_reason: 'Maps metadata contains instruction-like text; verdict not trusted' };
     }
+    // Directory metadata is not authoritative enough for automatic negative classification.
+    if (verdict.verdict === 'eliminated') {
+        return { ...verdict, verdict: 'review', elimination_reason: 'Maps-only elimination requires website or human confirmation' };
+    }
+    if (verdict.verdict !== 'review'
+        && evidenceOverlap(verdict.evidence, maps.text, unicodeTokens) < MIN_EVIDENCE_OVERLAP) {
+        return { ...verdict, verdict: 'review', elimination_reason: 'Maps verdict evidence is not grounded in listing metadata' };
+    }
+    if (verdict.verdict !== 'match') return verdict;
     const descriptionTokens = unicodeTokens(maps.description ?? '');
     if (descriptionTokens.length < 8) {
         return { ...verdict, verdict: 'review', elimination_reason: 'Maps description too thin to verify a billable match' };
@@ -404,6 +417,6 @@ export async function validateCompanyFromMaps(
         maxTokens: 1500,
     });
     const grounded = gateMatchOnEvidence(res.value, maps.text, 'Maps metadata', unicodeTokens);
-    const safe = gateMapsMatchSafety(grounded, icp, maps);
+    const safe = gateMapsVerdictSafety(grounded, icp, maps);
     return { ...res, value: hardenPersonalization(safe, icp, maps.text, unicodeTokens) };
 }

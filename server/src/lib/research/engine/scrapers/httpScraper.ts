@@ -25,6 +25,7 @@ export interface HttpScraperDefaults {
     maxWaitMs?: number;
     maxResults?: number;
     httpTimeoutMs?: number;
+    maxResponseBytes?: number;
 }
 
 export interface HttpScraperConfig {
@@ -57,6 +58,30 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
 }
 
 const EMPTY_LISTING_VALUES = new Set(['n/a', 'na', 'none', 'null', 'unknown', 'not specified']);
+
+export class MapsHeartbeatError extends Error {
+    constructor(readonly cause: unknown) { super('maps scraper heartbeat failed'); }
+}
+
+async function responseTextBounded(resp: Response, maxBytes: number): Promise<string> {
+    const declared = Number(resp.headers.get('content-length') ?? 0);
+    if (declared > maxBytes) throw new Error(`maps response exceeds ${maxBytes} bytes`);
+    if (!resp.body) return '';
+    const reader = resp.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) { await reader.cancel(); throw new Error(`maps response exceeds ${maxBytes} bytes`); }
+        chunks.push(value);
+    }
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.byteLength; }
+    return new TextDecoder().decode(merged);
+}
 
 /** Read one bounded, normalized listing-metadata string without coercing objects to junk text. */
 function listingText(
@@ -134,6 +159,7 @@ export function createHttpMapsScraper(config: HttpScraperConfig): MapsScraper {
     const log = createLogger(`research:engine:${config.name}`);
     const d = config.defaults ?? {};
     const httpTimeout = d.httpTimeoutMs ?? FALLBACK_HTTP_TIMEOUT_MS;
+    const maxResponseBytes = d.maxResponseBytes ?? 5 * 1024 * 1024;
 
     async function submitJob(base: string, body: Record<string, unknown>): Promise<string | null> {
         const resp = await fetchWithTimeout(
@@ -145,7 +171,7 @@ export function createHttpMapsScraper(config: HttpScraperConfig): MapsScraper {
             log.warn({ status: resp.status }, `${config.name} submit non-ok`);
             return null;
         }
-        const job = (await resp.json()) as { id?: unknown; job_id?: unknown };
+        const job = JSON.parse(await responseTextBounded(resp, maxResponseBytes)) as { id?: unknown; job_id?: unknown };
         const id = typeof job.id === 'string' ? job.id : typeof job.job_id === 'string' ? job.job_id : null;
         if (!id) log.warn({ job }, `${config.name} submit response missing id`);
         return id;
@@ -157,7 +183,7 @@ export function createHttpMapsScraper(config: HttpScraperConfig): MapsScraper {
             log.warn({ id, status: resp.status }, `${config.name} status non-ok`);
             return { status: null, results: null };
         }
-        const job = (await resp.json()) as { status?: unknown; Status?: unknown; results?: unknown };
+        const job = JSON.parse(await responseTextBounded(resp, maxResponseBytes)) as { status?: unknown; Status?: unknown; results?: unknown };
         const status = typeof job.status === 'string' ? job.status : typeof job.Status === 'string' ? job.Status : null;
         return {
             status: status?.toLowerCase() ?? null,
@@ -171,7 +197,19 @@ export function createHttpMapsScraper(config: HttpScraperConfig): MapsScraper {
             log.warn({ id, status: resp.status }, `${config.name} download non-ok`);
             return [];
         }
-        return parseCsv(await resp.text(), maxResults);
+        return parseCsv(await responseTextBounded(resp, maxResponseBytes), maxResults);
+    }
+
+    async function cleanupJob(base: string, id: string): Promise<void> {
+        try {
+            await fetchWithTimeout(`${base}/api/v1/jobs/${id}`, { method: 'DELETE' }, httpTimeout);
+        } catch (err) {
+            log.warn({ id, err: err instanceof Error ? err.message : String(err) }, `${config.name} cleanup failed`);
+        }
+    }
+
+    async function heartbeat(opts: ScrapeOptions, progress: Record<string, unknown>): Promise<void> {
+        try { await opts.heartbeat?.(progress); } catch (err) { throw new MapsHeartbeatError(err); }
     }
 
     return {
@@ -196,28 +234,27 @@ export function createHttpMapsScraper(config: HttpScraperConfig): MapsScraper {
                 for (const body of bodies) {
                     const id = await submitJob(base, body);
                     if (!id) continue;
-                    await opts.heartbeat?.({ stage: 'maps_submitted', backend: config.name, keywords: kw.length });
-
-                    // Poll until ok/completed/failed/timeout. A transient status error doesn't abort —
-                    // we retry until the deadline (the job keeps running server-side regardless).
-                    let polls = 0;
-                    while (true) {
-                        const remaining = deadline - Date.now();
-                        if (remaining <= 0) break;
-                        await sleep(Math.min(pollMs, remaining));
-                        polls++;
-                        const { status, results } = await jobStatus(base, id);
-                        if (status === 'ok' || status === 'completed') {
-                            const businesses = results ?? await downloadResults(base, id, Math.max(0, maxResults - allBusinesses.length));
-                            log.info({ id, polls, businesses: businesses.length }, `${config.name} scrape complete`);
-                            allBusinesses.push(...businesses);
-                            break;
+                    try {
+                        await heartbeat(opts, { stage: 'maps_submitted', backend: config.name, keywords: kw.length });
+                        // Poll until ok/completed/failed/timeout. A transient status error doesn't abort.
+                        let polls = 0;
+                        while (true) {
+                            const remaining = deadline - Date.now();
+                            if (remaining <= 0) break;
+                            await sleep(Math.min(pollMs, remaining));
+                            polls++;
+                            const { status, results } = await jobStatus(base, id);
+                            if (status === 'ok' || status === 'completed') {
+                                const businesses = results ?? await downloadResults(base, id, Math.max(0, maxResults - allBusinesses.length));
+                                log.info({ id, polls, businesses: businesses.length }, `${config.name} scrape complete`);
+                                allBusinesses.push(...businesses);
+                                break;
+                            }
+                            if (status === 'failed') { log.warn({ id, polls }, `${config.name} job failed`); break; }
+                            await heartbeat(opts, { stage: 'maps_polling', backend: config.name, polls, status: status ?? 'unknown' });
                         }
-                        if (status === 'failed') {
-                            log.warn({ id, polls }, `${config.name} job failed`);
-                            break;
-                        }
-                        await opts.heartbeat?.({ stage: 'maps_polling', backend: config.name, polls, status: status ?? 'unknown' });
+                    } finally {
+                        await cleanupJob(base, id);
                     }
                     if (allBusinesses.length >= maxResults || Date.now() >= deadline) break;
                 }
@@ -226,6 +263,7 @@ export function createHttpMapsScraper(config: HttpScraperConfig): MapsScraper {
                 }
                 return allBusinesses.slice(0, maxResults);
             } catch (err) {
+                if (err instanceof MapsHeartbeatError) throw err.cause;
                 log.warn({ err: err instanceof Error ? err.message : String(err) }, `${config.name} scrape failed (non-fatal)`);
                 return [];
             }

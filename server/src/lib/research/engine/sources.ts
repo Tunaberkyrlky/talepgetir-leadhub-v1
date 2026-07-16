@@ -104,6 +104,8 @@ export interface GatherContext {
     tenantId: string;
     projectId: string | null;
     jobId: string;
+    worker: string;
+    lease: string;
 }
 
 export interface GatherResult {
@@ -114,8 +116,8 @@ export interface GatherResult {
     meta?: Record<string, unknown>;
 }
 
-/** A discovery backend. `gather` never throws — runDiscovery/scrape swallow their own errors, so a
- *  dead source yields zero candidates and the harvest stops gracefully. */
+/** A discovery backend. Provider failures degrade to zero candidates, but heartbeat/lease and
+ * fenced-ledger failures deliberately propagate so a zombie worker cannot continue. */
 export interface CandidateSource {
     readonly name: string;
     /** Ledger provenance for companies first written by this source. */
@@ -147,7 +149,7 @@ export const webSearchSource: CandidateSource = {
             ctx.tracker.addSearchCost(d.costUsd);
             await logSearch({
                 engine: d.engine,
-                tenantId: ctx.tenantId, projectId: ctx.projectId, jobId: ctx.jobId, query: spec.query,
+                tenantId: ctx.tenantId, projectId: ctx.projectId, jobId: ctx.jobId, worker: ctx.worker, lease: ctx.lease, query: spec.query,
                 resultCount: d.candidates.length, cacheHit: d.cacheHit, costUsd: d.costUsd,
             });
             let newDomains = 0;
@@ -256,7 +258,7 @@ export const mapsSource: CandidateSource = {
         ctx.tracker.addSearchCost(0);
         await logSearch({
             engine: scraper.name,
-            tenantId: ctx.tenantId, projectId: ctx.projectId, jobId: ctx.jobId,
+            tenantId: ctx.tenantId, projectId: ctx.projectId, jobId: ctx.jobId, worker: ctx.worker, lease: ctx.lease,
             query: `[${scraper.name}] ${countedKeywords.join(' | ')}`,
             resultCount: businesses.length, cacheHit: false, costUsd: 0,
         });
@@ -356,7 +358,7 @@ export function channelListSource(channel: ChannelSourceRow, onOutcome: (o: Chan
                 onOutcome({ status: 'unreachable', error: `fetch failed (status ${page.status})`, membersExtracted: 0, notAList: false });
                 await logSearch({
                     engine: 'channel-list',
-                    tenantId: ctx.tenantId, projectId: ctx.projectId, jobId: ctx.jobId,
+                    tenantId: ctx.tenantId, projectId: ctx.projectId, jobId: ctx.jobId, worker: ctx.worker, lease: ctx.lease,
                     query: `[channel] ${target}`, resultCount: 0, cacheHit: page.cacheHit, costUsd: 0,
                 });
                 return { candidates: [], queriesRun: 1, meta: { channel_id: channel.id, target, fetch_method: page.method, error: 'unreachable' } };
@@ -377,7 +379,7 @@ export function channelListSource(channel: ChannelSourceRow, onOutcome: (o: Chan
             ctx.tracker.addLlmCost(costOfLlm(result));
             await logSearch({
                 engine: 'channel-list',
-                tenantId: ctx.tenantId, projectId: ctx.projectId, jobId: ctx.jobId,
+                tenantId: ctx.tenantId, projectId: ctx.projectId, jobId: ctx.jobId, worker: ctx.worker, lease: ctx.lease,
                 query: `[channel] ${target}`, resultCount: value.members.length, cacheHit: page.cacheHit, costUsd: 0,
             });
 
@@ -456,6 +458,8 @@ export function tradeBatchSource(batchId: string): CandidateSource {
                 tenantId: ctx.tenantId,
                 projectId: ctx.projectId,
                 jobId: ctx.jobId,
+                worker: ctx.worker,
+                lease: ctx.lease,
                 query: `[trade] batch ${batchId}`,
                 resultCount: candidates.length,
                 cacheHit: false,
