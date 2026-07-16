@@ -147,3 +147,13 @@ test('ambiguous purchase requires delayed repeated ownership checks', () => {
     assert.match(scheduler, /cleanup_attempts < 3/);
     assert.match(scheduler, /delayed confirmation required/);
 });
+
+test('explicit number deletion cannot bypass durable reconciliation states', () => {
+    const route = readFileSync(join(process.cwd(), 'server/src/coldcall/routes/numbers.ts'), 'utf8');
+    const deletion = route.slice(route.indexOf("router.delete('/:id'"));
+    assert.match(deletion, /\['active', 'pending_regulatory'\]\.includes\(num\.status\)/);
+    assert.match(deletion, /coldcall_claim_explicit_number_release/);
+    assert.match(deletion, /await providerFor\(settings\)\.releaseNumber/);
+    assert.match(deletion, /coldcall_complete_explicit_number_release/);
+    assert.doesNotMatch(deletion, /\.update\(\{ status: 'released'/);
+});

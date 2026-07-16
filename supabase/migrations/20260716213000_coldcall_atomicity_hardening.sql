@@ -253,6 +253,28 @@ BEGIN
  RETURN FOUND;
 END; $$;
 
+CREATE OR REPLACE FUNCTION coldcall_claim_explicit_number_release(p_tenant_id UUID,p_number_id UUID)
+RETURNS coldcall_phone_numbers LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_num coldcall_phone_numbers;
+BEGIN
+ UPDATE coldcall_phone_numbers SET status='release_pending',cleanup_next_attempt_at=now()+interval '5 minutes',
+   cleanup_last_error='explicit release in progress'
+ WHERE id=p_number_id AND tenant_id=p_tenant_id AND status IN ('active','pending_regulatory')
+ RETURNING * INTO v_num;
+ IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_number_not_releasable'; END IF;
+ RETURN v_num;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_complete_explicit_number_release(p_tenant_id UUID,p_number_id UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ UPDATE coldcall_phone_numbers SET status='released',released_at=now(),cleanup_next_attempt_at=NULL,
+   cleanup_last_error=NULL,cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
+ WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='release_pending'
+   AND cleanup_lease_token IS NULL;
+ RETURN FOUND;
+END; $$;
+
 CREATE OR REPLACE FUNCTION coldcall_mark_number_ambiguous(p_tenant_id UUID,p_number_id UUID,p_error TEXT)
 RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
@@ -398,6 +420,8 @@ REVOKE EXECUTE ON FUNCTION coldcall_reserve_number(UUID,TEXT,TEXT,TEXT,NUMERIC,U
 REVOKE EXECUTE ON FUNCTION coldcall_complete_number(UUID,UUID,TEXT,TEXT,TEXT) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION coldcall_release_number_reservation(UUID,UUID) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION coldcall_mark_number_cleanup(UUID,UUID,TEXT,TEXT) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_claim_explicit_number_release(UUID,UUID) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_complete_explicit_number_release(UUID,UUID) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION coldcall_mark_number_ambiguous(UUID,UUID,TEXT) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION coldcall_claim_number_cleanup(UUID,INTEGER) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION coldcall_finish_number_cleanup(UUID,UUID,BOOLEAN,TEXT) FROM PUBLIC,anon,authenticated;
@@ -418,6 +442,8 @@ GRANT EXECUTE ON FUNCTION coldcall_reserve_number(UUID,TEXT,TEXT,TEXT,NUMERIC,UU
 GRANT EXECUTE ON FUNCTION coldcall_complete_number(UUID,UUID,TEXT,TEXT,TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_release_number_reservation(UUID,UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_mark_number_cleanup(UUID,UUID,TEXT,TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_claim_explicit_number_release(UUID,UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_complete_explicit_number_release(UUID,UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_mark_number_ambiguous(UUID,UUID,TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_claim_number_cleanup(UUID,INTEGER) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_finish_number_cleanup(UUID,UUID,BOOLEAN,TEXT) TO service_role;

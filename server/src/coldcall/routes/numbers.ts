@@ -264,15 +264,32 @@ router.delete('/:id', requireBuyer, async (req: Request, res: Response, next: Ne
             res.status(404).json({ error: 'Numara bulunamadı' });
             return;
         }
+        if (!['active', 'pending_regulatory'].includes(num.status)) {
+            throw new AppError('Bu numara için satın alma/uzlaştırma işlemi devam ediyor', 409);
+        }
 
         const settings = await getSettings(tenantId);
-        if (num.provider_sid) {
-            await providerFor(settings).releaseNumber(settings, num.provider_sid);
+        const { data: claimed, error: claimError } = await supabaseAdmin.rpc('coldcall_claim_explicit_number_release', {
+            p_tenant_id: tenantId, p_number_id: num.id,
+        });
+        if (claimError || !claimed) {
+            throw new AppError('Numara iade için kilitlenemedi; işlem durumu değişmiş olabilir', 409);
         }
-        await supabaseAdmin
-            .from('coldcall_phone_numbers')
-            .update({ status: 'released', released_at: new Date().toISOString() })
-            .eq('id', num.id);
+        if (num.provider_sid) {
+            try {
+                await providerFor(settings).releaseNumber(settings, num.provider_sid);
+            } catch (releaseError) {
+                log.error({ err: releaseError, numberId: num.id }, 'explicit provider release failed; queued for reconciliation');
+                throw new AppError('Sağlayıcı iadesi başarısız; otomatik uzlaştırma bekleniyor', 502);
+            }
+        }
+        const { data: completed, error: completeError } = await supabaseAdmin.rpc('coldcall_complete_explicit_number_release', {
+            p_tenant_id: tenantId, p_number_id: num.id,
+        });
+        if (completeError || !completed) {
+            log.error({ err: completeError, numberId: num.id }, 'provider released but DB completion deferred to scheduler');
+            throw new AppError('İade tamamlandı ancak kayıt uzlaştırması bekleniyor', 500);
+        }
         if (settings.default_phone_number_id === num.id) {
             await supabaseAdmin
                 .from('coldcall_settings')
