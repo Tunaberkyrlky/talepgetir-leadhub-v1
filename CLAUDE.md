@@ -18,6 +18,21 @@ TG-Core ve TG-Research iki ayrı ürün yaşam döngüsüdür. Bunları tek bir 
 - **Veritabanı ve deploy sınırlarını koru.** TG-Core production ile TG-Research test/staging ayrı migration geçmişleri, veritabanları ve Railway hedefleri olarak ele alınır. Migration dosyalarını veya deploy config'lerini ürünler arasında körlemesine kopyalama.
 - **Mevcut dependency remediation TG-Research kapsamındadır.** `chore/dependency-remediation` doğrudan TG-Core `main` branch'ine merge edilmemeli; yalnız TG-Research staging/ürün hattında kullanılmalıdır.
 
+## Worktree and Agent Coordination (Mandatory)
+
+TG-Research'te paralel geliştirme yapılabilir, ancak aynı worktree birden fazla yazıcı agent tarafından paylaşılmaz.
+
+- **Bir worktree = bir feature branch = bir yazıcı agent.** Başka agentlar aynı worktree'de yalnız read-only review yapabilir. Birden fazla yazıcı gerekiyorsa her biri ayrı worktree ve branch alır.
+- **Kanonik ürün hattına doğrudan feature geliştirme yapılmaz.** `ssalihyetim/TG-Research` yalnız coordinator tarafından doğrulanmış commitlerin toplandığı TG-Research trunk'ıdır. Feature branch'leri bu hattın son onaylı SHA'sından açılır.
+- **Göreve başlarken kimlik kontrolü zorunludur.** Agent ilk olarak `pwd`, `git branch --show-current`, `git status --short` ve `git rev-parse --short HEAD` çıktısını kontrol eder. Beklenmeyen değişiklik varsa edit yapmadan durur ve coordinator'a bildirir.
+- **Atanmamış dosyaya dokunma.** Agent yalnız görev brief'inde sahipliği verilen dosyaları değiştirir. `client/src/locales/*.json`, `server/src/lib/validation.ts`, package/lock dosyaları, migration dizini ve deploy config'leri paylaşımlı sıcak alanlardır; aynı anda yalnız bir görev bunların sahibi olabilir.
+- **Agent entegrasyon veya deploy yapmaz.** Açıkça coordinator rolü verilmedikçe merge, rebase, cherry-pick, branch checkout, version bump, migration apply, Railway/Supabase değişikliği ve deploy yapma. Kendi branch'inde atomik commit üretip commit SHA, değişen dosyalar ve doğrulama sonuçlarını bildir.
+- **Kirli worktree'yi toplu commit etme.** Başka görevlere ait değişiklikler görünüyorsa bunları stage etme, stash etme, silme veya düzeltme. Coordinator dosya/hunk sahipliğini ayırmadan commit oluşturma.
+- **Tek entegrasyon ve deploy sahibi vardır.** Coordinator feature commitlerini kanonik entegrasyon worktree'sine tek tek alır, her adımda build/test çalıştırır ve yalnız TG-Research staging'e deploy eder.
+- **TG-Core main portları ayrı sync branch'inde yapılır.** `sync/tg-core-main-YYYYMMDD-*` branch'i kullanılır; toplu merge/rebase yapılmaz. Seçilen commit davranışı TG-Research bağlamına adapte edilip ayrı commit edilir.
+
+Güncel kurtarma durumu ve uygulanacak akış için `plans/TG_RESEARCH_WORKTREE_PLAYBOOK.md` dosyasını takip et.
+
 ## Commands
 
 ```bash
