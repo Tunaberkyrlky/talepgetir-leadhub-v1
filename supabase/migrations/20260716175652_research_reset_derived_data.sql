@@ -1,4 +1,4 @@
--- 149_research_reset_derived_data.sql
+-- Ledger-aligned version: applied to TG-Research test as 20260716175652.
 --
 -- Central subject-change invalidation for the research wizard.
 --

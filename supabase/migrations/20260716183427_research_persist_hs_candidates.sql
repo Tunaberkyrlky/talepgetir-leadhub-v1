@@ -1,4 +1,4 @@
--- 151_research_persist_hs_candidates.sql
+-- Ledger-aligned version: applied to TG-Research test as 20260716183427.
 --
 -- Atomic, job-fenced persistence for hs:match candidates — brings hs:match up to the same
 -- subject-change safety the ICP/geo persist RPCs already have.

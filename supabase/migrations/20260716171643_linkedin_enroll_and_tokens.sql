@@ -1,5 +1,5 @@
 -- ==========================================
--- 147_linkedin_enroll_and_tokens.sql
+-- Ledger-aligned version: applied to TG-Research test as 20260716171643.
 -- TG-LinkedIn — refine the one-active-campaign enroll gate (fix 'in_another_campaign' false block).
 --
 -- BUG (user-reported): a lead could not be added to a NEW campaign because it still sat in a

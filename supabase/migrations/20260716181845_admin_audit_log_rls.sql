@@ -1,4 +1,4 @@
--- 150_admin_audit_log_rls.sql
+-- Ledger-aligned version: applied to TG-Research test as 20260716181845.
 --
 -- admin_audit_log is written only by trusted server code through the service-role
 -- client. Keep the table private from PostgREST client roles and append-only for
