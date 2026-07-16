@@ -113,7 +113,6 @@ interface Company {
     industry: string | null;
     employee_size: string | null;
     product_services: string[] | null;
-    product_portfolio: string[] | null;
     linkedin: string | null;
     company_phone: string | null;
     company_email: string | null;
@@ -215,7 +214,7 @@ type SortKey = 'name' | 'stage' | 'industry' | 'location' | 'updated_at' | 'crea
 // All available column keys
 type ColumnKey =
     | 'name' | 'website' | 'stage' | 'industry' | 'location'
-    | 'employee_size' | 'product_services' | 'product_portfolio'
+    | 'employee_size' | 'product_services'
     | 'linkedin' | 'company_phone' | 'company_email' | 'company_summary'
     | 'next_step' | 'assigned_to' | 'contact_count'
     | 'fit_score' | 'custom_field_1' | 'custom_field_2' | 'custom_field_3'
@@ -264,7 +263,6 @@ const DEFAULT_COLUMNS: ColumnDef[] = [
     { key: 'website', visible: false },
     { key: 'employee_size', visible: false },
     { key: 'product_services', visible: false },
-    { key: 'product_portfolio', visible: false },
     { key: 'linkedin', visible: false },
     { key: 'company_phone', visible: false },
     { key: 'company_email', visible: false },
@@ -709,7 +707,6 @@ export default function LeadsPage() {
         location: t('company.location'),
         employee_size: t('company.employeeSize'),
         product_services: t('company.productServices'),
-        product_portfolio: t('company.productPortfolio'),
         linkedin: t('company.linkedin'),
         company_phone: t('company.companyPhone'),
         company_email: t('company.companyEmail'),
@@ -1257,7 +1254,6 @@ export default function LeadsPage() {
             case 'location': return company.location ?? '';
             case 'employee_size': return company.employee_size ?? '';
             case 'product_services': return (company.product_services ?? []).join('; ');
-            case 'product_portfolio': return (company.product_portfolio ?? []).join('; ');
             case 'linkedin': return company.linkedin ?? '';
             case 'company_phone': return company.company_phone ?? '';
             case 'company_email': return company.company_email ?? '';
@@ -1521,12 +1517,6 @@ export default function LeadsPage() {
                 return (
                     <Table.Td key="product_services">
                         <TruncatedText size="sm">{company.product_services?.join(', ')}</TruncatedText>
-                    </Table.Td>
-                );
-            case 'product_portfolio':
-                return (
-                    <Table.Td key="product_portfolio">
-                        <TruncatedText size="sm">{company.product_portfolio?.join(', ')}</TruncatedText>
                     </Table.Td>
                 );
             case 'linkedin':

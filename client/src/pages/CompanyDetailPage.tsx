@@ -117,7 +117,6 @@ interface Company {
     industry: string | null;
     employee_size: string | null;
     product_services: string[] | null;
-    product_portfolio: string[] | null;
     linkedin: string | null;
     company_phone: string | null;
     company_email: string | null;
@@ -148,7 +147,6 @@ interface Company {
 const DETAIL_FIELDS = [
     { key: 'company_summary',   labelKey: 'company.companySummary' as const },
     { key: 'product_services',  labelKey: 'company.productServices' as const },
-    { key: 'product_portfolio', labelKey: 'company.productPortfolio' as const },
     { key: 'next_step',         labelKey: 'company.nextStep' as const },
     { key: 'fit_score',         labelKey: 'company.fitScore' as const },
     { key: 'custom_field_1',    labelKey: null },
@@ -950,16 +948,6 @@ export default function CompanyDetailPage() {
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.productServices')}</Text>
                             <Group gap={4} mt={4}>
                                 {company.product_services.map((p) => (
-                                    <Badge key={p} variant="light" radius="sm" tt="none">{p}</Badge>
-                                ))}
-                            </Group>
-                        </Box>
-                    ) : null}
-                    {!hiddenFields.has('product_portfolio') && company.product_portfolio?.length ? (
-                        <Box>
-                            <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.productPortfolio')}</Text>
-                            <Group gap={4} mt={4}>
-                                {company.product_portfolio.map((p) => (
                                     <Badge key={p} variant="light" radius="sm" tt="none">{p}</Badge>
                                 ))}
                             </Group>

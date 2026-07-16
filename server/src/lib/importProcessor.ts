@@ -398,7 +398,6 @@ async function _executeImportInner(
             industry: (() => { const v = getValue(row, 'companies.industry'); return v ? v.charAt(0).toUpperCase() + v.slice(1) : null; })(),
             employee_size: getValue(row, 'companies.employee_size') || null,
             product_services: parseList(getValue(row, 'companies.product_services')),
-            product_portfolio: parseList(getValue(row, 'companies.product_portfolio')),
             linkedin: getValue(row, 'companies.linkedin') || null,
             company_phone: getValue(row, 'companies.company_phone') || null,
             company_email: getValue(row, 'companies.company_email') || null,

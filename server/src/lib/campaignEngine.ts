@@ -52,10 +52,10 @@ interface TemplateCtx {
 
 const TEMPLATE_KEYS = ['first_name', 'last_name', 'email', 'title', 'company_name', 'website', 'industry'] as const;
 
-async function resolveTemplate(contactId: string, companyId: string): Promise<TemplateCtx> {
+async function resolveTemplate(tenantId: string, contactId: string, companyId: string): Promise<TemplateCtx> {
     const [cRes, coRes] = await Promise.all([
-        supabaseAdmin.from('contacts').select('first_name, last_name, email, title').eq('id', contactId).single(),
-        supabaseAdmin.from('companies').select('name, website, industry').eq('id', companyId).single(),
+        supabaseAdmin.from('contacts').select('first_name, last_name, email, title').eq('id', contactId).eq('tenant_id', tenantId).single(),
+        supabaseAdmin.from('companies').select('name, website, industry').eq('id', companyId).eq('tenant_id', tenantId).single(),
     ]);
     const c = cRes.data;
     const co = coRes.data;
@@ -407,8 +407,8 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 // inactive path) and skip — logged, never thrown. Unarchiving + re-activating
                 // the campaign resumes it.
                 const [archCt, archCo] = await Promise.all([
-                    supabaseAdmin.from('contacts').select('archived_at').eq('id', enrollment.contact_id).single(),
-                    supabaseAdmin.from('companies').select('archived_at').eq('id', enrollment.company_id).single(),
+                    supabaseAdmin.from('contacts').select('archived_at').eq('id', enrollment.contact_id).eq('tenant_id', enrollment.tenant_id).single(),
+                    supabaseAdmin.from('companies').select('archived_at').eq('id', enrollment.company_id).eq('tenant_id', enrollment.tenant_id).single(),
                 ]);
                 if (archCt.data?.archived_at || archCo.data?.archived_at) {
                     log.info(
@@ -468,7 +468,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 }
 
                 // Resolve spintax (gönderim başına rastgele) → sonra değişkenler.
-                const ctx = await resolveTemplate(enrollment.contact_id, enrollment.company_id);
+                const ctx = await resolveTemplate(enrollment.tenant_id, enrollment.contact_id, enrollment.company_id);
                 const subject = applyTemplate(applySpintax(currentStep.subject || ''), ctx);
                 let bodyHtml = applyTemplate(applySpintax(currentStep.body_html || ''), ctx);
 
@@ -635,11 +635,12 @@ export async function resumePausedEnrollments(campaignId: string, tenantId: stri
 }
 
 // Tek bir kaydı duraklat (yalnız 'active' iken). Sıradaki gönderim iptal olur.
-export async function pauseEnrollment(enrollmentId: string, tenantId: string): Promise<boolean> {
+export async function pauseEnrollment(campaignId: string, enrollmentId: string, tenantId: string): Promise<boolean> {
     const { data } = await supabaseAdmin
         .from('campaign_enrollments')
         .update({ status: 'paused', next_scheduled_at: null })
         .eq('id', enrollmentId)
+        .eq('campaign_id', campaignId)
         .eq('tenant_id', tenantId)
         .eq('status', 'active')
         .select('id');
@@ -648,12 +649,13 @@ export async function pauseEnrollment(enrollmentId: string, tenantId: string): P
 
 // Tek bir kaydı sürdür (yalnız 'paused' iken). Kaldığı adımdan, gönderim
 // penceresine göre yeniden zamanlanır.
-export async function resumeEnrollment(enrollmentId: string, tenantId: string, settings: any): Promise<boolean> {
+export async function resumeEnrollment(campaignId: string, enrollmentId: string, tenantId: string, settings: any): Promise<boolean> {
     const resumeAt = new Date(scheduleMs(Date.now(), settings)).toISOString();
     const { data } = await supabaseAdmin
         .from('campaign_enrollments')
         .update({ status: 'active', next_scheduled_at: resumeAt })
         .eq('id', enrollmentId)
+        .eq('campaign_id', campaignId)
         .eq('tenant_id', tenantId)
         .eq('status', 'paused')
         .select('id');
@@ -676,7 +678,7 @@ export async function cancelEnrollmentOnReply(senderEmail: string, tenantId: str
     const { data: cancelled } = await supabaseAdmin
         .from('campaign_enrollments')
         .update({ status: 'replied', next_scheduled_at: null })
-        .eq('status', 'active')
+        .in('status', ['active', 'paused'])
         .eq('tenant_id', tenantId)
         .in('contact_id', contactIds)
         .select('id, campaign_id');

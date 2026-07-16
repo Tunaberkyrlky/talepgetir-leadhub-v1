@@ -38,7 +38,7 @@ const COMPANY_FIELDS = [
     'name', 'website', 'company_phone', 'company_email', 'email_status',
     'location', 'industry', 'employee_size', 'linkedin', 'fit_score',
     'next_step', 'company_summary', 'internal_notes',
-    'product_services', 'product_portfolio',
+    'product_services',
 ] as const;
 
 const CONTACT_FIELDS = [

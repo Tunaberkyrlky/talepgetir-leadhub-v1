@@ -131,7 +131,6 @@ export const createCompanySchema = z.object({
     // Stored as text[]. Accept a list from the UI, or a raw string (legacy / API)
     // that the route normalizes via parseList() into a clean array.
     product_services: z.union([z.array(z.string().max(500)).max(100), z.string().max(5000)]).optional().nullable(),
-    product_portfolio: z.union([z.array(z.string().max(500)).max(100), z.string().max(5000)]).optional().nullable(),
     fit_score: z.string().max(50).optional().nullable(),
     custom_field_1: z.string().max(2000).optional().nullable(),
     custom_field_2: z.string().max(2000).optional().nullable(),
@@ -554,8 +553,8 @@ export const updateCampaignSchema = z.object({
 const emailStepSchema = z.object({
     step_type: z.literal('email'),
     // Boş bırakılabilir (yarım dizi kaydetme serbest); adım kartında uyarı gösterilir.
-    subject: z.string().max(500),
-    body_html: z.string().max(50000),
+    subject: z.string().max(500).nullable(),
+    body_html: z.string().max(50000).nullable(),
     body_text: z.string().max(50000).nullish(),
 }).passthrough(); // allow extra fields (delay_days etc.) from client's unified Step type
 

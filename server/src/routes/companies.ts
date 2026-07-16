@@ -18,7 +18,7 @@ import posthog from '../lib/posthog.js';
 
 const log = createLogger('route:companies');
 
-// product_services / product_portfolio are now text[] lists (product categories) —
+// product_services is a text[] list (product categories) —
 // excluded from translation (the values are short keywords that don't need DeepL).
 const COMPANY_TRANSLATE_FIELDS = ['company_summary', 'next_step', 'industry'] as const;
 
@@ -356,7 +356,10 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             // single call covers both filters.
             let ownerFilterDropped = false;
             let usedArchiveRpc = true;
-            let { data: rows, error: rpcErr } = await db.rpc('search_companies_archive', {
+            // These RPCs are SECURITY DEFINER and accept p_tenant_id, so they must
+            // never be callable with the end user's Supabase token. The HTTP auth
+            // layer has already resolved tenantId; execute only through service_role.
+            let { data: rows, error: rpcErr } = await supabaseAdmin.rpc('search_companies_archive', {
                 ...baseParams,
                 ...ownerParams,
                 p_archived_only: archivedOnly,
@@ -368,14 +371,14 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             if (rpcErr && isMissingFunctionError(rpcErr)) {
                 log.warn({ err: rpcErr }, 'search_companies_archive missing (migration 137 pending); falling back to search_companies + in-page archive filter');
                 usedArchiveRpc = false;
-                ({ data: rows, error: rpcErr } = await db.rpc('search_companies', { ...baseParams, ...ownerParams }));
+                ({ data: rows, error: rpcErr } = await supabaseAdmin.rpc('search_companies', { ...baseParams, ...ownerParams }));
 
                 // Pre-118 DB: the owner-param overload doesn't exist either, so retry owner-less
                 // so search still returns (owner filter temporarily no-ops, surfaced via
                 // owner_filter_dropped). Any OTHER error falls through to the 500 below.
                 if (rpcErr && ownerFilter && isMissingFunctionError(rpcErr)) {
                     log.warn({ err: rpcErr }, 'search_companies owner params rejected (missing function/signature); retrying owner-less (migration 118 pending)');
-                    ({ data: rows, error: rpcErr } = await db.rpc('search_companies', baseParams));
+                    ({ data: rows, error: rpcErr } = await supabaseAdmin.rpc('search_companies', baseParams));
                     ownerFilterDropped = true;
                 }
             }
@@ -470,7 +473,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
 
         let dataQuery = db
             .from('companies')
-            .select('id, name, website, location, latitude, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, lead_source, priority, qualification_status, fit_score_num, competitor_notes, objection_notes, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at, archived_at, archived_by')
+            .select('id, name, website, location, latitude, industry, employee_size, product_services, linkedin, company_phone, company_email, email_status, stage, company_summary, next_step, assigned_to, fit_score, lead_source, priority, qualification_status, fit_score_num, competitor_notes, objection_notes, custom_field_1, custom_field_2, custom_field_3, contact_count, created_at, updated_at, archived_at, archived_by')
             .eq('tenant_id', tenantId);
 
         // Archive filter: default hides archived rows; ?archived=only shows only them.
@@ -1102,7 +1105,7 @@ router.post(
         try {
             const tenantId = req.tenantId!;
             const {
-                name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone,
+                name, website, location, industry, employee_size, product_services, linkedin, company_phone,
                 company_email: rawCompanyEmail, email_status,
                 stage, company_summary, internal_notes, next_step, custom_fields,
                 fit_score, custom_field_1, custom_field_2, custom_field_3, assigned_to,
@@ -1172,7 +1175,6 @@ router.post(
                 industry: industry ? industry.charAt(0).toUpperCase() + industry.slice(1) : null,
                 employee_size: employee_size || null,
                 product_services: parseList(product_services),
-                product_portfolio: parseList(product_portfolio),
                 linkedin: linkedin || null,
                 company_phone: company_phone || null,
                 company_email: company_email || null,
@@ -1287,7 +1289,7 @@ router.put(
                 return;
             }
 
-            const { name, website, location, industry, employee_size, product_services, product_portfolio, linkedin, company_phone, company_email: rawCompanyEmail, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3, assigned_to, reopen_reason, lead_source, priority, qualification_status, fit_score_num, competitor_notes, objection_notes } = req.body;
+            const { name, website, location, industry, employee_size, product_services, linkedin, company_phone, company_email: rawCompanyEmail, email_status, stage, company_summary, internal_notes, next_step, custom_fields, fit_score, custom_field_1, custom_field_2, custom_field_3, assigned_to, reopen_reason, lead_source, priority, qualification_status, fit_score_num, competitor_notes, objection_notes } = req.body;
 
             const company_email = sanitizeEmail(rawCompanyEmail);
 
@@ -1333,7 +1335,6 @@ router.put(
             if (industry !== undefined) updateData.industry = industry ? industry.charAt(0).toUpperCase() + industry.slice(1) : industry;
             if (employee_size !== undefined) updateData.employee_size = employee_size;
             if (product_services !== undefined) updateData.product_services = parseList(product_services);
-            if (product_portfolio !== undefined) updateData.product_portfolio = parseList(product_portfolio);
             if (linkedin !== undefined) updateData.linkedin = linkedin;
             if (company_phone !== undefined) updateData.company_phone = company_phone;
             if (company_email !== undefined) updateData.company_email = company_email;

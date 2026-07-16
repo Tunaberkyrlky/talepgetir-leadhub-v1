@@ -1,6 +1,6 @@
 /**
  * Split a delimited string (or normalize an existing array) into a clean list.
- * Used for the `companies.product_services` / `product_portfolio` columns, which
+ * Used for the `companies.product_services` column, which
  * are stored as text[]. Inbound data arrives as a single string with mixed
  * separators, e.g. "Body; face; perfumery" or "Skincare, haircare, makeup".
  *

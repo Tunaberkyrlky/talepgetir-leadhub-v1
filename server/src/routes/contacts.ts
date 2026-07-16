@@ -186,14 +186,17 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             // into the WHERE before pagination, so pages/totals are archive-correct (incl.
             // ?archived=only). Falls back to search_contacts + in-page filter if missing.
             let usedArchiveRpc = true;
-            let { data: rows, error: rpcErr } = await db.rpc('search_contacts_archive', {
+            // These RPCs are SECURITY DEFINER and accept p_tenant_id, so they must
+            // never be callable with the end user's Supabase token. The HTTP auth
+            // layer has already resolved tenantId; execute only through service_role.
+            let { data: rows, error: rpcErr } = await supabaseAdmin.rpc('search_contacts_archive', {
                 ...searchParams,
                 p_archived_only: archivedOnly,
             });
             if (rpcErr && isMissingFunctionError(rpcErr)) {
                 log.warn({ err: rpcErr }, 'search_contacts_archive missing (migration 137 pending); falling back to search_contacts + in-page archive filter');
                 usedArchiveRpc = false;
-                ({ data: rows, error: rpcErr } = await db.rpc('search_contacts', searchParams));
+                ({ data: rows, error: rpcErr } = await supabaseAdmin.rpc('search_contacts', searchParams));
             }
 
             if (rpcErr) {
