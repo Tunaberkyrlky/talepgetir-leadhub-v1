@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install (workspaces)
+        run: npm ci
+
+      # ── Blocking gates ──────────────────────────────────────────────
+      - name: Typecheck (server + client)
+        run: npm run typecheck
+
+      - name: Test (server)
+        run: npm test
+
+      # ── Informational (non-blocking) ────────────────────────────────
+      # Lint is NOT a gate yet: the client has ~78 pre-existing violations
+      # (mostly no-explicit-any + react-hooks) to be cleared per-subsystem
+      # during the V2 tour. Run it so the count is visible, but don't fail.
+      - name: Lint (client, informational)
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Dependency audit (informational)
+        run: npm audit --audit-level=high
+        continue-on-error: true
