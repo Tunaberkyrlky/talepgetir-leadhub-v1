@@ -54,12 +54,19 @@ test('scraper deletes submitted job after success', async () => {
     } finally { globalThis.fetch = original; }
 });
 
-test('forward SQL keeps billed snapshots immutable and fences search logging', () => {
+test('forward SQL keeps billed snapshots immutable and fences/idempotently logs search', () => {
     const sql = readFileSync('supabase/migrations/20260716220000_research_verdict_provenance_and_fenced_search.sql', 'utf8');
     assert.match(sql, /p_evidence_source TEXT DEFAULT NULL[\s\S]+p_evidence_observed_at TIMESTAMPTZ DEFAULT NULL/);
     assert.match(sql, /RETURN v_existing; -- billed verdict and its evidence snapshot are immutable/);
     assert.match(sql, /research_log_search_fenced[\s\S]+status = 'running' AND locked_by = p_worker AND lease = p_lease/);
+    assert.match(sql, /WHERE NOT EXISTS \([\s\S]+tenant_id = p_tenant AND job_id = p_job_id[\s\S]+engine = p_engine AND query_hash = p_query_hash/);
     assert.match(sql, /REVOKE ALL ON FUNCTION research_persist_verdict[\s\S]+GRANT EXECUTE[\s\S]+TO service_role/);
+});
+
+test('Maps migration filename/header match the applied migration ledger', () => {
+    const sql = readFileSync('supabase/migrations/20260716173921_research_company_maps_metadata.sql', 'utf8');
+    assert.match(sql, /structured Maps metadata \[20260716173921\]/);
+    assert.throws(() => readFileSync('supabase/migrations/148_research_company_maps_metadata.sql', 'utf8'));
 });
 
 test('response cap fails closed and heartbeat lease errors propagate after cleanup', async () => {

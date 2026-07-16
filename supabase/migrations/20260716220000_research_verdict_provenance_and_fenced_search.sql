@@ -119,8 +119,13 @@ BEGIN
   END IF;
   INSERT INTO research_search_log
     (tenant_id, project_id, job_id, engine, query, query_hash, result_count, cache_hit, cost_usd)
-  VALUES
-    (p_tenant, p_project_id, p_job_id, p_engine, p_query, p_query_hash, p_result_count, p_cache_hit, p_cost_usd);
+  SELECT
+    p_tenant, p_project_id, p_job_id, p_engine, p_query, p_query_hash, p_result_count, p_cache_hit, p_cost_usd
+  WHERE NOT EXISTS (
+    SELECT 1 FROM research_search_log
+    WHERE tenant_id = p_tenant AND job_id = p_job_id
+      AND engine = p_engine AND query_hash = p_query_hash
+  );
 END;
 $$;
 REVOKE ALL ON FUNCTION research_log_search_fenced(UUID, UUID, UUID, TEXT, UUID, TEXT, TEXT, TEXT, INTEGER, BOOLEAN, NUMERIC) FROM PUBLIC, anon, authenticated, service_role;

@@ -1,5 +1,5 @@
 -- ==========================================
--- TG-Research — structured Maps metadata [148]
+-- TG-Research — structured Maps metadata [20260716173921]
 --
 -- Preserve Google Maps / directory descriptions and categories on the permanent company ledger.
 -- The fenced upsert remains the only writer; trailing DEFAULT NULL parameters keep older workers
