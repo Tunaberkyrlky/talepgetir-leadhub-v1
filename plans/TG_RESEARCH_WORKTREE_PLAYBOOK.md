@@ -76,8 +76,25 @@ Supabase migration kimliği dosya adının başındaki sürümdür. Yeni migrati
 | `20260716175652` | `research_reset_derived_data` | Uygulanmış; hizalı |
 | `20260716181845` | `admin_audit_log_rls` | Uygulanmış; hizalı |
 | `20260716183427` | `research_persist_hs_candidates` | Uygulanmış; hizalı |
+| `20260716210000` | `revoke_research_search_rpc_execute` | Uygulanmış; dört tenant-scoped search RPC yalnız `service_role` tarafından çalıştırılabilir |
+| `20260716211000` | `unify_company_product_fields` | Uygulanmış; `product_portfolio` kaldırıldı ve `product_services`/`merge_companies` sözleşmesi doğrulandı |
+| `20260716213000` | `coldcall_atomicity_hardening` | Uygulanmış; RPC, queue, lease, snapshot ve kritik index sözleşmeleri doğrulandı |
+| `20260716220000` | `research_verdict_provenance_and_fenced_search` | Uygulanmış; provenance, fenced persist RPC ve benzersiz search-log anahtarı doğrulandı |
+| `20260716230000` | `daily_digest` | Uygulanmış; log tablosu, RLS, benzersizlik ve aktivite indexi doğrulandı |
 
-İleri migration kuyruğu entegrasyon HEAD'inden, dosya adı sırasıyla uygulanır. Apply öncesi ledger tekrar okunur; uygulanmış migration yeniden çalıştırılmaz. Apply sonrası sürüm kaydı, fonksiyon imzası, RLS/ACL ve kritik kolon/index sözleşmeleri katalogdan doğrulanır.
+2026-07-16 apply turunda son beş migration ayrı transaction'larda ve absent-version guard ile yalnız TG-Research test projesine uygulandı. Ledger'daki `statements` içeriklerinin normalize hash'leri temiz konsolidasyon dosyalarıyla eşleştirildi. Bu sürümler artık uygulanmış kabul edilir ve yeniden çalıştırılmaz. Yeni ileri migration'lar entegrasyon HEAD'inden dosya adı sırasıyla uygulanır; apply öncesi ledger tekrar okunur, apply sonrası sürüm kaydı, fonksiyon imzası, RLS/ACL ve kritik kolon/index sözleşmeleri katalogdan doğrulanır.
+
+## Son birleşik doğrulama
+
+2026-07-16 temiz konsolidasyon HEAD'i üzerinde aşağıdaki release kontrolleri geçti:
+
+- Tam server ve client production build.
+- Maps hardening testleri: 6/6.
+- Cold Call güvenlik ve idempotency testleri: 21/21.
+- Cold Call hedefli ESLint.
+- `npm audit` ve `npm audit --omit=dev`: 0 açık.
+- Manifest/lockfile dry-run ve tam dependency tree kontrolü.
+- Migration adı/sırası, `git diff --check` ve eklenen diff için güçlü secret imzası taraması.
 
 ## Deploy sınırı
 
@@ -87,6 +104,8 @@ Supabase migration kimliği dosya adının başındaki sürümdür. Yeni migrati
 - Health: `https://tg-core-staging-production.up.railway.app/api/health`
 
 Üç servis aynı kesin Git SHA'sından deploy edilir. Proje, environment ve service kimliği birlikte doğrulanmadan deploy başlatılmaz. Worker worktree'sinden veya kirli recovery vault'tan deploy yapılmaz.
+
+Cold Call teklif imzalama için `tg-core-staging` servisinde en az 32 karakterlik `COLDCALL_OFFER_SECRET` bulunmalıdır. Daily Digest migration'ı uygulanmış olsa da scheduler varsayılan olarak kapalı kalır; yalnız geçerli `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `ENABLE_DAILY_DIGEST_SCHEDULER=true` ve tenant düzeyinde `daily_digest_enabled` birlikte hazırlandığında açılır.
 
 ## Acil durdurma koşulları
 
