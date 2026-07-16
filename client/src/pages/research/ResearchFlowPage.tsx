@@ -2372,7 +2372,14 @@ export default function ResearchFlowPage() {
                 onBack={() => setStep(3)}
                 primaryLabel={t('research.wizard.next', 'Next')}
                 primaryLoading={saveStepMut.isPending}
-                onPrimary={() => saveStepMut.mutate({ patch: { products: productsInput }, nextStep: 5, gate: 'step4' })}
+                onPrimary={() => {
+                    // A products edit makes any prior HS match stale — the server (projects.ts PATCH)
+                    // clears the old codes on this save. Also clear the local zero-candidate
+                    // suppression flag so a project that previously matched zero HS candidates
+                    // re-runs step 22 against its new products instead of staying skipped.
+                    if (hsMatchZeroKey) localStorage.removeItem(hsMatchZeroKey);
+                    saveStepMut.mutate({ patch: { products: productsInput }, nextStep: 5, gate: 'step4' });
+                }}
             >
                 <TagsInput
                     label={t('research.wizard.step4.products', 'Products / services')}
