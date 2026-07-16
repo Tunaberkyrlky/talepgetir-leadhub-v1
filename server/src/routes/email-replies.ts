@@ -24,6 +24,7 @@ import { buildAttachmentCardsHtml, plainTextToParagraphs } from '../lib/emailHtm
 import { injectTracking, isTrackingConfigured } from '../lib/mailTracking.js';
 import { sendMail, willSupportAttachments } from '../lib/mail/router.js';
 import { resolveThreadMailbox } from '../lib/mail/resolveThreadMailbox.js';
+import { useThreadV2 } from '../lib/mail/threadReadFlag.js';
 import { resolveLiveSenderMailbox } from '../lib/plusvibeSenderMailbox.js';
 import { getConnectionByEmail, getDefaultConnection } from '../lib/emailConnections.js';
 import type { CanonicalAttachment, CanonicalSendRequest, MailChannel, MailProviderName, SendResult } from '../lib/mail/types.js';
@@ -232,9 +233,12 @@ router.get(
                 p_awaiting: isAwaiting,
             };
 
+            // Faz 4 rollout: per-tenant flag picks the unified thread model (v2) vs
+            // legacy (sender_email, campaign_id) grouping. Same param + return shape.
+            const v2 = useThreadV2(tenantId);
             const [{ data: rows, error }, { data: countData, error: countError }] = await Promise.all([
-                supabaseAdmin.rpc('get_email_reply_threads', rpcParams),
-                supabaseAdmin.rpc('count_email_reply_threads', {
+                supabaseAdmin.rpc(v2 ? 'get_threads_v2' : 'get_email_reply_threads', rpcParams),
+                supabaseAdmin.rpc(v2 ? 'count_threads_v2' : 'count_email_reply_threads', {
                     p_tenant_id: tenantId,
                     p_campaign_id: campaign_id || null,
                     p_match_status: match_status || null,
@@ -338,15 +342,30 @@ router.get(
             const { sender_email, campaign_id, exclude_id } = queryResult.data;
             const tenantId = req.tenantId!;
 
+            // Faz 4: for v2 tenants show the whole UNIFIED thread (by thread_id resolved
+            // from the representative row), so a merged thread reveals every message.
+            // Fall back to the legacy (sender_email, campaign_id) grouping otherwise.
+            let threadId: string | null = null;
+            if (useThreadV2(tenantId) && exclude_id) {
+                const { data: rep } = await supabaseAdmin
+                    .from('email_replies').select('thread_id')
+                    .eq('tenant_id', tenantId).eq('id', exclude_id).single();
+                threadId = (rep?.thread_id as string | null) ?? null;
+            }
+
             let query = supabaseAdmin
                 .from('email_replies')
                 .select('id, sender_email, reply_body, replied_at, read_status, campaign_id, direction, raw_payload, account_email, from_address, to_address, cc_address, provider')
                 .eq('tenant_id', tenantId)
-                .eq('sender_email', sender_email)
                 .order('replied_at', { ascending: false })
                 .limit(50);
 
-            if (campaign_id) query = query.eq('campaign_id', campaign_id);
+            if (threadId) {
+                query = query.eq('thread_id', threadId);
+            } else {
+                query = query.eq('sender_email', sender_email);
+                if (campaign_id) query = query.eq('campaign_id', campaign_id);
+            }
             if (exclude_id) query = query.neq('id', exclude_id);
 
             // Exclude drafts. NULL-safe: a plain `not(...cs...)` drops rows where
@@ -592,7 +611,7 @@ router.patch(
             // messages together.
             const { data: target, error: findErr } = await db
                 .from('email_replies')
-                .select('sender_email, campaign_id')
+                .select('sender_email, campaign_id, thread_id')
                 .eq('id', id)
                 .eq('tenant_id', tenantId)
                 .single();
@@ -612,11 +631,16 @@ router.patch(
                 .from('email_replies')
                 .update({ read_status })
                 .eq('tenant_id', tenantId)
-                .eq('sender_email', target.sender_email)
                 .eq('direction', 'IN');
-            upd = target.campaign_id === null
-                ? upd.is('campaign_id', null)
-                : upd.eq('campaign_id', target.campaign_id);
+            // Faz 4: v2 tenants move the whole unified thread; legacy uses sender+campaign.
+            if (useThreadV2(tenantId) && (target as { thread_id?: string | null }).thread_id) {
+                upd = upd.eq('thread_id', (target as { thread_id?: string | null }).thread_id!);
+            } else {
+                upd = upd.eq('sender_email', target.sender_email);
+                upd = target.campaign_id === null
+                    ? upd.is('campaign_id', null)
+                    : upd.eq('campaign_id', target.campaign_id);
+            }
 
             const { error } = await upd;
             if (error) {
