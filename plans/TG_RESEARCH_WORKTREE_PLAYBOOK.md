@@ -2,65 +2,55 @@
 
 Tarih: 2026-07-16
 
-## Amaç
+## Ürün sınırı
 
-TG-Research'ü TG-Core production'dan bağımsız ilerletmek, paralel agent çalışmalarını kaybetmeden ayrıştırmak ve yalnız doğrulanmış commitleri tek bir ürün hattında toplamak.
+TG-Core `main` mevcut müşterilerin production hattıdır ve kendi yolunda ilerler. TG-Research, TG-Core çekirdeğini kullanan fakat ayrı ürün yaşam döngüsüne sahip test/staging ürünüdür.
 
-## Mevcut worktree rolleri
+- Varsayılan kod akışı yalnız `TG-Core main -> TG-Research` yönündedir.
+- `main` TG-Research'e topluca merge veya rebase edilmez. Uygun güvenlik ve çekirdek düzeltmeleri ayrı sync branch'lerinde seçici olarak port edilir.
+- TG-Research değişiklikleri açık bir ürün kararı olmadan TG-Core `main`e geri taşınmaz.
+- TG-Research işleri yalnız TG-Research test veritabanına ve staging servislerine uygulanır. TG-Core production kapsam dışıdır.
 
-| Worktree | Branch | Rol | Kural |
+## Tek temiz entegrasyon hattı
+
+| Worktree | Branch | Rol | Yazma yetkisi |
 |---|---|---|---|
-| `TG-Research` | `feat/customer-support-tawk-consent` | Recovery vault | Çok sayıda karışık, commitlenmemiş çalışma içeriyor. Yeni iş, checkout, toplu commit veya deploy yapılmaz. |
-| `TG-Research-upstream-p0` | `chore/tg-research-upstream-p0` | Known-good integration candidate | P0, dependency ve seçilmiş mail düzeltmeleri staging'de doğrulandı; ancak daha sonraki deploy bu sürümün üzerine yazdı. Toparlama süresince yalnız coordinator yazar. |
-| `TG-Research-dependency-remediation` | `chore/dependency-remediation` | Tamamlanmış kaynak branch | Yeni feature geliştirilmez; gerektiğinde commit kaynağı ve audit kanıtıdır. |
-| `/private/tmp/.../wt/e*` | `wt/e*` | Recovery candidates | Commitlenmemiş içerik envanteri tamamlanmadan silinmez veya prune edilmez. |
+| `/Users/salihyetim/orca/workspaces/TG-Core-copy-16.06/tg-research-consolidation` | `ssalihyetim/tg-research-consolidation` | Temiz TG-Research entegrasyon hattı ve staging release kaynağı | Yalnız coordinator |
+| `/Users/salihyetim/orca/workspaces/TG-Core-copy-16.06/TG-Research` | `feat/customer-support-tawk-consent` | Kirli recovery vault | Salt okunur; checkout, stash, clean, toplu commit ve deploy yasak |
+| `/Users/salihyetim/orca/workspaces/TG-Core-copy-16.06/TG-Research-upstream-p0` | `chore/tg-research-upstream-p0` | Dondurulmuş known-good taban | Salt okunur |
+| `/Users/salihyetim/orca/workspaces/TG-Core-copy-16.06/TG-Research-dependency-remediation` | `chore/dependency-remediation` | Tamamlanmış dependency/audit kaynağı | Salt okunur |
+| `/Users/salihyetim/orca/workspaces/TG-Core-copy-16.06/recover-*` | Göreve özel recovery branch'leri | Kurtarma ve hardening kaynakları | Yalnız atanmış worker |
+| `/private/tmp/.../scratchpad/wt/e2..e12` | `wt/e*` | Eski recovery kanıtı | Salt okunur; açık arşiv kararı olmadan silinmez |
 
-Şu an için yeni ürün geliştirmesi başlatılmaz. Önce recovery ve trunk konsolidasyonu tamamlanır.
+`e2..e12` kaynak değişikliklerinin kalıcı ancestor commitlerle byte-level eşleştiği doğrulandı. `node_modules` symlinkleri bu doğrulamanın parçası değildir. Kirli vault içindeki secret taşıyan operasyon notları hiçbir branch'e taşınmaz.
 
-## 2026-07-16 runtime ve migration uyarısı
+## Agent çalışma modeli
 
-- `68e286a` P0 sürümü `tg-core-staging` üzerinde başarıyla doğrulandı, fakat 19:16 UTC civarında üç TG-Research servisi yeniden deploy edildi. Bu nedenle P0 sürümünün hâlen çalışan sürüm olduğu varsayılmaz.
-- Son görülen Railway deployment'ları: `tg-core-staging=e1d89d29`, `research-api=692207cc`, `worker=13e6e1ba`. Üçü de sağlıklı görünse de CLI mesajı taşımıyor; konsolidasyon öncesi kaynak commitleri ayrıca kanıtlanmalıdır.
-- Paralel agent raporlarına göre test Supabase'e `146`, `149`, `150` ve `151` migration'ları uygulanmış durumda. `146` ile ilişkili cold-call kodu ve `150` migration dosyası henüz kanonik committe değil. Migration ledger ile Git hattı eşitlenmeden yeni migration veya deploy yapılmaz.
-- Bu durum yalnız TG-Research test/staging kapsamındadır. TG-Core production'a dokunulmadı.
+Kullanıcı TG-Research işini coordinator'a verir; worker agentlara ayrıca paralel görev dağıtmaz. Coordinator dosya sahipliğini, worktree'leri, review'u, entegrasyonu, migration'ı ve staging deploy'u tek noktadan yönetir.
 
-## Konsolidasyon sırası
+1. Coordinator temiz entegrasyon HEAD'ini ve boş status'u doğrular.
+2. Her görev için bu kesin HEAD'den ayrı branch ve ayrı worktree açılır.
+3. Bir worktree'nin tek yazıcı agentı vardır. Başka agentlar yalnız salt okunur review yapabilir.
+4. Worker yalnız görev brief'inde verilen dosya/hunk'ları değiştirir; atomik commit üretir.
+5. Worker merge, rebase, cherry-pick, trunk push, migration apply veya deploy yapmaz.
+6. Coordinator commit diff'ini ve bağımsız review sonucunu inceler; gerekirse aynı worker'a hardening turu verir.
+7. Yalnız onaylanan commitler temiz entegrasyon worktree'sine tek tek cherry-pick edilir.
+8. Entegre HEAD üzerinde build, hedefli test, audit, secret ve migration kontrolleri tekrar çalıştırılır.
+9. Veritabanı değişiklikleri önce yalnız TG-Research test Supabase'e uygulanır; ardından aynı kesin commit üç TG-Research staging servisine deploy edilir.
 
-1. `chore/tg-research-upstream-p0` known-good taban olarak dondurulur.
-2. `origin/ssalihyetim/TG-Research` üzerinde olup P0 tabanında bulunmayan commitler tek tek diff edilir. Patch-equivalent commitler tekrar alınmaz; yalnız eksik davranış seçici olarak port edilir.
-3. Kirli `TG-Research` worktree'sindeki değişiklikler görev kümelerine ayrılır. Örnek kümeler: cold-call credits/admin, LinkedIn campaign UX, Research maps/Gosom, daily digest ve wizard düzeltmeleri.
-4. Her küme için P0 tabanından ayrı bir recovery branch/worktree açılır. Kaynak worktree'den yalnız o kümeye ait dosya veya hunk'lar taşınır; paylaşımlı dosyalar coordinator tarafından ayrıştırılır.
-5. Her recovery branch atomik commit, değişen dosya listesi, migration listesi ve doğrulama sonucu üretir. Branch kendi başına deploy edilmez.
-6. Commitler tek tek konsolidasyon branch'ine alınır. Her committen sonra en az server build, client build ve ilgili hedefli kontroller çalıştırılır.
-7. Migration'lar yalnız TG-Research test Supabase üzerinde sıralı uygulanır ve yetki/smoke testleri yapılır.
-8. Release candidate yalnız `tg-research / tg-core-staging` hedefine deploy edilir. TG-Core production kapsam dışıdır.
-9. Canlı QA tamamlanınca konsolidasyon hattı PR veya kontrollü merge ile `ssalihyetim/TG-Research` trunk'ına taşınır. Force-push yapılmaz.
-10. Son trunk SHA'sından temiz, kalıcı `TG-Research-trunk` worktree'si oluşturulur. Eski recovery worktree'leri ancak içeriklerinin commit veya patch olarak korunduğu doğrulandıktan sonra arşivlenir.
+### Yeni worker worktree şablonu
 
-## Kalıcı paralel çalışma modeli
-
-```text
-ssalihyetim/TG-Research (protected trunk, staging-deployable)
-├── feat/research-<task-a>     -> ayrı worktree, tek yazıcı
-├── feat/research-<task-b>     -> ayrı worktree, tek yazıcı
-├── fix/research-<bug>         -> ayrı worktree, tek yazıcı
-├── sync/tg-core-main-<date>   -> seçici upstream port
-└── chore/research-deps-<date> -> dependency remediation
+```bash
+cd /Users/salihyetim/orca/workspaces/TG-Core-copy-16.06/tg-research-consolidation
+git status --short
+git rev-parse --short HEAD
+git worktree add ../tg-research-<task> -b feat/tg-research-<task> HEAD
 ```
 
-### Coordinator sorumlulukları
-
-- Task ve dosya sahipliğini atamak.
-- Paylaşımlı sıcak dosyalarda eşzamanlı yazmayı engellemek.
-- Agent commitlerini review edip tek tek entegre etmek.
-- Build, migration sırası, staging deploy ve smoke testlerini yürütmek.
-- Her deploy'u commit SHA ve Railway deployment ID ile kaydetmek.
-
-### Worker agent teslim sözleşmesi
-
-Her worker aşağıdaki bilgileri teslim eder:
+Worker başlangıçta ve teslimden önce şunları raporlar:
 
 ```text
+Worktree:
 Branch:
 Base SHA:
 Commit SHA:
@@ -70,24 +60,45 @@ Checks run:
 Known risks / remaining work:
 ```
 
-Worker yalnız kendi branch'ine commit atar. Trunk'a push, merge, migration apply veya deploy yapmaz.
+`client/src/locales/*.json`, `server/src/lib/validation.ts`, package/lock dosyaları, `supabase/migrations/` ve deploy config'leri sıcak alanlardır. Aynı anda yalnız bir görev bunların yazarı olabilir.
+
+## Migration ledger sözleşmesi
+
+Supabase migration kimliği dosya adının başındaki sürümdür. Yeni migration'larda yalnız UTC sıralı `YYYYMMDDHHMMSS_description.sql` adı kullanılır; yeni üç haneli migration oluşturulmaz.
+
+2026-07-16 salt-okunur ledger doğrulamasında TG-Research test projesinde görülen Git eşleşmeleri:
+
+| Ledger sürümü | Migration | Durum |
+|---|---|---|
+| `20260714173500` | `coldcall_credit_wallet` | Uygulanmış; dosya adı ledger ile hizalı tutulur |
+| `20260716171643` | `linkedin_enroll_and_tokens` | Uygulanmış; hizalı |
+| `20260716173921` | `research_company_maps_metadata` | Uygulanmış; hizalı |
+| `20260716175652` | `research_reset_derived_data` | Uygulanmış; hizalı |
+| `20260716181845` | `admin_audit_log_rls` | Uygulanmış; hizalı |
+| `20260716183427` | `research_persist_hs_candidates` | Uygulanmış; hizalı |
+
+İleri migration kuyruğu entegrasyon HEAD'inden, dosya adı sırasıyla uygulanır. Apply öncesi ledger tekrar okunur; uygulanmış migration yeniden çalıştırılmaz. Apply sonrası sürüm kaydı, fonksiyon imzası, RLS/ACL ve kritik kolon/index sözleşmeleri katalogdan doğrulanır.
 
 ## Deploy sınırı
 
 - Railway project: `tg-research`
-- Environment: `production` adıyla kayıtlı TG-Research staging ortamı
-- Service: `tg-core-staging`
+- Environment: Railway'de `production` adlı, fakat ürün olarak TG-Research staging olan ortam
+- Servisler: `tg-core-staging`, `research-api`, `worker`
 - Health: `https://tg-core-staging-production.up.railway.app/api/health`
 
-`production` environment adı TG-Core production anlamına gelmez; proje ve servis kimliği birlikte doğrulanmadan deploy başlatılmaz.
+Üç servis aynı kesin Git SHA'sından deploy edilir. Proje, environment ve service kimliği birlikte doğrulanmadan deploy başlatılmaz. Worker worktree'sinden veya kirli recovery vault'tan deploy yapılmaz.
 
 ## Acil durdurma koşulları
 
-Aşağıdaki durumlardan biri varsa agent edit yapmadan coordinator'a döner:
+Aşağıdakilerden biri varsa worker edit yapmadan coordinator'a döner:
 
-- Worktree kirli ve değişikliklerin tamamı kendi görevine ait değilse.
-- Beklenen branch veya base SHA farklıysa.
-- Aynı sıcak dosyada başka bir görev çalışıyorsa.
-- Migration numarası veya bağımlılık lockfile'ı başka branch ile çakışıyorsa.
-- Deploy hedefi `tg-research / tg-core-staging` olarak doğrulanamıyorsa.
-- İşlem TG-Core `main` veya TG-Core production'a dokunacaksa.
+- Worktree kirliyse veya değişikliklerin tamamı kendi görevine ait değilse.
+- Beklenen branch/base SHA farklıysa.
+- Aynı sıcak dosyada başka bir görev yazıyorsa.
+- Migration ledger bilinmiyor, sürüm çakışıyor veya dosya adı timestamp sözleşmesine uymuyorsa.
+- Deploy hedefi tam olarak TG-Research staging olarak doğrulanamıyorsa.
+- İşlem TG-Core `main`, TG-Core production veya kirli recovery vault'ta mutasyon gerektiriyorsa.
+
+## Arşivleme
+
+Kirli recovery vault, `recover-*` worktree'leri ve eski scratchpad'ler konsolidasyon tamamlandı diye otomatik temizlenmez. Silme/prune ancak içeriklerinin kalıcı commit veya güvenli patch olarak korunduğu ayrıca doğrulandıktan ve kullanıcı açıkça arşivleme istediğinde yapılır.
