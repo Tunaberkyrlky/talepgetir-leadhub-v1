@@ -2264,8 +2264,10 @@
             "cancel": "Cancel",
             "success": "Reply sent successfully",
             "failed": "Failed to send reply",
-            "draftSaved": "Draft saved — a note was added to the activity timeline",
+            "draftSaved": "Draft saved",
             "draftFailed": "Failed to save draft",
+            "draftSaving": "Saving…",
+            "draftAutoSaved": "Draft saved automatically",
             "noCampaign": "Cannot reply — no campaign linked",
             "customCc": "Custom CC email..."
         },
@@ -2329,6 +2331,9 @@
             "deliveryFile": "File",
             "deliveryLink": "Link",
             "emptyLibrary": "No saved attachments yet. Upload a file or add a link below."
+        },
+        "mailbox": {
+            "substituted": "The original sending mailbox ({{previous}}) was deleted, so this message was sent from {{current}}."
         },
         "attachmentLibrary": {
             "button": "Attachments & CC",

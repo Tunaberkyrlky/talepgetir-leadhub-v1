@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { supabaseAdmin, createUserClient } from '../lib/supabase.js';
 import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -10,6 +10,7 @@ import {
     emailRepliesQuerySchema,
     readStatusBodySchema,
     sendReplyBodySchema,
+    saveDraftBodySchema,
     forwardEmailBodySchema,
     composeEmailBodySchema,
     threadHistoryQuerySchema,
@@ -24,13 +25,26 @@ import { buildAttachmentCardsHtml, plainTextToParagraphs } from '../lib/emailHtm
 import { injectTracking, isTrackingConfigured } from '../lib/mailTracking.js';
 import { sendMail, willSupportAttachments } from '../lib/mail/router.js';
 import { resolveThreadMailbox } from '../lib/mail/resolveThreadMailbox.js';
+import { resolveLiveSenderMailbox } from '../lib/plusvibeSenderMailbox.js';
 import { getConnectionByEmail, getDefaultConnection } from '../lib/emailConnections.js';
-import type { CanonicalAttachment, MailChannel, MailProviderName } from '../lib/mail/types.js';
+import type { CanonicalAttachment, CanonicalSendRequest, MailChannel, MailProviderName, SendResult } from '../lib/mail/types.js';
 
 const log = createLogger('route:email-replies');
 const router = Router();
 
 const idParamSchema = z.object({ id: uuidField('Invalid reply ID') });
+
+/** Stable UUID for the one draft row belonging to a tenant + parent message. */
+function deterministicDraftId(tenantId: string, parentReplyId: string): string {
+    const bytes = createHash('sha256')
+        .update(`email-reply-draft:${tenantId}:${parentReplyId}`)
+        .digest()
+        .subarray(0, 16);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = bytes.toString('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 // Issue 17: guard against missing auth context (always set by authMiddleware, but fail explicitly)
 function dbClient(req: Request) {
@@ -141,6 +155,50 @@ function buildAttachmentWarning(
     const failed = dropped ?? [];
     if (!failed.length && missing <= 0) return undefined;
     return { failed, missingCount: Math.max(0, missing) };
+}
+
+function isDeletedMailboxError(err: unknown): boolean {
+    return err instanceof Error && /email account has been deleted/i.test(err.message);
+}
+
+export interface MailboxNotice { previous: string; current: string }
+
+async function sendPlusvibeWithMailboxHeal(
+    request: CanonicalSendRequest,
+    campaignId: string,
+): Promise<{ result: SendResult; accountEmail: string; mailboxNotice?: MailboxNotice }> {
+    const desired = request.accountEmail!;
+    try {
+        return { result: await sendMail(request), accountEmail: desired };
+    } catch (err) {
+        if (!isDeletedMailboxError(err)) throw err;
+    }
+
+    const replacement = await resolveLiveSenderMailbox(campaignId, desired);
+    try {
+        const result = await sendMail({ ...request, accountEmail: replacement.email });
+        log.info(
+            { campaignId, previous: desired, current: replacement.email },
+            'Reply sent after healing deleted PlusVibe mailbox',
+        );
+        return {
+            result,
+            accountEmail: replacement.email,
+            mailboxNotice: { previous: desired, current: replacement.email },
+        };
+    } catch (retryErr) {
+        log.error(
+            { err: retryErr, campaignId, previous: desired, current: replacement.email },
+            'PlusVibe send failed after substituting a live mailbox',
+        );
+        if (isDeletedMailboxError(retryErr)) {
+            throw new AppError(
+                'This conversation cannot be answered via PlusVibe because both the original and fallback mailboxes were deleted.',
+                409,
+            );
+        }
+        throw retryErr;
+    }
 }
 
 // GET /api/email-replies — threaded list (latest email per sender+campaign)
@@ -899,7 +957,12 @@ router.post(
                 return;
             }
             const { id } = paramResult.data;
-            const { body: replyText, attachmentIds, cc } = req.body as { body: string; attachmentIds?: string[]; cc?: string };
+            const { body: replyText, attachmentIds, cc, draftSessionId } = req.body as {
+                body: string;
+                attachmentIds?: string[];
+                cc?: string;
+                draftSessionId?: string;
+            };
             const tenantId = req.tenantId!;
 
             // Fetch the inbound email reply
@@ -950,13 +1013,13 @@ router.post(
 
             // Canonical "our mailbox" for this thread (account_email column → fallback to resolver).
             // This fixes replies going out from the wrong (sender_emails[0]) mailbox.
-            const accountEmail = resolveThreadMailbox(emailReply) ?? context.fromAddress;
+            const desiredMailbox = resolveThreadMailbox(emailReply) ?? context.fromAddress;
 
             // Real file where the channel supports it (PlusVibe reply does), link
             // card otherwise. Cards must be appended BEFORE tracking wraps links.
             const { cardsHtml, attachments, missing: missingAttachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
                 channel: 'reply',
-                accountEmail,
+                accountEmail: desiredMailbox,
                 originProvider: 'plusvibe',
                 inReplyToMessageId: context.plusvibeEmailId,
             });
@@ -968,18 +1031,18 @@ router.post(
             htmlBody = trackedHtml;
 
             // Send via the canonical mail router (reply → PlusVibe for a PlusVibe thread)
-            const sendResult = await sendMail({
+            const { result: sendResult, accountEmail, mailboxNotice } = await sendPlusvibeWithMailboxHeal({
                 channel: 'reply',
                 tenantId,
                 originProvider: 'plusvibe',
                 inReplyToMessageId: context.plusvibeEmailId,
-                accountEmail,
+                accountEmail: desiredMailbox,
                 to: emailReply.sender_email,
                 subject,
                 bodyHtml: htmlBody,
                 ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
                 ...(attachments.length && { attachments }),
-            });
+            }, emailReply.campaign_id);
             const attachmentWarning = buildAttachmentWarning(missingAttachments, sendResult.droppedAttachments);
 
             // Insert outbound reply record (canonical columns + legacy raw_payload)
@@ -1011,6 +1074,7 @@ router.post(
                     from_address: accountEmail,
                     subject,
                     ...trackedMarker,
+                    ...(draftSessionId && { draft_session_id: draftSessionId }),
                     ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
                 },
             };
@@ -1021,6 +1085,19 @@ router.post(
                 .select('id, direction, reply_body, replied_at, sender_email, campaign_id')
                 .single();
 
+            // The message was sent even if the local OUT insert failed. Remove all
+            // drafts for this parent so stale content cannot prompt a duplicate send.
+            const { error: draftDeleteError } = await supabaseAdmin
+                .from('email_replies')
+                .delete()
+                .eq('parent_reply_id', id)
+                .eq('tenant_id', tenantId)
+                .eq('direction', 'OUT')
+                .contains('raw_payload', { source: 'draft' });
+            if (draftDeleteError) {
+                log.warn({ err: draftDeleteError, replyId: id }, 'Draft cleanup after send failed');
+            }
+
             if (insertErr) {
                 log.error({ err: insertErr }, 'Failed to store outbound reply');
                 // Reply was sent via PlusVibe successfully, but local storage failed
@@ -1030,12 +1107,19 @@ router.post(
                     stored: false,
                     plusvibe_id: sendResult.providerMessageId,
                     ...(attachmentWarning && { attachmentWarning }),
+                    ...(mailboxNotice && { mailboxNotice }),
                 });
                 return;
             }
 
             log.info({ replyId: id, outboundId: inserted.id, to: emailReply.sender_email }, 'Reply sent via PlusVibe');
-            res.json({ sent: true, stored: true, data: inserted, ...(attachmentWarning && { attachmentWarning }) });
+            res.json({
+                sent: true,
+                stored: true,
+                data: inserted,
+                ...(attachmentWarning && { attachmentWarning }),
+                ...(mailboxNotice && { mailboxNotice }),
+            });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Send reply error');
@@ -1098,13 +1182,13 @@ router.post(
             // Note becomes the body PlusVibe appends ABOVE the forwarded message
             let htmlBody = plainTextToParagraphs(note);
 
-            const accountEmail = resolveThreadMailbox(emailReply) ?? context.fromAddress;
+            const desiredMailbox = resolveThreadMailbox(emailReply) ?? context.fromAddress;
 
             // PlusVibe forward has no attachment API → everything degrades to a
             // link card (real attachment only on channels that support forward).
             const { cardsHtml, attachments, missing: missingAttachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
                 channel: 'forward',
-                accountEmail,
+                accountEmail: desiredMailbox,
                 originProvider: 'plusvibe',
                 inReplyToMessageId: context.plusvibeEmailId,
             });
@@ -1113,18 +1197,18 @@ router.post(
             const { outId, html: trackedHtml, trackedMarker } = prepareOutboundTracking(htmlBody);
             htmlBody = trackedHtml;
 
-            const sendResult = await sendMail({
+            const { result: sendResult, accountEmail, mailboxNotice } = await sendPlusvibeWithMailboxHeal({
                 channel: 'forward',
                 tenantId,
                 originProvider: 'plusvibe',
                 inReplyToMessageId: context.plusvibeEmailId,
-                accountEmail,
+                accountEmail: desiredMailbox,
                 to,
                 subject: context.subject,
                 bodyHtml: htmlBody,
                 ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
                 ...(attachments.length && { attachments }),
-            });
+            }, emailReply.campaign_id);
             const attachmentWarning = buildAttachmentWarning(missingAttachments, sendResult.droppedAttachments);
 
             // Outbound record — sender_email kept as ORIGINAL sender so the forward
@@ -1174,12 +1258,19 @@ router.post(
                     stored: false,
                     plusvibe_id: sendResult.providerMessageId,
                     ...(attachmentWarning && { attachmentWarning }),
+                    ...(mailboxNotice && { mailboxNotice }),
                 });
                 return;
             }
 
             log.info({ replyId: id, outboundId: inserted.id, forwardedTo: to }, 'Email forwarded via PlusVibe');
-            res.json({ sent: true, stored: true, data: inserted, ...(attachmentWarning && { attachmentWarning }) });
+            res.json({
+                sent: true,
+                stored: true,
+                data: inserted,
+                ...(attachmentWarning && { attachmentWarning }),
+                ...(mailboxNotice && { mailboxNotice }),
+            });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Forward error');
@@ -1373,11 +1464,11 @@ router.get(
     }
 );
 
-// POST /api/email-replies/:id/save-draft — save reply as draft + log activity
+// POST /api/email-replies/:id/save-draft — atomically update one silent draft row
 router.post(
     '/:id/save-draft',
     requireRole('superadmin', 'ops_agent', 'client_admin'),
-    validateBody(sendReplyBodySchema),
+    validateBody(saveDraftBodySchema),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const paramResult = idParamSchema.safeParse(req.params);
@@ -1386,9 +1477,14 @@ router.post(
                 return;
             }
             const { id } = paramResult.data;
-            const { body: draftText, attachmentIds, cc } = req.body as { body: string; attachmentIds?: string[]; cc?: string };
+            const { body: draftText, attachmentIds, cc, clientUpdatedAt, draftSessionId } = req.body as {
+                body: string;
+                attachmentIds?: string[];
+                cc?: string;
+                clientUpdatedAt?: number;
+                draftSessionId?: string;
+            };
             const tenantId = req.tenantId!;
-            const userId = req.user!.id;
 
             // Fetch the original email reply
             const { data: emailReply, error: fetchErr } = await supabaseAdmin
@@ -1402,61 +1498,189 @@ router.post(
                 throw new AppError('Email reply not found', 404);
             }
 
-            // Insert draft record
+            const now = Date.now();
+            const revisionMs = Math.min(clientUpdatedAt ?? now, now + 60_000);
+            const revisionAt = new Date(revisionMs).toISOString();
+            const draftId = deterministicDraftId(tenantId, id);
+
+            // Emptying every composer field means "discard this draft". Without
+            // this branch, the last non-empty autosave would reappear on reopen.
+            // The revision fence prevents an older tab's clear from deleting a
+            // newer draft saved by another tab.
+            if (!draftText.trim() && !attachmentIds?.length && !cc?.trim()) {
+                const { error: clearError } = await supabaseAdmin
+                    .from('email_replies')
+                    .delete()
+                    .eq('id', draftId)
+                    .eq('tenant_id', tenantId)
+                    .eq('direction', 'OUT')
+                    .contains('raw_payload', { source: 'draft' })
+                    .lt('replied_at', revisionAt);
+                if (clearError) {
+                    log.error({ err: clearError, replyId: id }, 'Failed to clear draft');
+                    throw new AppError('Failed to clear draft', 500);
+                }
+
+                // Random-id drafts predate deterministic autosave and cannot be
+                // newer revisions, so they are always safe to remove.
+                const { error: legacyClearError } = await supabaseAdmin
+                    .from('email_replies')
+                    .delete()
+                    .eq('tenant_id', tenantId)
+                    .eq('parent_reply_id', id)
+                    .eq('direction', 'OUT')
+                    .contains('raw_payload', { source: 'draft' })
+                    .neq('id', draftId);
+                if (legacyClearError) {
+                    log.error({ err: legacyClearError, replyId: id }, 'Failed to clear legacy drafts');
+                    throw new AppError('Failed to clear draft', 500);
+                }
+
+                const { data: newerDraft, error: remainingError } = await supabaseAdmin
+                    .from('email_replies')
+                    .select('id')
+                    .eq('id', draftId)
+                    .eq('tenant_id', tenantId)
+                    .contains('raw_payload', { source: 'draft' })
+                    .maybeSingle();
+                if (remainingError) {
+                    log.error({ err: remainingError, replyId: id }, 'Failed to verify cleared draft');
+                    throw new AppError('Failed to clear draft', 500);
+                }
+
+                res.json({ saved: true, cleared: !newerDraft, superseded: !!newerDraft, draftId });
+                return;
+            }
+
+            const draftPayload = {
+                reply_body: draftText,
+                replied_at: revisionAt,
+                raw_payload: {
+                    source: 'draft',
+                    client_updated_at: revisionMs,
+                    ...(draftSessionId && { draft_session_id: draftSessionId }),
+                    ...(cc && { cc }),
+                    ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
+                },
+            };
             const draftRow = {
+                id: draftId,
                 tenant_id: tenantId,
                 campaign_id: emailReply.campaign_id,
                 campaign_name: emailReply.campaign_name,
                 sender_email: emailReply.sender_email,
-                reply_body: draftText,
-                replied_at: new Date().toISOString(),
                 company_id: emailReply.company_id,
                 contact_id: emailReply.contact_id,
                 match_status: emailReply.company_id ? 'matched' : 'unmatched',
                 read_status: 'read' as const,
                 direction: 'OUT' as const,
                 parent_reply_id: id,
-                raw_payload: {
-                    source: 'draft',
-                    ...(cc && { cc }),
-                    ...(attachmentIds?.length && { attachment_ids: attachmentIds }),
-                },
+                ...draftPayload,
             };
 
-            const { data: draft, error: draftErr } = await supabaseAdmin
-                .from('email_replies')
-                .insert(draftRow)
-                .select('id')
-                .single();
+            // If this composer session already produced a sent reply, a delayed
+            // autosave is stale and must not resurrect the consumed draft.
+            if (draftSessionId) {
+                const { data: consumed } = await supabaseAdmin
+                    .from('email_replies')
+                    .select('id')
+                    .eq('tenant_id', tenantId)
+                    .eq('parent_reply_id', id)
+                    .eq('direction', 'OUT')
+                    .contains('raw_payload', { source: 'user_reply', draft_session_id: draftSessionId })
+                    .limit(1)
+                    .maybeSingle();
+                if (consumed) {
+                    res.json({ saved: false, consumed: true, draftId });
+                    return;
+                }
+            }
 
-            if (draftErr) {
-                log.error({ err: draftErr }, 'Failed to save draft');
+            // Update only when this edit is newer. The stable primary key makes
+            // concurrent first saves converge without a schema migration.
+            let { data: saved, error: saveError } = await supabaseAdmin
+                .from('email_replies')
+                .update(draftPayload)
+                .eq('id', draftId)
+                .eq('tenant_id', tenantId)
+                .lt('replied_at', revisionAt)
+                .select('id')
+                .maybeSingle();
+
+            if (saveError) {
+                log.error({ err: saveError }, 'Failed to update draft');
                 throw new AppError('Failed to save draft', 500);
             }
 
-            // Log activity note if company is linked
-            let activityId: string | null = null;
-            if (emailReply.company_id) {
-                const { data: activity } = await supabaseAdmin
-                    .from('activities')
-                    .insert({
-                        tenant_id: tenantId,
-                        company_id: emailReply.company_id,
-                        contact_id: emailReply.contact_id,
-                        type: 'not',
-                        summary: `Taslak mail kaydedildi — ${emailReply.sender_email}`,
-                        detail: draftText.length > 200 ? draftText.slice(0, 200) + '...' : draftText,
-                        visibility: 'client',
-                        occurred_at: new Date().toISOString(),
-                        created_by: userId,
-                    })
+            if (!saved) {
+                const { data: inserted, error: insertError } = await supabaseAdmin
+                    .from('email_replies')
+                    .insert(draftRow)
                     .select('id')
-                    .single();
-                activityId = activity?.id || null;
+                    .maybeSingle();
+
+                if (insertError?.code === '23505') {
+                    // Another tab inserted the deterministic row after our first
+                    // update. Retry the revision-fenced update once.
+                    const retry = await supabaseAdmin
+                        .from('email_replies')
+                        .update(draftPayload)
+                        .eq('id', draftId)
+                        .eq('tenant_id', tenantId)
+                        .lt('replied_at', revisionAt)
+                        .select('id')
+                        .maybeSingle();
+                    saved = retry.data;
+                    saveError = retry.error;
+                } else {
+                    saved = inserted;
+                    saveError = insertError;
+                }
             }
 
-            log.info({ replyId: id, draftId: draft.id, activityId }, 'Draft saved');
-            res.json({ saved: true, draftId: draft.id, activityId });
+            if (saveError) {
+                log.error({ err: saveError }, 'Failed to save draft');
+                throw new AppError('Failed to save draft', 500);
+            }
+
+            // Remove legacy random-id drafts. The deterministic row is retained,
+            // and autosave never writes client-visible activity timeline notes.
+            const { error: cleanupError } = await supabaseAdmin
+                .from('email_replies')
+                .delete()
+                .eq('tenant_id', tenantId)
+                .eq('parent_reply_id', id)
+                .eq('direction', 'OUT')
+                .contains('raw_payload', { source: 'draft' })
+                .neq('id', draftId);
+            if (cleanupError) log.warn({ err: cleanupError, replyId: id }, 'Legacy draft cleanup failed');
+
+            // Close the send/autosave race from the other side: if the reply was
+            // inserted while this save was in flight, remove the stale session row.
+            if (draftSessionId) {
+                const { data: consumedAfterSave } = await supabaseAdmin
+                    .from('email_replies')
+                    .select('id')
+                    .eq('tenant_id', tenantId)
+                    .eq('parent_reply_id', id)
+                    .eq('direction', 'OUT')
+                    .contains('raw_payload', { source: 'user_reply', draft_session_id: draftSessionId })
+                    .limit(1)
+                    .maybeSingle();
+                if (consumedAfterSave) {
+                    await supabaseAdmin
+                        .from('email_replies')
+                        .delete()
+                        .eq('id', draftId)
+                        .eq('tenant_id', tenantId)
+                        .contains('raw_payload', { source: 'draft', draft_session_id: draftSessionId });
+                    res.json({ saved: false, consumed: true, draftId });
+                    return;
+                }
+            }
+
+            log.info({ replyId: id, draftId, superseded: !saved }, 'Draft saved');
+            res.json({ saved: true, draftId, superseded: !saved });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Save draft error');

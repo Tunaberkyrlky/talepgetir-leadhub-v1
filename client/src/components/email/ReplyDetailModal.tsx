@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -14,7 +14,7 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
-import { showSuccess, showWarning, showErrorFromApi, notifyAttachmentWarning } from '../../lib/notifications';
+import { showSuccess, showWarning, showErrorFromApi, notifyAttachmentWarning, notifyMailboxNotice } from '../../lib/notifications';
 import { useAuth } from '../../contexts/AuthContext';
 import { isInternal } from '../../lib/permissions';
 import { useStages } from '../../contexts/StagesContext';
@@ -84,6 +84,13 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     const [customCc, setCustomCc] = useState('');
     const [selectedAttachments, setSelectedAttachments] = useState<string[]>([]);
     const [draftLoaded, setDraftLoaded] = useState<string | null>(null);
+    const draftSavedSigRef = useRef('');
+    const latestDraftSigRef = useRef('');
+    const draftRevisionRef = useRef(0);
+    const draftAckRevisionRef = useRef(0);
+    const draftSessionIdRef = useRef(crypto.randomUUID());
+    const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [ccInputOpen, setCcInputOpen] = useState(false);
     const [expandedQuotes, setExpandedQuotes] = useState<Set<string>>(new Set());
 
@@ -109,6 +116,13 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         setForwardTo('');
         setForwardNote('');
         setSelectedForwardAttachments([]);
+        draftSavedSigRef.current = '';
+        latestDraftSigRef.current = '';
+        draftRevisionRef.current = 0;
+        draftAckRevisionRef.current = 0;
+        draftSessionIdRef.current = crypto.randomUUID();
+        setDraftStatus('idle');
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [reply?.id]);
 
@@ -149,7 +163,9 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
     }, [ccAddresses, queryClient]);
 
     // ── Load saved draft ──
-    const { data: draftData } = useQuery<{ draft: { id: string; reply_body: string; raw_payload: any } | null }>({
+    const { data: draftData } = useQuery<{
+        draft: { id: string; reply_body: string; raw_payload: Record<string, unknown> | null } | null;
+    }>({
         queryKey: ['email-reply-draft', localReply?.id],
         queryFn: async () => (await api.get(`/email-replies/${localReply!.id}/draft`)).data,
         enabled: opened && !!localReply,
@@ -171,6 +187,24 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 setSelectedAttachments(
                     savedAttachments.filter((id: unknown): id is string => typeof id === 'string'),
                 );
+            }
+            const restoredAttachments = Array.isArray(savedAttachments)
+                ? savedAttachments.filter((id: unknown): id is string => typeof id === 'string')
+                : [];
+            const restoredCc = typeof savedCc === 'string'
+                ? [...new Set(savedCc.split(',').map((email: string) => email.trim()).filter(Boolean))]
+                : [];
+            const restoredSignature = JSON.stringify({
+                body: (draftData.draft.reply_body || '').trim(),
+                attachments: [...restoredAttachments].sort(),
+                cc: restoredCc.sort(),
+            });
+            draftSavedSigRef.current = restoredSignature;
+            latestDraftSigRef.current = restoredSignature;
+            const restoredRevision = Number(draftData.draft.raw_payload?.client_updated_at ?? 0);
+            if (Number.isFinite(restoredRevision)) {
+                draftRevisionRef.current = restoredRevision;
+                draftAckRevisionRef.current = restoredRevision;
             }
         }
     }, [draftData, draftLoaded, replyBody]);
@@ -282,17 +316,24 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             const ccList = buildCcList();
             return (await api.post(`/email-replies/${localReply!.id}/reply`, {
                 body: replyBody.trim(),
+                draftSessionId: draftSessionIdRef.current,
                 ...(selectedAttachments.length > 0 && { attachmentIds: selectedAttachments }),
                 ...(ccList.length > 0 && { cc: ccList.join(', ') }),
             })).data;
         },
         onSuccess: (data) => {
+            notifyMailboxNotice(data);
             if (!notifyAttachmentWarning(data)) showSuccess(t('emailReplies.reply.success'));
             setReplyOpen(false);
             setReplyBody('');
             setSelectedCc([]);
             setCustomCc('');
             setSelectedAttachments([]);
+            draftSavedSigRef.current = '';
+            latestDraftSigRef.current = '';
+            setDraftStatus('idle');
+            if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+            queryClient.invalidateQueries({ queryKey: ['email-reply-draft', localReply?.id] });
             markAsRead();
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
@@ -301,22 +342,101 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         onError: (err) => showErrorFromApi(err, t('emailReplies.reply.failed')),
     });
 
-    const saveDraftMutation = useMutation({
-        mutationFn: async () => {
-            const ccList = buildCcList();
-            return (await api.post(`/email-replies/${localReply!.id}/save-draft`, {
-                body: replyBody.trim(),
-                ...(selectedAttachments.length > 0 && { attachmentIds: selectedAttachments }),
-                ...(ccList.length > 0 && { cc: ccList.join(', ') }),
-            })).data;
-        },
-        onSuccess: () => {
-            showSuccess(t('emailReplies.reply.draftSaved'));
-            queryClient.invalidateQueries({ queryKey: ['email-replies'] });
-            queryClient.invalidateQueries({ queryKey: ['activities'] });
-        },
-        onError: (err) => showErrorFromApi(err, t('emailReplies.reply.draftFailed')),
+    type DraftSnapshot = {
+        replyId: string;
+        signature: string;
+        body: string;
+        attachmentIds: string[];
+        cc: string[];
+        clientUpdatedAt: number;
+        draftSessionId: string;
+    };
+
+    const draftSignature = (): string => JSON.stringify({
+        body: replyBody.trim(),
+        attachments: [...selectedAttachments].sort(),
+        cc: buildCcList().sort(),
     });
+
+    const captureDraft = (): DraftSnapshot | null => {
+        if (!localReply) return null;
+        const signature = draftSignature();
+        const cc = buildCcList();
+        const hasContent = !!replyBody.trim() || selectedAttachments.length > 0 || cc.length > 0;
+        // Do not create an empty draft when a fresh composer opens. An empty
+        // snapshot is meaningful only when it clears a previously saved draft.
+        if (!hasContent && !draftSavedSigRef.current) return null;
+        latestDraftSigRef.current = signature;
+        const clientUpdatedAt = Math.max(Date.now(), draftRevisionRef.current + 1);
+        draftRevisionRef.current = clientUpdatedAt;
+        return {
+            replyId: localReply.id,
+            signature,
+            body: replyBody.trim(),
+            attachmentIds: [...selectedAttachments],
+            cc,
+            clientUpdatedAt,
+            draftSessionId: draftSessionIdRef.current,
+        };
+    };
+
+    const persistDraft = async (snapshot: DraftSnapshot): Promise<void> => {
+        const response = (await api.post(`/email-replies/${snapshot.replyId}/save-draft`, {
+            body: snapshot.body,
+            clientUpdatedAt: snapshot.clientUpdatedAt,
+            draftSessionId: snapshot.draftSessionId,
+            ...(snapshot.attachmentIds.length > 0 && { attachmentIds: snapshot.attachmentIds }),
+            ...(snapshot.cc.length > 0 && { cc: snapshot.cc.join(', ') }),
+        })).data as { consumed?: boolean; superseded?: boolean };
+
+        if (response.consumed || response.superseded) {
+            if (latestDraftSigRef.current === snapshot.signature) setDraftStatus('idle');
+            return;
+        }
+        if (snapshot.clientUpdatedAt < draftAckRevisionRef.current) return;
+        draftAckRevisionRef.current = snapshot.clientUpdatedAt;
+        draftSavedSigRef.current = snapshot.signature;
+        if (latestDraftSigRef.current === snapshot.signature) setDraftStatus('saved');
+    };
+
+    useEffect(() => {
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        if (!replyOpen || !localReply) return;
+
+        const signature = draftSignature();
+        latestDraftSigRef.current = signature;
+        if (signature === draftSavedSigRef.current) return;
+        const snapshot = captureDraft();
+        if (!snapshot) return;
+
+        autoSaveTimerRef.current = setTimeout(() => {
+            setDraftStatus('saving');
+            persistDraft(snapshot).catch(() => {
+                if (latestDraftSigRef.current === snapshot.signature) setDraftStatus('idle');
+            });
+        }, 1500);
+        return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
+        // State inputs below define the serialized draft; helper identities are intentionally omitted.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [replyOpen, replyBody, selectedAttachments, selectedCc, localReply?.id]);
+
+    const flushDraft = (): void => {
+        if (!replyOpen) return;
+        const snapshot = captureDraft();
+        if (!snapshot || snapshot.signature === draftSavedSigRef.current) return;
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        void persistDraft(snapshot).catch(() => { /* best effort while closing */ });
+    };
+
+    const closeComposer = (): void => {
+        flushDraft();
+        setReplyOpen(false);
+    };
+
+    const closeModal = (): void => {
+        flushDraft();
+        onClose();
+    };
 
     // ── Forward via PlusVibe ──
     const forwardMutation = useMutation({
@@ -327,6 +447,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 ...(selectedForwardAttachments.length > 0 && { attachmentIds: selectedForwardAttachments }),
             })).data,
         onSuccess: (data) => {
+            notifyMailboxNotice(data);
             if (!notifyAttachmentWarning(data)) showSuccess(t('emailReplies.forward.success', 'Email yönlendirildi'));
             setForwardOpen(false);
             setForwardTo('');
@@ -349,7 +470,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
         <>
         <Modal
             opened={opened}
-            onClose={onClose}
+            onClose={closeModal}
             size="xl"
             radius="lg"
             centered
@@ -394,7 +515,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                             color="gray"
                             size="sm"
                             radius="xl"
-                            onClick={onClose}
+                            onClick={closeModal}
                         >
                             <IconX size={14} />
                         </ActionIcon>
@@ -425,7 +546,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                 c="#3b3b8a"
                                 style={{ textDecoration: 'none' }}
                                 styles={{ root: { '&:hover': { color: 'var(--mantine-color-violet-7)', textDecoration: 'underline' } } }}
-                                onClick={() => { onClose(); navigate(`/companies/${localReply.company_id}`); }}
+                                onClick={() => { closeModal(); navigate(`/companies/${localReply.company_id}`); }}
                             >
                                 {localReply.company_name}
                                 <IconExternalLink size={10} style={{ marginLeft: 3, opacity: 0.45, verticalAlign: 'middle' }} />
@@ -450,7 +571,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                 c="#3b3b8a"
                                 style={{ textDecoration: 'none' }}
                                 styles={{ root: { '&:hover': { color: 'var(--mantine-color-violet-7)', textDecoration: 'underline' } } }}
-                                onClick={() => { onClose(); navigate(`/people/${localReply.contact_id}`); }}
+                                onClick={() => { closeModal(); navigate(`/people/${localReply.contact_id}`); }}
                             >
                                 {localReply.contact_name}
                                 <IconExternalLink size={10} style={{ marginLeft: 3, opacity: 0.45, verticalAlign: 'middle' }} />
@@ -564,7 +685,8 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                                         style={{ display: 'inline-flex', cursor: 'pointer' }}
                                                         onClick={() => setExpandedQuotes(prev => {
                                                             const s = new Set(prev);
-                                                            s.has(msg.id) ? s.delete(msg.id) : s.add(msg.id);
+                                                            if (s.has(msg.id)) s.delete(msg.id);
+                                                            else s.add(msg.id);
                                                             return s;
                                                         })}
                                                     >
@@ -655,7 +777,8 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                                 style={{ display: 'inline-flex', cursor: 'pointer' }}
                                                 onClick={() => setExpandedQuotes(prev => {
                                                     const s = new Set(prev);
-                                                    s.has(localReply.id) ? s.delete(localReply.id) : s.add(localReply.id);
+                                                    if (s.has(localReply.id)) s.delete(localReply.id);
+                                                    else s.add(localReply.id);
                                                     return s;
                                                 })}
                                             >
@@ -760,7 +883,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                 size="sm"
                                 variant="subtle"
                                 color="gray"
-                                onClick={() => setReplyOpen(false)}
+                                onClick={closeComposer}
                             >
                                 <IconX size={12} />
                             </ActionIcon>
@@ -888,27 +1011,24 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                     size="xs"
                                     variant="subtle"
                                     color="gray"
-                                    onClick={() => { setReplyOpen(false); setSelectedAttachments([]); }}
+                                    onClick={() => { closeComposer(); setSelectedAttachments([]); }}
                                 >
                                     {t('emailReplies.reply.cancel')}
                                 </Button>
-                                <Button
-                                    size="xs"
-                                    variant="light"
-                                    color="gray"
-                                    leftSection={<IconDeviceFloppy size={12} />}
-                                    loading={saveDraftMutation.isPending}
-                                    disabled={!replyBody.trim() || sendReplyMutation.isPending}
-                                    onClick={() => saveDraftMutation.mutate()}
-                                >
-                                    {t('emailReplies.reply.saveDraft')}
-                                </Button>
+                                {draftStatus !== 'idle' && (
+                                    <Text size="xs" c="dimmed" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <IconDeviceFloppy size={12} />
+                                        {draftStatus === 'saving'
+                                            ? t('emailReplies.reply.draftSaving', 'Kaydediliyor…')
+                                            : t('emailReplies.reply.draftAutoSaved', 'Taslak otomatik kaydedildi')}
+                                    </Text>
+                                )}
                                 <Button
                                     size="xs"
                                     color="violet"
                                     leftSection={<IconSend size={12} />}
                                     loading={sendReplyMutation.isPending}
-                                    disabled={!replyBody.trim() || saveDraftMutation.isPending}
+                                    disabled={!replyBody.trim()}
                                     onClick={() => sendReplyMutation.mutate()}
                                 >
                                     {t('emailReplies.reply.send')}
@@ -1130,7 +1250,7 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                     size="xs"
                                     leftSection={<IconArrowForwardUp size={13} />}
                                     onClick={() => {
-                                        setReplyOpen(false);
+                                        closeComposer();
                                         setForwardOpen((v) => !v);
                                     }}
                                 >

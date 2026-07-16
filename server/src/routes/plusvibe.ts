@@ -215,6 +215,7 @@ router.patch(
                         pvCampaignId: data.pv_campaign_id,
                         campaignName: data.name,
                         matchEmail,
+                        replies,
                     });
                     log.info({ campaignId: id, tenantId: tenant_id, outbound }, 'Assign-time campaign-send backfill completed');
                 } catch (backfillErr) {
@@ -322,6 +323,7 @@ router.post(
                         pvCampaignId: campaign.pv_campaign_id,
                         campaignName: campaign.name,
                         matchEmail,
+                        replies,
                     }).catch((err) =>
                         log.warn({ err, campaignId: campaign.pv_campaign_id }, 'Campaign-send backfill failed'),
                     );
@@ -397,6 +399,7 @@ router.post(
                 pvCampaignId,
                 campaignName: campaign.name,
                 matchEmail,
+                replies,
             }).catch((err) =>
                 log.warn({ err, campaign: pvCampaignId }, 'Campaign-send backfill failed'),
             );

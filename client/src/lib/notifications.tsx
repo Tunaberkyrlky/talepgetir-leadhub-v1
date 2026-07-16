@@ -117,6 +117,25 @@ export function notifyAttachmentWarning(data: unknown): boolean {
     return true;
 }
 
+export interface MailboxNotice {
+    previous: string;
+    current: string;
+}
+
+export function notifyMailboxNotice(data: unknown): void {
+    const notice = (data as { mailboxNotice?: MailboxNotice } | null | undefined)?.mailboxNotice;
+    if (!notice?.current) return;
+    notifications.show({
+        message: i18n.t('emailReplies.mailbox.substituted', {
+            previous: notice.previous,
+            current: notice.current,
+        }),
+        color: 'blue',
+        autoClose: 12000,
+        withCloseButton: true,
+    });
+}
+
 /** Convenience: show an error notification from an Axios/unknown error */
 export function showErrorFromApi(error: unknown, fallback?: string) {
     const message = getErrorMessage(error, fallback);

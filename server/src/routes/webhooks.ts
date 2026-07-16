@@ -11,6 +11,7 @@ import { parseWebhookInbound } from '../lib/mail/plusvibeAdapter.js';
 import { canonicalToReplyRow, splitEmailBody } from '../lib/mail/types.js';
 import {
     resolveCampaignTenant,
+    extractPlusVibeLeadEmail,
     hydrateThreadCampaignSends,
     syncCampaignsDebounced,
 } from '../lib/mail/replyImport.js';
@@ -185,11 +186,15 @@ async function processPlusvibeInbound(req: Request, res: Response, tenantId: str
     // match we already computed so the OUT rows adopt the same company/contact as
     // this reply (and we don't rebuild a matcher).
     if (canonical.campaignId && canonical.senderEmail) {
+        const pvLeadEmail =
+            extractPlusVibeLeadEmail(req.body.lead_email)
+            ?? extractPlusVibeLeadEmail(req.body.lead);
         hydrateThreadCampaignSends({
             tenantId,
             pvCampaignId: canonical.campaignId,
             campaignName: canonical.campaignName,
             leadEmail: canonical.senderEmail,
+            ...(pvLeadEmail && { pvLeadEmail }),
             match: { company_id: match.company_id, contact_id: match.contact_id, match_status: match.match_status },
         }).catch((hydrateErr) =>
             log.warn({ err: hydrateErr, camp_id: canonical.campaignId, sender: from_email }, 'Thread hydration failed'),

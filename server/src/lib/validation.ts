@@ -461,10 +461,18 @@ export const campaignStatsQuerySchema = z.object({
 export const sendReplyBodySchema = z.object({
     body: z.string().min(1, 'Reply body is required').max(50000),
     attachmentIds: z.array(z.string().uuid()).max(10).optional(),
+    draftSessionId: z.string().uuid().optional(),
     cc: z.string().max(1000).optional().refine(
         (val) => !val || val.split(',').every((e) => e.trim().match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)),
         { message: 'Invalid CC email address' },
     ),
+});
+
+// Draft autosave also accepts an empty body so clearing the composer can remove
+// an existing saved draft. Sending a reply still requires a non-empty body.
+export const saveDraftBodySchema = sendReplyBodySchema.extend({
+    body: z.string().max(50000),
+    clientUpdatedAt: z.number().int().nonnegative().optional(),
 });
 
 export const forwardEmailBodySchema = z.object({
