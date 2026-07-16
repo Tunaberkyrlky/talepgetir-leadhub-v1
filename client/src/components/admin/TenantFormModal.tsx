@@ -11,6 +11,7 @@ interface Tenant {
     slug: string;
     tier: string;
     is_active: boolean;
+    settings?: Record<string, unknown> | null;
 }
 
 interface TenantFormModalProps {
@@ -37,14 +38,18 @@ export default function TenantFormModal({ opened, onClose, tenant }: TenantFormM
     const [slug, setSlug] = useState('');
     const [tier, setTier] = useState<string | null>('basic');
     const [isActive, setIsActive] = useState(true);
+    const [dailyDigestEnabled, setDailyDigestEnabled] = useState(false);
     const [autoSlug, setAutoSlug] = useState(true);
 
     useEffect(() => {
         if (opened) {
+            // The modal stays mounted; opening it is the reset boundary for its draft fields.
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setName(tenant?.name || '');
             setSlug(tenant?.slug || '');
             setTier(tenant?.tier || 'basic');
             setIsActive(tenant?.is_active !== false);
+            setDailyDigestEnabled(tenant?.settings?.daily_digest_enabled === true);
             setAutoSlug(!isEdit);
         }
     }, [opened, tenant, isEdit]);
@@ -69,7 +74,16 @@ export default function TenantFormModal({ opened, onClose, tenant }: TenantFormM
     const mutation = useMutation({
         mutationFn: async () => {
             if (isEdit) {
-                return api.put(`/admin/tenants/${tenant.id}`, { name, slug, tier, is_active: isActive });
+                return api.put(`/admin/tenants/${tenant.id}`, {
+                    name,
+                    slug,
+                    tier,
+                    is_active: isActive,
+                    settings: {
+                        ...(tenant.settings ?? {}),
+                        daily_digest_enabled: dailyDigestEnabled,
+                    },
+                });
             } else {
                 return api.post('/admin/tenants', { name, slug, tier, is_active: isActive });
             }
@@ -120,6 +134,14 @@ export default function TenantFormModal({ opened, onClose, tenant }: TenantFormM
                     checked={isActive}
                     onChange={(e) => setIsActive(e.currentTarget.checked)}
                 />
+                {isEdit && (
+                    <Switch
+                        label={t('admin.dailyDigestEnabled')}
+                        description={t('admin.dailyDigestDescription')}
+                        checked={dailyDigestEnabled}
+                        onChange={(e) => setDailyDigestEnabled(e.currentTarget.checked)}
+                    />
+                )}
                 <Group justify="flex-end" mt="sm">
                     <Button variant="subtle" onClick={onClose}>{t('common.cancel')}</Button>
                     <Button

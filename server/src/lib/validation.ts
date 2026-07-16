@@ -205,6 +205,7 @@ export const updateTenantSchema = z.object({
         custom_field_1_label: z.string().max(100).optional(),
         custom_field_2_label: z.string().max(100).optional(),
         custom_field_3_label: z.string().max(100).optional(),
+        daily_digest_enabled: z.boolean().optional(),
     }).passthrough().optional(),
 });
 

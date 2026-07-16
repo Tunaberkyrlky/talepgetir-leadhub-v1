@@ -53,6 +53,8 @@ import coldcallRoutes from './coldcall/routes/index.js';
 import coldcallWebhookRoutes from './coldcall/routes/webhooks.js';
 import { startCampaignScheduler } from './lib/campaignScheduler.js';
 import { startImapPollingScheduler } from './lib/imapPollingScheduler.js';
+import { startDailyDigestScheduler } from './lib/dailyDigestScheduler.js';
+import { isConfigured as isSystemMailerConfigured } from './lib/systemMailer.js';
 
 const app = express();
 const PORT = process.env.PORT || process.env.API_PORT || 3001;
@@ -332,6 +334,13 @@ app.listen(PORT, () => {
     logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'TG Core API started');
     startCampaignScheduler();
     startImapPollingScheduler();
+    if (process.env.ENABLE_DAILY_DIGEST_SCHEDULER === 'true' && isSystemMailerConfigured()) {
+        startDailyDigestScheduler();
+    } else if (process.env.ENABLE_DAILY_DIGEST_SCHEDULER === 'true') {
+        logger.warn('Daily digest scheduler requested but system mailer is not configured');
+    } else {
+        logger.info('Daily digest scheduler disabled; set ENABLE_DAILY_DIGEST_SCHEDULER=true to enable it');
+    }
 });
 
 export default app;
