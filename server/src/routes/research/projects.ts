@@ -41,6 +41,14 @@ function countKeysDeep(v: unknown, acc = { n: 0 }): number {
     return acc.n;
 }
 
+// Canonical comparable form of a products list: non-empty trimmed strings, de-duped, sorted.
+// Used by the PATCH handler to decide whether the human-approved products actually changed.
+function normalizedProducts(v: unknown): string[] {
+    return Array.isArray(v)
+        ? [...new Set(v.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => x.trim()))].sort()
+        : [];
+}
+
 const jsonRecord = z
     .record(z.string(), z.unknown())
     .refine((o) => countKeysDeep(o) <= MAX_PROFILE_KEYS, {
@@ -225,6 +233,39 @@ router.patch('/:id', requireWriter, validateBody(updateProjectSchema), async (re
             return;
         }
         const tenantId = req.tenantId!;
+
+        // HS codes + market evidence are product-derived: hs:match proposes codes for the
+        // human-approved products and market:analyze ranks importers from those codes. When the
+        // products change (wizard step-4 re-confirm, the advanced editor, or a subject change that
+        // lands new products), the old codes/evidence are stale, so we clear them here — centrally,
+        // covering EVERY products-change entry point — letting step 22's zero-rows auto-run
+        // re-match on the new products. Delete-first ordering (before the update) keeps partial
+        // failures self-healing: a failed delete aborts with nothing changed, and a failed update
+        // only leaves rows already cleared, which the next step-22 visit regenerates.
+        const incoming = req.body as z.infer<typeof updateProjectSchema>;
+        const incomingProfile = (incoming.profile && typeof incoming.profile === 'object' && !Array.isArray(incoming.profile))
+            ? incoming.profile as Record<string, unknown> : null;
+        const carriesProducts = !!incomingProfile && 'products' in incomingProfile;
+
+        let productsChanged = false;
+        if (carriesProducts) {
+            const { data: cur, error: curErr } = await researchSupabaseAdmin
+                .from('research_projects').select('profile').eq('id', parsed.data.id).eq('tenant_id', tenantId).maybeSingle();
+            if (curErr) { log.error({ err: curErr }, 'project products pre-read failed'); throw new AppError('Failed to update research project', 500); }
+            if (cur) {
+                const curP = normalizedProducts((cur.profile as Record<string, unknown> | null)?.products);
+                const newP = normalizedProducts(incomingProfile!.products);
+                productsChanged = JSON.stringify(curP) !== JSON.stringify(newP);
+            }
+        }
+
+        if (productsChanged) {
+            const { error: mErr } = await researchSupabaseAdmin.from('research_markets').delete().eq('tenant_id', tenantId).eq('project_id', parsed.data.id);
+            if (mErr) { log.error({ err: mErr }, 'reset markets on products change failed'); throw new AppError('Failed to update research project', 500); }
+            const { error: hErr } = await researchSupabaseAdmin.from('research_hs_codes').delete().eq('tenant_id', tenantId).eq('project_id', parsed.data.id);
+            if (hErr) { log.error({ err: hErr }, 'reset hs codes on products change failed'); throw new AppError('Failed to update research project', 500); }
+            log.info({ projectId: parsed.data.id }, 'products changed — cleared stale HS codes + market evidence');
+        }
 
         const { data, error } = await researchSupabaseAdmin
             .from('research_projects')

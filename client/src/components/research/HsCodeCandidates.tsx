@@ -94,9 +94,9 @@ export default function HsCodeCandidates({ candidates, onChanged }: { candidates
                 return (
                     <Card key={row.id} withBorder radius="md" padding="sm">
                         <Group justify="space-between" align="center" wrap="nowrap">
-                            <Group gap="sm" wrap="nowrap">
-                                <Badge variant="filled" color="blue" ff="monospace">{row.code}</Badge>
-                                <Text size="sm">{row.description}</Text>
+                            <Group gap="sm" wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
+                                <Badge variant="filled" color="blue" ff="monospace" style={{ flexShrink: 0 }} styles={{ label: { overflow: 'visible' } }}>{row.code}</Badge>
+                                <Text size="sm" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{row.description}</Text>
                             </Group>
                             <Group gap="xs" wrap="nowrap">
                                 <EditHsCodeButton row={row} onChanged={onChanged} />
