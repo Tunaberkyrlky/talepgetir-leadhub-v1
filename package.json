@@ -16,6 +16,6 @@
     "start:worker": "npm run start:worker --workspace=server"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^10.0.3"
   }
 }
