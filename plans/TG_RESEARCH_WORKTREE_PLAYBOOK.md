@@ -107,6 +107,28 @@ Supabase migration kimliği dosya adının başındaki sürümdür. Yeni migrati
 
 Cold Call teklif imzalama için `tg-core-staging` servisinde en az 32 karakterlik `COLDCALL_OFFER_SECRET` bulunmalıdır. Daily Digest migration'ı uygulanmış olsa da scheduler varsayılan olarak kapalı kalır; yalnız geçerli `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `ENABLE_DAILY_DIGEST_SCHEDULER=true` ve tenant düzeyinde `daily_digest_enabled` birlikte hazırlandığında açılır.
 
+### Railway role-safe paketleme
+
+Repo kökündeki legacy `railway.toml` ve `railway.json` yalnız monolitik varsayılanı temsil eder; ham repo arşivini üç servise doğrudan yüklemek `npm start` komutunu dayatır ve `research-api` ile `worker` süreç rollerini bozar. Her servis için ayrı geçici release dizini hazırlanır:
+
+```bash
+release_dir="$(mktemp -d /private/tmp/tg-research-release.XXXXXX)"
+git archive <exact-sha> | tar -x -C "$release_dir"
+cp "$release_dir/deploy/<service>/railway.json" "$release_dir/railway.json"
+rm "$release_dir/railway.toml"
+```
+
+`<service>` yalnız `tg-core-staging`, `research-api` veya `worker` olabilir. `railway up` bu geçici dizinden, sabit project/environment/service kimlikleriyle çalıştırılır. Bu işlem kaynak kodu değiştirmez; yalnız aynı Git SHA'sının servis-spesifik deploy manifestini paketin kökünde görünür kılar.
+
+Deploy metadata postcheck'i şunları göstermelidir:
+
+- `configFile=/railway.json`.
+- Doğru `deploy/<service>/Dockerfile` yolu.
+- `startCommand=null`; süreç rolü Dockerfile `CMD` tarafından belirlenir.
+- `tg-core-staging`: `dist/index.js`, `research-api`: `dist/researchApi.js`, `worker`: `dist/lib/research/worker/index.js`.
+
+Railway servis değişkenlerinde `RAILWAY_DOCKERFILE_PATH` da aynı servis-spesifik Dockerfile yoluna sabitlenir. Rollout ancak üç deployment `SUCCESS`, iki API `/api/health` yanıtı `200` ve process logları yukarıdaki rol ayrımını doğruladığında tamamlanmış sayılır.
+
 ## Acil durdurma koşulları
 
 Aşağıdakilerden biri varsa worker edit yapmadan coordinator'a döner:
