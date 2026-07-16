@@ -49,6 +49,11 @@ Tg-Research-v1-bakis/
 # Project docs
 CRM_EXPANSION_PLAN.md
 plans/
+!plans/
+plans/*
+!plans/CRM_EXPANSION_V2_PLAN.md
+!plans/CRM_EXPANSION_V3_PLAN.md
+!plans/TG_RESEARCH_LEAD_QUALIFICATION_SALES_PLAYBOOK.md
 CLAUDE.md
 .claude/settings.local.json
 .claude/skills/
