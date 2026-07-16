@@ -10,10 +10,11 @@ import {
     IconMail, IconMailOpened, IconTrash, IconRefresh,
     IconExternalLink, IconPlus, IconChevronDown, IconX, IconCheck,
     IconArrowBackUp, IconArrowForwardUp, IconSend, IconDeviceFloppy,
+    IconPaperclip,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
-import { showSuccess, showWarning, showErrorFromApi } from '../../lib/notifications';
+import { showSuccess, showWarning, showErrorFromApi, notifyAttachmentWarning } from '../../lib/notifications';
 import { useAuth } from '../../contexts/AuthContext';
 import { isInternal } from '../../lib/permissions';
 import { useStages } from '../../contexts/StagesContext';
@@ -165,6 +166,12 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
             if (savedCc && typeof savedCc === 'string') {
                 setSelectedCc(savedCc.split(',').map((e: string) => e.trim()).filter(Boolean));
             }
+            const savedAttachments = draftData.draft.raw_payload?.attachment_ids;
+            if (Array.isArray(savedAttachments) && savedAttachments.length) {
+                setSelectedAttachments(
+                    savedAttachments.filter((id: unknown): id is string => typeof id === 'string'),
+                );
+            }
         }
     }, [draftData, draftLoaded, replyBody]);
 
@@ -279,8 +286,8 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 ...(ccList.length > 0 && { cc: ccList.join(', ') }),
             })).data;
         },
-        onSuccess: () => {
-            showSuccess(t('emailReplies.reply.success'));
+        onSuccess: (data) => {
+            if (!notifyAttachmentWarning(data)) showSuccess(t('emailReplies.reply.success'));
             setReplyOpen(false);
             setReplyBody('');
             setSelectedCc([]);
@@ -319,8 +326,8 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                 note: forwardNote.trim(),
                 ...(selectedForwardAttachments.length > 0 && { attachmentIds: selectedForwardAttachments }),
             })).data,
-        onSuccess: () => {
-            showSuccess(t('emailReplies.forward.success', 'Email yönlendirildi'));
+        onSuccess: (data) => {
+            if (!notifyAttachmentWarning(data)) showSuccess(t('emailReplies.forward.success', 'Email yönlendirildi'));
             setForwardOpen(false);
             setForwardTo('');
             setForwardNote('');
@@ -577,6 +584,57 @@ export default function ReplyDetailModal({ reply, opened, onClose }: ReplyDetail
                                         </>
                                     );
                                 })()}
+                                {msg.attachments && msg.attachments.length > 0 && (
+                                    <Group gap={8} mt={10}>
+                                        {msg.attachments.map((attachment) => attachment.missing ? (
+                                            <Badge
+                                                key={attachment.id}
+                                                size="sm"
+                                                variant="light"
+                                                color="gray"
+                                                leftSection={<IconPaperclip size={12} />}
+                                            >
+                                                {t('emailReplies.attachments.unavailable', 'Ek artık mevcut değil')}
+                                            </Badge>
+                                        ) : (
+                                            <Anchor
+                                                key={attachment.id}
+                                                href={attachment.open_url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                underline="never"
+                                            >
+                                                <Group
+                                                    gap={6}
+                                                    wrap="nowrap"
+                                                    style={{ border: '1px solid #e3e3ef', borderRadius: 8, padding: '4px 10px', background: '#fff' }}
+                                                >
+                                                    <IconPaperclip size={14} color="#7c3aed" />
+                                                    <Box>
+                                                        <Text
+                                                            size="xs"
+                                                            fw={600}
+                                                            c="#3a3a52"
+                                                            style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                                        >
+                                                            {attachment.label}
+                                                        </Text>
+                                                        <Text fz={10} c="dimmed">
+                                                            {(attachment.file_type || '').toUpperCase()}
+                                                            {attachment.file_size ? ` · ${attachment.file_size}` : ''}
+                                                        </Text>
+                                                    </Box>
+                                                    <Badge size="xs" variant="light" color={attachment.is_file ? 'teal' : 'gray'}>
+                                                        {attachment.is_file
+                                                            ? t('emailReplies.attachments.deliveryFile', 'Dosya')
+                                                            : t('emailReplies.attachments.deliveryLink', 'Link')}
+                                                    </Badge>
+                                                    <IconExternalLink size={13} color="#9a9ab0" />
+                                                </Group>
+                                            </Anchor>
+                                        ))}
+                                    </Group>
+                                )}
                             </Box>
                         </Box>
                     );

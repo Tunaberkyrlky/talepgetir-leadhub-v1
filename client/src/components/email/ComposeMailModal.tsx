@@ -11,7 +11,7 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
-import { showSuccess, showErrorFromApi } from '../../lib/notifications';
+import { showSuccess, showErrorFromApi, notifyAttachmentWarning } from '../../lib/notifications';
 import AttachmentSection from './AttachmentSection';
 import type { EmailConnectionStatus } from '../../types/campaign';
 
@@ -117,8 +117,8 @@ export default function ComposeMailModal({ opened, onClose }: ComposeMailModalPr
                 ...(toContactId && { contactId: toContactId }),
             })).data;
         },
-        onSuccess: () => {
-            showSuccess(t('emailReplies.compose.success', 'Mail gönderildi'));
+        onSuccess: (data) => {
+            if (!notifyAttachmentWarning(data)) showSuccess(t('emailReplies.compose.success', 'Mail gönderildi'));
             queryClient.invalidateQueries({ queryKey: ['email-replies'] });
             queryClient.invalidateQueries({ queryKey: ['email-replies-stats'] });
             queryClient.invalidateQueries({ queryKey: ['email-replies-tracking-stats'] });

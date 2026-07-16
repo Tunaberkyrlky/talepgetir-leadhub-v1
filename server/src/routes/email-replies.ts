@@ -89,16 +89,18 @@ async function resolveOutboundAttachments(
     attachmentIds: string[] | undefined,
     tenantId: string,
     shape: { channel: MailChannel; accountEmail?: string | null; originProvider?: MailProviderName; inReplyToMessageId?: string | null },
-): Promise<{ cardsHtml: string; attachments: CanonicalAttachment[] }> {
-    if (!attachmentIds?.length) return { cardsHtml: '', attachments: [] };
+): Promise<{ cardsHtml: string; attachments: CanonicalAttachment[]; missing: number }> {
+    if (!attachmentIds?.length) return { cardsHtml: '', attachments: [], missing: 0 };
+    const selectedIds = [...new Set(attachmentIds)];
 
     const { data: templates } = await supabaseAdmin
         .from('email_attachment_templates')
         .select('label, file_type, file_url, file_size, storage_path, size_bytes, original_filename')
-        .in('id', attachmentIds)
+        .in('id', selectedIds)
         .eq('tenant_id', tenantId)
         .eq('is_active', true);
-    if (!templates?.length) return { cardsHtml: '', attachments: [] };
+    const missing = selectedIds.length - (templates?.length ?? 0);
+    if (!templates?.length) return { cardsHtml: '', attachments: [], missing };
 
     const cap = await willSupportAttachments({
         tenantId,
@@ -129,7 +131,16 @@ async function resolveOutboundAttachments(
             cards.push({ label: t.label, file_type: t.file_type, file_url: attachmentCardUrl(t), file_size: t.file_size });
         }
     }
-    return { cardsHtml: buildAttachmentCardsHtml(cards), attachments };
+    return { cardsHtml: buildAttachmentCardsHtml(cards), attachments, missing };
+}
+
+function buildAttachmentWarning(
+    missing: number,
+    dropped: string[] | undefined,
+): { failed: string[]; missingCount: number } | undefined {
+    const failed = dropped ?? [];
+    if (!failed.length && missing <= 0) return undefined;
+    return { failed, missingCount: Math.max(0, missing) };
 }
 
 // GET /api/email-replies — threaded list (latest email per sender+campaign)
@@ -319,7 +330,47 @@ router.get(
                 }
             }
 
-            res.json(rows.map((r: any) => ({ ...r, tracking: trackingMap[r.id] ?? null })));
+            // Resolve the attachment ids stored on outbound messages. Deleted
+            // templates remain visible as unavailable placeholders in history.
+            const attachmentIds = new Set<string>();
+            for (const row of rows as any[]) {
+                const ids = row.raw_payload?.attachment_ids;
+                if (Array.isArray(ids)) {
+                    for (const id of ids) if (typeof id === 'string') attachmentIds.add(id);
+                }
+            }
+
+            const attachmentMap: Record<string, {
+                id: string; label: string; file_type: string; file_size: string;
+                is_file: boolean; open_url: string;
+            }> = {};
+            if (attachmentIds.size) {
+                const { data: templates } = await supabaseAdmin
+                    .from('email_attachment_templates')
+                    .select('id, label, file_type, file_url, file_size, storage_path, original_filename')
+                    .in('id', [...attachmentIds])
+                    .eq('tenant_id', tenantId);
+                for (const template of (templates || []) as any[]) {
+                    attachmentMap[template.id] = {
+                        id: template.id,
+                        label: template.original_filename || template.label,
+                        file_type: template.file_type,
+                        file_size: template.file_size,
+                        is_file: !!template.storage_path,
+                        open_url: attachmentCardUrl(template),
+                    };
+                }
+            }
+
+            res.json(rows.map((row: any) => {
+                const ids = row.raw_payload?.attachment_ids;
+                const attachments = Array.isArray(ids)
+                    ? ids
+                        .filter((id: unknown): id is string => typeof id === 'string')
+                        .map((id: string) => attachmentMap[id] ?? { id, missing: true })
+                    : [];
+                return { ...row, tracking: trackingMap[row.id] ?? null, attachments };
+            }));
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Thread history error');
@@ -903,7 +954,7 @@ router.post(
 
             // Real file where the channel supports it (PlusVibe reply does), link
             // card otherwise. Cards must be appended BEFORE tracking wraps links.
-            const { cardsHtml, attachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
+            const { cardsHtml, attachments, missing: missingAttachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
                 channel: 'reply',
                 accountEmail,
                 originProvider: 'plusvibe',
@@ -929,6 +980,7 @@ router.post(
                 ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
                 ...(attachments.length && { attachments }),
             });
+            const attachmentWarning = buildAttachmentWarning(missingAttachments, sendResult.droppedAttachments);
 
             // Insert outbound reply record (canonical columns + legacy raw_payload)
             const outRow = {
@@ -973,12 +1025,17 @@ router.post(
                 log.error({ err: insertErr }, 'Failed to store outbound reply');
                 // Reply was sent via PlusVibe successfully, but local storage failed
                 // Return success with warning
-                res.json({ sent: true, stored: false, plusvibe_id: sendResult.providerMessageId });
+                res.json({
+                    sent: true,
+                    stored: false,
+                    plusvibe_id: sendResult.providerMessageId,
+                    ...(attachmentWarning && { attachmentWarning }),
+                });
                 return;
             }
 
             log.info({ replyId: id, outboundId: inserted.id, to: emailReply.sender_email }, 'Reply sent via PlusVibe');
-            res.json({ sent: true, stored: true, data: inserted });
+            res.json({ sent: true, stored: true, data: inserted, ...(attachmentWarning && { attachmentWarning }) });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Send reply error');
@@ -1045,7 +1102,7 @@ router.post(
 
             // PlusVibe forward has no attachment API → everything degrades to a
             // link card (real attachment only on channels that support forward).
-            const { cardsHtml, attachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
+            const { cardsHtml, attachments, missing: missingAttachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
                 channel: 'forward',
                 accountEmail,
                 originProvider: 'plusvibe',
@@ -1068,6 +1125,7 @@ router.post(
                 ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
                 ...(attachments.length && { attachments }),
             });
+            const attachmentWarning = buildAttachmentWarning(missingAttachments, sendResult.droppedAttachments);
 
             // Outbound record — sender_email kept as ORIGINAL sender so the forward
             // stays under the same thread in the UI. forwarded_to is in raw_payload.
@@ -1111,12 +1169,17 @@ router.post(
 
             if (insertErr) {
                 log.error({ err: insertErr }, 'Failed to store outbound forward');
-                res.json({ sent: true, stored: false, plusvibe_id: sendResult.providerMessageId });
+                res.json({
+                    sent: true,
+                    stored: false,
+                    plusvibe_id: sendResult.providerMessageId,
+                    ...(attachmentWarning && { attachmentWarning }),
+                });
                 return;
             }
 
             log.info({ replyId: id, outboundId: inserted.id, forwardedTo: to }, 'Email forwarded via PlusVibe');
-            res.json({ sent: true, stored: true, data: inserted });
+            res.json({ sent: true, stored: true, data: inserted, ...(attachmentWarning && { attachmentWarning }) });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Forward error');
@@ -1177,7 +1240,7 @@ router.post(
             let htmlBody = plainTextToParagraphs(body);
 
             // Real file where the mailbox (Gmail/Outlook/SMTP) supports it, else card.
-            const { cardsHtml, attachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
+            const { cardsHtml, attachments, missing: missingAttachments } = await resolveOutboundAttachments(attachmentIds, tenantId, {
                 channel: 'compose',
                 accountEmail,
             });
@@ -1196,6 +1259,7 @@ router.post(
                 ...(cc && { cc: cc.split(',').map((s) => s.trim()).filter(Boolean) }),
                 ...(attachments.length && { attachments }),
             });
+            const attachmentWarning = buildAttachmentWarning(missingAttachments, sendResult.droppedAttachments);
 
             // Outbound record — new thread, no parent, no campaign
             const outRow = {
@@ -1238,7 +1302,12 @@ router.post(
 
             if (insertErr) {
                 log.error({ err: insertErr }, 'Failed to store outbound compose');
-                res.json({ sent: true, stored: false, message_id: sendResult.providerMessageId });
+                res.json({
+                    sent: true,
+                    stored: false,
+                    message_id: sendResult.providerMessageId,
+                    ...(attachmentWarning && { attachmentWarning }),
+                });
                 return;
             }
 
@@ -1262,7 +1331,7 @@ router.post(
             }
 
             log.info({ outboundId: inserted.id, to, subject: subject.slice(0, 50) }, 'Compose email sent via Nango');
-            res.json({ sent: true, stored: true, data: inserted });
+            res.json({ sent: true, stored: true, data: inserted, ...(attachmentWarning && { attachmentWarning }) });
         } catch (err) {
             if (err instanceof AppError) return next(err);
             log.error({ err }, 'Compose error');

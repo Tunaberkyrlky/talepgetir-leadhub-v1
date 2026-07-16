@@ -148,6 +148,17 @@ export interface ThreadHistoryItem {
         [key: string]: unknown;
     } | null;
     tracking?: MessageTracking | null;
+    attachments?: ThreadAttachment[];
+}
+
+export interface ThreadAttachment {
+    id: string;
+    label?: string;
+    file_type?: string;
+    file_size?: string;
+    is_file?: boolean;
+    open_url?: string;
+    missing?: boolean;
 }
 
 export interface MessageTracking {

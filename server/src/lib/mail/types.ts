@@ -80,6 +80,9 @@ export interface SendResult {
     provider: MailProviderName;
     providerMessageId: string;
     success: boolean;
+    // Labels of files that could not be loaded from storage. The message may
+    // still be sent, so routes must surface this partial-delivery condition.
+    droppedAttachments?: string[];
 }
 
 /**

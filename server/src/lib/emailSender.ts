@@ -220,6 +220,11 @@ async function sendViaGmail(connection: EmailConnection, params: SendParams): Pr
     return data?.id || `gmail_${Date.now()}`;
 }
 
+// Graph /sendMail caps the entire request near 4 MB. Base64 expands raw files,
+// so keep the total raw attachment payload at 3 MB and fail before the provider
+// returns an opaque request-size error.
+const OUTLOOK_MAX_TOTAL_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+
 async function sendViaOutlook(connection: EmailConnection, params: SendParams): Promise<string> {
     const message: Record<string, unknown> = {
         subject: params.subject,
@@ -233,6 +238,14 @@ async function sendViaOutlook(connection: EmailConnection, params: SendParams): 
         message.replyTo = [{ emailAddress: { address: params.replyTo } }];
     }
     if (params.attachments?.length) {
+        const totalBytes = params.attachments.reduce((sum, attachment) => sum + attachment.content.length, 0);
+        if (totalBytes > OUTLOOK_MAX_TOTAL_ATTACHMENT_BYTES) {
+            const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+            throw new AppError(
+                `Outlook allows at most ${mb(OUTLOOK_MAX_TOTAL_ATTACHMENT_BYTES)} of attachments per email; the selected files total ${mb(totalBytes)}. Please send fewer or smaller files, or share them as a download link.`,
+                413,
+            );
+        }
         message.attachments = params.attachments.map((a) => ({
             '@odata.type': '#microsoft.graph.fileAttachment',
             name: a.filename,

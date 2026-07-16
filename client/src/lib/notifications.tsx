@@ -94,6 +94,29 @@ export function getErrorMessage(error: unknown, fallback?: string): string {
     return defaultMsg;
 }
 
+export interface AttachmentSendWarning {
+    failed?: string[];
+    missingCount?: number;
+}
+
+/** Show a warning when the message was sent but one or more files were omitted. */
+export function notifyAttachmentWarning(data: unknown): boolean {
+    const warning = (data as { attachmentWarning?: AttachmentSendWarning } | null | undefined)?.attachmentWarning;
+    if (!warning) return false;
+
+    const messages: string[] = [];
+    if (warning.failed?.length) {
+        messages.push(i18n.t('emailReplies.attachments.partialFail', { names: warning.failed.join(', ') }));
+    }
+    if (warning.missingCount && warning.missingCount > 0) {
+        messages.push(i18n.t('emailReplies.attachments.partialMissing', { count: warning.missingCount }));
+    }
+    if (!messages.length) return false;
+
+    notifications.show({ message: messages.join(' '), color: 'yellow', autoClose: 10000, withCloseButton: true });
+    return true;
+}
+
 /** Convenience: show an error notification from an Axios/unknown error */
 export function showErrorFromApi(error: unknown, fallback?: string) {
     const message = getErrorMessage(error, fallback);
