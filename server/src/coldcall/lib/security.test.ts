@@ -131,7 +131,8 @@ test('recording pipeline keeps provider media until durable storage and fences e
     assert.match(pipeline, /recording row insert failed:[\s\S]*throw new Error/);
     assert.ok(pipeline.indexOf('await storeRecording') < pipeline.indexOf("method: 'DELETE'"));
     assert.match(pipeline, /existing\.status === 'stored'[\s\S]*storage\.from\(BUCKET\)\.download/);
-    assert.match(pipeline, /providerMediaMayBeDeleted/);
+    assert.ok(pipeline.indexOf('await writeTranscriptAndSummary') < pipeline.indexOf("method: 'DELETE'"));
+    assert.ok(pipeline.indexOf('await summarizeAndPersist') < pipeline.indexOf("method: 'DELETE'"));
     assert.match(pipeline, /deepgram transcription failed'[\s\S]*throw err/);
     assert.match(pipeline, /terminalFailure: 'unavailable'/);
     assert.match(pipeline, /await assertLease\?\.\(\)[\s\S]*deepgramTranscribe/);
@@ -153,7 +154,7 @@ test('explicit number deletion cannot bypass durable reconciliation states', () 
     const deletion = route.slice(route.indexOf("router.delete('/:id'"));
     assert.match(deletion, /\['active', 'pending_regulatory'\]\.includes\(num\.status\)/);
     assert.match(deletion, /coldcall_claim_explicit_number_release/);
-    assert.match(deletion, /await providerFor\(settings\)\.releaseNumber/);
+    assert.match(deletion, /await providerFor\(scopedSettings\)\.releaseNumber\(scopedSettings/);
     assert.match(deletion, /coldcall_complete_explicit_number_release/);
     assert.doesNotMatch(deletion, /\.update\(\{ status: 'released'/);
 });
@@ -173,4 +174,54 @@ test('all released-number transitions clear the tenant default transactionally',
     const route = readFileSync(join(process.cwd(), 'server/src/coldcall/routes/numbers.ts'), 'utf8');
     const deletion = route.slice(route.indexOf("router.delete('/:id'"));
     assert.doesNotMatch(deletion, /default_phone_number_id/);
+});
+
+test('persisted provider selection fails closed and number operations bind recorded provider', () => {
+    const factory = readFileSync(join(process.cwd(), 'server/src/coldcall/providers/index.ts'), 'utf8');
+    const route = readFileSync(join(process.cwd(), 'server/src/coldcall/routes/numbers.ts'), 'utf8');
+    const cleanup = readFileSync(join(process.cwd(), 'server/src/coldcall/lib/numberCleanupScheduler.ts'), 'utf8');
+    assert.match(factory, /settings\.provider === 'mock'[\s\S]*return mockProvider/);
+    assert.match(factory, /settings\.provider === 'twilio'[\s\S]*throw new AppError\('Twilio provider is unavailable/);
+    assert.doesNotMatch(factory, /if \(settings\.provider === 'twilio'.*\) return twilioProvider;\s*return mockProvider/s);
+    assert.match(route.slice(route.indexOf("router.delete('/:id'")), /provider: num\.provider/);
+    assert.match(cleanup, /provider: job\.provider/);
+});
+
+test('stale purchasing reservations are conservatively promoted and reconciled', () => {
+    const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20260716213000_coldcall_atomicity_hardening.sql'), 'utf8');
+    const reserve = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION coldcall_reserve_number'), sql.indexOf('CREATE OR REPLACE FUNCTION coldcall_complete_number'));
+    const complete = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION coldcall_complete_number'), sql.indexOf('CREATE OR REPLACE FUNCTION coldcall_release_number_reservation'));
+    const claim = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION coldcall_claim_number_cleanup'), sql.indexOf('CREATE OR REPLACE FUNCTION coldcall_finish_number_cleanup'));
+    assert.match(reserve, /cleanup_next_attempt_at[\s\S]*interval '15 minutes'/);
+    assert.match(complete, /cleanup_next_attempt_at=NULL/);
+    assert.match(claim, /status='purchasing'[\s\S]*cleanup_next_attempt_at<=now\(\)[\s\S]*status IN \('release_pending','purchase_unknown'\)/);
+    assert.match(sql, /REVOKE EXECUTE ON FUNCTION coldcall_claim_number_cleanup/);
+    assert.match(sql, /GRANT EXECUTE ON FUNCTION coldcall_claim_number_cleanup[\s\S]*TO service_role/);
+});
+
+test('number release RPCs lock settings before mutating phone rows', () => {
+    const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20260716213000_coldcall_atomicity_hardening.sql'), 'utf8');
+    for (const functionName of [
+        'coldcall_complete_explicit_number_release',
+        'coldcall_finish_number_cleanup',
+        'coldcall_finish_number_reconciliation',
+    ]) {
+        const start = sql.indexOf(`CREATE OR REPLACE FUNCTION ${functionName}`);
+        const body = sql.slice(start, sql.indexOf('END; $$;', start));
+        const settingsLock = body.indexOf('FROM coldcall_settings');
+        const phoneUpdate = body.indexOf('UPDATE coldcall_phone_numbers');
+        assert.ok(settingsLock >= 0 && settingsLock < phoneUpdate, `${functionName} must lock settings first`);
+        assert.match(body, /FROM coldcall_settings[\s\S]*FOR UPDATE/);
+    }
+});
+
+test('recording retries resume durable transcript state without duplicate STT or AI', () => {
+    const pipeline = readFileSync(join(process.cwd(), 'server/src/coldcall/lib/pipeline.ts'), 'utf8');
+    const resumeCheck = pipeline.indexOf("existingTranscript?.status === 'done'");
+    const deepgram = pipeline.indexOf('const stt = await deepgramTranscribe');
+    assert.ok(resumeCheck >= 0 && resumeCheck < deepgram);
+    assert.match(pipeline, /status === 'pending'[\s\S]*existingTranscript\.segments[\s\S]*summarizeAndPersist/);
+    assert.match(pipeline, /status === 'done' \|\| existing\?\.status === 'failed'\) return/);
+    assert.match(pipeline, /\.eq\('status', 'pending'\)/);
+    assert.doesNotMatch(pipeline, /coldcall_transcripts'\)\.upsert/);
 });

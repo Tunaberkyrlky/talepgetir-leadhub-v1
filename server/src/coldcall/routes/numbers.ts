@@ -277,7 +277,8 @@ router.delete('/:id', requireBuyer, async (req: Request, res: Response, next: Ne
         }
         if (num.provider_sid) {
             try {
-                await providerFor(settings).releaseNumber(settings, num.provider_sid);
+                const scopedSettings = { ...settings, provider: num.provider as 'mock' | 'twilio' };
+                await providerFor(scopedSettings).releaseNumber(scopedSettings, num.provider_sid);
             } catch (releaseError) {
                 log.error({ err: releaseError, numberId: num.id }, 'explicit provider release failed; queued for reconciliation');
                 throw new AppError('Sağlayıcı iadesi başarısız; otomatik uzlaştırma bekleniyor', 502);

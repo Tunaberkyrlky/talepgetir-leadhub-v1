@@ -212,11 +212,14 @@ BEGIN
  IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_settings_missing'; END IF;
  IF (SELECT count(*) FROM coldcall_phone_numbers WHERE tenant_id=p_tenant_id AND status<>'released')>=v_max
    THEN RAISE EXCEPTION 'coldcall_number_quota'; END IF;
- INSERT INTO coldcall_phone_numbers(tenant_id,provider,e164,country_code,friendly_name,status,monthly_cost_usd,created_by)
- VALUES(p_tenant_id,p_provider,p_e164,upper(p_country),p_e164,'purchasing',p_monthly,p_created_by)
+ INSERT INTO coldcall_phone_numbers(tenant_id,provider,e164,country_code,friendly_name,status,
+   monthly_cost_usd,created_by,cleanup_next_attempt_at)
+ VALUES(p_tenant_id,p_provider,p_e164,upper(p_country),p_e164,'purchasing',p_monthly,p_created_by,
+   now()+interval '15 minutes')
  ON CONFLICT(tenant_id,e164) DO UPDATE SET provider=EXCLUDED.provider,country_code=EXCLUDED.country_code,
    friendly_name=EXCLUDED.friendly_name,status='purchasing',monthly_cost_usd=EXCLUDED.monthly_cost_usd,
-   created_by=EXCLUDED.created_by,provider_sid=NULL,released_at=NULL
+   created_by=EXCLUDED.created_by,provider_sid=NULL,released_at=NULL,
+   cleanup_next_attempt_at=now()+interval '15 minutes',cleanup_last_error=NULL
  WHERE coldcall_phone_numbers.status='released'
  RETURNING * INTO v_num;
  IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_number_already_reserved'; END IF;
@@ -229,7 +232,8 @@ CREATE OR REPLACE FUNCTION coldcall_complete_number(
 DECLARE v_num coldcall_phone_numbers;
 BEGIN
  UPDATE coldcall_phone_numbers SET provider_sid=p_provider_sid,e164=p_e164,friendly_name=p_e164,status=p_status,
-   purchased_at=now() WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='purchasing'
+   purchased_at=now(),cleanup_next_attempt_at=NULL,cleanup_last_error=NULL
+   WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='purchasing'
    RETURNING * INTO v_num;
  IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_number_reservation_missing'; END IF;
  RETURN v_num;
@@ -238,7 +242,8 @@ END; $$;
 CREATE OR REPLACE FUNCTION coldcall_release_number_reservation(p_tenant_id UUID,p_number_id UUID)
 RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
- UPDATE coldcall_phone_numbers SET status='released',released_at=now()
+ UPDATE coldcall_phone_numbers SET status='released',released_at=now(),cleanup_next_attempt_at=NULL,
+   cleanup_last_error=NULL
  WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='purchasing';
  RETURN FOUND;
 END; $$;
@@ -269,12 +274,16 @@ CREATE OR REPLACE FUNCTION coldcall_complete_explicit_number_release(p_tenant_id
 RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_tenant_id UUID;
 BEGIN
+ SELECT tenant_id INTO v_tenant_id FROM coldcall_phone_numbers
+ WHERE id=p_number_id AND tenant_id=p_tenant_id;
+ IF v_tenant_id IS NULL THEN RETURN FALSE; END IF;
+ PERFORM 1 FROM coldcall_settings WHERE tenant_id=v_tenant_id FOR UPDATE;
  UPDATE coldcall_phone_numbers SET status='released',released_at=now(),cleanup_next_attempt_at=NULL,
    cleanup_last_error=NULL,cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
  WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='release_pending'
    AND cleanup_lease_token IS NULL
  RETURNING tenant_id INTO v_tenant_id;
- IF v_tenant_id IS NULL THEN RETURN FALSE; END IF;
+ IF NOT FOUND THEN RETURN FALSE; END IF;
  UPDATE coldcall_settings SET default_phone_number_id=NULL,updated_at=now()
  WHERE tenant_id=v_tenant_id AND default_phone_number_id=p_number_id;
  RETURN TRUE;
@@ -293,6 +302,10 @@ CREATE OR REPLACE FUNCTION coldcall_claim_number_cleanup(p_lease UUID,p_seconds 
 RETURNS SETOF coldcall_phone_numbers LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_id UUID;
 BEGIN
+ UPDATE coldcall_phone_numbers SET status='purchase_unknown',
+   cleanup_next_attempt_at=now(),cleanup_last_error='stale purchasing reservation'
+ WHERE status='purchasing' AND cleanup_next_attempt_at IS NOT NULL
+   AND cleanup_next_attempt_at<=now();
  SELECT id INTO v_id FROM coldcall_phone_numbers WHERE status IN ('release_pending','purchase_unknown') AND cleanup_attempts<12
   AND ((cleanup_lease_token IS NULL AND COALESCE(cleanup_next_attempt_at,now())<=now())
     OR cleanup_lease_expires_at<now())
@@ -308,6 +321,9 @@ CREATE OR REPLACE FUNCTION coldcall_finish_number_cleanup(
 ) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_tenant_id UUID;
 BEGIN
+ SELECT tenant_id INTO v_tenant_id FROM coldcall_phone_numbers WHERE id=p_number_id;
+ IF v_tenant_id IS NULL THEN RETURN FALSE; END IF;
+ PERFORM 1 FROM coldcall_settings WHERE tenant_id=v_tenant_id FOR UPDATE;
  UPDATE coldcall_phone_numbers SET status=CASE WHEN p_success THEN 'released' ELSE status END,
   released_at=CASE WHEN p_success THEN now() ELSE released_at END,
   cleanup_next_attempt_at=CASE WHEN p_success THEN NULL ELSE now()+interval '5 minutes' END,
@@ -315,7 +331,7 @@ BEGIN
   cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
  WHERE id=p_number_id AND status='release_pending' AND cleanup_lease_token=p_lease
  RETURNING tenant_id INTO v_tenant_id;
- IF v_tenant_id IS NULL THEN RETURN FALSE; END IF;
+ IF NOT FOUND THEN RETURN FALSE; END IF;
  IF p_success THEN
    UPDATE coldcall_settings SET default_phone_number_id=NULL,updated_at=now()
    WHERE tenant_id=v_tenant_id AND default_phone_number_id=p_number_id;
@@ -328,6 +344,9 @@ CREATE OR REPLACE FUNCTION coldcall_finish_number_reconciliation(
 ) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_tenant_id UUID;
 BEGIN
+ SELECT tenant_id INTO v_tenant_id FROM coldcall_phone_numbers WHERE id=p_number_id;
+ IF v_tenant_id IS NULL THEN RETURN FALSE; END IF;
+ PERFORM 1 FROM coldcall_settings WHERE tenant_id=v_tenant_id FOR UPDATE;
  UPDATE coldcall_phone_numbers SET
   status=CASE WHEN p_error IS NOT NULL THEN status WHEN p_owned THEN 'active' ELSE 'released' END,
   provider_sid=CASE WHEN p_owned THEN p_provider_sid ELSE provider_sid END,
@@ -337,7 +356,7 @@ BEGIN
   cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
  WHERE id=p_number_id AND status='purchase_unknown' AND cleanup_lease_token=p_lease
  RETURNING tenant_id INTO v_tenant_id;
- IF v_tenant_id IS NULL THEN RETURN FALSE; END IF;
+ IF NOT FOUND THEN RETURN FALSE; END IF;
  IF p_error IS NULL AND NOT p_owned THEN
    UPDATE coldcall_settings SET default_phone_number_id=NULL,updated_at=now()
    WHERE tenant_id=v_tenant_id AND default_phone_number_id=p_number_id;
