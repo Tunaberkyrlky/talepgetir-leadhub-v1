@@ -97,53 +97,44 @@ export async function hsMatchHandler({ job, heartbeat }: HandlerContext): Promis
 
         await heartbeat({ stage: 'persisting', candidates: uniqueSurvivors.length });
 
-        // No lease/fence columns exist here: re-runs idempotently replace only the undecided
-        // AI set; approved/rejected human decisions are immutable input and are never touched.
-        const { error: deleteErr } = await researchSupabaseAdmin
-            .from('research_hs_codes')
-            .delete()
-            .eq('tenant_id', tenantId)
-            .eq('project_id', projectId)
-            .eq('source', 'ai')
-            .eq('status', 'candidate');
-        if (deleteErr) throw deleteErr;
-
-        // A code the human already decided on (approved or rejected, any source) must never get
-        // a fresh 'candidate' row alongside it — that would let the same code be approved/rejected
-        // twice. Only insert survivors the project doesn't already have a decided row for.
-        const { data: decidedRows, error: decidedErr } = await researchSupabaseAdmin
-            .from('research_hs_codes')
-            .select('code')
-            .eq('tenant_id', tenantId)
-            .eq('project_id', projectId)
-            .in('status', ['approved', 'rejected']);
-        if (decidedErr) throw decidedErr;
-        const decidedCodes = new Set((decidedRows ?? []).map((row) => row.code));
-        const insertable = uniqueSurvivors.filter((candidate) => !decidedCodes.has(candidate.code));
-        const skippedDecided = uniqueSurvivors.length - insertable.length;
-
-        if (insertable.length > 0) {
-            const { error: insertErr } = await researchSupabaseAdmin
-                .from('research_hs_codes')
-                .insert(insertable.map((candidate) => ({
-                    tenant_id: tenantId,
-                    project_id: projectId,
-                    code: candidate.code,
-                    description: candidate.description,
-                    status: 'candidate',
-                    source: 'ai',
-                })));
-            if (insertErr) throw insertErr;
+        // Atomic, job-fenced persistence (research_persist_hs_candidates, migration 151): in ONE
+        // transaction it locks THIS job row FOR UPDATE, replaces only the undecided AI candidate set
+        // (approved/rejected human decisions are immutable), and inserts the survivors the human
+        // hasn't already decided on. It serializes against a concurrent subject-change reset
+        // (research_reset_derived_data's UPDATE of the same job row): if the reset canceled this job
+        // mid-flight, the RPC sees status != 'running' and returns -1 without writing anything, so
+        // stale old-subject candidates can never land after the HS table was cleared. THROW on -1
+        // (not return) so the runner does not record a successful (zero-)result — the HS table stays
+        // cleared and step 22 re-matches on the new subject. This brings hs:match to parity with the
+        // already-fenced ICP/geo persist RPCs (closing the last TOCTOU the plain check-then-write had).
+        const { data: insertedCount, error: persistErr } = await researchSupabaseAdmin.rpc('research_persist_hs_candidates', {
+            p_tenant: tenantId,
+            p_project: projectId,
+            p_job: job.id,
+            p_locked_by: job.locked_by,
+            p_lease: job.lease,
+            p_candidates: uniqueSurvivors,
+        });
+        if (persistErr) throw persistErr;
+        if (typeof insertedCount !== 'number') {
+            // The fenced RPC always returns an integer; anything else is unexpected. Throw rather
+            // than fall through to a zero-success (which would let the client suppress re-matching).
+            throw new Error(`hs:match persist returned non-numeric result (${JSON.stringify(insertedCount)})`);
         }
+        if (insertedCount === -1) {
+            throw new Error(`hs:match superseded — job ${job.id} no longer owns the running lease (subject changed / reaped); skipping stale persistence`);
+        }
+        const insertable = insertedCount;
+        const skippedDecided = uniqueSurvivors.length - insertable;
 
         log.info(
-            { jobId: job.id, projectId, candidates: insertable.length, skippedDecided, droppedInvalid, model: result.model },
+            { jobId: job.id, projectId, candidates: insertable, skippedDecided, droppedInvalid, model: result.model },
             'hs:match persisted validated candidates'
         );
 
         return {
             project_id: projectId,
-            candidates: insertable.length,
+            candidates: insertable,
             skipped_already_decided: skippedDecided,
             dropped_invalid: droppedInvalid,
             proposed: value.candidates.length,

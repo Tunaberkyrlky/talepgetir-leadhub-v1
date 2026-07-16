@@ -41,12 +41,48 @@ function countKeysDeep(v: unknown, acc = { n: 0 }): number {
     return acc.n;
 }
 
-// Canonical comparable form of a products list: non-empty trimmed strings, de-duped, sorted.
-// Used by the PATCH handler to decide whether the human-approved products actually changed.
-function normalizedProducts(v: unknown): string[] {
-    return Array.isArray(v)
-        ? [...new Set(v.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => x.trim()))].sort()
-        : [];
+// Canonical fingerprint of EVERY subject-defining profile field. The PATCH handler compares the
+// stored vs incoming fingerprint to decide whether the project's SUBJECT changed and its AI-derived
+// artifacts (ICPs -> geo/offers/verdicts/chunks/channels; profile+products -> HS -> markets) must be
+// invalidated. The ICP / HS / geo / offer prompts all serialize the WHOLE profile, so a change to
+// ANY of these fields — not just products — can alter what the AI generates; missing one would leave
+// stale artifacts (that was the original bug). Keep this list in sync when a new subject field is
+// added to the profile. Normalized so cosmetic diffs (case, whitespace, list order/dupes) don't
+// trigger a needless reset + AI re-generation (website is trim-only — URL paths are case-sensitive).
+function subjectFingerprint(profile: Record<string, unknown>): string {
+    const str = (v: unknown): string => (typeof v === 'string' ? v.trim().toLowerCase().replace(/\s+/g, ' ') : '');
+    const web = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+    const arr = (v: unknown): string[] =>
+        Array.isArray(v)
+            ? [...new Set(v.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => x.trim().toLowerCase().replace(/\s+/g, ' ')))].sort()
+            : [];
+    const d =
+        profile.differentiators && typeof profile.differentiators === 'object' && !Array.isArray(profile.differentiators)
+            ? (profile.differentiators as Record<string, unknown>)
+            : {};
+    return JSON.stringify({
+        website: web(profile.website),
+        what_they_do: str(profile.what_they_do),
+        company_country: str(profile.company_country),
+        products: arr(profile.products),
+        target_markets: arr(profile.target_markets),
+        exclusions: arr(profile.exclusions),
+        lookalike_customers: arr(profile.lookalike_customers),
+        // social_links: match how profileCrawl consumes them — the FIRST 3, in original order, case
+        // preserved (URLs are case-sensitive). Sorting/lowercasing here would miss a reorder that
+        // changes which pages actually get crawled.
+        social_links: Array.isArray(profile.social_links)
+            ? profile.social_links.filter((x): x is string => typeof x === 'string' && !!x.trim()).slice(0, 3).map((x) => x.trim())
+            : [],
+        differentiators: {
+            moq: str(d.moq),
+            lead_time: str(d.lead_time),
+            capacity: str(d.capacity),
+            certifications: arr(d.certifications),
+            references: arr(d.references),
+            languages: arr(d.languages),
+        },
+    });
 }
 
 const jsonRecord = z
@@ -234,37 +270,49 @@ router.patch('/:id', requireWriter, validateBody(updateProjectSchema), async (re
         }
         const tenantId = req.tenantId!;
 
-        // HS codes + market evidence are product-derived: hs:match proposes codes for the
-        // human-approved products and market:analyze ranks importers from those codes. When the
-        // products change (wizard step-4 re-confirm, the advanced editor, or a subject change that
-        // lands new products), the old codes/evidence are stale, so we clear them here — centrally,
-        // covering EVERY products-change entry point — letting step 22's zero-rows auto-run
-        // re-match on the new products. Delete-first ordering (before the update) keeps partial
-        // failures self-healing: a failed delete aborts with nothing changed, and a failed update
-        // only leaves rows already cleared, which the next step-22 visit regenerates.
+        // Subject-change invalidation (the single choke point for it). Every AI-derived wizard
+        // artifact is stale once the project's subject changes — ICPs (from the profile) ->
+        // geographies/offers/verdicts/chunks/channels; profile+products -> HS codes -> market
+        // evidence — and each step only auto-generates when its table is empty, so nothing re-derived
+        // after a reuse / "research again" / advanced-editor edit. Whenever the subject fingerprint
+        // (EVERY subject-defining profile field — see subjectFingerprint) actually changes, clear ALL
+        // of that derived data here so every downstream step re-generates on the new subject. Every
+        // profile edit (wizard steps 1/3/4/5/6, the advanced editor) flows through this same PATCH,
+        // so this one place covers them all. research_reset_derived_data (migration 149) does the
+        // whole cascade in ONE transaction: it cancels in-flight jobs (they'd re-populate on the old
+        // subject), DELETEs research_icps (cascades geo/offers/verdicts/chunks), and clears
+        // research_channels (SET NULL FK) + HS/markets explicitly. Reset-before-update keeps a
+        // partial failure self-healing: a failed reset aborts with nothing changed; a failed update
+        // only leaves derived rows already cleared, which the next step re-generates. The permanent
+        // research_companies dedup/suppression/CRM-export ledger is intentionally NOT cleared (its
+        // per-ICP verdicts cascade with the ICPs, so a re-harvest re-scores; suppression +
+        // already-exported state must outlive it).
         const incoming = req.body as z.infer<typeof updateProjectSchema>;
         const incomingProfile = (incoming.profile && typeof incoming.profile === 'object' && !Array.isArray(incoming.profile))
             ? incoming.profile as Record<string, unknown> : null;
-        const carriesProducts = !!incomingProfile && 'products' in incomingProfile;
 
-        let productsChanged = false;
-        if (carriesProducts) {
+        let derivedDataReset = false;
+        if (incomingProfile) {
             const { data: cur, error: curErr } = await researchSupabaseAdmin
                 .from('research_projects').select('profile').eq('id', parsed.data.id).eq('tenant_id', tenantId).maybeSingle();
-            if (curErr) { log.error({ err: curErr }, 'project products pre-read failed'); throw new AppError('Failed to update research project', 500); }
+            if (curErr) { log.error({ err: curErr }, 'project subject pre-read failed'); throw new AppError('Failed to update research project', 500); }
             if (cur) {
-                const curP = normalizedProducts((cur.profile as Record<string, unknown> | null)?.products);
-                const newP = normalizedProducts(incomingProfile!.products);
-                productsChanged = JSON.stringify(curP) !== JSON.stringify(newP);
+                const curProfile = ((cur.profile as Record<string, unknown> | null) ?? {});
+                const subjectChanged = subjectFingerprint(curProfile) !== subjectFingerprint(incomingProfile);
+                if (subjectChanged) {
+                    // Always p_clear_hs=true: HS matching and market evidence take the WHOLE profile
+                    // (products + summary as context, plus company_country for bilateral trade), so
+                    // any subject change can invalidate them too — not only a products edit.
+                    const { error: rpcErr } = await researchSupabaseAdmin.rpc('research_reset_derived_data', {
+                        p_tenant: tenantId,
+                        p_project: parsed.data.id,
+                        p_clear_hs: true,
+                    });
+                    if (rpcErr) { log.error({ err: rpcErr }, 'reset derived data on subject change failed'); throw new AppError('Failed to update research project', 500); }
+                    derivedDataReset = true;
+                    log.info({ projectId: parsed.data.id }, 'subject changed — cleared all stale derived data (ICP/geo/offers/verdicts/channels/HS/markets) + canceled in-flight jobs');
+                }
             }
-        }
-
-        if (productsChanged) {
-            const { error: mErr } = await researchSupabaseAdmin.from('research_markets').delete().eq('tenant_id', tenantId).eq('project_id', parsed.data.id);
-            if (mErr) { log.error({ err: mErr }, 'reset markets on products change failed'); throw new AppError('Failed to update research project', 500); }
-            const { error: hErr } = await researchSupabaseAdmin.from('research_hs_codes').delete().eq('tenant_id', tenantId).eq('project_id', parsed.data.id);
-            if (hErr) { log.error({ err: hErr }, 'reset hs codes on products change failed'); throw new AppError('Failed to update research project', 500); }
-            log.info({ projectId: parsed.data.id }, 'products changed — cleared stale HS codes + market evidence');
         }
 
         const { data, error } = await researchSupabaseAdmin
@@ -283,7 +331,7 @@ router.patch('/:id', requireWriter, validateBody(updateProjectSchema), async (re
             res.status(404).json({ error: 'Research project not found' });
             return;
         }
-        res.json(data);
+        res.json(derivedDataReset ? { ...data, derived_data_reset: true } : data);
     } catch (err) {
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'update project error');
