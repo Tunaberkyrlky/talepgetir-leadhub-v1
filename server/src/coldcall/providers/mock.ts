@@ -36,6 +36,16 @@ function addTimer(callId: string, t: NodeJS.Timeout): void {
     timers.set(callId, list);
 }
 
+function schedule(callId: string, delayMs: number, task: () => Promise<void>): void {
+    const timer = setTimeout(() => {
+        void task().catch((err) => {
+            log.error({ err, callId }, 'mock lifecycle callback failed');
+            clearTimers(callId);
+        });
+    }, delayMs);
+    addTimer(callId, timer);
+}
+
 /**
  * Guard'lı durum geçişi (codex P1): yalnız beklenen non-terminal durumlardan
  * geçiş yapar; hangup ile timer callback'i yarışırsa terminal durum ASLA ezilmez.
@@ -102,6 +112,10 @@ export const mockProvider: TelephonyProvider = {
         // no-op — mock envanterinde tutulacak bir şey yok
     },
 
+    async findOwnedNumber() {
+        return null;
+    },
+
     async placeCall(call: ColdcallCallRow, settings: ColdcallSettingsRow) {
         const sid = `CA_mock_${randomUUID()}`;
         await setStatus(call.id, 'ringing', { provider_call_sid: sid }, ['queued']);
@@ -110,23 +124,21 @@ export const mockProvider: TelephonyProvider = {
         const announce = settings.recording_mode === 'announce';
         const record = call.recording_enabled_snapshot === true;
 
-        const ringTimer = setTimeout(async () => {
+        schedule(call.id, RING_MS, async () => {
             if (lastDigit === '9') {
-                const t = setTimeout(async () => {
+                schedule(call.id, NO_ANSWER_MS, async () => {
                     const fresh = await loadCall(call.id);
                     if (fresh) await finalizeCall(fresh, { status: 'no_answer' });
                     clearTimers(call.id);
-                }, NO_ANSWER_MS);
-                addTimer(call.id, t);
+                });
                 return;
             }
             if (lastDigit === '8') {
-                const t = setTimeout(async () => {
+                schedule(call.id, BUSY_MS, async () => {
                     const fresh = await loadCall(call.id);
                     if (fresh) await finalizeCall(fresh, { status: 'busy' });
                     clearTimers(call.id);
-                }, BUSY_MS);
-                addTimer(call.id, t);
+                });
                 return;
             }
 
@@ -140,7 +152,7 @@ export const mockProvider: TelephonyProvider = {
             }
 
             // Karşı taraf en geç MAX_TALK_MS sonra kapatır
-            const hangTimer = setTimeout(async () => {
+            schedule(call.id, MAX_TALK_MS, async () => {
                 const fresh = await loadCall(call.id);
                 clearTimers(call.id);
                 if (!fresh) return;
@@ -148,10 +160,8 @@ export const mockProvider: TelephonyProvider = {
                 if (finalized && record && finalized.duration_sec) {
                     void runMockPostCallPipeline(finalized, announce);
                 }
-            }, MAX_TALK_MS);
-            addTimer(call.id, hangTimer);
-        }, RING_MS);
-        addTimer(call.id, ringTimer);
+            });
+        });
     },
 
     async hangupCall(call: ColdcallCallRow, settings: ColdcallSettingsRow) {

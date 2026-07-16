@@ -44,9 +44,31 @@ FROM ranked_recordings d WHERE r.id=d.id AND d.duplicate_rank>1;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_coldcall_recordings_provider_sid
   ON coldcall_recordings(provider_recording_sid) WHERE provider_recording_sid IS NOT NULL;
 
+ALTER TABLE coldcall_recordings
+  ADD COLUMN IF NOT EXISTS recording_source_url TEXT,
+  ADD COLUMN IF NOT EXISTS queue_status TEXT NOT NULL DEFAULT 'completed',
+  ADD COLUMN IF NOT EXISTS queue_attempts INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS queue_next_attempt_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS queue_lease_token UUID,
+  ADD COLUMN IF NOT EXISTS queue_lease_expires_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS queue_last_error TEXT,
+  ADD COLUMN IF NOT EXISTS queue_completed_at TIMESTAMPTZ;
+ALTER TABLE coldcall_recordings DROP CONSTRAINT IF EXISTS coldcall_recordings_queue_status_check;
+ALTER TABLE coldcall_recordings ADD CONSTRAINT coldcall_recordings_queue_status_check
+  CHECK(queue_status IN ('pending','leased','failed','completed'));
+CREATE INDEX IF NOT EXISTS idx_coldcall_recordings_queue
+  ON coldcall_recordings(queue_next_attempt_at,created_at)
+  WHERE queue_status IN ('pending','failed','leased');
+
 ALTER TABLE coldcall_phone_numbers DROP CONSTRAINT IF EXISTS coldcall_phone_numbers_status_check;
 ALTER TABLE coldcall_phone_numbers ADD CONSTRAINT coldcall_phone_numbers_status_check
-  CHECK (status IN ('purchasing','pending_regulatory','active','released'));
+  CHECK (status IN ('purchasing','purchase_unknown','release_pending','pending_regulatory','active','released'));
+ALTER TABLE coldcall_phone_numbers
+  ADD COLUMN IF NOT EXISTS cleanup_attempts INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS cleanup_next_attempt_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS cleanup_lease_token UUID,
+  ADD COLUMN IF NOT EXISTS cleanup_lease_expires_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS cleanup_last_error TEXT;
 
 CREATE OR REPLACE FUNCTION coldcall_start_call(
   p_tenant_id UUID, p_company_id UUID, p_contact_id UUID, p_user_id UUID,
@@ -157,6 +179,30 @@ BEGIN
   RETURN FOUND;
 END; $$;
 
+CREATE OR REPLACE FUNCTION coldcall_assert_provisioning_claim(p_tenant_id UUID,p_claim UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+ SELECT EXISTS(SELECT 1 FROM coldcall_settings WHERE tenant_id=p_tenant_id
+   AND provisioning_state='provisioning' AND provisioning_claim=p_claim
+   AND provisioning_claimed_at>=now()-interval '15 minutes');
+$$;
+
+CREATE OR REPLACE FUNCTION coldcall_persist_provisioning(
+ p_tenant_id UUID,p_claim UUID,p_subaccount_sid TEXT,p_api_key_sid TEXT,
+ p_api_key_secret_enc TEXT,p_twiml_app_sid TEXT,p_webhook_secret TEXT,p_complete BOOLEAN
+) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ UPDATE coldcall_settings SET
+   subaccount_sid=COALESCE(p_subaccount_sid,subaccount_sid),
+   api_key_sid=COALESCE(p_api_key_sid,api_key_sid),
+   api_key_secret_enc=COALESCE(p_api_key_secret_enc,api_key_secret_enc),
+   twiml_app_sid=COALESCE(p_twiml_app_sid,twiml_app_sid),
+   webhook_secret=COALESCE(p_webhook_secret,webhook_secret),
+   provider=CASE WHEN p_complete THEN 'twilio' ELSE provider END,updated_at=now()
+ WHERE tenant_id=p_tenant_id AND provisioning_state='provisioning'
+   AND provisioning_claim=p_claim AND provisioning_claimed_at>=now()-interval '15 minutes';
+ RETURN FOUND;
+END; $$;
+
 CREATE OR REPLACE FUNCTION coldcall_reserve_number(
  p_tenant_id UUID,p_provider TEXT,p_e164 TEXT,p_country TEXT,p_monthly NUMERIC,p_created_by UUID
 ) RETURNS coldcall_phone_numbers LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
@@ -197,18 +243,126 @@ BEGIN
  RETURN FOUND;
 END; $$;
 
-CREATE OR REPLACE FUNCTION coldcall_claim_recording(
- p_tenant_id UUID,p_call_id UUID,p_provider_sid TEXT,p_duration INTEGER
+CREATE OR REPLACE FUNCTION coldcall_mark_number_cleanup(
+ p_tenant_id UUID,p_number_id UUID,p_provider_sid TEXT,p_error TEXT
+) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ UPDATE coldcall_phone_numbers SET status='release_pending',provider_sid=p_provider_sid,
+   cleanup_next_attempt_at=now(),cleanup_last_error=left(COALESCE(p_error,'release failed'),2000)
+ WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='purchasing';
+ RETURN FOUND;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_mark_number_ambiguous(p_tenant_id UUID,p_number_id UUID,p_error TEXT)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ UPDATE coldcall_phone_numbers SET status='purchase_unknown',cleanup_next_attempt_at=now(),
+   cleanup_last_error=left(COALESCE(p_error,'purchase outcome unknown'),2000)
+ WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='purchasing';
+ RETURN FOUND;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_claim_number_cleanup(p_lease UUID,p_seconds INTEGER DEFAULT 300)
+RETURNS SETOF coldcall_phone_numbers LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id UUID;
+BEGIN
+ SELECT id INTO v_id FROM coldcall_phone_numbers WHERE status IN ('release_pending','purchase_unknown') AND cleanup_attempts<12
+  AND ((cleanup_lease_token IS NULL AND COALESCE(cleanup_next_attempt_at,now())<=now())
+    OR cleanup_lease_expires_at<now())
+  ORDER BY cleanup_next_attempt_at NULLS FIRST,purchased_at FOR UPDATE SKIP LOCKED LIMIT 1;
+ IF v_id IS NULL THEN RETURN; END IF;
+ RETURN QUERY UPDATE coldcall_phone_numbers SET cleanup_attempts=cleanup_attempts+1,
+   cleanup_lease_token=p_lease,cleanup_lease_expires_at=now()+make_interval(secs=>LEAST(GREATEST(p_seconds,30),900))
+  WHERE id=v_id RETURNING *;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_finish_number_cleanup(
+ p_number_id UUID,p_lease UUID,p_success BOOLEAN,p_error TEXT
+) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ UPDATE coldcall_phone_numbers SET status=CASE WHEN p_success THEN 'released' ELSE status END,
+  released_at=CASE WHEN p_success THEN now() ELSE released_at END,
+  cleanup_next_attempt_at=CASE WHEN p_success THEN NULL ELSE now()+interval '5 minutes' END,
+  cleanup_last_error=CASE WHEN p_success THEN NULL ELSE left(COALESCE(p_error,'release failed'),2000) END,
+  cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
+ WHERE id=p_number_id AND status='release_pending' AND cleanup_lease_token=p_lease;
+ RETURN FOUND;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_finish_number_reconciliation(
+ p_number_id UUID,p_lease UUID,p_owned BOOLEAN,p_provider_sid TEXT,p_error TEXT
+) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ UPDATE coldcall_phone_numbers SET
+  status=CASE WHEN p_error IS NOT NULL THEN status WHEN p_owned THEN 'active' ELSE 'released' END,
+  provider_sid=CASE WHEN p_owned THEN p_provider_sid ELSE provider_sid END,
+  released_at=CASE WHEN p_error IS NULL AND NOT p_owned THEN now() ELSE released_at END,
+  cleanup_next_attempt_at=CASE WHEN p_error IS NULL THEN NULL ELSE now()+interval '5 minutes' END,
+  cleanup_last_error=CASE WHEN p_error IS NULL THEN NULL ELSE left(p_error,2000) END,
+  cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
+ WHERE id=p_number_id AND status='purchase_unknown' AND cleanup_lease_token=p_lease;
+ RETURN FOUND;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_enqueue_recording(
+ p_tenant_id UUID,p_call_id UUID,p_provider_sid TEXT,p_source_url TEXT,p_duration INTEGER
 ) RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_id UUID;
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM coldcall_calls WHERE id=p_call_id AND tenant_id=p_tenant_id)
    THEN RAISE EXCEPTION 'coldcall_call_not_found'; END IF;
- INSERT INTO coldcall_recordings(call_id,tenant_id,provider_recording_sid,duration_sec,status)
- VALUES(p_call_id,p_tenant_id,p_provider_sid,p_duration,'processing')
+ INSERT INTO coldcall_recordings(call_id,tenant_id,provider_recording_sid,recording_source_url,
+   duration_sec,status,queue_status,queue_next_attempt_at)
+ VALUES(p_call_id,p_tenant_id,p_provider_sid,p_source_url,p_duration,'processing','pending',now())
  ON CONFLICT(provider_recording_sid) WHERE provider_recording_sid IS NOT NULL
- DO NOTHING RETURNING id INTO v_id;
+ DO UPDATE SET recording_source_url=COALESCE(coldcall_recordings.recording_source_url,EXCLUDED.recording_source_url),
+   duration_sec=GREATEST(COALESCE(coldcall_recordings.duration_sec,0),EXCLUDED.duration_sec)
+ RETURNING id INTO v_id;
  RETURN v_id;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_claim_recording_job(p_lease UUID,p_lease_seconds INTEGER DEFAULT 300)
+RETURNS SETOF coldcall_recordings LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id UUID;
+BEGIN
+ SELECT id INTO v_id FROM coldcall_recordings
+ WHERE queue_attempts<8 AND (
+   (queue_status IN ('pending','failed') AND COALESCE(queue_next_attempt_at,now())<=now())
+   OR (queue_status='leased' AND queue_lease_expires_at<now())
+ ) ORDER BY queue_next_attempt_at NULLS FIRST,created_at
+ FOR UPDATE SKIP LOCKED LIMIT 1;
+ IF v_id IS NULL THEN RETURN; END IF;
+ RETURN QUERY UPDATE coldcall_recordings SET queue_status='leased',queue_attempts=queue_attempts+1,
+   queue_lease_token=p_lease,
+   queue_lease_expires_at=now()+make_interval(secs=>LEAST(GREATEST(p_lease_seconds,30),900)),
+   queue_last_error=NULL
+ WHERE id=v_id RETURNING *;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_finish_recording_job(
+ p_recording_id UUID,p_lease UUID,p_success BOOLEAN,p_error TEXT
+) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ UPDATE coldcall_recordings SET
+   queue_status=CASE WHEN p_success THEN 'completed' ELSE 'failed' END,
+   queue_completed_at=CASE WHEN p_success THEN now() ELSE NULL END,
+   queue_next_attempt_at=CASE WHEN p_success THEN NULL
+     ELSE now()+make_interval(secs=>LEAST(1800,15*(2^LEAST(queue_attempts,7))::INTEGER)) END,
+   queue_last_error=CASE WHEN p_success THEN NULL ELSE left(COALESCE(p_error,'unknown error'),2000) END,
+   queue_lease_token=NULL,queue_lease_expires_at=NULL
+ WHERE id=p_recording_id AND queue_status='leased' AND queue_lease_token=p_lease;
+ RETURN FOUND;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_renew_recording_job(
+ p_recording_id UUID,p_lease UUID,p_lease_seconds INTEGER DEFAULT 300
+) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ UPDATE coldcall_recordings SET
+   queue_lease_expires_at=now()+make_interval(secs=>LEAST(GREATEST(p_lease_seconds,30),900))
+ WHERE id=p_recording_id AND queue_status='leased' AND queue_lease_token=p_lease
+   AND queue_lease_expires_at>=now();
+ RETURN FOUND;
 END; $$;
 
 CREATE OR REPLACE FUNCTION coldcall_grant_minutes(
@@ -238,18 +392,38 @@ REVOKE EXECUTE ON FUNCTION coldcall_finalize_call(UUID,UUID,TEXT,TIMESTAMPTZ,TIM
 REVOKE EXECUTE ON FUNCTION coldcall_reconcile_usage(INTEGER) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION coldcall_claim_provisioning(UUID,UUID) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION coldcall_finish_provisioning(UUID,UUID,BOOLEAN) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_assert_provisioning_claim(UUID,UUID) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_persist_provisioning(UUID,UUID,TEXT,TEXT,TEXT,TEXT,TEXT,BOOLEAN) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION coldcall_reserve_number(UUID,TEXT,TEXT,TEXT,NUMERIC,UUID) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION coldcall_complete_number(UUID,UUID,TEXT,TEXT,TEXT) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION coldcall_release_number_reservation(UUID,UUID) FROM PUBLIC,anon,authenticated;
-REVOKE EXECUTE ON FUNCTION coldcall_claim_recording(UUID,UUID,TEXT,INTEGER) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_mark_number_cleanup(UUID,UUID,TEXT,TEXT) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_mark_number_ambiguous(UUID,UUID,TEXT) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_claim_number_cleanup(UUID,INTEGER) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_finish_number_cleanup(UUID,UUID,BOOLEAN,TEXT) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_finish_number_reconciliation(UUID,UUID,BOOLEAN,TEXT,TEXT) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_enqueue_recording(UUID,UUID,TEXT,TEXT,INTEGER) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_claim_recording_job(UUID,INTEGER) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_finish_recording_job(UUID,UUID,BOOLEAN,TEXT) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_renew_recording_job(UUID,UUID,INTEGER) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION coldcall_grant_minutes(UUID,NUMERIC,TEXT,TEXT,UUID,TEXT,TEXT,TEXT) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION coldcall_start_call(UUID,UUID,UUID,UUID,UUID,TEXT,TEXT,TEXT,NUMERIC,TEXT,TEXT,TEXT,NUMERIC,BOOLEAN) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_finalize_call(UUID,UUID,TEXT,TIMESTAMPTZ,TIMESTAMPTZ,INTEGER,NUMERIC,NUMERIC) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_reconcile_usage(INTEGER) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_claim_provisioning(UUID,UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_finish_provisioning(UUID,UUID,BOOLEAN) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_assert_provisioning_claim(UUID,UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_persist_provisioning(UUID,UUID,TEXT,TEXT,TEXT,TEXT,TEXT,BOOLEAN) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_reserve_number(UUID,TEXT,TEXT,TEXT,NUMERIC,UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_complete_number(UUID,UUID,TEXT,TEXT,TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_release_number_reservation(UUID,UUID) TO service_role;
-GRANT EXECUTE ON FUNCTION coldcall_claim_recording(UUID,UUID,TEXT,INTEGER) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_mark_number_cleanup(UUID,UUID,TEXT,TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_mark_number_ambiguous(UUID,UUID,TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_claim_number_cleanup(UUID,INTEGER) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_finish_number_cleanup(UUID,UUID,BOOLEAN,TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_finish_number_reconciliation(UUID,UUID,BOOLEAN,TEXT,TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_enqueue_recording(UUID,UUID,TEXT,TEXT,INTEGER) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_claim_recording_job(UUID,INTEGER) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_finish_recording_job(UUID,UUID,BOOLEAN,TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_renew_recording_job(UUID,UUID,INTEGER) TO service_role;
 GRANT EXECUTE ON FUNCTION coldcall_grant_minutes(UUID,NUMERIC,TEXT,TEXT,UUID,TEXT,TEXT,TEXT) TO service_role;

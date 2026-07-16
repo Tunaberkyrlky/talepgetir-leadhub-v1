@@ -131,7 +131,7 @@ router.post('/provision', requireRole('superadmin'), validateBody(provisionSchem
         });
         if (claimError) throw new AppError('Provisioning claim oluşturulamadı', 500);
         if (!claimed) throw new AppError('Bu tenant için provisioning zaten devam ediyor', 409);
-        await provisionTenantForTwilio(tenant_id, settings);
+        await provisionTenantForTwilio(tenant_id, settings, claim);
         const { data: finished, error: finishError } = await supabaseAdmin.rpc('coldcall_finish_provisioning', {
             p_tenant_id: tenant_id, p_claim: claim, p_success: true,
         });

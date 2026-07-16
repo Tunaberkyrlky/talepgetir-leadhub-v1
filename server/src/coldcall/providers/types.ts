@@ -82,6 +82,7 @@ export interface TelephonyProvider {
     searchNumbers(settings: ColdcallSettingsRow, country: string, contains?: string, numberType?: string): Promise<AvailableNumber[]>;
     purchaseNumber(settings: ColdcallSettingsRow, e164: string, country: string): Promise<PurchasedNumber>;
     releaseNumber(settings: ColdcallSettingsRow, providerSid: string): Promise<void>;
+    findOwnedNumber(settings: ColdcallSettingsRow, e164: string): Promise<PurchasedNumber | null>;
 
     /**
      * Çağrıyı başlatır. Mock: sunucu tarafında yaşam döngüsünü simüle eder.

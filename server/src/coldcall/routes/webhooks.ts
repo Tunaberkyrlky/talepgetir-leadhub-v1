@@ -9,11 +9,9 @@ import express from 'express';
 import twilio from 'twilio';
 import { timingSafeEqual } from 'crypto';
 import { supabaseAdmin } from '../../lib/supabase.js';
-import { decrypt } from '../../lib/encryption.js';
 import { createLogger } from '../../lib/logger.js';
 import { subaccountAuthToken, masterAuth, decryptWebhookSecret } from '../providers/twilio.js';
 import { finalizeCall } from '../lib/finalize.js';
-import { runTwilioRecordingPipeline } from '../lib/pipeline.js';
 import type { ColdcallCallRow, ColdcallSettingsRow } from '../providers/types.js';
 
 const log = createLogger('coldcall:webhooks');
@@ -114,7 +112,7 @@ async function loadCall(callId: string | undefined, tenantId: string): Promise<C
 }
 
 // ── POST /voice — TwiML: PSTN bacağını kur ───────────────────────────────────
-router.post('/voice', async (req: VerifiedRequest, res: Response): Promise<void> => {
+async function handleVoice(req: VerifiedRequest, res: Response): Promise<void> {
     const settings = req.coldcallSettings!;
     const callId = typeof req.body?.callId === 'string' ? req.body.callId : undefined;
     const callSid = typeof req.body?.CallSid === 'string' ? req.body.CallSid : null;
@@ -183,6 +181,9 @@ router.post('/voice', async (req: VerifiedRequest, res: Response): Promise<void>
         call.to_e164
     );
     res.type('text/xml').send(twiml.toString());
+}
+router.post('/voice', (req: VerifiedRequest, res: Response, next: NextFunction) => {
+    void handleVoice(req, res).catch(next);
 });
 
 // ── POST /status — çağrı durum geçişleri ─────────────────────────────────────
@@ -279,41 +280,19 @@ router.post('/recording', async (req: VerifiedRequest, res: Response): Promise<v
         return;
     }
 
-    // Kayıt medyası: master AUTH TOKEN subaccount'a yetkili; master yalnız API
-    // key ise subaccount'ın kendi key'i kullanılır (master key subaccount
-    // kaynaklarına erişemez)
-    let authHeader: string;
-    try {
-        const a = masterAuth();
-        if (a.kind === 'auth_token') {
-            authHeader = `Basic ${Buffer.from(`${a.username}:${a.password}`).toString('base64')}`;
-        } else if (settings.api_key_sid && settings.api_key_secret_enc) {
-            authHeader = `Basic ${Buffer.from(`${settings.api_key_sid}:${decrypt(settings.api_key_secret_enc)}`).toString('base64')}`;
-        } else {
-            res.status(503).json({ error: 'Retry later' });
-            return;
-        }
-    } catch {
-        res.status(503).json({ error: 'Retry later' });
-        return;
-    }
-    const { data: recordingId, error: claimError } = await supabaseAdmin.rpc('coldcall_claim_recording', {
+    const { data: recordingId, error: enqueueError } = await supabaseAdmin.rpc('coldcall_enqueue_recording', {
         p_tenant_id: call.tenant_id,
         p_call_id: call.id,
         p_provider_sid: recordingSid,
+        p_source_url: recordingUrl,
         p_duration: duration,
     });
-    if (claimError) {
-        log.error({ err: claimError, recordingSid }, 'recording claim failed');
+    if (enqueueError || !recordingId) {
+        log.error({ err: enqueueError, recordingSid }, 'recording enqueue failed');
         res.status(503).json({ error: 'Retry later' });
         return;
     }
-    if (!recordingId) {
-        res.status(204).end();
-        return;
-    }
     res.status(204).end();
-    void runTwilioRecordingPipeline(call, recordingUrl, recordingSid, duration, authHeader, String(recordingId));
 });
 
 export default router;

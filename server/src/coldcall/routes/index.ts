@@ -10,9 +10,13 @@ import callsRouter from './calls.js';
 import adminRouter from './admin.js';
 import creditsRouter from './credits.js';
 import { startColdcallReconciliationScheduler } from '../lib/reconciliationScheduler.js';
+import { startColdcallRecordingScheduler } from '../lib/recordingScheduler.js';
+import { startColdcallNumberCleanupScheduler } from '../lib/numberCleanupScheduler.js';
 
 const router = Router();
 startColdcallReconciliationScheduler();
+startColdcallRecordingScheduler();
+startColdcallNumberCleanupScheduler();
 
 router.use('/numbers', numbersRouter);
 router.use('/calls', callsRouter);

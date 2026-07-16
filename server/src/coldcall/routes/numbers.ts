@@ -192,10 +192,19 @@ router.post('/', requireBuyer, validateBody(purchaseSchema), async (req: Request
         try {
             purchased = await provider.purchaseNumber(settings, e164, country);
         } catch (purchaseError) {
-            await supabaseAdmin.rpc('coldcall_release_number_reservation', {
-                p_tenant_id: tenantId, p_number_id: reservation.id,
-            });
-            throw purchaseError;
+            try {
+                purchased = await provider.findOwnedNumber(settings, e164);
+            } catch (lookupError) {
+                log.warn({ err: lookupError, reservationId: reservation.id }, 'immediate ownership lookup failed');
+            }
+            if (!purchased) {
+                const { data: marked, error: markError } = await supabaseAdmin.rpc('coldcall_mark_number_ambiguous', {
+                    p_tenant_id: tenantId, p_number_id: reservation.id,
+                    p_error: purchaseError instanceof Error ? purchaseError.message : 'purchase outcome unknown',
+                });
+                if (markError || !marked) log.error({ err: markError, reservationId: reservation.id }, 'failed to persist ambiguous purchase');
+                throw new AppError('Numara satın alma sonucu doğrulanamadı; otomatik uzlaştırma bekleniyor', 502);
+            }
         }
         const { data, error } = await supabaseAdmin.rpc('coldcall_complete_number', {
             p_tenant_id: tenantId, p_number_id: reservation.id, p_provider_sid: purchased.provider_sid,
@@ -205,12 +214,19 @@ router.post('/', requireBuyer, validateBody(purchaseSchema), async (req: Request
             log.error({ err: error, e164 }, 'number activation failed after purchase — releasing');
             try {
                 await provider.releaseNumber(settings, purchased.provider_sid);
+                const { data: released, error: releaseError } = await supabaseAdmin.rpc('coldcall_release_number_reservation', {
+                    p_tenant_id: tenantId, p_number_id: reservation.id,
+                });
+                if (releaseError || !released) throw new Error(releaseError?.message ?? 'reservation release failed');
             } catch (relErr) {
-                log.error({ err: relErr, providerSid: purchased.provider_sid }, 'compensating release failed — ORPHAN number may be billed');
+                log.error({ err: relErr, providerSid: purchased.provider_sid }, 'compensating release failed — queued for cleanup');
+                const { data: marked, error: markError } = await supabaseAdmin.rpc('coldcall_mark_number_cleanup', {
+                    p_tenant_id: tenantId, p_number_id: reservation.id,
+                    p_provider_sid: purchased.provider_sid,
+                    p_error: relErr instanceof Error ? relErr.message : 'compensating release failed',
+                });
+                if (markError || !marked) log.error({ err: markError, reservationId: reservation.id }, 'failed to persist number cleanup');
             }
-            await supabaseAdmin.rpc('coldcall_release_number_reservation', {
-                p_tenant_id: tenantId, p_number_id: reservation.id,
-            });
             throw new AppError('Numara kaydedilemedi', 500);
         }
 

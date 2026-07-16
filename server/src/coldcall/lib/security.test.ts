@@ -52,7 +52,10 @@ test('status webhook only acknowledges after successful processing and retries f
     const statusHandler = source.slice(source.indexOf("router.post('/status'"), source.indexOf("router.post('/recording'"));
     assert.ok(statusHandler.indexOf('await finalizeCall') < statusHandler.lastIndexOf('res.status(204).end()'));
     assert.match(statusHandler, /catch \(err\)[\s\S]*res\.status\(503\)/);
-    assert.match(source, /coldcall_claim_recording/);
+    assert.match(source, /coldcall_enqueue_recording/);
+    const recordingHandler = source.slice(source.indexOf("router.post('/recording'"));
+    assert.ok(recordingHandler.indexOf('coldcall_enqueue_recording') < recordingHandler.lastIndexOf('res.status(204).end()'));
+    assert.doesNotMatch(recordingHandler, /runTwilioRecordingPipeline/);
 });
 
 test('admin provisioning is superadmin-only and durable-claim guarded', () => {
@@ -68,4 +71,79 @@ test('migration filenames and active-call preservation are stable', () => {
     assert.match(base, /row_number\(\) OVER \(PARTITION BY tenant_id ORDER BY created_at DESC, id DESC\)/);
     assert.match(base, /active_rank > 1/);
     assert.throws(() => readFileSync(join(process.cwd(), 'supabase/migrations/146_coldcall_credit_wallet.sql')));
+});
+
+test('recording queue is idempotent, fenced, reclaimable, and scheduler-driven', () => {
+    const sql = readFileSync(
+        join(process.cwd(), 'supabase/migrations/20260716213000_coldcall_atomicity_hardening.sql'),
+        'utf8',
+    );
+    assert.match(sql, /coldcall_enqueue_recording[\s\S]*ON CONFLICT\(provider_recording_sid\)[\s\S]*DO UPDATE/);
+    assert.match(sql, /coldcall_claim_recording_job[\s\S]*queue_status='leased'[\s\S]*queue_lease_expires_at<now\(\)[\s\S]*FOR UPDATE SKIP LOCKED/);
+    assert.match(sql, /coldcall_finish_recording_job[\s\S]*queue_lease_token=p_lease/);
+    assert.match(sql, /coldcall_renew_recording_job[\s\S]*queue_lease_token=p_lease/);
+    assert.match(sql, /queue_attempts<8/);
+
+    const routes = readFileSync(join(process.cwd(), 'server/src/coldcall/routes/index.ts'), 'utf8');
+    const scheduler = readFileSync(join(process.cwd(), 'server/src/coldcall/lib/recordingScheduler.ts'), 'utf8');
+    assert.match(routes, /startColdcallRecordingScheduler\(\)/);
+    assert.match(scheduler, /coldcall_claim_recording_job/);
+    assert.match(scheduler, /await runTwilioRecordingPipeline/);
+    assert.match(scheduler, /coldcall_finish_recording_job/);
+});
+
+test('offer signing secret is documented as required and 32+ characters', () => {
+    const example = readFileSync(join(process.cwd(), '.env.example'), 'utf8');
+    assert.match(example, /at least 32 characters[\s\S]*COLDCALL_OFFER_SECRET=/);
+});
+
+test('provisioning persists resources through fenced claim-aware steps', () => {
+    const provider = readFileSync(join(process.cwd(), 'server/src/coldcall/providers/twilio.ts'), 'utf8');
+    const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20260716213000_coldcall_atomicity_hardening.sql'), 'utf8');
+    assert.match(provider, /coldcall_assert_provisioning_claim/);
+    assert.match(provider, /coldcall_persist_provisioning/);
+    assert.match(provider, /existingApps[\s\S]*friendlyName: 'tgcore-coldcall'/);
+    assert.match(provider, /orphanKeys[\s\S]*\.remove\(\)/);
+    assert.match(sql, /coldcall_persist_provisioning[\s\S]*provisioning_claim=p_claim/);
+});
+
+test('ambiguous number purchases and failed compensation remain durably reconcilable', () => {
+    const route = readFileSync(join(process.cwd(), 'server/src/coldcall/routes/numbers.ts'), 'utf8');
+    const scheduler = readFileSync(join(process.cwd(), 'server/src/coldcall/lib/numberCleanupScheduler.ts'), 'utf8');
+    assert.match(route, /findOwnedNumber/);
+    assert.match(route, /coldcall_mark_number_ambiguous/);
+    assert.match(route, /coldcall_mark_number_cleanup/);
+    assert.match(scheduler, /coldcall_claim_number_cleanup/);
+    assert.match(scheduler, /FOR UPDATE|finish_number/);
+});
+
+test('voice and mock async paths forward or catch failures', () => {
+    const webhook = readFileSync(join(process.cwd(), 'server/src/coldcall/routes/webhooks.ts'), 'utf8');
+    const mock = readFileSync(join(process.cwd(), 'server/src/coldcall/providers/mock.ts'), 'utf8');
+    assert.match(webhook, /handleVoice\(req, res\)\.catch\(next\)/);
+    assert.match(mock, /task\(\)\.catch/);
+    assert.doesNotMatch(mock, /setTimeout\(async/);
+});
+
+test('recording pipeline keeps provider media until durable storage and fences expensive work', () => {
+    const pipeline = readFileSync(join(process.cwd(), 'server/src/coldcall/lib/pipeline.ts'), 'utf8');
+    const scheduler = readFileSync(join(process.cwd(), 'server/src/coldcall/lib/recordingScheduler.ts'), 'utf8');
+    assert.match(pipeline, /recording row insert failed:[\s\S]*throw new Error/);
+    assert.ok(pipeline.indexOf('await storeRecording') < pipeline.indexOf("method: 'DELETE'"));
+    assert.match(pipeline, /existing\.status === 'stored'[\s\S]*storage\.from\(BUCKET\)\.download/);
+    assert.match(pipeline, /providerMediaMayBeDeleted/);
+    assert.match(pipeline, /deepgram transcription failed'[\s\S]*throw err/);
+    assert.match(pipeline, /terminalFailure: 'unavailable'/);
+    assert.match(pipeline, /await assertLease\?\.\(\)[\s\S]*deepgramTranscribe/);
+    assert.match(scheduler, /recording lease lost/);
+    assert.match(scheduler, /job\.id,[\s\S]*assertLease/);
+});
+
+test('ambiguous purchase requires delayed repeated ownership checks', () => {
+    const route = readFileSync(join(process.cwd(), 'server/src/coldcall/routes/numbers.ts'), 'utf8');
+    const scheduler = readFileSync(join(process.cwd(), 'server/src/coldcall/lib/numberCleanupScheduler.ts'), 'utf8');
+    assert.match(route, /catch \(purchaseError\)[\s\S]*coldcall_mark_number_ambiguous/);
+    assert.doesNotMatch(route.slice(route.indexOf('catch (purchaseError)'), route.indexOf('const { data, error }')), /coldcall_release_number_reservation/);
+    assert.match(scheduler, /cleanup_attempts < 3/);
+    assert.match(scheduler, /delayed confirmation required/);
 });

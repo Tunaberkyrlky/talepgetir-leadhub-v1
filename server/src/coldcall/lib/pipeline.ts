@@ -63,24 +63,48 @@ export async function runTwilioRecordingPipeline(
     recordingSid: string,
     durationSec: number,
     authHeader: string,
-    claimedRecordingId?: string
+    claimedRecordingId?: string,
+    assertLease?: () => Promise<void>
 ): Promise<void> {
     try {
-        const res = await fetch(`${recordingUrl}.wav`, { headers: { Authorization: authHeader } });
-        if (!res.ok) throw new Error(`recording download http ${res.status}`);
-        const audio = Buffer.from(await res.arrayBuffer());
-        const recordingId = await storeRecording(call, audio, durationSec, 'audio/wav', recordingSid, claimedRecordingId);
+        let recordingId = claimedRecordingId;
+        let audio: Buffer;
+        let providerMediaMayBeDeleted = false;
+        if (claimedRecordingId) {
+            const { data: existing, error: existingError } = await supabaseAdmin.from('coldcall_recordings')
+                .select('status,storage_path').eq('id', claimedRecordingId).eq('tenant_id', call.tenant_id).single();
+            if (existingError) throw new Error(`recording resume lookup failed: ${existingError.message}`);
+            if (existing.status === 'stored' && existing.storage_path) {
+                const { data: storedAudio, error: downloadError } = await supabaseAdmin.storage.from(BUCKET).download(existing.storage_path);
+                if (downloadError || !storedAudio) throw new Error(`stored recording resume failed: ${downloadError?.message ?? 'missing'}`);
+                audio = Buffer.from(await storedAudio.arrayBuffer());
+                providerMediaMayBeDeleted = true;
+            } else {
+                const res = await fetch(`${recordingUrl}.wav`, { headers: { Authorization: authHeader } });
+                if (!res.ok) throw new Error(`recording download http ${res.status}`);
+                audio = Buffer.from(await res.arrayBuffer());
+                recordingId = await storeRecording(call, audio, durationSec, 'audio/wav', recordingSid, claimedRecordingId);
+            }
+        } else {
+            const res = await fetch(`${recordingUrl}.wav`, { headers: { Authorization: authHeader } });
+            if (!res.ok) throw new Error(`recording download http ${res.status}`);
+            audio = Buffer.from(await res.arrayBuffer());
+            recordingId = await storeRecording(call, audio, durationSec, 'audio/wav', recordingSid);
+        }
+        if (!recordingId) throw new Error('recording row missing after durable storage');
+        await assertLease?.();
 
         // Kayıt bizim Storage'a indi → Twilio'daki kopyayı sil (veri kontrolü + maliyet)
-        try {
+        try { if (!providerMediaMayBeDeleted) {
             await fetch(recordingUrl, { method: 'DELETE', headers: { Authorization: authHeader } });
-        } catch (err) {
+        }} catch (err) {
             log.warn({ err, recordingSid }, 'twilio recording delete failed (non-fatal)');
         }
 
+        await assertLease?.();
         const stt = await deepgramTranscribe(audio);
-        if (!stt) {
-            await supabaseAdmin.from('coldcall_transcripts').upsert(
+        if ('terminalFailure' in stt) {
+            const { error } = await supabaseAdmin.from('coldcall_transcripts').upsert(
                 {
                     call_id: call.id,
                     tenant_id: call.tenant_id,
@@ -90,9 +114,11 @@ export async function runTwilioRecordingPipeline(
                 },
                 { onConflict: 'call_id' }
             );
+            if (error) throw new Error(`failed to persist terminal STT failure: ${error.message}`);
             return;
         }
-        await writeTranscriptAndSummary(call, recordingId, stt.segments, stt.language, 'deepgram');
+        await assertLease?.();
+        await writeTranscriptAndSummary(call, recordingId, stt.segments, stt.language, 'deepgram', assertLease);
     } catch (err) {
         log.error({ err, callId: call.id }, 'twilio recording pipeline failed');
         await supabaseAdmin
@@ -100,6 +126,7 @@ export async function runTwilioRecordingPipeline(
             .update({ status: 'failed' })
             .eq('call_id', call.id)
             .eq('status', 'processing');
+        throw err;
     }
 }
 
@@ -110,7 +137,7 @@ async function storeRecording(
     contentType: string,
     providerSid: string,
     claimedRecordingId?: string
-): Promise<string | null> {
+): Promise<string> {
     const path = `${call.tenant_id}/${call.id}.wav`;
 
     let recordingId = claimedRecordingId;
@@ -124,28 +151,29 @@ async function storeRecording(
             .select('id').single();
         if (insErr) {
             log.error({ err: insErr, callId: call.id }, 'recording row insert failed');
-            return null;
+            throw new Error(`recording row insert failed: ${insErr.message}`);
         }
         recordingId = recRow.id as string;
     } else {
         const { error } = await supabaseAdmin.from('coldcall_recordings')
-            .update({ storage_path: path, duration_sec: durationSec, channels: 2 })
+            .update({ storage_path: path, duration_sec: durationSec, channels: 2, status: 'processing' })
             .eq('id', recordingId).eq('tenant_id', call.tenant_id);
-        if (error) return null;
+        if (error) throw new Error(`claimed recording update failed: ${error.message}`);
     }
 
     const { error: upErr } = await supabaseAdmin.storage.from(BUCKET).upload(path, audio, {
         contentType,
         upsert: true,
     });
-    await supabaseAdmin
+    const { error: statusError } = await supabaseAdmin
         .from('coldcall_recordings')
         .update({ status: upErr ? 'failed' : 'stored' })
         .eq('id', recordingId);
     if (upErr) {
         log.error({ err: upErr, callId: call.id }, 'recording upload failed');
-        return null;
+        throw new Error(`recording upload failed: ${upErr.message}`);
     }
+    if (statusError) throw new Error(`recording durable status update failed: ${statusError.message}`);
     return recordingId;
 }
 
@@ -154,7 +182,8 @@ async function writeTranscriptAndSummary(
     recordingId: string | null,
     segments: TranscriptSegment[],
     language: string,
-    provider: string
+    provider: string,
+    assertLease?: () => Promise<void>
 ): Promise<void> {
     const fullText = segments.map((s) => `${s.speaker === 'agent' ? 'AGENT' : 'LEAD'}: ${s.text}`).join('\n');
     const { error: tErr } = await supabaseAdmin.from('coldcall_transcripts').upsert(
@@ -173,10 +202,12 @@ async function writeTranscriptAndSummary(
     );
     if (tErr) {
         log.error({ err: tErr, callId: call.id }, 'transcript upsert failed');
-        return;
+        throw new Error(`transcript upsert failed: ${tErr.message}`);
     }
 
+    await assertLease?.();
     const summary = await summarizeTranscript(segments, language);
+    await assertLease?.();
     const { error: sErr } = await supabaseAdmin
         .from('coldcall_transcripts')
         .update({
@@ -187,18 +218,22 @@ async function writeTranscriptAndSummary(
             updated_at: new Date().toISOString(),
         })
         .eq('call_id', call.id);
-    if (sErr) log.error({ err: sErr, callId: call.id }, 'summary update failed');
+    if (sErr) {
+        log.error({ err: sErr, callId: call.id }, 'summary update failed');
+        throw new Error(`summary update failed: ${sErr.message}`);
+    }
     else log.info({ callId: call.id, provider: summary.provider }, 'transcript + AI summary ready');
 }
 
 interface SttResult { segments: TranscriptSegment[]; language: string }
+interface TerminalSttFailure { terminalFailure: 'unavailable' | 'no_utterances' }
 
 /** Deepgram STT — dual-channel (multichannel): kanal 0 = agent, kanal 1 = lead. */
-async function deepgramTranscribe(audio: Buffer): Promise<SttResult | null> {
+async function deepgramTranscribe(audio: Buffer): Promise<SttResult | TerminalSttFailure> {
     const key = process.env.DEEPGRAM_KEY || process.env.DEEPGRAM_API;
     if (!key) {
         log.warn('DEEPGRAM_KEY not set — real STT unavailable');
-        return null;
+        return { terminalFailure: 'unavailable' };
     }
     try {
         const res = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&multichannel=true&punctuate=true&detect_language=true&utterances=true', {
@@ -219,7 +254,7 @@ async function deepgramTranscribe(audio: Buffer): Promise<SttResult | null> {
         // heuristik özetin "görüşülemedi" demesine izin verme (yanıltıcı olur).
         if (utterances.length === 0) {
             log.warn('deepgram returned no utterances — treating as STT failure');
-            return null;
+            return { terminalFailure: 'no_utterances' };
         }
         const segments: TranscriptSegment[] = utterances.map((u) => ({
             speaker: u.channel === 0 ? 'agent' : 'lead',
@@ -230,6 +265,6 @@ async function deepgramTranscribe(audio: Buffer): Promise<SttResult | null> {
         return { segments, language: body.results?.channels?.[0]?.detected_language ?? 'en' };
     } catch (err) {
         log.error({ err }, 'deepgram transcription failed');
-        return null;
+        throw err;
     }
 }

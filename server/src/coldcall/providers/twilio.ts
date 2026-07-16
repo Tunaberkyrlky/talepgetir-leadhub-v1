@@ -118,10 +118,32 @@ export function decryptWebhookSecret(stored: string): string {
  * Tenant'ı Twilio'ya taşır: subaccount + API key + TwiML app oluşturur ve
  * coldcall_settings'e yazar. Idempotent: zaten provision'lıysa mevcut ayarları döner.
  */
-export async function provisionTenantForTwilio(tenantId: string, settings: ColdcallSettingsRow): Promise<void> {
+export async function provisionTenantForTwilio(tenantId: string, settings: ColdcallSettingsRow, claim: string): Promise<void> {
+    const assertClaim = async (): Promise<void> => {
+        const { data, error } = await supabaseAdmin.rpc('coldcall_assert_provisioning_claim', {
+            p_tenant_id: tenantId, p_claim: claim,
+        });
+        if (error || !data) throw new AppError('Provisioning claim expired', 409);
+    };
+    const persist = async (patch: {
+        subaccountSid?: string; apiKeySid?: string; apiKeySecretEnc?: string;
+        twimlAppSid?: string; webhookSecret?: string; complete?: boolean;
+    }): Promise<void> => {
+        const { data, error } = await supabaseAdmin.rpc('coldcall_persist_provisioning', {
+            p_tenant_id: tenantId, p_claim: claim,
+            p_subaccount_sid: patch.subaccountSid ?? null,
+            p_api_key_sid: patch.apiKeySid ?? null,
+            p_api_key_secret_enc: patch.apiKeySecretEnc ?? null,
+            p_twiml_app_sid: patch.twimlAppSid ?? null,
+            p_webhook_secret: patch.webhookSecret ?? null,
+            p_complete: patch.complete ?? false,
+        });
+        if (error || !data) throw new AppError('Provisioning claim expired', 409);
+    };
     // Secret de zorunlu — eksikse (eski provision) tamamlamaya devam et
     if (settings.provider === 'twilio' && settings.subaccount_sid && settings.api_key_sid && settings.twiml_app_sid && settings.webhook_secret) return;
     const master = masterClient();
+    await assertClaim();
 
     let subaccountSid = settings.subaccount_sid;
     if (!subaccountSid) {
@@ -130,6 +152,7 @@ export async function provisionTenantForTwilio(tenantId: string, settings: Coldc
         const friendly = `tgcore-tenant-${tenantId}`;
         const existing = await master.api.v2010.accounts.list({ friendlyName: friendly, limit: 1 });
         subaccountSid = existing[0]?.sid ?? (await master.api.v2010.accounts.create({ friendlyName: friendly })).sid;
+        await persist({ subaccountSid });
     }
 
     // NOT (Twilio yetki modeli): master API key subaccount kaynaklarını
@@ -140,18 +163,21 @@ export async function provisionTenantForTwilio(tenantId: string, settings: Coldc
     const a = masterAuth();
     const asSubMaster = twilio(a.username, a.password, { accountSid: subaccountSid });
 
+    const webhookSecret = (settings.webhook_secret ? decryptWebhookSecret(settings.webhook_secret) : null)
+        ?? randomBytes(24).toString('hex');
+    if (!settings.webhook_secret) await persist({ webhookSecret: encrypt(webhookSecret) });
+
     let apiKeySid = settings.api_key_sid;
     let apiKeySecretEnc = settings.api_key_secret_enc;
     if (!apiKeySid || !apiKeySecretEnc) {
+        await assertClaim();
+        const orphanKeys = (await asSubMaster.keys.list({ limit: 100 }))
+            .filter((candidate) => candidate.friendlyName === 'tgcore-voice-sdk');
+        for (const orphan of orphanKeys) await asSubMaster.keys(orphan.sid).remove();
         const key = await asSubMaster.newKeys.create({ friendlyName: 'tgcore-voice-sdk' });
         apiKeySid = key.sid;
         apiKeySecretEnc = encrypt(key.secret);
-        // Key'i hemen persiste et: sonraki adım patlasa bile retry'da yeni
-        // (öksüz) key üretmeyelim
-        await supabaseAdmin
-            .from('coldcall_settings')
-            .update({ subaccount_sid: subaccountSid, api_key_sid: apiKeySid, api_key_secret_enc: apiKeySecretEnc, updated_at: new Date().toISOString() })
-            .eq('tenant_id', tenantId);
+        await persist({ subaccountSid, apiKeySid, apiKeySecretEnc });
     }
 
     const asSub = twilio(apiKeySid, decrypt(apiKeySecretEnc), { accountSid: subaccountSid });
@@ -160,39 +186,23 @@ export async function provisionTenantForTwilio(tenantId: string, settings: Coldc
     // literal ister), ama at-rest ŞİFRELİ saklanır (codex P2). Mevcut secret varsa
     // (decrypt edilebiliyorsa) korunur; drift'i önlemek için app voiceUrl'si her
     // durumda güncel secret'la senkronlanır.
-    const webhookSecret = (settings.webhook_secret ? decryptWebhookSecret(settings.webhook_secret) : null)
-        ?? randomBytes(24).toString('hex');
-
     const voiceUrl = `${publicUrl()}/api/webhooks/coldcall/voice?s=${webhookSecret}`;
     let twimlAppSid = settings.twiml_app_sid;
     if (!twimlAppSid) {
-        const app = await asSub.applications.create({
-            friendlyName: 'tgcore-coldcall',
-            voiceUrl,
-            voiceMethod: 'POST',
+        await assertClaim();
+        const existingApps = await asSub.applications.list({ friendlyName: 'tgcore-coldcall', limit: 1 });
+        const app = existingApps[0] ?? await asSub.applications.create({
+            friendlyName: 'tgcore-coldcall', voiceUrl, voiceMethod: 'POST',
         });
         twimlAppSid = app.sid;
-    } else {
-        // voiceUrl'yi güncel secret'la senkron tut (URL↔saklanan secret drift'i önle)
-        await asSub.applications(twimlAppSid).update({ voiceUrl, voiceMethod: 'POST' });
+        await persist({ twimlAppSid });
     }
+    // voiceUrl'yi güncel secret'la senkron tut (URL↔saklanan secret drift'i önle)
+    await assertClaim();
+    await asSub.applications(twimlAppSid).update({ voiceUrl, voiceMethod: 'POST' });
 
-    const { error } = await supabaseAdmin
-        .from('coldcall_settings')
-        .update({
-            provider: 'twilio',
-            subaccount_sid: subaccountSid,
-            api_key_sid: apiKeySid,
-            api_key_secret_enc: apiKeySecretEnc,
-            twiml_app_sid: twimlAppSid,
-            webhook_secret: encrypt(webhookSecret),
-            updated_at: new Date().toISOString(),
-        })
-        .eq('tenant_id', tenantId);
-    if (error) {
-        log.error({ err: error, tenantId }, 'provision settings update failed');
-        throw new AppError('Provisioning failed', 500);
-    }
+    await assertClaim();
+    await persist({ subaccountSid, apiKeySid, apiKeySecretEnc, twimlAppSid, webhookSecret: encrypt(webhookSecret), complete: true });
     log.info({ tenantId, subaccountSid }, 'tenant provisioned for Twilio');
 }
 
@@ -241,6 +251,12 @@ export const twilioProvider: TelephonyProvider = {
 
     async releaseNumber(settings, providerSid) {
         await subClient(settings).incomingPhoneNumbers(providerSid).remove();
+    },
+
+    async findOwnedNumber(settings, e164) {
+        const matches = await subClient(settings).incomingPhoneNumbers.list({ phoneNumber: e164, limit: 1 });
+        const found = matches[0];
+        return found ? { provider_sid: found.sid, e164: found.phoneNumber, status: 'active' } : null;
     },
 
     async placeCall() {
