@@ -16,6 +16,8 @@ import type { ColdcallCallRow, ColdcallSettingsRow } from '../providers/types.js
 
 const log = createLogger('coldcall:webhooks');
 const router = Router();
+const TWILIO_ACCOUNT_SID = /^AC[0-9a-fA-F]{32}$/;
+const TWILIO_RECORDING_SID = /^RE[0-9a-fA-F]{32}$/;
 
 router.use(express.urlencoded({ extended: false }));
 
@@ -271,14 +273,22 @@ router.post('/recording', async (req: VerifiedRequest, res: Response): Promise<v
         return;
     }
 
-    const recordingUrl = typeof req.body?.RecordingUrl === 'string' ? req.body.RecordingUrl : null;
     const recordingSid = typeof req.body?.RecordingSid === 'string' ? req.body.RecordingSid : null;
     const duration = parseInt(String(req.body?.RecordingDuration ?? '0'), 10) || 0;
     const recordingStatus = String(req.body?.RecordingStatus ?? 'completed');
-    if (!recordingUrl || !recordingSid || recordingStatus !== 'completed') {
+    if (recordingStatus !== 'completed') {
         res.status(204).end();
         return;
     }
+    if (!recordingSid || !TWILIO_RECORDING_SID.test(recordingSid)
+        || !settings.subaccount_sid || !TWILIO_ACCOUNT_SID.test(settings.subaccount_sid)) {
+        res.status(400).json({ error: 'Invalid recording identity' });
+        return;
+    }
+    // Never persist the callback-provided RecordingUrl: the queue later attaches
+    // tenant credentials, so its origin and path must be constructed from identities
+    // already verified by the webhook middleware.
+    const recordingUrl = `https://api.twilio.com/2010-04-01/Accounts/${settings.subaccount_sid}/Recordings/${recordingSid}`;
 
     const { data: recordingId, error: enqueueError } = await supabaseAdmin.rpc('coldcall_enqueue_recording', {
         p_tenant_id: call.tenant_id,

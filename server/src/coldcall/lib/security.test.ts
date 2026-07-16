@@ -225,3 +225,19 @@ test('recording retries resume durable transcript state without duplicate STT or
     assert.match(pipeline, /\.eq\('status', 'pending'\)/);
     assert.doesNotMatch(pipeline, /coldcall_transcripts'\)\.upsert/);
 });
+
+test('recording credentials are restricted to canonical Twilio sources and deletion is retryable', () => {
+    const webhooks = readFileSync(join(process.cwd(), 'server/src/coldcall/routes/webhooks.ts'), 'utf8');
+    const scheduler = readFileSync(join(process.cwd(), 'server/src/coldcall/lib/recordingScheduler.ts'), 'utf8');
+    const pipeline = readFileSync(join(process.cwd(), 'server/src/coldcall/lib/pipeline.ts'), 'utf8');
+    const recordingHandler = webhooks.slice(webhooks.indexOf("router.post('/recording'"));
+    assert.doesNotMatch(recordingHandler, /req\.body\?\.RecordingUrl/);
+    assert.match(recordingHandler, /TWILIO_RECORDING_SID\.test\(recordingSid\)/);
+    assert.match(recordingHandler, /TWILIO_ACCOUNT_SID\.test\(settings\.subaccount_sid\)/);
+    assert.match(recordingHandler, /https:\/\/api\.twilio\.com\/2010-04-01\/Accounts\/\$\{settings\.subaccount_sid\}\/Recordings\/\$\{recordingSid\}/);
+    assert.match(scheduler, /job\.recording_source_url !== expected/);
+    assert.ok(scheduler.indexOf('assertCanonicalRecordingSource') < scheduler.indexOf('providerAuthHeader(settingsResult.data'));
+    assert.match(pipeline, /res\.ok \|\| res\.status === 404/);
+    assert.match(pipeline, /throw new Error\(`twilio recording delete failed/);
+    assert.doesNotMatch(pipeline, /recording delete failed \(non-fatal\)/);
+});

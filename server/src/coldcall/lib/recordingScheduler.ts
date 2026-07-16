@@ -22,6 +22,15 @@ interface RecordingJob {
     duration_sec: number | null;
 }
 
+function assertCanonicalRecordingSource(job: RecordingJob, settings: ColdcallSettingsRow): void {
+    if (!settings.subaccount_sid || !/^AC[0-9a-fA-F]{32}$/.test(settings.subaccount_sid)
+        || !/^RE[0-9a-fA-F]{32}$/.test(job.provider_recording_sid)) {
+        throw new Error('recording provider identity is invalid');
+    }
+    const expected = `https://api.twilio.com/2010-04-01/Accounts/${settings.subaccount_sid}/Recordings/${job.provider_recording_sid}`;
+    if (job.recording_source_url !== expected) throw new Error('recording source URL is not canonical');
+}
+
 function providerAuthHeader(settings: ColdcallSettingsRow): string {
     const auth = masterAuth();
     if (auth.kind === 'auth_token') {
@@ -73,6 +82,7 @@ async function processOne(): Promise<boolean> {
         if (callResult.error || !callResult.data) throw new Error(`recording call load failed: ${callResult.error?.message ?? 'missing'}`);
         if (settingsResult.error || !settingsResult.data) throw new Error(`recording settings load failed: ${settingsResult.error?.message ?? 'missing'}`);
         if (!job.recording_source_url || !job.provider_recording_sid) throw new Error('recording job payload is incomplete');
+        assertCanonicalRecordingSource(job, settingsResult.data as ColdcallSettingsRow);
         await runTwilioRecordingPipeline(
             callResult.data as ColdcallCallRow,
             job.recording_source_url,

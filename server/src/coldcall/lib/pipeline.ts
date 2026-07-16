@@ -134,11 +134,9 @@ export async function runTwilioRecordingPipeline(
 }
 
 async function deleteProviderRecording(recordingUrl: string, recordingSid: string, authHeader: string): Promise<void> {
-    try {
-        await fetch(recordingUrl, { method: 'DELETE', headers: { Authorization: authHeader } });
-    } catch (err) {
-        log.warn({ err, recordingSid }, 'twilio recording delete failed (non-fatal)');
-    }
+    const res = await fetch(recordingUrl, { method: 'DELETE', headers: { Authorization: authHeader } });
+    if (res.ok || res.status === 404) return;
+    throw new Error(`twilio recording delete failed for ${recordingSid}: http ${res.status}`);
 }
 
 async function persistTerminalSttFailure(call: ColdcallCallRow, recordingId: string): Promise<void> {
