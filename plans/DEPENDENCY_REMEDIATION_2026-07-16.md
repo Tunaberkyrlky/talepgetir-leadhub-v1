@@ -32,6 +32,7 @@ Kök lockfile ayrıca güvenli transitive sürümlere çözüldü:
 - Kök, server ve client lockfile workspace kayıtları `1.15.1` ile manifestlere hizalandı.
 - Deploy çözümlemesinde kullanılmayan ve drift etmiş `server/package-lock.json` kaldırıldı; kök `package-lock.json` tek otorite oldu.
 - Kök Railway build komutu `npm install` yerine deterministik `npm ci` kullanacak şekilde değiştirildi.
+- Lockfile, mevcut `node_modules` dizinleri tamamen devre dışı bırakılarak boş kurulum durumunda yeniden üretildi. Böylece macOS ve Linux için Rollup/esbuild optional native paketleri aynı lockfile içinde tutuluyor.
 - Temiz `npm ci --ignore-scripts` kurulumu başarıyla tamamlandı.
 
 ## Audit sonucu
@@ -68,6 +69,7 @@ P0 listesindeki `axios`, Nango, `multer`, mail zinciri, `express`, `path-to-rege
 - **Resend/uuid:** `resend@6.17.2`, eski Svix/UUID zincirini kaldırdı.
 - **ExcelJS:** Upstream `exceljs@4.4.0`, dört yıldır `uuid@8` ve eski arşiv zincirine bağlıydı. Major override veya npm'in önerdiği eski sürüme downgrade yerine, API-uyumlu ve aktif DevExpress fork'u `devextreme-exceljs-fork@4.4.11` kullanıldı; import ve rapor üretim smoke testleri geçti.
 - **Dev toolchain:** `tsx@4.21.0` esbuild `~0.27` pin'i son düşük bulgunun kaynağıydı. `tsx@4.23.1` ile Vite ve TSX güvenli `esbuild@0.28.1` üzerinde birleşti. Vite'ın optional YAML peer'ı kök `yaml@2.9.0` ile karşılandı; Emotion/Cosmiconfig kendi güvenli `yaml@1.10.3` sürümünü nested kullanıyor.
+- **Platforma bağlı lockfile:** İlk final staging denemesi macOS'ta mevcut `node_modules` ağacı üzerinden üretilen lockfile'ın `@rollup/rollup-linux-x64-gnu` kaydını içermemesi nedeniyle Railway Linux build'inde durdu. Paket ağacı tamamen kaldırılıp `npm install --package-lock-only --ignore-scripts` boş durumdan çalıştırıldı. Yeni lockfile hem `@rollup/rollup-darwin-arm64` hem `@rollup/rollup-linux-x64-gnu` ve karşılık gelen esbuild platform paketlerini içeriyor; ardından temiz `npm ci`, yerel build ve Railway Linux build'i geçti.
 - `--force`, `legacy-peer-deps` veya dependency override kullanılmadı.
 - Production deploy yapılmamalı; canlı doğrulama yalnız `tg-research / tg-core-staging` üzerinde yapılmalı.
 
@@ -81,3 +83,15 @@ P0 listesindeki `axios`, Nango, `multer`, mail zinciri, `express`, `path-to-rege
 - Ayrı `TG-Core` production projesine deploy veya ayar değişikliği yapılmadı.
 
 Başlangıç loglarında dependency regresyonu görülmedi. Staging ortamında önceden mevcut iki config uyarısı devam ediyor: `TRACKING_SECRET` tanımlı değil ve PlusVibe webhook secret'ı eksik. Bu remediation kapsamında ortam değişkenlerine dokunulmadı.
+
+## Final staging rollout
+
+- Remediation commit: `6967454`
+- Cross-platform lockfile commit: `8a5cb3c`
+- İlk final deneme: `000992f5-285b-490d-853a-0bd5837e0867` — `FAILED`; eksik Linux Rollup optional package kaydı, çalışan staging sürümünü etkilemedi
+- Nihai deployment: `e404c0ba-803c-459a-b510-6d1a4c57e6c6` — `SUCCESS`
+- Railway Linux build: `npm ci --include=dev` ve `npm ci --omit=dev` başarılı; her iki audit 0 bulgu; server ve client production build başarılı
+- Health check: `GET /api/health` — HTTP 200, `status=ok`, `database=connected`
+- HTTP smoke: uygulama ana sayfası ve yeni `GlobeMap` bundle'ı HTTP 200
+- Görsel/etkileşim smoke denendi ancak kullanılabilir uygulama içi tarayıcı oturumu bulunmadığı için çalıştırılamadı; bu durum deployment veya health doğrulamasını etkilemiyor
+- Ayrı `TG-Core` production projesine deploy veya ayar değişikliği yapılmadı
