@@ -1,5 +1,7 @@
 -- ==========================================
 -- Daily activity digest support
+-- Forward-only timestamp version: numeric 152 would sort behind already-present
+-- 20260716 migrations on long-lived TG-Research environments.
 --
 -- Tenant opt-in lives in tenants.settings JSONB as { "daily_digest_enabled": true }
 -- (no schema change needed for the toggle).
