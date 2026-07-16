@@ -59,7 +59,8 @@ test('forward SQL keeps billed snapshots immutable and fences/idempotently logs 
     assert.match(sql, /p_evidence_source TEXT DEFAULT NULL[\s\S]+p_evidence_observed_at TIMESTAMPTZ DEFAULT NULL/);
     assert.match(sql, /RETURN v_existing; -- billed verdict and its evidence snapshot are immutable/);
     assert.match(sql, /research_log_search_fenced[\s\S]+status = 'running' AND locked_by = p_worker AND lease = p_lease/);
-    assert.match(sql, /WHERE NOT EXISTS \([\s\S]+tenant_id = p_tenant AND job_id = p_job_id[\s\S]+engine = p_engine AND query_hash = p_query_hash/);
+    assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS uq_research_search_log_job_engine_query[\s\S]+ON research_search_log\(tenant_id, job_id, engine, query_hash\)[\s\S]+WHERE job_id IS NOT NULL/);
+    assert.match(sql, /ON CONFLICT \(tenant_id, job_id, engine, query_hash\) WHERE job_id IS NOT NULL DO NOTHING/);
     assert.match(sql, /REVOKE ALL ON FUNCTION research_persist_verdict[\s\S]+GRANT EXECUTE[\s\S]+TO service_role/);
 });
 

@@ -97,6 +97,20 @@ $$;
 REVOKE ALL ON FUNCTION research_persist_verdict(UUID, UUID, UUID, INTEGER, TEXT, INTEGER, TEXT, TEXT, TEXT, UUID, TEXT, UUID, JSONB, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION research_persist_verdict(UUID, UUID, UUID, INTEGER, TEXT, INTEGER, TEXT, TEXT, TEXT, UUID, TEXT, UUID, JSONB, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ) TO service_role;
 
+-- Collapse historical retry duplicates before installing the durable semantic idempotency key.
+DELETE FROM research_search_log newer
+USING research_search_log older
+WHERE newer.id > older.id
+  AND newer.tenant_id = older.tenant_id
+  AND newer.job_id = older.job_id
+  AND newer.engine = older.engine
+  AND newer.query_hash = older.query_hash
+  AND newer.job_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_research_search_log_job_engine_query
+  ON research_search_log(tenant_id, job_id, engine, query_hash)
+  WHERE job_id IS NOT NULL;
+
 CREATE OR REPLACE FUNCTION research_log_search_fenced(
   p_tenant UUID, p_project_id UUID, p_job_id UUID, p_worker TEXT, p_lease UUID,
   p_engine TEXT, p_query TEXT, p_query_hash TEXT, p_result_count INTEGER,
@@ -119,13 +133,9 @@ BEGIN
   END IF;
   INSERT INTO research_search_log
     (tenant_id, project_id, job_id, engine, query, query_hash, result_count, cache_hit, cost_usd)
-  SELECT
-    p_tenant, p_project_id, p_job_id, p_engine, p_query, p_query_hash, p_result_count, p_cache_hit, p_cost_usd
-  WHERE NOT EXISTS (
-    SELECT 1 FROM research_search_log
-    WHERE tenant_id = p_tenant AND job_id = p_job_id
-      AND engine = p_engine AND query_hash = p_query_hash
-  );
+  VALUES
+    (p_tenant, p_project_id, p_job_id, p_engine, p_query, p_query_hash, p_result_count, p_cache_hit, p_cost_usd)
+  ON CONFLICT (tenant_id, job_id, engine, query_hash) WHERE job_id IS NOT NULL DO NOTHING;
 END;
 $$;
 REVOKE ALL ON FUNCTION research_log_search_fenced(UUID, UUID, UUID, TEXT, UUID, TEXT, TEXT, TEXT, INTEGER, BOOLEAN, NUMERIC) FROM PUBLIC, anon, authenticated, service_role;
