@@ -42,6 +42,8 @@ import {
     IconDatabase,
     IconSearch,
     IconBrandLinkedin,
+    IconHeadset,
+    IconCookie,
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
 import CommandPalette from './CommandPalette';
@@ -52,6 +54,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useIsOnboardingComplete } from '../lib/researchProjects';
 import { hasRolePermission } from '../lib/permissions';
 import { FEEDBACK_OPEN_EVENT, buildFeedbackPrefill, clearLastError } from '../lib/lastError';
+import { useTawkSupport } from '../contexts/TawkSupportContext';
+import { useConsent } from '../contexts/ConsentContext';
 
 export default function Layout() {
     const {
@@ -66,6 +70,8 @@ export default function Layout() {
         canSwitchTenants,
     } = useAuth();
     const { t } = useTranslation();
+    const support = useTawkSupport();
+    const consent = useConsent();
     const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
     const [navbarOpened, { toggle: toggleNavbar, close: closeNavbar }] = useDisclosure(false);
     const [feedbackOpened, { open: openFeedback, close: closeFeedback }] = useDisclosure(false);
@@ -254,6 +260,35 @@ export default function Layout() {
                             </Kbd>
                         </UnstyledButton>
 
+                        {/* Consent-aware live support launcher. The vendor script is not
+                            loaded until the user enables the support category. */}
+                        {support.isConfigured && (
+                            <UnstyledButton
+                                onClick={support.openSupport}
+                                aria-label={t('support.open', 'Canlı Destek')}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '5px 10px',
+                                    borderRadius: 8,
+                                    border: '1px solid rgba(255,255,255,0.18)',
+                                    background: 'rgba(255,255,255,0.06)',
+                                    color: 'rgba(255,255,255,0.85)',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 500,
+                                    transition: 'background 0.15s',
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.12)')}
+                                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+                            >
+                                <IconHeadset size={16} />
+                                <Text size="xs" fw={500} c="rgba(255,255,255,0.85)" visibleFrom="sm">
+                                    {t('support.open', 'Canlı Destek')}
+                                </Text>
+                            </UnstyledButton>
+                        )}
+
                         {/* Feedback button */}
                         <UnstyledButton
                             onClick={openFeedback}
@@ -352,6 +387,12 @@ export default function Layout() {
                                     onClick={() => openSettingsTab('general')}
                                 >
                                     {t('settings.title')}
+                                </Menu.Item>
+                                <Menu.Item
+                                    leftSection={<IconCookie size={16} />}
+                                    onClick={consent.openPreferences}
+                                >
+                                    {t('privacy.cookiePreferences', 'Gizlilik tercihleri')}
                                 </Menu.Item>
                                 <Menu.Divider />
                                 <Menu.Item

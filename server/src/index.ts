@@ -14,6 +14,7 @@ import { randomUUID } from 'crypto';
 dotenv.config({ path: path.join(__dirname, '..', '..', '..', '.env') });
 
 import logger from './lib/logger.js';
+import { analyticsConsentMiddleware } from './lib/posthog.js';
 import { supabaseAdmin } from './lib/supabase.js';
 import { authMiddleware, requireRole } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -44,6 +45,7 @@ import attachmentTemplatesRoutes from './routes/attachment-templates.js';
 import campaignRoutes from './routes/campaigns.js';
 import emailConnectionRoutes from './routes/email-connections.js';
 import trackingRoutes from './routes/tracking.js';
+import supportRoutes from './routes/support.js';
 import researchRoutes from './routes/research/index.js';
 import linkedinRoutes from './routes/linkedin/index.js';
 import linkedinCaptureRoutes from './routes/linkedin/capture.js';
@@ -118,6 +120,7 @@ app.use(cors({
     credentials: true,
 }));
 app.use(cookieParser());
+app.use(analyticsConsentMiddleware);
 
 // ── Public lead intake — mounted BEFORE the global 10mb JSON parser (P1-2) ────
 // A website form is cookie-less (slug-authed) and must never be able to push a
@@ -270,6 +273,7 @@ app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
 app.use('/api/plusvibe/import-replies', authMiddleware, plusvibeImportLimiter);
 app.use('/api/plusvibe', authMiddleware, dataFilter, plusvibeRoutes);
 app.use('/api/feedback', authMiddleware, feedbackRoutes);
+app.use('/api/support', authMiddleware, supportRoutes);
 app.use('/api/attachment-templates', authMiddleware, attachmentTemplatesRoutes);
 app.use('/api/campaigns', authMiddleware, campaignRoutes);
 app.use('/api/email-connections', authMiddleware, emailConnectionRoutes);

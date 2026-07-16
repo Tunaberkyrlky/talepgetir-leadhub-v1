@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createLogger } from './logger';
 import { recordLastError } from './lastError';
+import { readConsentPreferences } from './consent';
 
 const log = createLogger('api');
 
@@ -18,6 +19,12 @@ const api = axios.create({
 // Request interceptor: attach active tenant header
 api.interceptors.request.use((config) => {
     const activeTenantId = localStorage.getItem('activeTenantId');
+    // The backend also emits product events for successful domain operations.
+    // Propagate the current device choice so those calls obey the same opt-out as
+    // posthog-js. Missing/unknown consent is explicitly denied (fail closed).
+    config.headers['X-Analytics-Consent'] = readConsentPreferences()?.analytics === true
+        ? 'granted'
+        : 'denied';
     
     // Do not attach X-Tenant-Id to auth endpoints (like /auth/login, /auth/me)
     // to prevent a stale tenant from interfering with authentication or scoping.

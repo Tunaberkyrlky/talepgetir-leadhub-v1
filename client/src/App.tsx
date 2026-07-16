@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import posthog from 'posthog-js';
 import { MantineProvider, createTheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { ModalsProvider } from '@mantine/modals';
@@ -16,6 +15,8 @@ import './i18n';
 
 import { showErrorFromApi } from './lib/notifications';
 import { AuthProvider } from './contexts/AuthContext';
+import { ConsentProvider } from './contexts/ConsentContext';
+import { TawkSupportProvider } from './contexts/TawkSupportContext';
 import { StagesProvider } from './contexts/StagesContext';
 import { ImportProgressProvider } from './contexts/ImportProgressContext';
 import { NextActionProvider } from './contexts/NextActionContext';
@@ -23,6 +24,8 @@ import ImportProgressBar from './components/ImportProgressBar';
 import ErrorBoundary from './components/ErrorBoundary';
 import Layout from './components/Layout';
 import RootRedirect from './components/RootRedirect';
+import CookieConsent from './components/CookieConsent';
+import { captureAnalyticsEvent } from './lib/analytics';
 
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const LeadsPage = lazy(() => import('./pages/LeadsPage'));
@@ -46,6 +49,7 @@ const ColdCallPage = lazy(() => import('./pages/coldcall/ColdCallPage'));
 const ResearchAdminPage = lazy(() => import('./pages/research/ResearchAdminPage'));
 const LinkedInConnectPage = lazy(() => import('./pages/linkedin/LinkedInConnectPage'));
 const LinkedInPage = lazy(() => import('./pages/linkedin/LinkedInPage'));
+const CookiePolicyPage = lazy(() => import('./pages/CookiePolicyPage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -86,9 +90,7 @@ const theme = createTheme({
 function PostHogPageTracker() {
   const location = useLocation();
   useEffect(() => {
-    if (import.meta.env.VITE_POSTHOG_KEY) {
-      posthog.capture('$pageview', { path: location.pathname });
-    }
+    captureAnalyticsEvent('$pageview', { path: location.pathname });
   }, [location.pathname]);
   return null;
 }
@@ -100,55 +102,61 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <MantineProvider theme={theme} defaultColorScheme="light">
         <DatesProvider settings={{ locale: i18n.language, firstDayOfWeek: 1 }}>
-        <Notifications position="top-right" />
-        <ModalsProvider>
-          <BrowserRouter>
-            <PostHogPageTracker />
-            <ImportProgressProvider>
-              <ImportProgressBar />
-              <ErrorBoundary>
-                <AuthProvider>
-                  <StagesProvider>
-                    <NextActionProvider>
-                    <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
-                      <Routes>
-                        <Route path="/login" element={<LoginPage />} />
-                        <Route element={<Layout />}>
-                          <Route path="/" element={<RootRedirect />} />
-                          <Route path="/dashboard" element={<DashboardPage />} />
-                          <Route path="/companies" element={<LeadsPage />} />
-                          <Route path="/companies/:id" element={<CompanyDetailPage />} />
-                          <Route path="/people" element={<PeoplePage />} />
-                          <Route path="/people/:id" element={<PersonDetailPage />} />
-                          <Route path="/pipeline" element={<PipelinePage />} />
-                          <Route path="/activities" element={<ActivitiesPage />} />
-                          <Route path="/tasks" element={<TasksPage />} />
-                          <Route path="/leads" element={<LeadInboxPage />} />
-                          <Route path="/assets" element={<AssetsPage />} />
-                          <Route path="/email-replies" element={<EmailRepliesPage />} />
-                          <Route path="/research" element={<ResearchFlowPage />} />
-                          <Route path="/research/full" element={<ResearchPage />} />
-                          <Route path="/linkedin/connect" element={<LinkedInConnectPage />} />
-                          <Route path="/cold-call" element={<ColdCallPage />} />
-                          <Route path="/linkedin" element={<LinkedInPage />} />
-                          <Route path="/research/admin" element={<ResearchAdminPage />} />
-                          <Route path="/campaigns" element={<CampaignsPage />} />
-                          <Route path="/campaigns/drip/new" element={<CampaignEditorPage />} />
-                          <Route path="/campaigns/drip/:id/edit" element={<CampaignEditorPage />} />
-                          <Route path="/import" element={<ImportPage />} />
-                          <Route path="/admin" element={<AdminPage />} />
-                          <Route path="/admin/:tab" element={<AdminPage />} />
-                        </Route>
-                        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                      </Routes>
-                    </Suspense>
-                    </NextActionProvider>
-                  </StagesProvider>
-                </AuthProvider>
-              </ErrorBoundary>
-            </ImportProgressProvider>
-          </BrowserRouter>
-        </ModalsProvider>
+          <Notifications position="top-right" />
+          <ModalsProvider>
+            <BrowserRouter>
+              <ConsentProvider>
+                <PostHogPageTracker />
+                <ImportProgressProvider>
+                  <ImportProgressBar />
+                  <ErrorBoundary>
+                    <AuthProvider>
+                      <TawkSupportProvider>
+                        <StagesProvider>
+                          <NextActionProvider>
+                            <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
+                              <Routes>
+                                <Route path="/login" element={<LoginPage />} />
+                                <Route path="/cookie-policy" element={<CookiePolicyPage />} />
+                                <Route element={<Layout />}>
+                                  <Route path="/" element={<RootRedirect />} />
+                                  <Route path="/dashboard" element={<DashboardPage />} />
+                                  <Route path="/companies" element={<LeadsPage />} />
+                                  <Route path="/companies/:id" element={<CompanyDetailPage />} />
+                                  <Route path="/people" element={<PeoplePage />} />
+                                  <Route path="/people/:id" element={<PersonDetailPage />} />
+                                  <Route path="/pipeline" element={<PipelinePage />} />
+                                  <Route path="/activities" element={<ActivitiesPage />} />
+                                  <Route path="/tasks" element={<TasksPage />} />
+                                  <Route path="/leads" element={<LeadInboxPage />} />
+                                  <Route path="/assets" element={<AssetsPage />} />
+                                  <Route path="/email-replies" element={<EmailRepliesPage />} />
+                                  <Route path="/research" element={<ResearchFlowPage />} />
+                                  <Route path="/research/full" element={<ResearchPage />} />
+                                  <Route path="/linkedin/connect" element={<LinkedInConnectPage />} />
+                                  <Route path="/cold-call" element={<ColdCallPage />} />
+                                  <Route path="/linkedin" element={<LinkedInPage />} />
+                                  <Route path="/research/admin" element={<ResearchAdminPage />} />
+                                  <Route path="/campaigns" element={<CampaignsPage />} />
+                                  <Route path="/campaigns/drip/new" element={<CampaignEditorPage />} />
+                                  <Route path="/campaigns/drip/:id/edit" element={<CampaignEditorPage />} />
+                                  <Route path="/import" element={<ImportPage />} />
+                                  <Route path="/admin" element={<AdminPage />} />
+                                  <Route path="/admin/:tab" element={<AdminPage />} />
+                                </Route>
+                                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                              </Routes>
+                            </Suspense>
+                          </NextActionProvider>
+                        </StagesProvider>
+                      </TawkSupportProvider>
+                    </AuthProvider>
+                  </ErrorBoundary>
+                </ImportProgressProvider>
+                <CookieConsent />
+              </ConsentProvider>
+            </BrowserRouter>
+          </ModalsProvider>
         </DatesProvider>
       </MantineProvider>
     </QueryClientProvider>
