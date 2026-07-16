@@ -59,3 +59,14 @@ P0 listesindeki `axios`, Nango, `multer`, mail zinciri, `express`, `path-to-rege
 - Bu peer uyuşmazlığı nedeniyle `npm audit fix --dry-run` hâlâ `ERESOLVE` ile duruyor. `--force`, global override veya `legacy-peer-deps` uygulanmadı.
 - Kalan bulgular P1/P2 kapsamındaki PostHog/OpenTelemetry/protobuf, React Router, SDK/`ws`, Resend ve D3/ExcelJS zincirlerinde.
 - Production deploy yapılmamalı; canlı doğrulama yalnız `tg-research / tg-core-staging` üzerinde yapılmalı.
+
+## Staging rollout
+
+- Deploy edilen commit: `a08cb19`
+- Railway projesi: `tg-research` (`fdd120c4-5e6b-4503-aae6-8b0ec84304d9`)
+- Servis: `tg-core-staging` (`8b95e0cb-c1e9-46ce-b969-fa0663ddb7c6`)
+- Deployment: `c8cb7b2e-bf32-4bd1-b225-bc85d2b7095c` — `SUCCESS`
+- Health check: `GET /api/health` — HTTP 200, `status=ok`, `database=connected`
+- Ayrı `TG-Core` production projesine deploy veya ayar değişikliği yapılmadı.
+
+Başlangıç loglarında dependency regresyonu görülmedi. Staging ortamında önceden mevcut iki config uyarısı devam ediyor: `TRACKING_SECRET` tanımlı değil ve PlusVibe webhook secret'ı eksik. Bu remediation kapsamında ortam değişkenlerine dokunulmadı.
