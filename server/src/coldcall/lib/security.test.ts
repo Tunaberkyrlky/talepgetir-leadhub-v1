@@ -157,3 +157,20 @@ test('explicit number deletion cannot bypass durable reconciliation states', () 
     assert.match(deletion, /coldcall_complete_explicit_number_release/);
     assert.doesNotMatch(deletion, /\.update\(\{ status: 'released'/);
 });
+
+test('all released-number transitions clear the tenant default transactionally', () => {
+    const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20260716213000_coldcall_atomicity_hardening.sql'), 'utf8');
+    for (const functionName of [
+        'coldcall_complete_explicit_number_release',
+        'coldcall_finish_number_cleanup',
+        'coldcall_finish_number_reconciliation',
+    ]) {
+        const start = sql.indexOf(`CREATE OR REPLACE FUNCTION ${functionName}`);
+        const body = sql.slice(start, sql.indexOf('END; $$;', start));
+        assert.match(body, /UPDATE coldcall_settings SET default_phone_number_id=NULL/);
+        assert.match(body, /default_phone_number_id=p_number_id/);
+    }
+    const route = readFileSync(join(process.cwd(), 'server/src/coldcall/routes/numbers.ts'), 'utf8');
+    const deletion = route.slice(route.indexOf("router.delete('/:id'"));
+    assert.doesNotMatch(deletion, /default_phone_number_id/);
+});

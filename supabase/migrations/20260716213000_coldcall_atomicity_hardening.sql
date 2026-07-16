@@ -267,12 +267,17 @@ END; $$;
 
 CREATE OR REPLACE FUNCTION coldcall_complete_explicit_number_release(p_tenant_id UUID,p_number_id UUID)
 RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_tenant_id UUID;
 BEGIN
  UPDATE coldcall_phone_numbers SET status='released',released_at=now(),cleanup_next_attempt_at=NULL,
    cleanup_last_error=NULL,cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
  WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='release_pending'
-   AND cleanup_lease_token IS NULL;
- RETURN FOUND;
+   AND cleanup_lease_token IS NULL
+ RETURNING tenant_id INTO v_tenant_id;
+ IF v_tenant_id IS NULL THEN RETURN FALSE; END IF;
+ UPDATE coldcall_settings SET default_phone_number_id=NULL,updated_at=now()
+ WHERE tenant_id=v_tenant_id AND default_phone_number_id=p_number_id;
+ RETURN TRUE;
 END; $$;
 
 CREATE OR REPLACE FUNCTION coldcall_mark_number_ambiguous(p_tenant_id UUID,p_number_id UUID,p_error TEXT)
@@ -301,19 +306,27 @@ END; $$;
 CREATE OR REPLACE FUNCTION coldcall_finish_number_cleanup(
  p_number_id UUID,p_lease UUID,p_success BOOLEAN,p_error TEXT
 ) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_tenant_id UUID;
 BEGIN
  UPDATE coldcall_phone_numbers SET status=CASE WHEN p_success THEN 'released' ELSE status END,
   released_at=CASE WHEN p_success THEN now() ELSE released_at END,
   cleanup_next_attempt_at=CASE WHEN p_success THEN NULL ELSE now()+interval '5 minutes' END,
   cleanup_last_error=CASE WHEN p_success THEN NULL ELSE left(COALESCE(p_error,'release failed'),2000) END,
   cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
- WHERE id=p_number_id AND status='release_pending' AND cleanup_lease_token=p_lease;
- RETURN FOUND;
+ WHERE id=p_number_id AND status='release_pending' AND cleanup_lease_token=p_lease
+ RETURNING tenant_id INTO v_tenant_id;
+ IF v_tenant_id IS NULL THEN RETURN FALSE; END IF;
+ IF p_success THEN
+   UPDATE coldcall_settings SET default_phone_number_id=NULL,updated_at=now()
+   WHERE tenant_id=v_tenant_id AND default_phone_number_id=p_number_id;
+ END IF;
+ RETURN TRUE;
 END; $$;
 
 CREATE OR REPLACE FUNCTION coldcall_finish_number_reconciliation(
  p_number_id UUID,p_lease UUID,p_owned BOOLEAN,p_provider_sid TEXT,p_error TEXT
 ) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_tenant_id UUID;
 BEGIN
  UPDATE coldcall_phone_numbers SET
   status=CASE WHEN p_error IS NOT NULL THEN status WHEN p_owned THEN 'active' ELSE 'released' END,
@@ -322,8 +335,14 @@ BEGIN
   cleanup_next_attempt_at=CASE WHEN p_error IS NULL THEN NULL ELSE now()+interval '5 minutes' END,
   cleanup_last_error=CASE WHEN p_error IS NULL THEN NULL ELSE left(p_error,2000) END,
   cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
- WHERE id=p_number_id AND status='purchase_unknown' AND cleanup_lease_token=p_lease;
- RETURN FOUND;
+ WHERE id=p_number_id AND status='purchase_unknown' AND cleanup_lease_token=p_lease
+ RETURNING tenant_id INTO v_tenant_id;
+ IF v_tenant_id IS NULL THEN RETURN FALSE; END IF;
+ IF p_error IS NULL AND NOT p_owned THEN
+   UPDATE coldcall_settings SET default_phone_number_id=NULL,updated_at=now()
+   WHERE tenant_id=v_tenant_id AND default_phone_number_id=p_number_id;
+ END IF;
+ RETURN TRUE;
 END; $$;
 
 CREATE OR REPLACE FUNCTION coldcall_enqueue_recording(

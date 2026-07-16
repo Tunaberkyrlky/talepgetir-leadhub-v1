@@ -290,12 +290,6 @@ router.delete('/:id', requireBuyer, async (req: Request, res: Response, next: Ne
             log.error({ err: completeError, numberId: num.id }, 'provider released but DB completion deferred to scheduler');
             throw new AppError('İade tamamlandı ancak kayıt uzlaştırması bekleniyor', 500);
         }
-        if (settings.default_phone_number_id === num.id) {
-            await supabaseAdmin
-                .from('coldcall_settings')
-                .update({ default_phone_number_id: null, updated_at: new Date().toISOString() })
-                .eq('tenant_id', tenantId);
-        }
         res.json({ ok: true });
     } catch (err) {
         next(err);
