@@ -199,6 +199,21 @@ test('stale purchasing reservations are conservatively promoted and reconciled',
     assert.match(sql, /GRANT EXECUTE ON FUNCTION coldcall_claim_number_cleanup[\s\S]*TO service_role/);
 });
 
+test('number cleanup retry budgets reset at every new stable lifecycle', () => {
+    const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20260716213000_coldcall_atomicity_hardening.sql'), 'utf8');
+    const body = (name: string, next: string) => sql.slice(
+        sql.indexOf(`CREATE OR REPLACE FUNCTION ${name}`),
+        sql.indexOf(`CREATE OR REPLACE FUNCTION ${next}`),
+    );
+    const reserve = body('coldcall_reserve_number', 'coldcall_complete_number');
+    assert.match(reserve, /ON CONFLICT[\s\S]*cleanup_attempts=0[\s\S]*cleanup_lease_token=NULL[\s\S]*cleanup_lease_expires_at=NULL/);
+    assert.match(body('coldcall_complete_number', 'coldcall_release_number_reservation'), /cleanup_attempts=0[\s\S]*cleanup_lease_token=NULL/);
+    assert.match(body('coldcall_claim_explicit_number_release', 'coldcall_complete_explicit_number_release'), /cleanup_attempts=0[\s\S]*cleanup_lease_token=NULL/);
+    assert.match(body('coldcall_complete_explicit_number_release', 'coldcall_mark_number_ambiguous'), /cleanup_attempts=0/);
+    assert.match(body('coldcall_finish_number_cleanup', 'coldcall_finish_number_reconciliation'), /CASE WHEN p_success THEN 0 ELSE cleanup_attempts END/);
+    assert.match(body('coldcall_finish_number_reconciliation', 'coldcall_enqueue_recording'), /CASE WHEN p_error IS NULL THEN 0 ELSE cleanup_attempts END/);
+});
+
 test('number release RPCs lock settings before mutating phone rows', () => {
     const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20260716213000_coldcall_atomicity_hardening.sql'), 'utf8');
     for (const functionName of [

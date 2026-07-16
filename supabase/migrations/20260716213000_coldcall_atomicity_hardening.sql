@@ -213,13 +213,15 @@ BEGIN
  IF (SELECT count(*) FROM coldcall_phone_numbers WHERE tenant_id=p_tenant_id AND status<>'released')>=v_max
    THEN RAISE EXCEPTION 'coldcall_number_quota'; END IF;
  INSERT INTO coldcall_phone_numbers(tenant_id,provider,e164,country_code,friendly_name,status,
-   monthly_cost_usd,created_by,cleanup_next_attempt_at)
+   monthly_cost_usd,created_by,cleanup_attempts,cleanup_next_attempt_at,
+   cleanup_lease_token,cleanup_lease_expires_at)
  VALUES(p_tenant_id,p_provider,p_e164,upper(p_country),p_e164,'purchasing',p_monthly,p_created_by,
-   now()+interval '15 minutes')
+   0,now()+interval '15 minutes',NULL,NULL)
  ON CONFLICT(tenant_id,e164) DO UPDATE SET provider=EXCLUDED.provider,country_code=EXCLUDED.country_code,
    friendly_name=EXCLUDED.friendly_name,status='purchasing',monthly_cost_usd=EXCLUDED.monthly_cost_usd,
    created_by=EXCLUDED.created_by,provider_sid=NULL,released_at=NULL,
-   cleanup_next_attempt_at=now()+interval '15 minutes',cleanup_last_error=NULL
+   cleanup_attempts=0,cleanup_next_attempt_at=now()+interval '15 minutes',cleanup_last_error=NULL,
+   cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
  WHERE coldcall_phone_numbers.status='released'
  RETURNING * INTO v_num;
  IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_number_already_reserved'; END IF;
@@ -232,7 +234,8 @@ CREATE OR REPLACE FUNCTION coldcall_complete_number(
 DECLARE v_num coldcall_phone_numbers;
 BEGIN
  UPDATE coldcall_phone_numbers SET provider_sid=p_provider_sid,e164=p_e164,friendly_name=p_e164,status=p_status,
-   purchased_at=now(),cleanup_next_attempt_at=NULL,cleanup_last_error=NULL
+   purchased_at=now(),cleanup_attempts=0,cleanup_next_attempt_at=NULL,cleanup_last_error=NULL,
+   cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
    WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='purchasing'
    RETURNING * INTO v_num;
  IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_number_reservation_missing'; END IF;
@@ -242,8 +245,9 @@ END; $$;
 CREATE OR REPLACE FUNCTION coldcall_release_number_reservation(p_tenant_id UUID,p_number_id UUID)
 RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
- UPDATE coldcall_phone_numbers SET status='released',released_at=now(),cleanup_next_attempt_at=NULL,
-   cleanup_last_error=NULL
+ UPDATE coldcall_phone_numbers SET status='released',released_at=now(),cleanup_attempts=0,
+   cleanup_next_attempt_at=NULL,cleanup_last_error=NULL,cleanup_lease_token=NULL,
+   cleanup_lease_expires_at=NULL
  WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='purchasing';
  RETURN FOUND;
 END; $$;
@@ -262,8 +266,9 @@ CREATE OR REPLACE FUNCTION coldcall_claim_explicit_number_release(p_tenant_id UU
 RETURNS coldcall_phone_numbers LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_num coldcall_phone_numbers;
 BEGIN
- UPDATE coldcall_phone_numbers SET status='release_pending',cleanup_next_attempt_at=now()+interval '5 minutes',
-   cleanup_last_error='explicit release in progress'
+ UPDATE coldcall_phone_numbers SET status='release_pending',cleanup_attempts=0,
+   cleanup_next_attempt_at=now()+interval '5 minutes',cleanup_last_error='explicit release in progress',
+   cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
  WHERE id=p_number_id AND tenant_id=p_tenant_id AND status IN ('active','pending_regulatory')
  RETURNING * INTO v_num;
  IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_number_not_releasable'; END IF;
@@ -278,8 +283,9 @@ BEGIN
  WHERE id=p_number_id AND tenant_id=p_tenant_id;
  IF v_tenant_id IS NULL THEN RETURN FALSE; END IF;
  PERFORM 1 FROM coldcall_settings WHERE tenant_id=v_tenant_id FOR UPDATE;
- UPDATE coldcall_phone_numbers SET status='released',released_at=now(),cleanup_next_attempt_at=NULL,
-   cleanup_last_error=NULL,cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
+ UPDATE coldcall_phone_numbers SET status='released',released_at=now(),cleanup_attempts=0,
+   cleanup_next_attempt_at=NULL,cleanup_last_error=NULL,cleanup_lease_token=NULL,
+   cleanup_lease_expires_at=NULL
  WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='release_pending'
    AND cleanup_lease_token IS NULL
  RETURNING tenant_id INTO v_tenant_id;
@@ -328,6 +334,7 @@ BEGIN
   released_at=CASE WHEN p_success THEN now() ELSE released_at END,
   cleanup_next_attempt_at=CASE WHEN p_success THEN NULL ELSE now()+interval '5 minutes' END,
   cleanup_last_error=CASE WHEN p_success THEN NULL ELSE left(COALESCE(p_error,'release failed'),2000) END,
+  cleanup_attempts=CASE WHEN p_success THEN 0 ELSE cleanup_attempts END,
   cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
  WHERE id=p_number_id AND status='release_pending' AND cleanup_lease_token=p_lease
  RETURNING tenant_id INTO v_tenant_id;
@@ -353,6 +360,7 @@ BEGIN
   released_at=CASE WHEN p_error IS NULL AND NOT p_owned THEN now() ELSE released_at END,
   cleanup_next_attempt_at=CASE WHEN p_error IS NULL THEN NULL ELSE now()+interval '5 minutes' END,
   cleanup_last_error=CASE WHEN p_error IS NULL THEN NULL ELSE left(p_error,2000) END,
+  cleanup_attempts=CASE WHEN p_error IS NULL THEN 0 ELSE cleanup_attempts END,
   cleanup_lease_token=NULL,cleanup_lease_expires_at=NULL
  WHERE id=p_number_id AND status='purchase_unknown' AND cleanup_lease_token=p_lease
  RETURNING tenant_id INTO v_tenant_id;
