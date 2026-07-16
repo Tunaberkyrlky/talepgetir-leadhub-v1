@@ -283,7 +283,14 @@ export default function LinkedInCampaignDetail({ campaignId, accounts, onBack }:
             <Paper withBorder radius="md" p="md">
                 <Group justify="space-between" wrap="wrap">
                     <Group gap="sm">
-                        <Button variant="subtle" px={6} onClick={onBack}><IconArrowLeft size={18} /></Button>
+                        <Button
+                            variant="subtle"
+                            px={6}
+                            onClick={onBack}
+                            aria-label={t('research.linkedin.camp.back', 'Back to campaigns')}
+                        >
+                            <IconArrowLeft size={18} />
+                        </Button>
                         <div>
                             <Group gap="xs">
                                 <Text fw={700}>{campaign.name}</Text>
@@ -422,14 +429,18 @@ export default function LinkedInCampaignDetail({ campaignId, accounts, onBack }:
                                         )}
                                         <Group gap={4} wrap="nowrap">
                                             <ActionIcon variant="subtle" disabled={i === 0}
+                                                aria-label={t('research.linkedin.camp.moveStepUp', 'Move step up')}
                                                 onClick={() => { const n = [...steps]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; mutateSteps(n); }}>
                                                 <IconArrowUp size={16} />
                                             </ActionIcon>
                                             <ActionIcon variant="subtle" disabled={i === steps.length - 1}
+                                                aria-label={t('research.linkedin.camp.moveStepDown', 'Move step down')}
                                                 onClick={() => { const n = [...steps]; [n[i + 1], n[i]] = [n[i], n[i + 1]]; mutateSteps(n); }}>
                                                 <IconArrowDown size={16} />
                                             </ActionIcon>
-                                            <ActionIcon variant="subtle" color="red" onClick={() => mutateSteps(steps.filter((_, j) => j !== i))}>
+                                            <ActionIcon variant="subtle" color="red"
+                                                aria-label={t('research.linkedin.camp.deleteStep', 'Delete step')}
+                                                onClick={() => mutateSteps(steps.filter((_, j) => j !== i))}>
                                                 <IconTrash size={16} />
                                             </ActionIcon>
                                         </Group>
@@ -1271,11 +1282,15 @@ function StepEditor({ step, validation, invitePlaceholder, onTemplate, onMode, o
                                 onChange={(e) => updateSection(idx, { prompt: e.currentTarget.value })}
                             />
                             <Tooltip label={t('research.linkedin.camp.ai.insertToken', 'Insert token into template')}>
-                                <ActionIcon variant="subtle" mt={4} disabled={!sec.key} onClick={() => insertToken(sec.key)}>
+                                <ActionIcon variant="subtle" mt={4} disabled={!sec.key}
+                                    aria-label={t('research.linkedin.camp.ai.insertToken', 'Insert token into template')}
+                                    onClick={() => insertToken(sec.key)}>
                                     <IconCirclePlus size={16} />
                                 </ActionIcon>
                             </Tooltip>
-                            <ActionIcon variant="subtle" color="red" mt={4} onClick={() => removeSection(idx)}>
+                            <ActionIcon variant="subtle" color="red" mt={4}
+                                aria-label={t('research.linkedin.camp.ai.deleteSection', 'Delete section')}
+                                onClick={() => removeSection(idx)}>
                                 <IconTrash size={16} />
                             </ActionIcon>
                         </Group>
