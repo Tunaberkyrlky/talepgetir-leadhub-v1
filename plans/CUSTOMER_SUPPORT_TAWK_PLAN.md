@@ -356,7 +356,7 @@ Kod consent mekanizmasını sağlar; hukuki uygunluğu tek başına garanti etme
 - [x] Staging `/api/health` yanıtı ve database bağlantısı doğrulandı.
 - [x] Yayındaki frontend bundle'ında Tawk Property/Widget yapılandırması doğrulandı.
 - [x] Public `/cookie-policy` rotası doğrulandı.
-- [ ] Gerçek production servisi/property'si oluşturulup production env değerleri girildi.
+- [ ] Ayrı Railway `TG-Core` production projesi bilerek dokunulmadan tutuluyor; go-live öncesinde ayrı Tawk production property/env değerleri ve production deploy'u tamamlanacak.
 - [ ] Tarayıcıda reject/analytics-only/support-only/accept-all senaryoları tıklanarak doğrulandı.
 - [ ] Tawk.to agent, mobil push, scheduler, telefon alanı, etiket ve hazır cevap ayarları tamamlandı.
 - [ ] Hukuk incelemesi ve DPA/retention kararları tamamlandı.
@@ -371,4 +371,4 @@ Kod consent mekanizmasını sağlar; hukuki uygunluğu tek başına garanti etme
 - Server build: başarılı
 - Client build: başarılı
 - Health: `status=ok`, `database=connected`
-- Not: Railway build'i mevcut dependency ağacında 2 kritik dahil güvenlik açıkları raporladı. Tawk kapsamından bağımsız bir dependency audit/remediation işi açılmalıdır.
+- Not: Dependency audit tamamlandı. İki kritik bulgu dev-only zincirdedir; runtime audit'te 0 kritik, 21 yüksek ve 22 orta etkilenen paket vardır. Remediation sırası `plans/DEPENDENCY_AUDIT_2026-07-16.md` dosyasındadır.
