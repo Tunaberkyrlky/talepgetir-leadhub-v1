@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import ExcelJS from 'exceljs';
+import ExcelJS from 'devextreme-exceljs-fork';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { requireTier, requireRole } from '../middleware/auth.js';
 import { createLogger } from '../lib/logger.js';

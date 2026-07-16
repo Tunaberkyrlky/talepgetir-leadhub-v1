@@ -7,23 +7,27 @@ import { IconMaximize, IconMinimize, IconExternalLink, IconMapPin, IconCheck, Ic
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ComposableMap, Geographies, Geography, ZoomableGroup } from 'react-simple-maps';
+import { geoNaturalEarth1, geoPath, type GeoPermissibleObjects } from 'd3-geo';
+import type { Feature, FeatureCollection, GeoJsonProperties, MultiPolygon, Polygon } from 'geojson';
 import * as topojson from 'topojson-client';
+import type { Topology } from 'topojson-specification';
 import topoData from 'world-atlas/countries-110m.json';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import { COUNTRY_NAMES } from '../lib/countryNames';
 import { useStages } from '../contexts/StagesContext';
 import api from '../lib/api';
 
-type GeoFeature = { id?: string | number; [key: string]: unknown };
+type CountryGeometry = Polygon | MultiPolygon;
+type GeoFeature = Feature<CountryGeometry, GeoJsonProperties> & { id?: string | number };
+
+const MAP_WIDTH = 800;
+const MAP_HEIGHT = 340;
 
 // Bundled country polygons — computed once at module load, no runtime fetch needed
-const GEO_FEATURES: GeoFeature[] = (
-    topojson.feature(
-        topoData as unknown as Parameters<typeof topojson.feature>[0],
-        (topoData as any).objects.countries
-    ) as unknown as { features: GeoFeature[] }
-).features ?? [];
+const WORLD_TOPOLOGY = topoData as unknown as Topology;
+const GEO_FEATURES = (
+    topojson.feature(WORLD_TOPOLOGY, WORLD_TOPOLOGY.objects.countries) as FeatureCollection<CountryGeometry>
+).features as GeoFeature[];
 
 export interface CompanyLocation {
     id: string;
@@ -184,31 +188,113 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
     const [hoveredMarker, setHoveredMarker] = useState<CountryMarker | null>(null);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [fullscreenPortalTarget, setFullscreenPortalTarget] = useState<HTMLElement | null>(null);
     const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
     const mapContainerRef = useRef<HTMLDivElement>(null);
-    const [mapKey, setMapKey] = useState(0);
     const [projCenter, setProjCenter] = useState<[number, number]>([20, 15]);
     const [projScale, setProjScale] = useState(140);
     // Track current pan center so zoom buttons don't reset it
     const currentCenterRef = useRef<[number, number]>([20, 15]);
+    const mapSvgRef = useRef<SVGSVGElement>(null);
+    const dragStateRef = useRef<{
+        pointerId: number;
+        startPoint: [number, number];
+        startCenter: [number, number];
+    } | null>(null);
+    const suppressMapClickRef = useRef(false);
+
+    const projection = useMemo(
+        () => geoNaturalEarth1()
+            .translate([MAP_WIDTH / 2, MAP_HEIGHT / 2])
+            .center(projCenter)
+            .scale(projScale),
+        [projCenter, projScale],
+    );
+    const mapPath = useMemo(() => geoPath(projection), [projection]);
 
     const goToRegion = useCallback((center: [number, number], scale: number) => {
         currentCenterRef.current = center;
         setProjCenter(center);
         setProjScale(scale);
-        setMapKey(k => k + 1);
     }, []);
 
     const handleZoomIn = useCallback(() => {
         setProjCenter(currentCenterRef.current);
         setProjScale(s => Math.min(Math.round(s * 1.6), 4000));
-        setMapKey(k => k + 1);
     }, []);
 
     const handleZoomOut = useCallback(() => {
         setProjCenter(currentCenterRef.current);
         setProjScale(s => Math.max(Math.round(s / 1.6), 80));
-        setMapKey(k => k + 1);
+    }, []);
+
+    const eventToMapPoint = useCallback((clientX: number, clientY: number): [number, number] | null => {
+        const svg = mapSvgRef.current;
+        if (!svg) return null;
+        const rect = svg.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return null;
+        return [
+            (clientX - rect.left) * MAP_WIDTH / rect.width,
+            (clientY - rect.top) * MAP_HEIGHT / rect.height,
+        ];
+    }, []);
+
+    const handleMapPointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+        if (event.button !== 0) return;
+        const point = eventToMapPoint(event.clientX, event.clientY);
+        if (!point) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        event.currentTarget.style.cursor = 'grabbing';
+        suppressMapClickRef.current = false;
+        dragStateRef.current = {
+            pointerId: event.pointerId,
+            startPoint: point,
+            startCenter: currentCenterRef.current,
+        };
+    }, [eventToMapPoint]);
+
+    const handleMapPointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+        const drag = dragStateRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        const point = eventToMapPoint(event.clientX, event.clientY);
+        if (!point) return;
+
+        if (Math.hypot(point[0] - drag.startPoint[0], point[1] - drag.startPoint[1]) > 2) {
+            suppressMapClickRef.current = true;
+        }
+
+        const startProjection = geoNaturalEarth1()
+            .translate([MAP_WIDTH / 2, MAP_HEIGHT / 2])
+            .center(drag.startCenter)
+            .scale(projScale);
+        const startCoordinates = startProjection.invert?.(drag.startPoint);
+        const currentCoordinates = startProjection.invert?.(point);
+        if (!startCoordinates || !currentCoordinates) return;
+
+        const rawLongitude = drag.startCenter[0] + startCoordinates[0] - currentCoordinates[0];
+        const longitude = ((rawLongitude + 180) % 360 + 360) % 360 - 180;
+        const latitude = Math.max(-80, Math.min(80,
+            drag.startCenter[1] + startCoordinates[1] - currentCoordinates[1],
+        ));
+        const nextCenter: [number, number] = [longitude, latitude];
+        currentCenterRef.current = nextCenter;
+        setProjCenter(nextCenter);
+    }, [eventToMapPoint, projScale]);
+
+    const finishMapPointer = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+        const drag = dragStateRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        event.currentTarget.style.cursor = 'grab';
+        dragStateRef.current = null;
+    }, []);
+
+    const handleMapWheel = useCallback((event: React.WheelEvent<SVGSVGElement>) => {
+        event.preventDefault();
+        const factor = Math.exp(-event.deltaY * 0.0015);
+        setProjScale(scale => Math.max(80, Math.min(4000, Math.round(scale * factor))));
     }, []);
 
     const OTHER_REGIONS = useMemo(() => [
@@ -224,16 +310,25 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
     const toggleFullscreen = useCallback(() => {
         if (!mapContainerRef.current) return;
         if (!document.fullscreenElement) {
-            mapContainerRef.current.requestFullscreen().then(() => setIsFullscreen(true));
+            mapContainerRef.current.requestFullscreen().then(() => {
+                setIsFullscreen(true);
+                setFullscreenPortalTarget(mapContainerRef.current);
+            });
         } else {
-            document.exitFullscreen().then(() => setIsFullscreen(false));
+            document.exitFullscreen().then(() => {
+                setIsFullscreen(false);
+                setFullscreenPortalTarget(null);
+            });
         }
     }, []);
 
     // Sync state when user exits fullscreen via Escape key
     useEffect(() => {
         const handler = () => {
-            if (!document.fullscreenElement) setIsFullscreen(false);
+            const activeElement = document.fullscreenElement;
+            const active = activeElement === mapContainerRef.current;
+            setIsFullscreen(active);
+            setFullscreenPortalTarget(active && activeElement instanceof HTMLElement ? activeElement : null);
         };
         document.addEventListener('fullscreenchange', handler);
         return () => document.removeEventListener('fullscreenchange', handler);
@@ -321,7 +416,7 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
 
             try {
                 for (const feature of GEO_FEATURES) {
-                    if (booleanPointInPolygon(point, feature as any)) {
+                    if (booleanPointInPolygon(point, feature)) {
                         featureId = Number(feature.id);
                         break;
                     }
@@ -360,7 +455,7 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
         return { countryCompanyCounts: countMap, countryMarkers: markers };
     }, [activeData]);
 
-    const getCountryFill = useCallback((geo: any) => {
+    const getCountryFill = useCallback((geo: GeoFeature) => {
         const stats = countryCompanyCounts.get(Number(geo.id));
         const count = stats?.total ?? 0;
         if (count === 0) return '#d9e2ec';
@@ -372,7 +467,7 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
         return `rgb(${r}, ${g}, ${b})`;
     }, [countryCompanyCounts]);
 
-    const handleCountryClick = useCallback((geo: any) => {
+    const handleCountryClick = useCallback((geo: GeoFeature) => {
         const id = Number(geo.id);
         const stats = countryCompanyCounts.get(id);
         if (!stats || stats.total === 0) return;
@@ -553,50 +648,55 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                                 </ActionIcon>
                             </Stack>
 
-                            <ComposableMap
-                                key={mapKey}
-                                projection="geoNaturalEarth1"
-                                projectionConfig={{ scale: projScale, center: projCenter }}
-                                width={800}
-                                height={340}
-                                style={{ width: '100%', height: isFullscreen ? '100vh' : 'auto', display: 'block' }}
+                            <svg
+                                ref={mapSvgRef}
+                                viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
+                                role="img"
+                                aria-label={t('dashboard.companyLocations')}
+                                onPointerDown={handleMapPointerDown}
+                                onPointerMove={handleMapPointerMove}
+                                onPointerUp={finishMapPointer}
+                                onPointerCancel={finishMapPointer}
+                                onWheel={handleMapWheel}
+                                style={{
+                                    width: '100%',
+                                    height: isFullscreen ? '100vh' : 'auto',
+                                    display: 'block',
+                                    cursor: 'grab',
+                                    touchAction: 'none',
+                                }}
                             >
-                                <ZoomableGroup
-                                    minZoom={1}
-                                    maxZoom={8}
-                                    onMoveEnd={({ coordinates }) => {
-                                        currentCenterRef.current = coordinates as [number, number];
-                                    }}
-                                >
-                                    <Geographies geography={topoData as any}>
-                                        {({ geographies }) =>
-                                            geographies.map((geo) => {
-                                                const fill = getCountryFill(geo);
-                                                const id = Number(geo.id);
-                                                const hasCompanies = (countryCompanyCounts.get(id)?.total ?? 0) > 0;
-                                                const marker = hasCompanies ? countryMarkers.find(m => m.id === id) : undefined;
-                                                return (
-                                                    <Geography
-                                                        key={geo.rsmKey}
-                                                        geography={geo}
-                                                        fill={hoveredMarker?.id === id ? '#bfdbfe' : fill}
-                                                        stroke="#ffffff"
-                                                        strokeWidth={0.5}
-                                                        onClick={() => handleCountryClick(geo)}
-                                                        onMouseEnter={(e: React.MouseEvent) => marker && handleMarkerHover(marker, e)}
-                                                        onMouseLeave={() => handleMarkerHover(null)}
-                                                        style={{
-                                                            default: { outline: 'none', filter: hoveredMarker?.id === id ? 'drop-shadow(0 0 6px rgba(59,130,246,0.7))' : 'none' },
-                                                            hover: { outline: 'none' },
-                                                            pressed: { outline: 'none' },
-                                                        }}
-                                                    />
-                                                );
-                                            })
-                                        }
-                                    </Geographies>
-                                </ZoomableGroup>
-                            </ComposableMap>
+                                {GEO_FEATURES.map((geo, index) => {
+                                    const fill = getCountryFill(geo);
+                                    const id = Number(geo.id);
+                                    const hasCompanies = (countryCompanyCounts.get(id)?.total ?? 0) > 0;
+                                    const marker = hasCompanies ? countryMarkers.find(item => item.id === id) : undefined;
+                                    return (
+                                        <path
+                                            key={geo.id ?? index}
+                                            d={mapPath(geo as GeoPermissibleObjects) ?? undefined}
+                                            fill={hoveredMarker?.id === id ? '#bfdbfe' : fill}
+                                            stroke="#ffffff"
+                                            strokeWidth={0.5}
+                                            onClick={() => {
+                                                if (suppressMapClickRef.current) {
+                                                    suppressMapClickRef.current = false;
+                                                    return;
+                                                }
+                                                handleCountryClick(geo);
+                                            }}
+                                            onMouseEnter={(event) => marker && handleMarkerHover(marker, event)}
+                                            onMouseLeave={() => handleMarkerHover(null)}
+                                            style={{
+                                                outline: 'none',
+                                                filter: hoveredMarker?.id === id
+                                                    ? 'drop-shadow(0 0 6px rgba(59,130,246,0.7))'
+                                                    : 'none',
+                                            }}
+                                        />
+                                    );
+                                })}
+                            </svg>
 
                             {/* Tooltip — kept inside the fullscreen container so it stays visible in fullscreen */}
                             {hoveredMarker && (
@@ -700,7 +800,7 @@ export default function GlobeMap({ data, isLoading, onGeocode, geocodeLoading, c
                 <CountryCompaniesModal
                     countryName={selectedCountry}
                     onClose={() => setSelectedCountry(null)}
-                    portalTarget={isFullscreen ? mapContainerRef.current : null}
+                    portalTarget={fullscreenPortalTarget}
                 />
             )}
         </Paper>

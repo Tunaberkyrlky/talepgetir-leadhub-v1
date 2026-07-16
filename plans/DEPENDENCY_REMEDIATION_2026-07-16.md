@@ -2,7 +2,7 @@
 
 **Branch:** `chore/dependency-remediation`
 
-**Kapsam:** P0 runtime paketleri, dev-only kritik zincir ve lockfile/deploy hijyeni.
+**Kapsam:** P0/P1/P2 runtime ve geliştirme zincirleri, peer uyuşmazlıkları ve lockfile/deploy hijyeni.
 
 **Production sınırı:** Ayrı `TG-Core` production projesine deploy veya ayar değişikliği yapılmadı.
 
@@ -39,28 +39,39 @@ Kök lockfile ayrıca güvenli transitive sürümlere çözüldü:
 | Kaynak | Kritik | Yüksek | Orta | Düşük | Toplam |
 |---|---:|---:|---:|---:|---:|
 | Tüm bağımlılıklar — önce | 2 | 23 | 23 | 2 | 50 |
-| Tüm bağımlılıklar — sonra | 0 | 13 | 19 | 2 | 34 |
+| Tüm bağımlılıklar — P0 sonrası | 0 | 13 | 19 | 2 | 34 |
+| Tüm bağımlılıklar — final | 0 | 0 | 0 | 0 | 0 |
 | Runtime — önce | 0 | 21 | 22 | 0 | 43 |
-| Runtime — sonra | 0 | 11 | 18 | 0 | 29 |
+| Runtime — P0 sonrası | 0 | 11 | 18 | 0 | 29 |
+| Runtime — final | 0 | 0 | 0 | 0 | 0 |
 
 P0 listesindeki `axios`, Nango, `multer`, mail zinciri, `express`, `path-to-regexp`, `qs`, `form-data`, `concurrently` ve `shell-quote` paketlerinin hiçbiri son audit çıktısında vulnerability kaydı olarak kalmadı.
 
 ## Doğrulama
 
 - `npm ci --ignore-scripts`: başarılı
+- `npm ls --all`: başarılı; invalid/missing peer yok
 - `npm run build`: başarılı; server TypeScript ve client TypeScript/Vite build tamamlandı
-- `npm audit --omit=dev`: 0 kritik, 11 yüksek, 18 orta
-- `npm audit`: 0 kritik, 13 yüksek, 19 orta, 2 düşük
-- `npm run lint --workspace=client`: dependency değişikliklerinden bağımsız mevcut baseline nedeniyle başarısız — 74 hata, 7 uyarı
+- `npm audit --omit=dev`: 0 bulgu
+- `npm audit`: 0 bulgu
+- `npm audit fix --dry-run`: başarılı; eklenecek/değişecek/kaldırılacak paket yok ve manifest/lockfile checksum'ları değişmedi
+- Harita projection smoke: 177/177 ülke yolu üretildi; projection/invert round-trip başarılı
+- `client/src/components/GlobeMap.tsx` lint: başarılı
+- Excel fork smoke: XLSX buffer/dosya yazma, stil, conditional formatting ve geri okuma başarılı
+- `npm run lint --workspace=client`: remediation dışı mevcut baseline nedeniyle başarısız — 52 hata, 7 uyarı
 
-## Bilinçli olarak ertelenenler
+## Kök nedenler ve kalıcı çözümler
 
-- `react-simple-maps@3.0.0` eski D3 v2 zincirini ve React 18'e kadar tanımlı peer aralığını taşıyor. Paket için React 19'u resmi olarak destekleyen kararlı upstream sürüm bulunmuyor; beta veya üçüncü taraf fork'a güvenlik remediation'ı içinde geçilmedi.
-- Bu peer uyuşmazlığı nedeniyle `npm audit fix --dry-run` hâlâ `ERESOLVE` ile duruyor. `--force`, global override veya `legacy-peer-deps` uygulanmadı.
-- Kalan bulgular P1/P2 kapsamındaki PostHog/OpenTelemetry/protobuf, React Router, SDK/`ws`, Resend ve D3/ExcelJS zincirlerinde.
+- **React 19 / D3:** `react-simple-maps@3.0.0` React peer aralığını 18'de ve D3 zincirini v2'de bırakıyordu. Paket ile kullanılmayan doğrudan `d3-selection`, `d3-transition` ve `d3-zoom` kaldırıldı. Harita; `d3-geo@3`, mevcut TopoJSON ve repo-içi React SVG/pan/zoom uygulamasına geçirildi. Böylece peer çakışması ve D3 advisory zinciri birlikte kaldırıldı.
+- **PostHog/OpenTelemetry:** `posthog-js@1.372.3` eski OpenTelemetry zincirini taşıyordu. `1.402.3` sürümüyle bu zincir dependency ağacından çıktı; `posthog-node` da `5.44.0` sürümüne yükseltildi.
+- **protobuf/ws:** Google GenAI, Supabase ve OpenAI parent sürümleri güncellenerek `protobufjs@7.6.5`, `@protobufjs/utf8@1.1.2` ve `ws@8.21.1` çözüldü.
+- **Resend/uuid:** `resend@6.17.2`, eski Svix/UUID zincirini kaldırdı.
+- **ExcelJS:** Upstream `exceljs@4.4.0`, dört yıldır `uuid@8` ve eski arşiv zincirine bağlıydı. Major override veya npm'in önerdiği eski sürüme downgrade yerine, API-uyumlu ve aktif DevExpress fork'u `devextreme-exceljs-fork@4.4.11` kullanıldı; import ve rapor üretim smoke testleri geçti.
+- **Dev toolchain:** `tsx@4.21.0` esbuild `~0.27` pin'i son düşük bulgunun kaynağıydı. `tsx@4.23.1` ile Vite ve TSX güvenli `esbuild@0.28.1` üzerinde birleşti. Vite'ın optional YAML peer'ı kök `yaml@2.9.0` ile karşılandı; Emotion/Cosmiconfig kendi güvenli `yaml@1.10.3` sürümünü nested kullanıyor.
+- `--force`, `legacy-peer-deps` veya dependency override kullanılmadı.
 - Production deploy yapılmamalı; canlı doğrulama yalnız `tg-research / tg-core-staging` üzerinde yapılmalı.
 
-## Staging rollout
+## İlk staging rollout
 
 - Deploy edilen commit: `a08cb19`
 - Railway projesi: `tg-research` (`fdd120c4-5e6b-4503-aae6-8b0ec84304d9`)

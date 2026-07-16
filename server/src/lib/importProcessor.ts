@@ -4,7 +4,7 @@
  */
 
 import Papa from 'papaparse';
-import ExcelJS from 'exceljs';
+import ExcelJS from 'devextreme-exceljs-fork';
 import fs from 'fs';
 import { supabaseAdmin } from './supabase.js';
 import { sanitizeCell } from './importMapper.js';
