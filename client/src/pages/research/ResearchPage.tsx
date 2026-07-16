@@ -206,6 +206,11 @@ export default function ResearchPage() {
             // and publishing it as "latest" would corrupt what RootRedirect/ResearchFlowPage
             // resume into, even if a genuinely newer project exists (WP6 review P2 round 2).
             await api.patch(`/research/projects/${pid}`, { profile, scale_target: scaleTargetValue });
+            // A profile edit here can be a subject change: the server (projects.ts PATCH) then clears
+            // this project's HS codes. Clear the wizard's per-project zero-candidate suppression flag
+            // too so a prior "0 HS candidates" result can't keep the wizard from re-matching the new
+            // products (the wizard's own step-4 save clears it; this covers the advanced-editor path).
+            if (typeof localStorage !== 'undefined') localStorage.removeItem(`research.hsMatchZero.${pid}`);
         }
         setLoadedProfile(profile);
         return pid;

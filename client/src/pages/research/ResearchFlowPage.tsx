@@ -311,6 +311,11 @@ export default function ResearchFlowPage() {
     // for why it isn't literally "7") — mirrors step 7's icp:generate enqueue+poll latch shape.
     const [hsMatchJobId, setHsMatchJobId] = useState<string | null>(null);
     const [hsMatchRequested, setHsMatchRequested] = useState(false);
+    // Bumped by saveStepMut.onSuccess when the server reports it cleared derived data (a real
+    // subject change); consumed by an effect below (after resetHsMatchLatches is defined) to reset
+    // the step-22 HS auto-run latches. onSuccess can't call resetHsMatchLatches directly — that
+    // helper and the HS state it touches are declared further down this component body.
+    const [hsResetSignal, setHsResetSignal] = useState(0);
     // Same shape as explicitBackToStep7/9/10: an explicit Back click from step 7 (now reached
     // via step 23, not step 6 directly — see step 7's onBack below) must actually land on step
     // 23, not bounce straight back to 7 the instant that screen's own auto-skip effect
@@ -704,6 +709,10 @@ export default function ResearchFlowPage() {
             const name = companyName.trim();
 
             let pid = projectId;
+            // The server (projects.ts PATCH) returns derived_data_reset:true only when this write
+            // actually changed the subject and it cleared the project's derived data (HS rows, etc).
+            // A brand-new project (POST) has nothing to reset, so it's always false there.
+            let derivedDataReset = false;
             if (!pid) {
                 // flow_state is accepted on create too (server-side WP6 fix) — a single
                 // POST request, no create-then-patch window where a retry after a network
@@ -711,12 +720,18 @@ export default function ResearchFlowPage() {
                 const created = (await api.post('/research/projects', { name, profile: mergedProfile, flow_state })).data as ResearchProjectSummary;
                 pid = created.id;
             } else {
-                await api.patch(`/research/projects/${pid}`, { name, profile: mergedProfile, flow_state });
+                const data = (await api.patch(`/research/projects/${pid}`, { name, profile: mergedProfile, flow_state })).data as { derived_data_reset?: boolean };
+                derivedDataReset = data?.derived_data_reset === true;
             }
-            return { pid, name, mergedProfile, flow_state, startedForTenant, clearDependentSeeds, calibStepToken };
+            return { pid, name, mergedProfile, flow_state, startedForTenant, clearDependentSeeds, calibStepToken, derivedDataReset };
         },
-        onSuccess: ({ pid, name, mergedProfile, flow_state, startedForTenant, clearDependentSeeds, calibStepToken }) => {
+        onSuccess: ({ pid, name, mergedProfile, flow_state, startedForTenant, clearDependentSeeds, calibStepToken, derivedDataReset }) => {
             if (startedForTenant !== activeTenantIdRef.current) return; // tenant switched mid-flight — discard
+            // Server-authoritative HS-latch reset: only when the server actually cleared this
+            // project's derived data (a real subject change). resetHsMatchLatches + the HS state are
+            // declared below saveStepMut, so we can't call it here — bump a signal consumed by an
+            // effect placed after that state instead.
+            if (derivedDataReset) setHsResetSignal((n) => n + 1);
             // WP8b P1 fix — see calibStepTokenRef's own doc comment above: only calibration-loop
             // transitions ever set `calibStepToken` (now including step 12's own intra-loop
             // company-index move, round 4 — see that call site's own comment); a mismatch against
@@ -970,6 +985,12 @@ export default function ResearchFlowPage() {
             setStep4Seeded(false);
             setStep5Seeded(false);
             retryCrawl();
+            // "Research again" is always a full re-research (it clears ai_draft to force a re-crawl),
+            // and its profile PATCH can change the subject fingerprint (it clears company_country), so
+            // the server may have reset this project's derived data. This mutation doesn't thread the
+            // response's derived_data_reset flag, so bump the HS-latch reset signal unconditionally —
+            // a full restart should always clear the step-22 zero-candidate suppression + job latches.
+            setHsResetSignal((n) => n + 1);
             // Synchronously replace the shared "latest project" cache — same pattern as
             // saveStepMut/fetchDraftMut — so a client-side SPA remount mid-"research again"
             // can't observe the stale OLD draft/later step even once (review P2).
@@ -1044,6 +1065,27 @@ export default function ResearchFlowPage() {
     // same-tab reload; the flag is set the instant zero-candidate success is detected.
     const hsMatchZeroKey = projectId ? `research.hsMatchZero.${projectId}` : null;
     const hsMatchZeroPersisted = hsMatchZeroKey ? localStorage.getItem(hsMatchZeroKey) === '1' : false;
+
+    // A subject change clears the project's HS rows server-side (projects.ts PATCH). Reset ALL the
+    // step-22 auto-run latches so the wizard re-matches the new products instead of staying
+    // suppressed by a stale prior "0 candidates" result or a leftover job handle: the durable
+    // localStorage flag, the session request/job latches, the success baseline, and the mutation.
+    const resetHsMatchLatches = () => {
+        if (hsMatchZeroKey) localStorage.removeItem(hsMatchZeroKey);
+        setHsMatchRequested(false);
+        setHsMatchJobId(null);
+        hsMatchSuccessBaselineRef.current = null;
+        hsMatchMut.reset();
+    };
+
+    // Server-driven: when a step save actually changed the subject (projects.ts cleared this
+    // project's derived data), reset the step-22 HS auto-run latches so it re-matches the new
+    // products. Gated on the server's derived_data_reset signal so a no-op / failed save never
+    // needlessly clears the zero-candidate suppression (avoids a wasted billable re-match).
+    useEffect(() => {
+        if (hsResetSignal > 0) resetHsMatchLatches();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hsResetSignal]);
 
     // Auto-start HS matching once, when we land on step 22 with no HS code rows yet (mirrors
     // step 7's icp:generate auto-start below).
@@ -2372,14 +2414,7 @@ export default function ResearchFlowPage() {
                 onBack={() => setStep(3)}
                 primaryLabel={t('research.wizard.next', 'Next')}
                 primaryLoading={saveStepMut.isPending}
-                onPrimary={() => {
-                    // A products edit makes any prior HS match stale — the server (projects.ts PATCH)
-                    // clears the old codes on this save. Also clear the local zero-candidate
-                    // suppression flag so a project that previously matched zero HS candidates
-                    // re-runs step 22 against its new products instead of staying skipped.
-                    if (hsMatchZeroKey) localStorage.removeItem(hsMatchZeroKey);
-                    saveStepMut.mutate({ patch: { products: productsInput }, nextStep: 5, gate: 'step4' });
-                }}
+                onPrimary={() => saveStepMut.mutate({ patch: { products: productsInput }, nextStep: 5, gate: 'step4' })}
             >
                 <TagsInput
                     label={t('research.wizard.step4.products', 'Products / services')}
