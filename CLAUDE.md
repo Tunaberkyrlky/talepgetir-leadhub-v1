@@ -6,6 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TG Core is a B2B multi-tenant CRM/lead management SaaS. It replaces Excel/CSV-based lead tracking with a web app featuring import, pipeline (Kanban), dashboard with globe visualization, and admin panels. The UI is bilingual (Turkish/English).
 
+## Product and Branch Boundaries
+
+TG-Core ve TG-Research iki ayrı ürün yaşam döngüsüdür. Bunları tek bir branch çizgisinde yeniden birleştirmeye çalışma.
+
+- **`main` = TG-Core production.** Mevcut müşterilere verilen canlı TG-Core ürünüdür ve kendi yolunda ilerler. TG-Research branch'lerini, TG-Research'e ait dependency-remediation çalışmalarını veya Research özelliklerini `main` içine merge etme. TG-Core production'a deploy/ayar değişikliği ancak kullanıcı bunu açıkça isterse yapılabilir.
+- **`ssalihyetim/TG-Research` = bağımsız TG-Research ürünü.** TG-Core çekirdeğini barındıran, Research kabiliyetleriyle ayrı gelişen bütünlüklü üründür. Şimdilik yalnız test/staging olarak çalışır; ileride kendi production (`main`) ve staging akışına sahip olacaktır.
+- **Kod akışı tek yönlüdür: `TG-Core main` → `TG-Research`.** Main'deki güvenlik yamaları, ortak çekirdek düzeltmeleri ve TG-Research için gerçekten gerekli iyileştirmeler önce incelenir, sonra seçici olarak port/cherry-pick edilir. Main'in tüm değişikliklerini otomatik olarak alma.
+- **Ters yönde varsayılan akış yoktur.** TG-Research özelliklerini veya commit geçmişini TG-Core `main` branch'ine geri taşıma. Bunun için ayrıca açık ürün kararı ve kullanıcı talimatı gerekir.
+- **Ahead/behind sayısını sıfırlamak hedef değildir.** TG-Research uzun ömürlü bağımsız bir ürün dalıdır; `main` ile toplu merge veya rebase yapma. Main-only commitleri uygunluk açısından sınıflandır ve yalnız seçilen değişiklikleri TG-Research tarafında uygula.
+- **Veritabanı ve deploy sınırlarını koru.** TG-Core production ile TG-Research test/staging ayrı migration geçmişleri, veritabanları ve Railway hedefleri olarak ele alınır. Migration dosyalarını veya deploy config'lerini ürünler arasında körlemesine kopyalama.
+- **Mevcut dependency remediation TG-Research kapsamındadır.** `chore/dependency-remediation` doğrudan TG-Core `main` branch'ine merge edilmemeli; yalnız TG-Research staging/ürün hattında kullanılmalıdır.
+
 ## Commands
 
 ```bash
