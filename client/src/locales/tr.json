@@ -840,6 +840,7 @@
                 "addLeadsHint": "Engel listesindeki kişiler ve başka aktif kampanyadaki kişiler otomatik atlanır.",
                 "enrollNow": "İçe aktar + kaydet",
                 "enrollSummary": "{{enrolled}}/{{total}} kişi kaydedildi.",
+                "enrollPartial": "İstek başarısız olmadan önce {{done}}/{{total}} grup kaydedildi. Kalanları eklemek için yeniden deneyin.",
                 "reason": {
                     "suppressed": "engel listesinde",
                     "in_another_campaign": "başka kampanyada",
@@ -850,12 +851,74 @@
                 "pageEmpty": "Bu sayfada kayıt yok.",
                 "firstPage": "İlk sayfa",
                 "noValidLeads": "Geçerli kişi bulunamadı — her satıra bir profil URL'si, public id veya URN yazın.",
+                "tabSaved": "Kayıtlı kişiler",
+                "tabCsv": "CSV",
+                "tabUrls": "URL listesi",
+                "savedSearchPlaceholder": "İsim, şirket veya unvana göre arayın",
+                "selectAll": "Tümünü seç",
+                "selectedCount": "{{n}} seçili",
+                "savedEmpty": "Kişi bulunamadı.",
+                "enrollSelected": "Seçilenleri kaydet",
+                "csvPick": "CSV dosyası seçin",
+                "csvPickPlaceholder": "kisiler.csv",
+                "csvNeedIdentity": "URL veya public id sütunu bulunamadı. Bulunan başlıklar: {{headers}}",
+                "csvNoRows": "CSV'de veri satırı yok.",
+                "csvParseError": "CSV okunamadı.",
+                "csvPreview": "İlk {{n}} satır önizleniyor, toplam {{total}} satır.",
+                "csvColIdentity": "Kimlik",
+                "csvColFirst": "Ad",
+                "csvColLast": "Soyad",
+                "csvColTitle": "Unvan",
+                "csvProgress": "İçe aktarılıyor {{i}}/{{n}}",
+                "csvSkipped": "{{n}} satır atlandı (geçersiz kimlik).",
+                "csvSkippedEmpty": "{{n}} satır atlandı (kimlik değeri yok).",
+                "csvAllSkipped": "İçe aktarılabilir satır yok: {{invalid}} satırda kimlik geçersiz, {{empty}} satırda kimlik değeri yok.",
+                "templateSelect": "Şablondan başla",
+                "templateOverwrite": "Mevcut içeriğin üzerine bu şablon yazılsın mı?",
+                "templateApply": "Uygula",
+                "templates": {
+                    "offInvite": {
+                        "name": "Davet notu — sade",
+                        "body": "Merhaba {first_name}, {company} bünyesinde yürüttüğünüz çalışmaları ilgiyle takip ediyorum. İhracat tarafında {{birlikte değer katabileceğimiz|gerçekten faydalı olabileceğimiz}} alanlar olabileceğini düşünüyorum, bağlantı kurmaktan memnuniyet duyarım."
+                    },
+                    "offMessage": {
+                        "name": "İlk mesaj — tanışma",
+                        "body": "Merhaba {first_name}, bağlantı kurduğumuz için teşekkür ederim. {company} bünyesinde {title} olarak ihracat ve yeni pazar geliştirme süreçlerinde nasıl bir yol izlediğinizi merak ediyorum. Önceliklerinizden kısaca bahsedebilir misiniz?"
+                    },
+                    "offFollowup": {
+                        "name": "Takip mesajı — nazik hatırlatma",
+                        "body": "Merhaba {first_name}, önceki mesajıma kısa bir not eklemek istedim. {company} tarafında yeni pazarlara açılmayı değerlendiriyorsanız birkaç somut fikir paylaşmaktan memnuniyet duyarım. Uygun olduğunuzda yazabilirsiniz."
+                    },
+                    "sectionsIcebreaker": {
+                        "name": "İlk mesaj — AI icebreaker'lı",
+                        "body": "Merhaba {first_name}, {ai:icebreaker} {company} için ihracat süreçlerinizde size nasıl destek olabileceğimizi kısaca konuşmak isterim. Uygun olur mu?",
+                        "icebreaker": "Kişinin şirketine ve unvanına dayanarak tek cümlelik, samimi ve kişiye özel bir açılış cümlesi yaz. Abartıdan kaçın, saygılı ve profesyonel bir dil kullan."
+                    },
+                    "sectionsFollowup": {
+                        "name": "Takip mesajı — AI değer önerili",
+                        "body": "Merhaba {first_name}, kısa bir hatırlatma yapmak istedim. {ai:deger_onerisi} Dilerseniz kısa bir görüşme ayarlayabiliriz.",
+                        "degerOnerisi": "Kişinin şirketi ve sektörüne göre, ihracat ve yeni müşteri kazanımı konusunda sunabileceğimiz somut bir değer önerisini tek cümlede özetle. Saygılı ve profesyonel bir dil kullan."
+                    },
+                    "fullInvite": {
+                        "name": "Davet notu — tam AI",
+                        "prompt": "Bir LinkedIn davet notu yaz. En fazla 280 karakter, tek paragraf, saygılı ve profesyonel. Kişinin şirketi ve unvanına göre kişiselleştir; ihracat ve yeni pazar geliştirme bağlamında bağlantı kurma isteğini nazikçe belirt. Satış baskısı yapma."
+                    },
+                    "fullMessage": {
+                        "name": "İlk mesaj — tam AI",
+                        "prompt": "Bağlantı kabul edildikten sonra gönderilecek ilk mesajı yaz. Kısa (3-4 cümle), samimi ve saygılı. Kişinin şirketi, sektörü ve unvanına göre kişiselleştir; ihracat ve yeni müşteri kazanımı üzerine kısa bir sohbet teklif et. Doğrudan satış yapma."
+                    },
+                    "fullFollowup": {
+                        "name": "Takip mesajı — tam AI",
+                        "prompt": "Önceki mesaja yanıt alınamadığında gönderilecek nazik bir takip mesajı yaz. En fazla 3 cümle, baskı yapmadan. Kişinin şirketine göre ihracat veya yeni pazar konusunda somut bir değer noktasını hatırlat ve uygun olduğunda yanıt vermesini nazikçe rica et. Saygılı ve profesyonel bir dil kullan."
+                    }
+                },
                 "ai": {
+                    "previewMissingHint": "Boş alanlar mesajda boş görünür.",
                     "preview": "Önizle",
                     "modeOff": "AI kapalı",
                     "modeSections": "AI bölümleri",
                     "modeFull": "Tam AI",
-                    "sectionsTemplateHint": "AI bölümünün nereye yerleşeceğini işaretlemek için metne {ai:key} yazabilirsiniz.",
+                    "sectionsTemplateHint": "Bölüm anahtarını şablona {ai:anahtar} ya da doğrudan {anahtar} olarak yazabilirsiniz; bu, AI bölümünün nereye yerleşeceğini işaretler.",
                     "sectionsTitle": "AI bölümleri",
                     "sectionsDataNote": "Bölümler üretilirken kişinin alanları, içe aktardığınız özel alanlar dâhil, AI modeliyle paylaşılır.",
                     "noSections": "Henüz AI bölümü yok. Mesajın bir kısmını (örneğin bir icebreaker) üretmek için bir bölüm ekleyebilirsiniz.",

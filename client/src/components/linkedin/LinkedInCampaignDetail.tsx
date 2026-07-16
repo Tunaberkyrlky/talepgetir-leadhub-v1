@@ -1,18 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-    ActionIcon, Alert, Badge, Button, Divider, Group, Loader, LoadingOverlay, Modal, MultiSelect,
-    NumberInput, Paper, SegmentedControl, Select, Stack, Switch, Table, Text, Textarea, TextInput,
-    Tooltip,
+    ActionIcon, Alert, Badge, Button, Checkbox, Divider, FileInput, Group, Loader, LoadingOverlay,
+    Modal, MultiSelect, NumberInput, Paper, Popover, ScrollArea, SegmentedControl, Select, Stack,
+    Switch, Table, Tabs, Text, Textarea, TextInput, Tooltip,
 } from '@mantine/core';
 import {
-    IconArrowDown, IconArrowLeft, IconArrowUp, IconArchive, IconCirclePlus, IconInfoCircle,
-    IconPlayerPause, IconPlayerPlay, IconPlus, IconSparkles, IconTrash, IconUserPlus,
+    IconArrowDown, IconArrowLeft, IconArrowUp, IconArchive, IconCirclePlus, IconFileText,
+    IconInfoCircle, IconList, IconPlayerPause, IconPlayerPlay, IconPlus, IconSparkles, IconTrash,
+    IconUserPlus, IconUsers,
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
-import { showErrorFromApi, showSuccess } from '../../lib/notifications';
-import { CAMPAIGN_STATUS_COLOR, accountLabel, parseLeadLine, type AccountOption, type LinkedInCampaign } from './linkedinShared';
+import { getErrorMessage, showErrorFromApi, showSuccess } from '../../lib/notifications';
+import {
+    CAMPAIGN_STATUS_COLOR, accountLabel, csvRowToLead, mapCsvHeaders, parseCsv, parseLeadLine,
+    type AccountOption, type CsvColumnMap, type LinkedInCampaign,
+} from './linkedinShared';
+import { STARTER_TEMPLATES, type StarterTemplate } from './linkedinTemplates';
 
 type StepType = 'invite' | 'message' | 'wait';
 type AiMode = 'off' | 'sections' | 'full';
@@ -64,9 +69,15 @@ interface StepValidation {
     sectionErrors: Record<number, 'key' | 'prompt' | 'promptLong'>;
     invalid: boolean;
 }
-/** Scan a template for {ai:…} tokens: any '{ai:' that isn't a well-formed token is malformed. */
-function scanAiTokens(template: string): { malformed: boolean; keys: string[] } {
+/**
+ * Scan a template for section references. `{ai:key}` is the explicit form; any '{ai:' that
+ * isn't a well-formed token is malformed. A bare `{key}` (single brace) is also collected so
+ * the sections validator can treat it as a reference when it matches a configured section —
+ * mirroring the server, where a bare token whose key names a section renders like `{ai:key}`.
+ */
+function scanAiTokens(template: string): { malformed: boolean; keys: string[]; bareKeys: string[] } {
     const keys: string[] = [];
+    const bareKeys: string[] = [];
     let malformed = false;
     const scan = /\{ai:/g;
     const valid = /^\{ai:([a-z][a-z0-9_]{0,29})\}/;
@@ -76,7 +87,13 @@ function scanAiTokens(template: string): { malformed: boolean; keys: string[] } 
         if (vm) keys.push(vm[1]);
         else malformed = true;
     }
-    return { malformed, keys };
+    // Bare `{key}`; the ':' breaks the char class so `{ai:key}` never matches, and the
+    // lookbehind keeps it from matching the inner braces of `{{spintax}}` (mirrors the server —
+    // no trailing (?!\}) on purpose: it would wrongly reject a token followed by a literal '}').
+    const bareScan = /(?<!\{)\{([a-z][a-z0-9_]{0,29})\}/g;
+    let b: RegExpExecArray | null;
+    while ((b = bareScan.exec(template)) !== null) bareKeys.push(b[1]);
+    return { malformed, keys, bareKeys };
 }
 /** Compute why a step's draft would be rejected, so we can block save/preview and show it inline. */
 function validateStep(s: StepDraft): StepValidation {
@@ -109,6 +126,9 @@ function validateStep(s: StepDraft): StepValidation {
         v.dupKeys = new Set(nonEmptyKeys).size !== nonEmptyKeys.length;
         const scan = scanAiTokens(s.template);
         v.templateMalformed = scan.malformed;
+        // Only an explicit {ai:key} naming a MISSING section is an error. A bare {key} that
+        // matches a configured section is a valid reference (renders like {ai:key}); a bare
+        // {key} with no matching section is just a personalize variable, so it never flags.
         v.templateMissingKeys = [...new Set(scan.keys.filter((k) => !validKeys.has(k)))];
     } else {
         // off: the template is the literal message, so any {ai:…} token is broken (no section backs it).
@@ -418,6 +438,7 @@ export default function LinkedInCampaignDetail({ campaignId, accounts, onBack }:
                                             onMode={(mode) => updateAi(i, { mode })}
                                             onPrompt={(prompt) => updateAi(i, { prompt })}
                                             onSections={(sections) => updateAi(i, { sections })}
+                                            onApplyTemplate={(patch) => updateStep(i, patch)}
                                         />
                                     )}
                                 </Stack>
@@ -574,33 +595,338 @@ function ConfirmLiveModal({ opened, campaignName, onClose, onConfirm }: {
     );
 }
 
+type EnrollResult = { enrolled: number; total: number; results: Array<{ reason: string }> };
+type T = ReturnType<typeof useTranslation>['t'];
+
+/** Shared enroll-summary line: "X/Y enrolled (reason: n, …)". */
+function formatEnrollSummary(r: EnrollResult, t: T): string {
+    const rollup = new Map<string, number>();
+    for (const x of r.results) if (x.reason !== 'ok') rollup.set(x.reason, (rollup.get(x.reason) ?? 0) + 1);
+    const skipped = [...rollup.entries()].map(([k, v]) => `${t(`research.linkedin.camp.reason.${k}`, k)}: ${v}`).join(', ');
+    return t('research.linkedin.camp.enrollSummary', '{{enrolled}}/{{total}} enrolled.', { enrolled: r.enrolled, total: r.total })
+        + (skipped ? ` (${skipped})` : '');
+}
+const csvCell = (row: string[], idx: number): string => (idx >= 0 ? (row[idx] ?? '') : '');
+
+// The enroll endpoint's zod caps lead_ids at 500 per request, so both create + enroll are chunked.
+const CHUNK = 500;
+
+/** Thrown when a mid-sequence enroll chunk fails: carries the partial rollup + progress. */
+class EnrollPartialError extends Error {
+    partial: EnrollResult; doneChunks: number; totalChunks: number; original: unknown;
+    constructor(partial: EnrollResult, doneChunks: number, totalChunks: number, original: unknown) {
+        super('enroll_partial');
+        this.name = 'EnrollPartialError';
+        this.partial = partial; this.doneChunks = doneChunks; this.totalChunks = totalChunks; this.original = original;
+    }
+}
+
+/** Create leads in ≤500-row POSTs, returning the created ids in order. */
+async function createLeads(
+    leads: Array<Record<string, string>>, source: string, onProgress?: (i: number, n: number) => void,
+): Promise<string[]> {
+    const ids: string[] = [];
+    const n = Math.ceil(leads.length / CHUNK);
+    for (let ci = 0; ci < n; ci++) {
+        onProgress?.(ci + 1, n);
+        const chunk = leads.slice(ci * CHUNK, ci * CHUNK + CHUNK).map((l) => ({ ...l, source }));
+        const created = (await api.post('/linkedin/leads', { leads: chunk })).data as { data: Array<{ id: string }> };
+        for (const r of created.data) ids.push(r.id);
+    }
+    return ids;
+}
+
+/**
+ * Enroll ids in ≤500-id POSTs, aggregating the summary. A FIRST-chunk failure rethrows the
+ * ORIGINAL error — nothing was enrolled, so it's a plain failure (400/401/network…) and the tabs
+ * surface it via showErrorFromApi. Only a later-chunk failure is a genuine partial.
+ */
+async function enrollInChunks(campaignId: string, leadIds: string[]): Promise<EnrollResult> {
+    const agg: EnrollResult = { enrolled: 0, total: 0, results: [] };
+    const n = Math.ceil(leadIds.length / CHUNK);
+    for (let ci = 0; ci < n; ci++) {
+        const chunk = leadIds.slice(ci * CHUNK, ci * CHUNK + CHUNK);
+        try {
+            const r = (await api.post(`/linkedin/campaigns/${campaignId}/enroll`, { lead_ids: chunk })).data as EnrollResult;
+            agg.enrolled += r.enrolled; agg.total += r.total; agg.results.push(...r.results);
+        } catch (err) {
+            if (ci === 0) throw err; // no chunk succeeded — not a partial, surface the real error
+            throw new EnrollPartialError(agg, ci, n, err);
+        }
+    }
+    return agg;
+}
+
+/** Partial-progress line: "N/M batches enrolled… <real error> <partial rollup>". */
+function formatEnrollPartial(e: EnrollPartialError, t: T): string {
+    const head = t('research.linkedin.camp.enrollPartial',
+        '{{done}}/{{total}} batches enrolled before the request failed. Retry to add the rest.',
+        { done: e.doneChunks, total: e.totalChunks });
+    const cause = getErrorMessage(e.original);
+    const rollup = e.partial.total > 0 ? ` ${formatEnrollSummary(e.partial, t)}` : '';
+    return `${head} ${cause}${rollup}`;
+}
+
+/** Summary callback shared by the three tabs: partial-failure summaries render with error styling. */
+type OnSummary = (s: string, tone?: 'success' | 'error') => void;
+
+/** Three ways to add leads: pick saved people, upload a CSV, or paste a URL list. */
 function AddLeadsModal({ opened, campaignId, onClose, onDone }: {
     opened: boolean; campaignId: string; onClose: () => void; onDone: () => void;
 }) {
     const { t } = useTranslation();
+    const [summary, setSummary] = useState<{ text: string; tone: 'success' | 'error' } | null>(null);
+    const [tab, setTab] = useState<string | null>('saved');
+    const onSummary: OnSummary = (text, tone = 'success') => setSummary({ text, tone });
+
+    const close = () => { const had = summary !== null; setSummary(null); onClose(); if (had) onDone(); };
+
+    return (
+        <Modal opened={opened} onClose={close} title={t('research.linkedin.camp.addLeadsTitle', 'Add leads to campaign')} size="lg">
+            <Stack gap="sm">
+                <Tabs value={tab} onChange={setTab} variant="outline">
+                    <Tabs.List>
+                        <Tabs.Tab value="saved" leftSection={<IconUsers size={14} />}>{t('research.linkedin.camp.tabSaved', 'Saved people')}</Tabs.Tab>
+                        <Tabs.Tab value="csv" leftSection={<IconFileText size={14} />}>{t('research.linkedin.camp.tabCsv', 'CSV')}</Tabs.Tab>
+                        <Tabs.Tab value="urls" leftSection={<IconList size={14} />}>{t('research.linkedin.camp.tabUrls', 'URL list')}</Tabs.Tab>
+                    </Tabs.List>
+                    <Tabs.Panel value="saved" pt="sm">
+                        <SavedLeadsTab campaignId={campaignId} active={opened && tab === 'saved'} onSummary={onSummary} />
+                    </Tabs.Panel>
+                    <Tabs.Panel value="csv" pt="sm">
+                        <CsvTab campaignId={campaignId} onSummary={onSummary} />
+                    </Tabs.Panel>
+                    <Tabs.Panel value="urls" pt="sm">
+                        <UrlListTab campaignId={campaignId} onSummary={onSummary} />
+                    </Tabs.Panel>
+                </Tabs>
+                <Text size="xs" c="dimmed">
+                    {t('research.linkedin.camp.addLeadsHint', 'Suppressed people and leads already in another active campaign are skipped automatically.')}
+                </Text>
+                {summary && (
+                    <Alert color={summary.tone === 'error' ? 'red' : 'green'} icon={<IconInfoCircle size={16} />}>
+                        {summary.text}
+                    </Alert>
+                )}
+            </Stack>
+        </Modal>
+    );
+}
+
+/** Tab a — pick from the tenant's existing leads and enroll them directly (no re-creation). */
+function SavedLeadsTab({ campaignId, active, onSummary }: {
+    campaignId: string; active: boolean; onSummary: OnSummary;
+}) {
+    const { t } = useTranslation();
+    const [search, setSearch] = useState('');
+    const [needle, setNeedle] = useState('');
+    const [selected, setSelected] = useState<string[]>([]);
+    useEffect(() => { const id = setTimeout(() => setNeedle(search), 300); return () => clearTimeout(id); }, [search]);
+
+    const q = useQuery<{ data: LeadOption[] }>({
+        queryKey: ['linkedin', 'leads', 'enroll-search', needle],
+        queryFn: async () => (await api.get('/linkedin/leads', { params: { q: needle, limit: 50 } })).data,
+        enabled: active,
+    });
+    const leads = q.data?.data ?? [];
+    const pageIds = leads.map((l) => l.id);
+    const allSelected = pageIds.length > 0 && pageIds.every((id) => selected.includes(id));
+    const toggleAll = () => setSelected(allSelected
+        ? selected.filter((id) => !pageIds.includes(id))
+        : [...new Set([...selected, ...pageIds])]);
+
+    const rowLabel = (l: LeadOption) => {
+        const name = `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim() || l.public_id || '—';
+        return [name, l.company, l.title].filter(Boolean).join(' — ');
+    };
+
+    const mut = useMutation({
+        mutationFn: async () => enrollInChunks(campaignId, selected),
+        onSuccess: (r) => { onSummary(formatEnrollSummary(r, t)); setSelected([]); },
+        // On a partial failure keep the selection so a retry (idempotent — already-enrolled skip) is one click.
+        onError: (err: unknown) => {
+            if (err instanceof EnrollPartialError) onSummary(formatEnrollPartial(err, t), 'error');
+            else showErrorFromApi(err);
+        },
+    });
+
+    return (
+        <Stack gap="sm">
+            <TextInput
+                size="sm"
+                placeholder={t('research.linkedin.camp.savedSearchPlaceholder', 'Search by name, company or title')}
+                value={search}
+                onChange={(e) => setSearch(e.currentTarget.value)}
+            />
+            <Group justify="space-between">
+                <Button size="xs" variant="subtle" disabled={pageIds.length === 0} onClick={toggleAll}>
+                    {t('research.linkedin.camp.selectAll', 'Select all')}
+                </Button>
+                <Badge variant="light">{t('research.linkedin.camp.selectedCount', '{{n}} selected', { n: selected.length })}</Badge>
+            </Group>
+            {q.isLoading ? (
+                <Group justify="center" py="md"><Loader size="sm" /></Group>
+            ) : leads.length === 0 ? (
+                <Text c="dimmed" size="sm" ta="center" py="md">{t('research.linkedin.camp.savedEmpty', 'No people found.')}</Text>
+            ) : (
+                <ScrollArea.Autosize mah={260}>
+                    <Checkbox.Group value={selected} onChange={setSelected}>
+                        <Stack gap={6}>
+                            {leads.map((l) => (<Checkbox key={l.id} value={l.id} label={rowLabel(l)} />))}
+                        </Stack>
+                    </Checkbox.Group>
+                </ScrollArea.Autosize>
+            )}
+            <Group justify="flex-end">
+                <Button onClick={() => mut.mutate()} loading={mut.isPending} disabled={selected.length === 0}>
+                    {t('research.linkedin.camp.enrollSelected', 'Enroll selected')}
+                </Button>
+            </Group>
+        </Stack>
+    );
+}
+
+/** Tab b — upload a CSV, auto-detect columns, preview, then chunk-create + enroll. */
+function CsvTab({ campaignId, onSummary }: { campaignId: string; onSummary: OnSummary }) {
+    const { t } = useTranslation();
+    const [file, setFile] = useState<File | null>(null);
+    const [leads, setLeads] = useState<Array<Record<string, string>>>([]);
+    const [preview, setPreview] = useState<string[][]>([]);
+    const [map, setMap] = useState<CsvColumnMap | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [progress, setProgress] = useState<{ i: number; n: number } | null>(null);
+    // Rows dropped at parse time: invalid = a value was present but unusable (e.g. a company
+    // website); empty = no identity candidate column had a value at all. Both are reported.
+    const [skipped, setSkipped] = useState<{ invalid: number; empty: number }>({ invalid: 0, empty: 0 });
+
+    const reset = () => { setLeads([]); setPreview([]); setMap(null); setError(null); setProgress(null); setSkipped({ invalid: 0, empty: 0 }); };
+
+    const onFile = async (f: File | null) => {
+        setFile(f); reset();
+        if (!f) return;
+        try {
+            const rows = parseCsv(await f.text()).filter((r) => r.some((c) => c.trim() !== ''));
+            if (rows.length < 2) { setError(t('research.linkedin.camp.csvNoRows', 'The CSV has no data rows.')); return; }
+            const header = rows[0];
+            const cols = mapCsvHeaders(header);
+            if (cols.identity < 0) {
+                setError(t('research.linkedin.camp.csvNeedIdentity', 'No URL or public id column found. Headers found: {{headers}}', { headers: header.join(', ') }));
+                return;
+            }
+            const dataRows = rows.slice(1);
+            const parsed: Array<Record<string, string>> = [];
+            let invalid = 0, empty = 0;
+            for (const r of dataRows) {
+                const res = csvRowToLead(r, cols);
+                if ('lead' in res) parsed.push(res.lead);
+                else if (res.skip === 'invalid_identity') invalid += 1;
+                else empty += 1;
+            }
+            if (parsed.length === 0) {
+                // All rows rejected: say WHY (codex P1 — a generic "no data rows" hid the skip
+                // counts, so an all-invalid file looked empty instead of mis-mapped).
+                setSkipped({ invalid, empty });
+                setError(invalid + empty > 0
+                    ? t('research.linkedin.camp.csvAllSkipped', 'No importable rows: {{invalid}} with an invalid identity, {{empty}} without an identity value.', { invalid, empty })
+                    : t('research.linkedin.camp.csvNoRows', 'The CSV has no data rows.'));
+                return;
+            }
+            setMap(cols); setLeads(parsed); setPreview(dataRows.slice(0, 5)); setSkipped({ invalid, empty });
+        } catch {
+            setError(t('research.linkedin.camp.csvParseError', 'Could not read the CSV.'));
+        }
+    };
+
+    const skipParts = [
+        skipped.invalid > 0 ? t('research.linkedin.camp.csvSkipped', '{{n}} rows skipped (invalid identity).', { n: skipped.invalid }) : '',
+        skipped.empty > 0 ? t('research.linkedin.camp.csvSkippedEmpty', '{{n}} rows skipped (no identity value).', { n: skipped.empty }) : '',
+    ].filter(Boolean);
+    const skipNote = skipParts.length > 0 ? ` ${skipParts.join(' ')}` : '';
+    const mut = useMutation({
+        mutationFn: async () => {
+            const ids = await createLeads(leads, 'csv', (i, n) => setProgress({ i, n }));
+            return enrollInChunks(campaignId, ids);
+        },
+        onSuccess: (r) => { onSummary(formatEnrollSummary(r, t) + skipNote); setFile(null); reset(); },
+        onError: (err: unknown) => {
+            setProgress(null);
+            if (err instanceof EnrollPartialError) onSummary(formatEnrollPartial(err, t) + skipNote, 'error');
+            else showErrorFromApi(err);
+        },
+    });
+
+    return (
+        <Stack gap="sm">
+            <FileInput
+                size="sm" accept=".csv,text/csv" clearable
+                label={t('research.linkedin.camp.csvPick', 'Choose a CSV file')}
+                placeholder={t('research.linkedin.camp.csvPickPlaceholder', 'profiles.csv')}
+                value={file}
+                onChange={onFile}
+            />
+            {error && <Alert color="orange" icon={<IconInfoCircle size={16} />}>{error}</Alert>}
+            {leads.length > 0 && map && (
+                <>
+                    <Text size="xs" c="dimmed">
+                        {t('research.linkedin.camp.csvPreview', 'Previewing the first {{n}} of {{total}} rows.', { n: preview.length, total: leads.length })}
+                    </Text>
+                    {skipParts.length > 0 && (
+                        <Text size="xs" c="orange">{skipParts.join(' ')}</Text>
+                    )}
+                    <ScrollArea.Autosize mah={220}>
+                        <Table striped withTableBorder verticalSpacing={4} fz="xs">
+                            <Table.Thead>
+                                <Table.Tr>
+                                    <Table.Th>{t('research.linkedin.camp.csvColIdentity', 'Identity')}</Table.Th>
+                                    <Table.Th>{t('research.linkedin.camp.csvColFirst', 'First name')}</Table.Th>
+                                    <Table.Th>{t('research.linkedin.camp.csvColLast', 'Last name')}</Table.Th>
+                                    <Table.Th>{t('research.linkedin.camp.company', 'Company')}</Table.Th>
+                                    <Table.Th>{t('research.linkedin.camp.csvColTitle', 'Title')}</Table.Th>
+                                </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                                {preview.map((r, ri) => (
+                                    <Table.Tr key={ri}>
+                                        <Table.Td>{csvCell(r, map.identity)}</Table.Td>
+                                        <Table.Td>{csvCell(r, map.first_name)}</Table.Td>
+                                        <Table.Td>{csvCell(r, map.last_name)}</Table.Td>
+                                        <Table.Td>{csvCell(r, map.company)}</Table.Td>
+                                        <Table.Td>{csvCell(r, map.title)}</Table.Td>
+                                    </Table.Tr>
+                                ))}
+                            </Table.Tbody>
+                        </Table>
+                    </ScrollArea.Autosize>
+                    {progress && (
+                        <Text size="xs" c="dimmed">{t('research.linkedin.camp.csvProgress', 'Importing {{i}}/{{n}}', { i: progress.i, n: progress.n })}</Text>
+                    )}
+                    <Group justify="flex-end">
+                        <Button onClick={() => mut.mutate()} loading={mut.isPending} disabled={leads.length === 0}>
+                            {t('research.linkedin.camp.enrollNow', 'Import + enroll')}
+                        </Button>
+                    </Group>
+                </>
+            )}
+        </Stack>
+    );
+}
+
+/** Tab c — the original paste-a-URL-per-line flow. */
+function UrlListTab({ campaignId, onSummary }: { campaignId: string; onSummary: OnSummary }) {
+    const { t } = useTranslation();
     const [text, setText] = useState('');
-    const [summary, setSummary] = useState<string | null>(null);
     const [invalid, setInvalid] = useState(false);
 
-    const runMut = useMutation({
+    const mut = useMutation({
         mutationFn: async (leads: Array<Record<string, string>>) => {
-            const created = (await api.post('/linkedin/leads', { leads: leads.map((l) => ({ ...l, source: 'manual' })) })).data as { data: Array<{ id: string }> };
-            const ids = created.data.map((r) => r.id);
-            const enrolled = (await api.post(`/linkedin/campaigns/${campaignId}/enroll`, { lead_ids: ids })).data as {
-                enrolled: number; total: number; results: Array<{ reason: string }>;
-            };
-            return enrolled;
+            const ids = await createLeads(leads, 'manual');
+            return enrollInChunks(campaignId, ids);
         },
-        onSuccess: (r) => {
-            const reasons = r.results.filter((x) => x.reason !== 'ok');
-            const reasonRollup = new Map<string, number>();
-            for (const x of reasons) reasonRollup.set(x.reason, (reasonRollup.get(x.reason) ?? 0) + 1);
-            const skipped = [...reasonRollup.entries()].map(([k, v]) => `${t(`research.linkedin.camp.reason.${k}`, k)}: ${v}`).join(', ');
-            setSummary(t('research.linkedin.camp.enrollSummary', '{{enrolled}}/{{total}} enrolled.', { enrolled: r.enrolled, total: r.total })
-                + (skipped ? ` (${skipped})` : ''));
-            setText('');
+        onSuccess: (r) => { onSummary(formatEnrollSummary(r, t)); setText(''); },
+        onError: (err: unknown) => {
+            if (err instanceof EnrollPartialError) onSummary(formatEnrollPartial(err, t), 'error');
+            else showErrorFromApi(err);
         },
-        onError: (err: unknown) => showErrorFromApi(err),
     });
 
     // Parse + validate BEFORE the mutation so a paste of only separators shows a translated
@@ -609,37 +935,29 @@ function AddLeadsModal({ opened, campaignId, onClose, onDone }: {
         setInvalid(false);
         const leads = text.split('\n').map(parseLeadLine).filter(Boolean) as Array<Record<string, string>>;
         if (leads.length === 0) { setInvalid(true); return; }
-        runMut.mutate(leads);
+        mut.mutate(leads);
     };
 
-    const close = () => { setText(''); setSummary(null); setInvalid(false); onClose(); if (summary) onDone(); };
-
     return (
-        <Modal opened={opened} onClose={close} title={t('research.linkedin.camp.addLeadsTitle', 'Add leads to campaign')} size="lg">
-            <Stack gap="sm">
-                <Textarea
-                    autosize minRows={6} maxRows={14}
-                    placeholder={t('research.linkedin.camp.addLeadsPlaceholder', 'One per line: profile URL, public id or URN — optionally add , First, Last, Company, Title')}
-                    value={text}
-                    onChange={(e) => setText(e.currentTarget.value)}
-                />
-                <Text size="xs" c="dimmed">
-                    {t('research.linkedin.camp.addLeadsHint', 'Suppressed people and leads already in another active campaign are skipped automatically.')}
-                </Text>
-                {invalid && <Alert color="orange" icon={<IconInfoCircle size={16} />}>{t('research.linkedin.camp.noValidLeads', 'No valid leads found — add a profile URL, public id or URN on each line.')}</Alert>}
-                {summary && <Alert color="green" icon={<IconInfoCircle size={16} />}>{summary}</Alert>}
-                <Group justify="flex-end">
-                    <Button onClick={run} loading={runMut.isPending} disabled={text.trim().length === 0}>
-                        {t('research.linkedin.camp.enrollNow', 'Import + enroll')}
-                    </Button>
-                </Group>
-            </Stack>
-        </Modal>
+        <Stack gap="sm">
+            <Textarea
+                autosize minRows={6} maxRows={14}
+                placeholder={t('research.linkedin.camp.addLeadsPlaceholder', 'One per line: profile URL, public id or URN — optionally add , First, Last, Company, Title')}
+                value={text}
+                onChange={(e) => setText(e.currentTarget.value)}
+            />
+            {invalid && <Alert color="orange" icon={<IconInfoCircle size={16} />}>{t('research.linkedin.camp.noValidLeads', 'No valid leads found — add a profile URL, public id or URN on each line.')}</Alert>}
+            <Group justify="flex-end">
+                <Button onClick={run} loading={mut.isPending} disabled={text.trim().length === 0}>
+                    {t('research.linkedin.camp.enrollNow', 'Import + enroll')}
+                </Button>
+            </Group>
+        </Stack>
     );
 }
 
 /** Row 2 of an invite/message step: AI mode picker + the editor for the chosen mode. */
-function StepEditor({ step, validation, invitePlaceholder, onTemplate, onMode, onPrompt, onSections }: {
+function StepEditor({ step, validation, invitePlaceholder, onTemplate, onMode, onPrompt, onSections, onApplyTemplate }: {
     step: StepDraft;
     validation: StepValidation;
     invitePlaceholder: string;
@@ -647,9 +965,47 @@ function StepEditor({ step, validation, invitePlaceholder, onTemplate, onMode, o
     onMode: (m: AiMode) => void;
     onPrompt: (v: string) => void;
     onSections: (s: AiSection[]) => void;
+    onApplyTemplate: (patch: { template: string; ai: AiConfigDraft }) => void;
 }) {
     const { t } = useTranslation();
     const ai = step.ai;
+
+    // ── Starter templates ───────────────────────────────────────────────────────
+    // Template bodies carry {{spintax}}; resolve them with interpolation disabled (a prefix/suffix
+    // that never appears) so i18next leaves the double braces untouched instead of eating them.
+    const rawT = (key: string) => t(key, { interpolation: { prefix: '\0', suffix: '\0' } });
+    const [tplValue, setTplValue] = useState<string | null>(null);
+    const [confirmTpl, setConfirmTpl] = useState<StarterTemplate | null>(null);
+    const tplOptions = STARTER_TEMPLATES
+        .filter((x) => x.stepType === step.type)
+        .map((x) => ({ value: x.id, label: t(x.nameKey) }));
+    // Mode-independent: a full-AI prompt or sections written earlier are PRESERVED across a mode
+    // switch (normalizeAi keeps them), so applying a starter template would silently erase them —
+    // the confirm must fire even when the current mode hides that content.
+    const hasContent = step.template.trim().length > 0
+        || ai.prompt.trim().length > 0
+        || ai.sections.some((s) => s.key || s.prompt.trim());
+    const applyTemplate = (tpl: StarterTemplate) => {
+        onApplyTemplate({
+            template: tpl.templateKey ? rawT(tpl.templateKey) : '',
+            ai: {
+                mode: tpl.mode,
+                prompt: tpl.promptKey ? rawT(tpl.promptKey) : '',
+                sections: (tpl.sections ?? []).map((s) => ({ key: s.key, prompt: rawT(s.promptKey) })),
+            },
+        });
+        setTplValue(null);
+        setConfirmTpl(null);
+    };
+    const pickTemplate = (val: string | null) => {
+        if (!val) { setTplValue(null); return; }
+        const tpl = STARTER_TEMPLATES.find((x) => x.id === val);
+        if (!tpl) return;
+        setTplValue(val);
+        if (hasContent) setConfirmTpl(tpl); // confirm before clobbering existing content
+        else applyTemplate(tpl);
+    };
+    const cancelTemplate = () => { setConfirmTpl(null); setTplValue(null); };
 
     // Template-level error (malformed {ai:…} beats a well-formed token with no matching section).
     const templateError = validation.templateMalformed
@@ -686,16 +1042,38 @@ function StepEditor({ step, validation, invitePlaceholder, onTemplate, onMode, o
 
     return (
         <Stack gap="xs">
-            <SegmentedControl
-                size="xs"
-                value={ai.mode}
-                onChange={(v) => onMode(v as AiMode)}
-                data={[
-                    { value: 'off', label: t('research.linkedin.camp.ai.modeOff', 'AI off') },
-                    { value: 'sections', label: t('research.linkedin.camp.ai.modeSections', 'AI sections') },
-                    { value: 'full', label: t('research.linkedin.camp.ai.modeFull', 'Full AI') },
-                ]}
-            />
+            <Group gap="xs" justify="space-between" wrap="wrap">
+                <SegmentedControl
+                    size="xs"
+                    value={ai.mode}
+                    onChange={(v) => onMode(v as AiMode)}
+                    data={[
+                        { value: 'off', label: t('research.linkedin.camp.ai.modeOff', 'AI off') },
+                        { value: 'sections', label: t('research.linkedin.camp.ai.modeSections', 'AI sections') },
+                        { value: 'full', label: t('research.linkedin.camp.ai.modeFull', 'Full AI') },
+                    ]}
+                />
+                <Popover opened={confirmTpl !== null} position="bottom-end" withArrow shadow="md" onClose={cancelTemplate}>
+                    <Popover.Target>
+                        <Select
+                            size="xs" w={210} clearable
+                            placeholder={t('research.linkedin.camp.templateSelect', 'Start from a template')}
+                            data={tplOptions}
+                            value={tplValue}
+                            onChange={pickTemplate}
+                        />
+                    </Popover.Target>
+                    <Popover.Dropdown>
+                        <Stack gap="xs" maw={240}>
+                            <Text size="sm">{t('research.linkedin.camp.templateOverwrite', 'Replace the current content with this template?')}</Text>
+                            <Group gap="xs" justify="flex-end">
+                                <Button size="xs" variant="default" onClick={cancelTemplate}>{t('research.linkedin.camp.cancel', 'Cancel')}</Button>
+                                <Button size="xs" color="red" onClick={() => confirmTpl && applyTemplate(confirmTpl)}>{t('research.linkedin.camp.templateApply', 'Apply')}</Button>
+                            </Group>
+                        </Stack>
+                    </Popover.Dropdown>
+                </Popover>
+            </Group>
 
             {ai.mode === 'off' && templateBox()}
 
@@ -798,6 +1176,7 @@ function StepPreviewModal({ opened, campaignId, step, onClose }: {
     const { t } = useTranslation();
     const [leadId, setLeadId] = useState<string | null>(null);
     const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
+    const [selectedLead, setSelectedLead] = useState<LeadOption | null>(null);
     const [search, setSearch] = useState('');
     const [needle, setNeedle] = useState('');
 
@@ -826,7 +1205,7 @@ function StepPreviewModal({ opened, campaignId, step, onClose }: {
 
     // Reset per open/close so a reused (or reopened) modal never shows a stale render/lead.
     useEffect(() => {
-        if (opened) { setLeadId(null); setSelectedLabel(null); setSearch(''); setNeedle(''); }
+        if (opened) { setLeadId(null); setSelectedLabel(null); setSelectedLead(null); setSearch(''); setNeedle(''); }
         previewMut.reset();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [opened]);
@@ -857,11 +1236,33 @@ function StepPreviewModal({ opened, campaignId, step, onClose }: {
                     nothingFoundMessage={leadsQuery.isFetching
                         ? t('research.linkedin.camp.ai.searching', 'Searching…')
                         : t('research.linkedin.camp.ai.noLeads', 'No leads found')}
-                    onChange={(v, opt) => { setLeadId(v); setSelectedLabel(opt?.label ?? null); previewMut.reset(); }}
+                    onChange={(v, opt) => {
+                        setLeadId(v);
+                        setSelectedLabel(opt?.label ?? null);
+                        setSelectedLead(v ? (leadsQuery.data?.data.find((l) => l.id === v) ?? null) : null);
+                        previewMut.reset();
+                    }}
                 />
-                {!leadId && (
+                {leadId && selectedLead ? (
+                    // Show what the picked lead actually carries — a URL-only lead with no first_name
+                    // renders "merhaba ," and the facts line makes that visible before generating.
+                    <div>
+                        <Text size="xs" c="dimmed">
+                            {[
+                                `${selectedLead.first_name ?? ''} ${selectedLead.last_name ?? ''}`.trim() || '—',
+                                selectedLead.company || '—',
+                                selectedLead.title || '—',
+                            ].join(' · ')}
+                        </Text>
+                        {(!selectedLead.first_name || !selectedLead.company) && (
+                            <Text size="xs" c="dimmed" fs="italic">
+                                {t('research.linkedin.camp.ai.previewMissingHint', 'Missing fields render empty in the message.')}
+                            </Text>
+                        )}
+                    </div>
+                ) : !leadId ? (
                     <Text size="xs" c="dimmed">{t('research.linkedin.camp.ai.sampleData', 'Using sample data (Ayşe Yılmaz, Acme GmbH).')}</Text>
-                )}
+                ) : null}
                 <Group>
                     <Button leftSection={<IconSparkles size={16} />} loading={previewMut.isPending}
                         onClick={() => previewMut.mutate()}>
