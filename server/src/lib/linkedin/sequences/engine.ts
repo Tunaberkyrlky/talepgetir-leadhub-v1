@@ -23,6 +23,8 @@ import { createLogger } from '../../logger.js';
 import { loadAccount, auditAction, type LinkedInAccountRow } from '../actions.js';
 import { performInvite, performMessage } from '../executor.js';
 import { personalize } from './personalize.js';
+import { parseAiConfig, renderStepText, aiConfigHash, recordAiGenerationCogs } from './aiGenerate.js';
+import { withLlmMeter, type MeteredError } from '../../research/llm/meter.js';
 import { suppressIdentity, dedupeKey, isLeadSuppressed } from './enroll.js';
 
 const log = createLogger('linkedin:seq-engine');
@@ -31,12 +33,13 @@ const DAY_MS = 86_400_000;
 const DEFAULT_ACCEPT_WAIT_DAYS = 14; // §5: wait 5–15 days for an invite to be accepted
 const CAP_RETRY_MS = 6 * 3_600_000;  // reschedule a cap/weekly-skip step by ~6h (coarse backoff)
 const HEALTH_RETRY_MS = 30 * 60_000; // account temporarily not-ACTIVE → retry in ~30m
+const AI_GEN_MAX_ATTEMPTS = 8;       // F3: after this many failed generations, fail the lead (no infinite retry)
 
 export interface CampaignRow {
     id: string; tenant_id: string; status: string;
     sender_account_ids: string[]; settings: Record<string, unknown>; dry_run: boolean;
 }
-export interface StepRow { id: string; step_order: number; type: string; wait_days: number; template: string | null }
+export interface StepRow { id: string; step_order: number; type: string; wait_days: number; template: string | null; ai_config: unknown }
 export interface LeadRow {
     id: string; profile_urn: string | null; public_id: string | null;
     first_name: string | null; last_name: string | null; company: string | null; title: string | null;
@@ -62,14 +65,46 @@ function setting(c: CampaignRow, key: string, dflt: number): number {
  * resurrecting a stopped lead or clobbering a real acceptance. Pass guardState=null only for a
  * pure lease-release (which must always clear the lock regardless of the current state).
  */
-async function updateEnrollment(id: string, patch: Record<string, unknown>, guardState: string | null): Promise<void> {
+async function updateEnrollment(
+    id: string, patch: Record<string, unknown>, guardState: string | null, ownerJobId?: string,
+): Promise<number> {
     let q = researchSupabaseAdmin
         .from('linkedin_enrollments')
         .update({ ...patch, locked_by: null, locked_at: null, updated_at: new Date().toISOString() })
         .eq('id', id);
     if (guardState) q = q.eq('state', guardState);
-    const { error } = await q;
-    if (error) log.warn({ err: error, enrollmentId: id }, 'enrollment update failed (non-fatal)');
+    // R2 (ownership fencing): on the AI path an expired lease may have been re-claimed by a NEWER
+    // worker mid-tick. Passing ownerJobId adds `.eq('locked_by', jobId)` so this write only lands if
+    // WE still own the lease; the caller inspects the matched-row count and bails (lease_lost) on 0.
+    if (ownerJobId) q = q.eq('locked_by', ownerJobId);
+    const { data, error } = await q.select('id');
+    if (error) { log.warn({ err: error, enrollmentId: id }, 'enrollment update failed (non-fatal)'); return 0; }
+    return (data ?? []).length;
+}
+
+/**
+ * F3: the AI-generation FAILURE path. Persists the incremented attempt count in ai_render_cache and
+ * either reschedules (transient — a provider outage / fixable prompt may recover) or, once attempts
+ * reach the cap, terminally fails the enrollment ('ai_generate_failed_permanent') so a permanently
+ * broken step can't retry (and keep re-paying) forever. Releases the lease via updateEnrollment and
+ * is guarded by g (optimistic concurrency — a state change since the claim no-ops it).
+ */
+async function failOrRetryGeneration(
+    enrollmentId: string, step: number, configHash: string, attempts: number,
+    lastError: string, now: number, guardState: string, jobId: string,
+): Promise<string> {
+    const cache = { step, config_hash: configHash, attempts };
+    // R2: this write happens AFTER generation started, so fence it by locked_by=jobId — a newer
+    // worker that re-claimed an expired lease must not have its attempt count / state clobbered.
+    if (attempts >= AI_GEN_MAX_ATTEMPTS) {
+        const n = await updateEnrollment(enrollmentId, { state: 'failed', last_error: 'ai_generate_failed_permanent', ai_render_cache: cache }, guardState, jobId);
+        return n === 0 ? 'lease_lost' : 'ai_generate_failed_permanent';
+    }
+    const n = await updateEnrollment(enrollmentId, {
+        ai_render_cache: cache, last_error: lastError,
+        next_action_at: new Date(now + HEALTH_RETRY_MS).toISOString(),
+    }, guardState, jobId);
+    return n === 0 ? 'lease_lost' : 'ai_generate_failed';
 }
 
 /** Persist a urn resolved from a public_id back onto the lead so the later message step (which
@@ -101,6 +136,23 @@ export async function processEnrollment(enr: EnrollmentRow, jobId: string): Prom
     // see updateEnrollment): if poll/suppress changed the row since the claim, the tick no-ops.
     const g = enr.state;
 
+    // R4-review (batch-TTL): the tick claims up to ~20 enrollments under ONE ~120s lease and
+    // processes them SEQUENTIALLY. A slow item early in the batch (an AI generation can take
+    // seconds–minutes) can burn the whole TTL before a LATER item even starts — an overlapping
+    // tick then re-claims that item, and without this check both workers would proceed (duplicate
+    // send on the non-AI path; double-paid generation on the AI path, whose ownership was only
+    // verified post-generation). So BEFORE any other work: atomically verify we still own the
+    // lease AND re-up its TTL, fenced by locked_by=jobId + state. 0 rows ⇒ another tick owns it
+    // (or the state moved) → return 'lease_lost' immediately, touching nothing. Each item thus
+    // starts with a fresh 120s window regardless of how long earlier batch items took. The
+    // post-generation renewal further below stays — it guards the long in-item generation window.
+    const { data: startRenew, error: startRenewErr } = await researchSupabaseAdmin
+        .from('linkedin_enrollments')
+        .update({ locked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', enr.id).eq('locked_by', jobId).eq('state', g)
+        .select('id');
+    if (startRenewErr || !startRenew || startRenew.length === 0) return 'lease_lost';
+
     // Re-load the campaign: if it paused/archived since the claim, release + leave for later.
     const { data: campaign } = await researchSupabaseAdmin
         .from('linkedin_campaigns').select('id, tenant_id, status, sender_account_ids, settings, dry_run')
@@ -130,7 +182,7 @@ export async function processEnrollment(enr: EnrollmentRow, jobId: string): Prom
     const l = lead as LeadRow;
 
     const { data: stepRows } = await researchSupabaseAdmin
-        .from('linkedin_sequence_steps').select('id, step_order, type, wait_days, template')
+        .from('linkedin_sequence_steps').select('id, step_order, type, wait_days, template, ai_config')
         .eq('campaign_id', c.id).order('step_order', { ascending: true });
     const steps = (stepRows ?? []) as StepRow[];
 
@@ -162,16 +214,26 @@ export async function processEnrollment(enr: EnrollmentRow, jobId: string): Prom
     // Send-time suppression re-check across ALL of the lead's derivable identity keys: the enroll
     // RPC only checked the lead's stored key, but the same person may have been opted out under a
     // different identifier (Faz-5 review). Stop the whole workspace scope before any send/advance.
-    if (await isLeadSuppressed(t, l)) {
+    // R1 (fail-CLOSED): a lookup FAULT (isLeadSuppressed throws) leaves suppression UNKNOWN → do NOT
+    // send, release the lease + reschedule so a DB blip can't message a suppressed lead.
+    let suppressedPre: boolean;
+    try {
+        suppressedPre = await isLeadSuppressed(t, l);
+    } catch {
+        await updateEnrollment(enr.id, { next_action_at: new Date(now + HEALTH_RETRY_MS).toISOString(), last_error: 'suppression_check_failed' }, g);
+        return 'suppression_check_failed';
+    }
+    if (suppressedPre) {
         await suppressIdentity(t, l.dedupe_key || dedupeKey(l), 'do_not_contact', l.id);
         await updateEnrollment(enr.id, { state: 'stopped', last_error: 'suppressed' }, g);
         return 'suppressed';
     }
 
-    const rendered = personalize(step.template ?? '', leadVars(l));
     const acceptDeadline = new Date(now + setting(c, 'accept_wait_days', DEFAULT_ACCEPT_WAIT_DAYS) * DAY_MS).toISOString();
 
-    // DRY-RUN campaign: advance the machine, write a traceable audit row, send nothing.
+    // DRY-RUN campaign: advance the machine, write a traceable audit row, send nothing. Kept
+    // LLM-FREE on purpose — a dry-run tick must not incur per-send generation cost, so the render
+    // (AI or plain) is computed only on the real-send path below.
     if (c.dry_run) {
         await auditAction({ tenantId: t, accountId: account.id, type: isInvite ? 'invite' : 'message', status: 'skipped', classifier: 'dry_run', jobId });
         if (isInvite) {
@@ -184,19 +246,147 @@ export async function processEnrollment(enr: EnrollmentRow, jobId: string): Prom
         return 'dry_run';
     }
 
+    // F3: a message step with no resolvable recipient can NEVER be addressed — fail it terminally
+    // BEFORE any (paid) generation, so we never pay for text that can't be sent. (An invite can
+    // still resolve a urn from public_id at send time, so this only gates message steps.)
+    if (!isInvite && !l.profile_urn) {
+        await updateEnrollment(enr.id, { state: 'failed', last_error: 'no_recipient_urn' }, g);
+        return 'no_recipient_urn';
+    }
+
+    // Render the send text NOW (real-send path only). Plain template → personalize (race window is
+    // sub-millisecond; unchanged from before). An AI step generates at send-time, which can take
+    // seconds–minutes and thus WIDENS every pre-send race — handled below (F1/F2/F3/F5).
+    let rendered: string;
+    const usedAi = parseAiConfig(step.ai_config).mode !== 'off';
+    if (usedAi) {
+        const configHash = aiConfigHash(step.type, step.template, step.ai_config);
+
+        // F3: read the enrollment's render cache (the claimed-row snapshot doesn't carry it).
+        // R3-review: a read ERROR is NOT a cache miss — treating it as one would trigger a fresh
+        // PAID regeneration despite a possibly-valid cached render. Fail closed: fenced reschedule
+        // without generating; a real empty cache (no error, no row/field) proceeds to generate.
+        const { data: cacheRow, error: cacheErr } = await researchSupabaseAdmin
+            .from('linkedin_enrollments').select('ai_render_cache')
+            .eq('id', enr.id).eq('tenant_id', t).maybeSingle();
+        if (cacheErr) {
+            const n = await updateEnrollment(enr.id, { next_action_at: new Date(now + HEALTH_RETRY_MS).toISOString(), last_error: 'ai_cache_read_failed' }, g, jobId);
+            return n === 0 ? 'lease_lost' : 'ai_cache_read_failed';
+        }
+        const cache = ((cacheRow as { ai_render_cache?: Record<string, unknown> } | null)?.ai_render_cache ?? {}) as
+            { step?: number; config_hash?: string; rendered?: string; parts?: unknown; attempts?: number };
+        const cacheHit = cache.step === enr.current_step && cache.config_hash === configHash;
+
+        if (cacheHit && typeof cache.rendered === 'string' && cache.rendered) {
+            // F3: reuse already-paid text — a retry after a cap/lease/transport skip is FREE.
+            rendered = cache.rendered;
+        } else {
+            // Fresh generation, metered so the spend is attributed to the tenant (F5) — including a
+            // failure that still cost money (err.llmUsage). `attempts` only carries over while the
+            // step + config are unchanged, so an operator edit resets the retry budget.
+            const priorAttempts = cacheHit && typeof cache.attempts === 'number' ? cache.attempts : 0;
+            let out: Awaited<ReturnType<typeof renderStepText>>;
+            let meteredUsage;
+            try {
+                const metered = await withLlmMeter(() => renderStepText(step, leadVars(l)));
+                out = metered.result;
+                meteredUsage = metered.usage;
+            } catch (err) {
+                await recordAiGenerationCogs((err as MeteredError)?.llmUsage, { tenantId: t, accountId: account.id, jobId, leadId: l.id, surface: 'sequence', status: 'error' });
+                const msg = err instanceof Error ? err.message : String(err);
+                return failOrRetryGeneration(enr.id, enr.current_step, configHash, priorAttempts + 1, `ai_generate_failed: ${msg.slice(0, 200)}`, now, g, jobId);
+            }
+            rendered = out.rendered;
+            if (!rendered) {
+                // Residual guard: generateAiText now THROWS LlmError on an empty model output (the
+                // paid-empty case routes through the catch above with COGS status 'error'), so
+                // reaching here means the render was empty WITHOUT a paid call (e.g. a sections-mode
+                // template with no {ai:} token and no static text). recordAiGenerationCogs no-ops on
+                // zero metered calls; status 'error' keeps any pathological paid case honest (R6).
+                await recordAiGenerationCogs(meteredUsage, { tenantId: t, accountId: account.id, jobId, leadId: l.id, surface: 'sequence', status: 'error' });
+                return failOrRetryGeneration(enr.id, enr.current_step, configHash, priorAttempts + 1, 'ai_generate_failed: empty', now, g, jobId);
+            }
+            // Non-empty paid render — attribute the spend to the tenant as a successful COGS row (F5).
+            await recordAiGenerationCogs(meteredUsage, { tenantId: t, accountId: account.id, jobId, leadId: l.id, surface: 'sequence', status: 'ok' });
+            // F3: persist the paid render (attempts reset) BEFORE the send, so a send-time skip/crash
+            // reuses it next tick instead of regenerating. R2: fenced by locked_by=jobId (AND state=g)
+            // — if a newer worker re-claimed an expired lease mid-generation, 0 rows match ⇒ we no
+            // longer own it → abandon as lease_lost WITHOUT persisting or sending.
+            const { data: cachedRows } = await researchSupabaseAdmin.from('linkedin_enrollments')
+                .update({ ai_render_cache: { step: enr.current_step, config_hash: configHash, rendered, parts: out.parts, attempts: 0 }, updated_at: new Date().toISOString() })
+                .eq('id', enr.id).eq('state', g).eq('locked_by', jobId)
+                .select('id');
+            if (!cachedRows || cachedRows.length === 0) return 'lease_lost';
+        }
+
+        // Generation widened the window: the campaign/suppression/lease checks done above are now
+        // stale. Re-verify lease → campaign → suppression BEFORE sending so a lease we lost, a
+        // campaign that paused / flipped to dry_run, or a lead suppressed DURING generation cannot
+        // produce a duplicate or unwanted send (F1/F2). (The plain path skips this — its window is
+        // sub-millisecond and pre-existing.)
+        //
+        // (a) Atomically renew the lease. 0 rows ⇒ another worker owns it or the state changed since
+        //     the claim → abandon WITHOUT sending and WITHOUT touching the row.
+        const { data: renew } = await researchSupabaseAdmin
+            .from('linkedin_enrollments')
+            .update({ locked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+            .eq('id', enr.id).eq('locked_by', jobId).eq('state', g)
+            .select('id');
+        if (!renew || renew.length === 0) return 'lease_lost';
+
+        // (b) Campaign must STILL be active and NOT have flipped to dry_run since the claim.
+        const { data: freshCampaign } = await researchSupabaseAdmin
+            .from('linkedin_campaigns').select('status, dry_run').eq('id', c.id).eq('tenant_id', t).maybeSingle();
+        const fc = freshCampaign as { status: string; dry_run: boolean } | null;
+        if (!fc || fc.status !== 'active' || fc.dry_run !== c.dry_run) {
+            // paused/archived or turned dry_run mid-generation → release lease + reschedule, no send.
+            // R2: fenced — post-generation, a newer worker may own the row now.
+            const n = await updateEnrollment(enr.id, { next_action_at: new Date(now + HEALTH_RETRY_MS).toISOString() }, g, jobId);
+            return n === 0 ? 'lease_lost' : 'campaign_changed';
+        }
+
+        // (c) Suppression may have landed during generation — stop the whole scope before any send.
+        // R1 (fail-CLOSED): a lookup FAULT here leaves suppression UNKNOWN → do NOT send; release the
+        // lease + reschedule so a DB blip during the widened window can't message a suppressed lead.
+        let suppressedPost: boolean;
+        try {
+            suppressedPost = await isLeadSuppressed(t, l);
+        } catch {
+            // R2: fenced — post-generation, a newer worker may own the row now.
+            const n = await updateEnrollment(enr.id, { next_action_at: new Date(now + HEALTH_RETRY_MS).toISOString(), last_error: 'suppression_check_failed' }, g, jobId);
+            return n === 0 ? 'lease_lost' : 'suppression_check_failed';
+        }
+        if (suppressedPost) {
+            // suppressIdentity runs regardless of lease ownership — the lead IS suppressed and the
+            // RPC is idempotent + workspace-scoped; only the enrollment write is fenced (R2).
+            await suppressIdentity(t, l.dedupe_key || dedupeKey(l), 'do_not_contact', l.id);
+            const n = await updateEnrollment(enr.id, { state: 'stopped', last_error: 'suppressed' }, g, jobId);
+            return n === 0 ? 'lease_lost' : 'suppressed';
+        }
+    } else {
+        rendered = personalize(step.template ?? '', leadVars(l));
+    }
+
+    // R2: on the AI path fence EVERY post-generation write below by locked_by=jobId — the generation
+    // widened the window, so a NEWER worker may have re-claimed an expired lease. A fenced write that
+    // matches 0 rows means we no longer own the enrollment → return 'lease_lost' silently (no further
+    // writes). The non-AI path passes undefined → unchanged immediate-after-claim behavior.
+    const fence = usedAi ? jobId : undefined;
+
     // Real send through the shared executor.
     let outcome;
     try {
         if (isInvite) {
             outcome = await performInvite(account, t, { profileUrn: l.profile_urn, publicId: l.public_id, note: rendered }, jobId);
         } else {
-            if (!l.profile_urn) { await updateEnrollment(enr.id, { state: 'failed', last_error: 'no_recipient_urn' }, g); return 'no_recipient_urn'; }
+            // profile_urn is guaranteed non-null here (checked before generation above).
             if (!rendered) { await updateEnrollment(enr.id, { state: 'failed', last_error: 'empty_message' }, g); return 'empty_message'; }
-            outcome = await performMessage(account, t, { recipientUrn: l.profile_urn, text: rendered }, jobId);
+            outcome = await performMessage(account, t, { recipientUrn: l.profile_urn!, text: rendered }, jobId);
         }
     } catch (err) {
         // Transport failure — hold + retry (do NOT advance; the network/proxy may recover).
-        await updateEnrollment(enr.id, { next_action_at: new Date(now + HEALTH_RETRY_MS).toISOString(), last_error: err instanceof Error ? err.message.slice(0, 300) : String(err) }, g);
+        const n = await updateEnrollment(enr.id, { next_action_at: new Date(now + HEALTH_RETRY_MS).toISOString(), last_error: err instanceof Error ? err.message.slice(0, 300) : String(err) }, g, fence);
+        if (fence && n === 0) return 'lease_lost';
         return 'transport_error';
     }
 
@@ -206,11 +396,14 @@ export async function processEnrollment(enr: EnrollmentRow, jobId: string): Prom
             // address the recipient (codex P1). next_action_at = accept deadline; poll applies
             // the message step's own wait_days when it flips invited→accepted.
             await persistResolvedUrn(t, l.id, outcome.targetUrn);
-            await updateEnrollment(enr.id, { state: 'invited', current_step: enr.current_step + 1, next_action_at: acceptDeadline }, g);
+            const n = await updateEnrollment(enr.id, { state: 'invited', current_step: enr.current_step + 1, next_action_at: acceptDeadline }, g, fence);
+            if (fence && n === 0) return 'lease_lost';
         } else if (hasNext) {
-            await updateEnrollment(enr.id, { state: 'messaged', current_step: enr.current_step + 1, next_action_at: new Date(now + nextWaitMs).toISOString() }, g);
+            const n = await updateEnrollment(enr.id, { state: 'messaged', current_step: enr.current_step + 1, next_action_at: new Date(now + nextWaitMs).toISOString() }, g, fence);
+            if (fence && n === 0) return 'lease_lost';
         } else {
-            await updateEnrollment(enr.id, { state: 'completed' }, g);
+            const n = await updateEnrollment(enr.id, { state: 'completed' }, g, fence);
+            if (fence && n === 0) return 'lease_lost';
         }
         return outcome.classifier;
     }
@@ -224,17 +417,20 @@ export async function processEnrollment(enr: EnrollmentRow, jobId: string): Prom
     // failing the enrollment here would lose the lead over a self-clearing condition.
     const skip = outcome.skipped ?? outcome.classifier;
     if (skip === 'daily_cap' || skip === 'weekly_cap' || skip.startsWith('account_') || skip.startsWith('lease_')) {
-        await updateEnrollment(enr.id, { next_action_at: new Date(now + CAP_RETRY_MS).toISOString(), last_error: skip }, g);
+        const n = await updateEnrollment(enr.id, { next_action_at: new Date(now + CAP_RETRY_MS).toISOString(), last_error: skip }, g, fence);
+        if (fence && n === 0) return 'lease_lost';
         return skip;
     }
     if (isInvite && outcome.classifier === 'already_connected') {
         // Already connected → advance to the message step, honoring its own wait_days (codex P3).
         await persistResolvedUrn(t, l.id, outcome.targetUrn);
-        await updateEnrollment(enr.id, { state: 'accepted', current_step: enr.current_step + 1, next_action_at: new Date(now + nextWaitMs).toISOString() }, g);
+        const n = await updateEnrollment(enr.id, { state: 'accepted', current_step: enr.current_step + 1, next_action_at: new Date(now + nextWaitMs).toISOString() }, g, fence);
+        if (fence && n === 0) return 'lease_lost';
         return 'already_connected';
     }
     // restricted / challenge / session_invalid / urn_unresolved / no_target / unknown → fail.
-    await updateEnrollment(enr.id, { state: 'failed', last_error: skip }, g);
+    const n = await updateEnrollment(enr.id, { state: 'failed', last_error: skip }, g, fence);
+    if (fence && n === 0) return 'lease_lost';
     return skip;
 }
 

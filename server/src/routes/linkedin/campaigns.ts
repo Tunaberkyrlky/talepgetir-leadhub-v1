@@ -5,6 +5,7 @@
  * default — activating one does NOT send until dry_run is explicitly turned off.
  */
 import { Router, Request, Response, NextFunction } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod/v4';
 import { researchSupabaseAdmin } from '../../lib/research/supabase.js';
 import { requireRole } from '../../middleware/auth.js';
@@ -15,10 +16,32 @@ import { enqueueJob } from '../../lib/research/queue.js';
 import { RESEARCH_JOB_TYPES } from '../../lib/research/jobTypes.js';
 import { dedupeKey, enrollLead, pickSenderForEnroll, suppressIdentity } from '../../lib/linkedin/sequences/enroll.js';
 import { ensureRetentionLoop } from '../../lib/research/worker/handlers/linkedinRetention.js';
+import { AiConfigSchema, renderStepText, parseAiConfig, validateStepAi, recordAiGenerationCogs } from '../../lib/linkedin/sequences/aiGenerate.js';
+import type { PersonalizeVars } from '../../lib/linkedin/sequences/personalize.js';
+import { withLlmMeter, type MeteredError } from '../../lib/research/llm/meter.js';
+import { LlmError } from '../../lib/research/llm/types.js';
 
 const log = createLogger('route:linkedin:campaigns');
 const router = Router();
 const requireWriter = requireRole('superadmin', 'ops_agent', 'client_admin');
+
+// ── F4: the step preview triggers a LIVE, paid LLM call, so it needs its own throttle on top of
+// requireWriter — otherwise one operator could burn unbounded spend. Two layers: a per-user burst
+// limiter (10/min) and a per-tenant DAILY spend cap. ────────────────────────────────────────────
+const aiPreviewLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => req.user?.id ?? req.tenantId ?? 'anon',
+    message: { error: 'Too many preview requests, slow down' },
+});
+
+// R4: per-tenant daily preview cap. DURABLE (Postgres) — survives a restart AND holds across
+// horizontally-scaled instances, unlike the old in-memory map (each instance would have granted the
+// full cap). The atomic take lives in the linkedin_ai_preview_take RPC (mig 145); the route calls it
+// fail-CLOSED (an RPC error → deny, no free generation).
+const PREVIEW_DAILY_CAP = Math.max(1, Number(process.env.LINKEDIN_AI_PREVIEW_DAILY_CAP) || 200);
 
 const isUuid = (id: string) => uuidField().safeParse(id).success;
 
@@ -235,6 +258,9 @@ const stepsReplace = z.object({
         type: z.enum(['invite', 'message', 'wait']),
         wait_days: z.number().min(0).max(90).optional(),
         template: z.string().max(8000).optional().nullable(),
+        // Validated strictly below (not here) so a present-but-malformed config 400s instead of
+        // silently passing an arbitrary object through to the RPC.
+        ai_config: z.unknown().optional(),
     })).max(20),
 });
 router.put('/:id/steps', requireWriter, validateBody(stepsReplace), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -246,15 +272,109 @@ router.put('/:id/steps', requireWriter, validateBody(stepsReplace), async (req: 
         if (cErr) throw new AppError('Failed to save steps', 500);
         if (!campaign) { res.status(404).json({ error: 'Campaign not found' }); return; }
         const b = req.body as z.infer<typeof stepsReplace>;
+        // STRICT-validate each step (F7/F8): a present-but-broken config, a malformed {ai:} token, a
+        // referenced section with no prompt, or a template {ai:key} with no matching section is an
+        // operator error → 400 naming the step index (never a silent degrade — that only happens
+        // later at engine read-time for legacy/edge rows).
+        const p_steps: Array<Record<string, unknown>> = [];
+        for (let i = 0; i < b.steps.length; i++) {
+            const s = b.steps[i];
+            const problem = validateStepAi(s.template ?? null, s.ai_config);
+            if (problem) { res.status(400).json({ error: `steps[${i}]: ${problem}` }); return; }
+            // validateStepAi already proved this parses; store the normalized config (or {} when absent).
+            const ai_config = (s.ai_config === undefined || s.ai_config === null) ? {} : AiConfigSchema.parse(s.ai_config);
+            p_steps.push({ type: s.type, wait_days: s.wait_days ?? 0, template: s.template ?? null, ai_config });
+        }
         // Atomic replace via RPC (delete+insert in one txn): a non-transactional delete-then-insert
         // let a concurrent sequence-tick read [] mid-edit and terminally 'complete' live enrollments.
         const { data: count, error } = await researchSupabaseAdmin.rpc('linkedin_replace_steps', {
-            p_tenant: tenantId, p_campaign: id,
-            p_steps: b.steps.map((s) => ({ type: s.type, wait_days: s.wait_days ?? 0, template: s.template ?? null })),
+            p_tenant: tenantId, p_campaign: id, p_steps,
         });
         if (error) throw new AppError('Failed to save steps', 500);
         res.json({ ok: true, count: count ?? b.steps.length });
     } catch (err) { if (err instanceof AppError) return next(err); log.error({ err }, 'put steps'); next(new AppError('Failed to save steps', 500)); }
+});
+
+// ── Preview a step's rendered text (AI runs LIVE — this is the paid preview) ─────
+// requireWriter is the cost gate. With a lead_id we render against that real lead; otherwise a
+// sample persona so the operator can preview before importing leads.
+const stepPreviewBody = z.object({
+    step: z.object({
+        type: z.enum(['invite', 'message']),
+        template: z.string().max(8000).optional().nullable(),
+        ai_config: z.unknown().optional(),
+    }),
+    lead_id: uuidField().optional(),
+});
+router.post('/:id/steps/preview', requireWriter, aiPreviewLimiter, validateBody(stepPreviewBody), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const tenantId = req.tenantId!; const id = String(req.params.id);
+        if (!isUuid(id)) { res.status(400).json({ error: 'Invalid id' }); return; }
+        const { data: campaign, error: cErr } = await researchSupabaseAdmin.from('linkedin_campaigns')
+            .select('id').eq('id', id).eq('tenant_id', tenantId).maybeSingle();
+        if (cErr) throw new AppError('Failed to preview step', 500);
+        if (!campaign) { res.status(404).json({ error: 'Campaign not found' }); return; }
+        const b = req.body as z.infer<typeof stepPreviewBody>;
+
+        // F7: strict-validate here too — never silently render a broken config as 'off'.
+        const problem = validateStepAi(b.step.template ?? null, b.step.ai_config);
+        if (problem) { res.status(400).json({ error: problem }); return; }
+
+        // F4/R4: a preview that will actually call the LLM consumes the per-tenant daily budget via
+        // the durable atomic RPC. An 'off' preview is free and never counted. Fail-CLOSED: an RPC
+        // error denies (503) rather than granting a free generation.
+        const willGenerate = parseAiConfig(b.step.ai_config).mode !== 'off';
+        if (willGenerate) {
+            const { data: took, error: takeErr } = await researchSupabaseAdmin
+                .rpc('linkedin_ai_preview_take', { p_tenant: tenantId, p_cap: PREVIEW_DAILY_CAP });
+            if (takeErr) {
+                log.error({ err: takeErr, tenantId }, 'preview daily-cap take failed (fail-closed)');
+                res.status(503).json({ error: 'AI preview temporarily unavailable, try again shortly' });
+                return;
+            }
+            if (took !== true) {
+                res.status(429).json({ error: `Daily AI preview limit reached (${PREVIEW_DAILY_CAP} per day). Try again after 00:00 UTC.` });
+                return;
+            }
+        }
+
+        let vars: PersonalizeVars;
+        if (b.lead_id) {
+            const { data: lead, error: lErr } = await researchSupabaseAdmin.from('linkedin_leads')
+                .select('first_name, last_name, company, title, custom')
+                .eq('id', b.lead_id).eq('tenant_id', tenantId).maybeSingle();
+            if (lErr) throw new AppError('Failed to preview step', 500);
+            if (!lead) { res.status(404).json({ error: 'Lead not found' }); return; }
+            const l = lead as { first_name: string | null; last_name: string | null; company: string | null; title: string | null; custom: Record<string, unknown> | null };
+            vars = { firstName: l.first_name, lastName: l.last_name, company: l.company, title: l.title, custom: l.custom };
+        } else {
+            vars = { firstName: 'Ayşe', lastName: 'Yılmaz', company: 'Acme GmbH', title: 'Purchasing Manager', custom: {} };
+        }
+
+        // F5: meter the generation so the paid spend is attributed to the tenant on linkedin_actions
+        // (type 'ai_generate', no account/job). recordAiGenerationCogs no-ops for an 'off' preview
+        // (zero metered calls), and still records a FAILED-but-paid run via err.llmUsage.
+        let out;
+        try {
+            const metered = await withLlmMeter(() => renderStepText({ type: b.step.type, template: b.step.template ?? null, ai_config: b.step.ai_config }, vars));
+            out = metered.result;
+            await recordAiGenerationCogs(metered.usage, { tenantId, accountId: null, jobId: null, surface: 'preview', status: 'ok' });
+        } catch (err) {
+            await recordAiGenerationCogs((err as MeteredError)?.llmUsage, { tenantId, accountId: null, jobId: null, surface: 'preview', status: 'error' });
+            // A live-generation failure is an upstream provider fault, not a bug in this request —
+            // surface it as 502 with a clear message so the UI can say "try again" (not a generic 500).
+            if (err instanceof LlmError) { res.status(502).json({ error: `AI generation failed: ${err.message.slice(0, 250)}` }); return; }
+            throw err;
+        }
+
+        const warnings: string[] = [];
+        if (b.step.type === 'invite' && out.rendered.length > 300) warnings.push('invite_note_over_300');
+        // A 'sections' config whose template has no {ai:...} slot means the generated sections are
+        // computed but never spliced in — a likely operator mistake worth flagging.
+        if (out.parts.sections && !/\{ai:[a-z][a-z0-9_]{0,29}\}/.test(b.step.template ?? '')) warnings.push('no_ai_token_in_template');
+
+        res.json({ rendered: out.rendered, parts: out.parts, char_count: out.rendered.length, warnings });
+    } catch (err) { if (err instanceof AppError) return next(err); log.error({ err }, 'preview step'); next(new AppError('Failed to preview step', 500)); }
 });
 
 // ── Leads — create (single or bulk), upsert by dedupe_key ───────────────────────

@@ -94,7 +94,14 @@ export function candidateKeysForLead(lead: { public_id?: string | null; profile_
     return [...keys];
 }
 
-/** True if ANY of the lead's stable identity keys is workspace-suppressed (send-time gate). */
+/**
+ * True if ANY of the lead's stable identity keys is workspace-suppressed (send-time gate).
+ *
+ * R1 (fail-CLOSED): a PostgREST lookup error is re-THROWN, never swallowed. Returning false on a DB
+ * fault would let a suppressed lead be messaged (suppression state UNKNOWN treated as "clear"). The
+ * only caller (the engine's pre/post-generation checks) catches the throw and holds the send —
+ * treating an unknown suppression state as do-NOT-send rather than send.
+ */
 export async function isLeadSuppressed(
     tenantId: string,
     lead: { public_id?: string | null; profile_urn?: string | null; dedupe_key?: string | null },
@@ -103,7 +110,7 @@ export async function isLeadSuppressed(
     if (keys.length === 0) return false;
     const { data, error } = await researchSupabaseAdmin
         .from('linkedin_suppression').select('id').eq('tenant_id', tenantId).in('dedupe_key', keys).limit(1);
-    if (error) { log.warn({ err: error, tenantId }, 'isLeadSuppressed read failed (non-fatal, fail-open)'); return false; }
+    if (error) { log.warn({ err: error, tenantId }, 'isLeadSuppressed read failed → throwing (fail-closed)'); throw error; }
     return (data ?? []).length > 0;
 }
 

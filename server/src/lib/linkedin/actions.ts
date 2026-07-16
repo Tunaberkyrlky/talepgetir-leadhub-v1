@@ -556,20 +556,32 @@ async function applyWriteHealthTs(
 
 export interface AuditFields {
     tenantId: string;
-    accountId: string;
-    type: 'invite' | 'message' | 'withdraw' | 'poll';
+    // Nullable: an 'ai_generate' preview COGS row has no sender account (mig 145).
+    accountId: string | null;
+    type: 'invite' | 'message' | 'withdraw' | 'poll' | 'ai_generate';
     status: 'ok' | 'error' | 'skipped';
     classifier: string;
     httpStatus?: number | null;
     error?: string | null;
-    jobId: string;
+    // Nullable: a preview-triggered generation has no research job.
+    jobId: string | null;
+    // AI-generation COGS trail (mig 145): the $ figure (cogs_usd, INTERNAL-only) + the raw usage
+    // tally in metadata for later recompute. Omitted (undefined) on the normal send-audit path.
+    cogsUsd?: number | null;
+    metadata?: Record<string, unknown> | null;
+    leadId?: string | null;
 }
 
 export async function auditAction(a: AuditFields): Promise<void> {
-    const { error } = await researchSupabaseAdmin.from('linkedin_actions').insert({
+    const row: Record<string, unknown> = {
         tenant_id: a.tenantId, account_id: a.accountId, type: a.type, status: a.status,
         classifier: a.classifier, http_status: a.httpStatus ?? null,
         error: a.error ? a.error.slice(0, 500) : null, job_id: a.jobId,
-    });
+    };
+    // Only touch the COGS/metadata/lead columns when supplied, so the send path is byte-identical.
+    if (a.cogsUsd != null) row.cogs_usd = a.cogsUsd;
+    if (a.metadata != null) row.metadata = a.metadata;
+    if (a.leadId !== undefined) row.lead_id = a.leadId ?? null;
+    const { error } = await researchSupabaseAdmin.from('linkedin_actions').insert(row);
     if (error) log.warn({ err: error, accountId: a.accountId, type: a.type }, 'action audit insert failed (non-fatal)');
 }
