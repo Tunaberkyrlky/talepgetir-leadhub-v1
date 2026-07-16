@@ -44,7 +44,7 @@ export default function NumbersTab() {
     });
 
     const purchaseMutation = useMutation({
-        mutationFn: (e164: string) => coldcallApi.purchaseNumber(country!, e164),
+        mutationFn: (number: AvailableNumber) => coldcallApi.purchaseNumber(number.offer),
         onSuccess: (num) => {
             notifications.show({ color: 'green', message: t('coldcall.numberPurchased', 'Number purchased: {{n}}', { n: num.e164 }) });
             setBuyOpen(false);
@@ -219,8 +219,8 @@ export default function NumbersTab() {
                                             </div>
                                             <Button
                                                 size="xs"
-                                                loading={purchaseMutation.isPending && purchaseMutation.variables === r.e164}
-                                                onClick={() => purchaseMutation.mutate(r.e164)}
+                                                loading={purchaseMutation.isPending && purchaseMutation.variables?.offer === r.offer}
+                                                onClick={() => purchaseMutation.mutate(r)}
                                             >
                                                 {t('coldcall.buy', 'Buy')}
                                             </Button>

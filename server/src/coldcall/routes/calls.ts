@@ -178,29 +178,31 @@ router.post('/', requireCaller, validateBody(createSchema), async (req: Request,
             }
         }
 
-        const { data: call, error } = await supabaseAdmin
-            .from('coldcall_calls')
-            .insert({
-                tenant_id: tenantId,
-                company_id: body.company_id ?? null,
-                contact_id: body.contact_id ?? null,
-                user_id: req.user?.id ?? null,
-                phone_number_id: fromNumber.id,
-                direction: 'outbound',
-                from_e164: fromNumber.e164,
-                to_e164: body.to_e164,
-                to_country: rate.destCountry.code,
-                status: 'queued',
-                rate_multiplier: rate.multiplier,
-            })
-            .select('*')
-            .single();
+        const { data: call, error } = await supabaseAdmin.rpc('coldcall_start_call', {
+            p_tenant_id: tenantId,
+            p_company_id: body.company_id ?? null,
+            p_contact_id: body.contact_id ?? null,
+            p_user_id: req.user?.id ?? null,
+            p_phone_number_id: fromNumber.id,
+            p_from_e164: fromNumber.e164,
+            p_to_e164: body.to_e164,
+            p_to_country: rate.destCountry.code,
+            p_rate_multiplier: rate.multiplier,
+            p_origin_country: fromNumber.country_code,
+            p_destination_country: rate.destCountry.code,
+            p_destination_type: rate.lineType,
+            p_pstn_rate_usd: rate.usdPerMin,
+            p_recording_enabled: settings.recording_mode !== 'off',
+        });
         if (error) {
-            // Tek in-flight çağrı — partial unique index (migration 146) ihlali: tenant'ın
+            // Tek in-flight çağrı — partial unique index ihlali: tenant'ın
             // zaten terminal-olmayan bir çağrısı var. Eşzamanlı POST'larda bakiye aşımını
             // ATOMİK olarak tek çağrıyla sınırlar (codex P1 — app-seviyesi TOCTOU'yu kapatır).
             if ((error as { code?: string }).code === '23505') {
                 throw new AppError('Zaten devam eden bir aramanız var. O bitince yeni arama başlatabilirsiniz.', 409);
+            }
+            if (error.message?.includes('coldcall_balance_exhausted')) {
+                throw new AppError('Arama krediniz tükendi. Yükleme için bizimle iletişime geçin.', 429);
             }
             log.error({ err: error }, 'call insert failed');
             throw new AppError('Çağrı başlatılamadı', 500);

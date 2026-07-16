@@ -12,6 +12,7 @@ import { validateBody, uuidField } from '../../lib/validation.js';
 import { getSettings, grantMinutes } from '../lib/settings.js';
 import { provisionTenantForTwilio } from '../providers/twilio.js';
 import { twilioConfigured } from '../providers/index.js';
+import { randomUUID } from 'crypto';
 
 const log = createLogger('coldcall:admin');
 const router = Router();
@@ -21,10 +22,14 @@ router.use(requireRole('superadmin', 'ops_agent'));
 // ── GET /usage — tenant bazında dakika + COGS ────────────────────────────────
 router.get('/usage', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+        const periodStart = new Date();
+        periodStart.setUTCDate(1);
+        periodStart.setUTCHours(0, 0, 0, 0);
         const [callsRes, settingsRes, numbersRes, tenantsRes] = await Promise.all([
             supabaseAdmin
                 .from('coldcall_calls')
-                .select('tenant_id, status, duration_sec, billed_minutes, cogs_usd'),
+                .select('tenant_id, status, duration_sec, billed_minutes, cogs_usd')
+                .gte('created_at', periodStart.toISOString()),
             supabaseAdmin.from('coldcall_settings').select('tenant_id, provider, minutes_balance'),
             supabaseAdmin.from('coldcall_phone_numbers').select('tenant_id, monthly_cost_usd').neq('status', 'released'),
             supabaseAdmin.from('tenants').select('id, name'),
@@ -95,10 +100,10 @@ router.get('/usage', async (_req: Request, res: Response, next: NextFunction): P
                 talk_minutes: Math.round(a.talk_minutes * 10) / 10,
                 call_cogs_usd: Math.round(a.call_cogs_usd * 100) / 100,
                 numbers_monthly_usd: Math.round(a.numbers_monthly_usd * 100) / 100,
-                total_cogs_usd: Math.round((a.call_cogs_usd + a.numbers_monthly_usd) * 100) / 100,
+                current_month_cost_usd: Math.round((a.call_cogs_usd + a.numbers_monthly_usd) * 100) / 100,
             }))
-            .sort((x, y) => y.total_cogs_usd - x.total_cogs_usd);
-        res.json({ usage: rows, twilio_configured: twilioConfigured() });
+            .sort((x, y) => y.current_month_cost_usd - x.current_month_cost_usd);
+        res.json({ usage: rows, call_cogs_period_start: periodStart.toISOString(), twilio_configured: twilioConfigured() });
     } catch (err) {
         next(err);
     }
@@ -107,14 +112,37 @@ router.get('/usage', async (_req: Request, res: Response, next: NextFunction): P
 // ── POST /provision — tenant'ı Twilio'ya taşı ────────────────────────────────
 const provisionSchema = z.object({ tenant_id: uuidField('Invalid tenant ID') });
 
-router.post('/provision', validateBody(provisionSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+router.post('/provision', requireRole('superadmin'), validateBody(provisionSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    let claim: string | null = null;
+    let tenantId: string | null = null;
     try {
         if (!twilioConfigured()) throw new AppError('TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN tanımlı değil', 503);
         const { tenant_id } = req.body as z.infer<typeof provisionSchema>;
+        tenantId = tenant_id;
         const settings = await getSettings(tenant_id);
+        if (settings.provisioning_state === 'complete' && settings.provider === 'twilio'
+            && settings.subaccount_sid && settings.api_key_sid && settings.twiml_app_sid && settings.webhook_secret) {
+            res.json({ ok: true, already_provisioned: true });
+            return;
+        }
+        claim = randomUUID();
+        const { data: claimed, error: claimError } = await supabaseAdmin.rpc('coldcall_claim_provisioning', {
+            p_tenant_id: tenant_id, p_claim: claim,
+        });
+        if (claimError) throw new AppError('Provisioning claim oluşturulamadı', 500);
+        if (!claimed) throw new AppError('Bu tenant için provisioning zaten devam ediyor', 409);
         await provisionTenantForTwilio(tenant_id, settings);
+        const { data: finished, error: finishError } = await supabaseAdmin.rpc('coldcall_finish_provisioning', {
+            p_tenant_id: tenant_id, p_claim: claim, p_success: true,
+        });
+        if (finishError || !finished) throw new AppError('Provisioning claim tamamlanamadı', 500);
         res.json({ ok: true });
     } catch (err) {
+        if (claim && tenantId) {
+            await supabaseAdmin.rpc('coldcall_finish_provisioning', {
+                p_tenant_id: tenantId, p_claim: claim, p_success: false,
+            });
+        }
         next(err);
     }
 });
@@ -122,7 +150,7 @@ router.post('/provision', validateBody(provisionSchema), async (req: Request, re
 // ── POST /credits/grant — dakika kredisi yükle/düzelt (yalnız superadmin) ───
 // minutes>0 → kind='grant' (yükleme); minutes<0 → kind='adjustment' (aşağı düzeltme).
 // idempotency_key client'ta üretilir (crypto.randomUUID) — çift-tık/retry koruması,
-// coldcall_grant_minutes RPC'sinde partial unique index ile enforce edilir (migration 146).
+// coldcall_grant_minutes RPC'sinde tenant-scoped fingerprint ile enforce edilir.
 const grantSchema = z.object({
     tenant_id: uuidField('Invalid tenant ID'),
     minutes: z.number()

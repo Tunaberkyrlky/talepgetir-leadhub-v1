@@ -55,11 +55,12 @@ async function verifyTwilioSignature(req: VerifiedRequest, res: Response, next: 
             res.status(403).json({ error: 'Forbidden' });
             return;
         }
-        const { data } = await supabaseAdmin
+        const { data, error } = await supabaseAdmin
             .from('coldcall_settings')
             .select('*')
             .eq('subaccount_sid', accountSid)
             .maybeSingle();
+        if (error) throw new Error(`coldcall settings lookup failed: ${error.message}`);
         const settings = (data as ColdcallSettingsRow) ?? null;
         if (!settings) {
             res.status(403).json({ error: 'Forbidden' });
@@ -94,7 +95,7 @@ async function verifyTwilioSignature(req: VerifiedRequest, res: Response, next: 
         next();
     } catch (err) {
         log.error({ err }, 'twilio webhook verification errored');
-        res.status(403).json({ error: 'Forbidden' });
+        res.status(503).json({ error: 'Retry later' });
     }
 }
 
@@ -102,12 +103,13 @@ router.use(verifyTwilioSignature);
 
 async function loadCall(callId: string | undefined, tenantId: string): Promise<ColdcallCallRow | null> {
     if (!callId || !/^[0-9a-fA-F-]{36}$/.test(callId)) return null;
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
         .from('coldcall_calls')
         .select('*')
         .eq('id', callId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
+    if (error) throw new Error(`coldcall call lookup failed: ${error.message}`);
     return (data as ColdcallCallRow) ?? null;
 }
 
@@ -164,7 +166,7 @@ router.post('/voice', async (req: VerifiedRequest, res: Response): Promise<void>
         // sweep asla canlı bir çağrıyı yanlışlıkla 'failed' yapıp tek-in-flight slotunu açmaz,
         // takılı çağrı da kredi/maliyeti sonsuza dek yakmaz.
         timeLimit: 3600,
-        ...(settings.recording_mode !== 'off'
+        ...(call.recording_enabled_snapshot === true
             ? {
                 record: 'record-from-answer-dual' as const,
                 recordingStatusCallback: `${publicUrl}/api/webhooks/coldcall/recording?callId=${call.id}${s}`,
@@ -187,25 +189,40 @@ router.post('/voice', async (req: VerifiedRequest, res: Response): Promise<void>
 router.post('/status', async (req: VerifiedRequest, res: Response): Promise<void> => {
     const settings = req.coldcallSettings!;
     const callId = typeof req.query.callId === 'string' ? req.query.callId : undefined;
-    const call = await loadCall(callId, settings.tenant_id);
-    res.status(204).end(); // Twilio'ya hemen dön; işleme aşağıda devam eder
-    if (!call) return;
+    let call: ColdcallCallRow | null;
+    try {
+        call = await loadCall(callId, settings.tenant_id);
+    } catch (err) {
+        log.error({ err, callId }, 'status webhook call lookup failed');
+        res.status(503).json({ error: 'Retry later' });
+        return;
+    }
+    if (!call) {
+        res.status(204).end();
+        return;
+    }
 
     const status = String(req.body?.CallStatus ?? '');
-    const withRecording = settings.recording_mode !== 'off';
+    const withRecording = call.recording_enabled_snapshot === true;
     try {
         switch (status) {
             case 'ringing':
             case 'initiated':
-                await supabaseAdmin.from('coldcall_calls').update({ status: 'ringing' }).eq('id', call.id).eq('status', 'queued');
+                {
+                    const { error } = await supabaseAdmin.from('coldcall_calls').update({ status: 'ringing' }).eq('id', call.id).eq('status', 'queued');
+                    if (error) throw error;
+                }
                 break;
             case 'in-progress':
             case 'answered':
-                await supabaseAdmin
+                {
+                const { error } = await supabaseAdmin
                     .from('coldcall_calls')
                     .update({ status: 'in_progress', answered_at: call.answered_at ?? new Date().toISOString() })
                     .eq('id', call.id)
                     .in('status', ['queued', 'ringing']);
+                if (error) throw error;
+                }
                 break;
             case 'completed': {
                 // answered callback'i kaçmış/gecikmiş olabilir — Twilio'nun raporladığı
@@ -229,8 +246,10 @@ router.post('/status', async (req: VerifiedRequest, res: Response): Promise<void
             default:
                 log.warn({ status, callId: call.id }, 'unhandled twilio call status');
         }
+        res.status(204).end();
     } catch (err) {
         log.error({ err, callId: call.id, status }, 'status webhook processing failed');
+        res.status(503).json({ error: 'Retry later' });
     }
 });
 
@@ -238,15 +257,27 @@ router.post('/status', async (req: VerifiedRequest, res: Response): Promise<void
 router.post('/recording', async (req: VerifiedRequest, res: Response): Promise<void> => {
     const settings = req.coldcallSettings!;
     const callId = typeof req.query.callId === 'string' ? req.query.callId : undefined;
-    const call = await loadCall(callId, settings.tenant_id);
-    res.status(204).end();
-    if (!call) return;
+    let call: ColdcallCallRow | null;
+    try {
+        call = await loadCall(callId, settings.tenant_id);
+    } catch (err) {
+        log.error({ err, callId }, 'recording webhook call lookup failed');
+        res.status(503).json({ error: 'Retry later' });
+        return;
+    }
+    if (!call) {
+        res.status(204).end();
+        return;
+    }
 
     const recordingUrl = typeof req.body?.RecordingUrl === 'string' ? req.body.RecordingUrl : null;
     const recordingSid = typeof req.body?.RecordingSid === 'string' ? req.body.RecordingSid : null;
     const duration = parseInt(String(req.body?.RecordingDuration ?? '0'), 10) || 0;
     const recordingStatus = String(req.body?.RecordingStatus ?? 'completed');
-    if (!recordingUrl || !recordingSid || recordingStatus !== 'completed') return;
+    if (!recordingUrl || !recordingSid || recordingStatus !== 'completed') {
+        res.status(204).end();
+        return;
+    }
 
     // Kayıt medyası: master AUTH TOKEN subaccount'a yetkili; master yalnız API
     // key ise subaccount'ın kendi key'i kullanılır (master key subaccount
@@ -259,12 +290,30 @@ router.post('/recording', async (req: VerifiedRequest, res: Response): Promise<v
         } else if (settings.api_key_sid && settings.api_key_secret_enc) {
             authHeader = `Basic ${Buffer.from(`${settings.api_key_sid}:${decrypt(settings.api_key_secret_enc)}`).toString('base64')}`;
         } else {
+            res.status(503).json({ error: 'Retry later' });
             return;
         }
     } catch {
+        res.status(503).json({ error: 'Retry later' });
         return;
     }
-    void runTwilioRecordingPipeline(call, recordingUrl, recordingSid, duration, authHeader);
+    const { data: recordingId, error: claimError } = await supabaseAdmin.rpc('coldcall_claim_recording', {
+        p_tenant_id: call.tenant_id,
+        p_call_id: call.id,
+        p_provider_sid: recordingSid,
+        p_duration: duration,
+    });
+    if (claimError) {
+        log.error({ err: claimError, recordingSid }, 'recording claim failed');
+        res.status(503).json({ error: 'Retry later' });
+        return;
+    }
+    if (!recordingId) {
+        res.status(204).end();
+        return;
+    }
+    res.status(204).end();
+    void runTwilioRecordingPipeline(call, recordingUrl, recordingSid, duration, authHeader, String(recordingId));
 });
 
 export default router;

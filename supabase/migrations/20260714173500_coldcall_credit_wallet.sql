@@ -2,11 +2,7 @@
 -- Cold Call — ön-ödemeli dakika CÜZDANI (rollover) + append-only kredi ledger'ı.
 -- Plan: plans/COLD_CALL_CREDIT_PLAN.md §3.
 --
--- NOT (renumber): plan bu dosyayı "143_coldcall_credit_wallet.sql" olarak
--- adlandırmıştı, ancak 143/144/145 numaraları o sırada başka (research/linkedin)
--- migration'lar tarafından alınmıştı. Uygulama Supabase'de dosya-numarasına değil
--- timestamp version'a göre izlendiğinden bu kozmetik bir çakışma olurdu ama
--- karışıklığı önlemek için 146 kullanılıyor (CLAUDE.md migration kuralı).
+-- Timestamp adı, TG-Research test DB'ye uygulanmış gerçek migration sürümüyle aynıdır.
 --
 -- Model: minutes_balance TEK gerçek sayaç — admin yükler, çağrı düşer, AY BAŞINDA
 -- SIFIRLANMAZ (devreder). minutes_quota/minutes_used/period_start VESTIGIAL kalır

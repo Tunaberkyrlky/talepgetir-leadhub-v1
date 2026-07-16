@@ -62,13 +62,14 @@ export async function runTwilioRecordingPipeline(
     recordingUrl: string,
     recordingSid: string,
     durationSec: number,
-    authHeader: string
+    authHeader: string,
+    claimedRecordingId?: string
 ): Promise<void> {
     try {
         const res = await fetch(`${recordingUrl}.wav`, { headers: { Authorization: authHeader } });
         if (!res.ok) throw new Error(`recording download http ${res.status}`);
         const audio = Buffer.from(await res.arrayBuffer());
-        const recordingId = await storeRecording(call, audio, durationSec, 'audio/wav', recordingSid);
+        const recordingId = await storeRecording(call, audio, durationSec, 'audio/wav', recordingSid, claimedRecordingId);
 
         // Kayıt bizim Storage'a indi → Twilio'daki kopyayı sil (veri kontrolü + maliyet)
         try {
@@ -107,26 +108,30 @@ async function storeRecording(
     audio: Buffer,
     durationSec: number,
     contentType: string,
-    providerSid: string
+    providerSid: string,
+    claimedRecordingId?: string
 ): Promise<string | null> {
     const path = `${call.tenant_id}/${call.id}.wav`;
 
-    const { data: recRow, error: insErr } = await supabaseAdmin
-        .from('coldcall_recordings')
-        .insert({
-            call_id: call.id,
-            tenant_id: call.tenant_id,
-            provider_recording_sid: providerSid,
-            storage_path: path,
-            duration_sec: durationSec,
-            channels: 2,
-            status: 'processing',
-        })
-        .select('id')
-        .single();
-    if (insErr) {
-        log.error({ err: insErr, callId: call.id }, 'recording row insert failed');
-        return null;
+    let recordingId = claimedRecordingId;
+    if (!recordingId) {
+        const { data: recRow, error: insErr } = await supabaseAdmin
+            .from('coldcall_recordings')
+            .insert({
+                call_id: call.id, tenant_id: call.tenant_id, provider_recording_sid: providerSid,
+                storage_path: path, duration_sec: durationSec, channels: 2, status: 'processing',
+            })
+            .select('id').single();
+        if (insErr) {
+            log.error({ err: insErr, callId: call.id }, 'recording row insert failed');
+            return null;
+        }
+        recordingId = recRow.id as string;
+    } else {
+        const { error } = await supabaseAdmin.from('coldcall_recordings')
+            .update({ storage_path: path, duration_sec: durationSec, channels: 2 })
+            .eq('id', recordingId).eq('tenant_id', call.tenant_id);
+        if (error) return null;
     }
 
     const { error: upErr } = await supabaseAdmin.storage.from(BUCKET).upload(path, audio, {
@@ -136,12 +141,12 @@ async function storeRecording(
     await supabaseAdmin
         .from('coldcall_recordings')
         .update({ status: upErr ? 'failed' : 'stored' })
-        .eq('id', recRow.id);
+        .eq('id', recordingId);
     if (upErr) {
         log.error({ err: upErr, callId: call.id }, 'recording upload failed');
         return null;
     }
-    return recRow.id as string;
+    return recordingId;
 }
 
 async function writeTranscriptAndSummary(

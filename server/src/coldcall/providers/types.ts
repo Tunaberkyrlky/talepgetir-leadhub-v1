@@ -16,7 +16,7 @@ export interface ColdcallSettingsRow {
     default_phone_number_id: string | null;
     /** Ön-ödemeli dakika cüzdanı bakiyesi — rollover, ay başında sıfırlanmaz. */
     minutes_balance: number;
-    /** @deprecated Wallet modeline geçildi (migration 146) — kolon DB'de durur ama okunmaz/yazılmaz. */
+    /** @deprecated Wallet modeline geçildi — kolon DB'de durur ama okunmaz/yazılmaz. */
     minutes_quota: number;
     /** @deprecated Wallet modeline geçildi — okunmaz/yazılmaz. */
     minutes_used: number;
@@ -24,6 +24,7 @@ export interface ColdcallSettingsRow {
     period_start: string;
     max_numbers: number;
     daily_cap_per_number: number;
+    provisioning_state?: 'idle' | 'provisioning' | 'complete' | 'failed';
 }
 
 export interface ColdcallCallRow {
@@ -46,6 +47,11 @@ export interface ColdcallCallRow {
     rate_multiplier: number;
     billed_minutes: number | null;
     cogs_usd: number | null;
+    origin_country_snapshot: string | null;
+    destination_country_snapshot: string | null;
+    destination_type_snapshot: string | null;
+    pstn_rate_usd_snapshot: number | null;
+    recording_enabled_snapshot: boolean | null;
     disposition: string | null;
     notes: string | null;
     activity_id: string | null;

@@ -6,7 +6,6 @@
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { createLogger } from '../../lib/logger.js';
 import { countryForE164, rateFor, isBlockedRate } from '../data/countryPricing.js';
-import { deductMinutes, reconcilePendingUsage } from './settings.js';
 import type { ColdcallCallRow } from '../providers/types.js';
 
 const log = createLogger('coldcall:finalize');
@@ -31,6 +30,15 @@ export function computeCogsUsd(fromE164: string, toE164: string, durationSec: nu
     const pstn = rate && !isBlockedRate(rate) ? rate.usdPerMin : (countryForE164(toE164)?.intlMobileUsd ?? 0.15);
     const minutes = Math.ceil(durationSec / 60);
     const perMin = pstn + CLIENT_LEG_USD_PER_MIN + (withRecording ? RECORDING_USD_PER_MIN + TRANSCRIPTION_USD_PER_MIN : 0);
+    return Math.round(minutes * perMin * 10000) / 10000;
+}
+
+function computeSnapshotCogsUsd(call: ColdcallCallRow, durationSec: number): number {
+    const pstn = Number(call.pstn_rate_usd_snapshot);
+    if (!Number.isFinite(pstn) || pstn < 0) throw new Error(`Missing PSTN rate snapshot for call ${call.id}`);
+    const minutes = Math.ceil(durationSec / 60);
+    const recording = call.recording_enabled_snapshot === true;
+    const perMin = pstn + CLIENT_LEG_USD_PER_MIN + (recording ? RECORDING_USD_PER_MIN + TRANSCRIPTION_USD_PER_MIN : 0);
     return Math.round(minutes * perMin * 10000) / 10000;
 }
 
@@ -63,30 +71,24 @@ export async function finalizeCall(call: ColdcallCallRow, input: FinalizeInput):
         }
     }
     const billedMinutes = durationSec > 0 ? Math.ceil(durationSec / 60) * Number(call.rate_multiplier || 1) : 0;
-    const cogs = durationSec > 0 ? computeCogsUsd(call.from_e164, call.to_e164, durationSec, !!input.withRecording) : 0;
+    const cogs = durationSec > 0 ? computeSnapshotCogsUsd(call, durationSec) : 0;
 
-    const { data, error } = await supabaseAdmin
-        .from('coldcall_calls')
-        .update({
-            status: input.status,
-            answered_at: answeredAt,
-            ended_at: endedAt,
-            duration_sec: durationSec,
-            billed_minutes: billedMinutes,
-            cogs_usd: cogs,
-        })
-        .eq('id', call.id)
-        .not('status', 'in', `(${TERMINAL_STATUSES.join(',')})`)
-        .select('*')
-        .maybeSingle();
+    const { data, error } = await supabaseAdmin.rpc('coldcall_finalize_call', {
+        p_tenant_id: call.tenant_id,
+        p_call_id: call.id,
+        p_status: input.status,
+        p_answered_at: answeredAt,
+        p_ended_at: endedAt,
+        p_duration_sec: durationSec,
+        p_billed_minutes: billedMinutes,
+        p_cogs_usd: cogs,
+    });
 
     if (error) {
         log.error({ err: error, callId: call.id }, 'finalize update failed');
-        return null;
+        throw new Error(`coldcall_finalize_call failed: ${error.message}`);
     }
-    if (!data) return null; // yarışı kaybettik — başka path finalize etmiş
-
-    if (billedMinutes > 0) await deductMinutes(call.tenant_id, billedMinutes, call.id, 'call');
+    if (!data) throw new Error('coldcall_finalize_call returned no row');
     log.info({ callId: call.id, status: input.status, durationSec, billedMinutes }, 'call finalized');
     return data as ColdcallCallRow;
 }
@@ -108,7 +110,4 @@ export async function sweepStaleCalls(tenantId: string): Promise<void> {
         .lt('started_at', cutoff);
     if (error) log.warn({ err: error, tenantId }, 'stale sweep failed');
 
-    // Telafi (codex P1): finalize'da terminal olup krediyi düşülememiş çağrıları düş
-    // (call_id idempotent → zaten düşülenlere dokunmaz). Best-effort, okuma yolunu bloklamaz.
-    await reconcilePendingUsage(tenantId);
 }

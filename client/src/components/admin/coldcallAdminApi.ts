@@ -16,7 +16,7 @@ export interface ColdCallUsageRow {
     call_cogs_usd: number;
     numbers_count: number;
     numbers_monthly_usd: number;
-    total_cogs_usd: number;
+    current_month_cost_usd: number;
     /** coldcall_settings satırı yoksa (tenant Cold Call'u hiç açmamış) undefined olabilir. */
     minutes_balance?: number;
     provider?: 'mock' | 'twilio';
@@ -25,6 +25,7 @@ export interface ColdCallUsageRow {
 export interface ColdCallUsageResponse {
     usage: ColdCallUsageRow[];
     twilio_configured: boolean;
+    call_cogs_period_start: string;
 }
 
 /** Admin'in TAM ledger görünümü — created_by/source/idempotency_key dahil (müşteri görünümünden farklı). */

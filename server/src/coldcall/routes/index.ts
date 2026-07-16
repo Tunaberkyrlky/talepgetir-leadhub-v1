@@ -9,8 +9,10 @@ import numbersRouter from './numbers.js';
 import callsRouter from './calls.js';
 import adminRouter from './admin.js';
 import creditsRouter from './credits.js';
+import { startColdcallReconciliationScheduler } from '../lib/reconciliationScheduler.js';
 
 const router = Router();
+startColdcallReconciliationScheduler();
 
 router.use('/numbers', numbersRouter);
 router.use('/calls', callsRouter);

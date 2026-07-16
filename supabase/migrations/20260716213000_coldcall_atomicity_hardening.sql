@@ -1,0 +1,255 @@
+-- Cold Call atomicity/security hardening (forward-only; 20260714173500 tabanı uygulanmış olabilir).
+
+ALTER TABLE coldcall_calls
+  ADD COLUMN IF NOT EXISTS origin_country_snapshot TEXT,
+  ADD COLUMN IF NOT EXISTS destination_country_snapshot TEXT,
+  ADD COLUMN IF NOT EXISTS destination_type_snapshot TEXT,
+  ADD COLUMN IF NOT EXISTS pstn_rate_usd_snapshot NUMERIC(10,6),
+  ADD COLUMN IF NOT EXISTS recording_enabled_snapshot BOOLEAN;
+
+-- Legacy/in-flight rows predate snapshots. Seed conservative immutable values so
+-- a call already in progress can still finalize after this forward migration.
+UPDATE coldcall_calls c SET
+  origin_country_snapshot=COALESCE(c.origin_country_snapshot,n.country_code),
+  destination_country_snapshot=COALESCE(c.destination_country_snapshot,c.to_country),
+  destination_type_snapshot=COALESCE(c.destination_type_snapshot,'unknown'),
+  pstn_rate_usd_snapshot=COALESCE(c.pstn_rate_usd_snapshot,GREATEST(c.rate_multiplier*0.03,0.03)),
+  recording_enabled_snapshot=COALESCE(c.recording_enabled_snapshot,true)
+FROM coldcall_phone_numbers n
+WHERE c.phone_number_id=n.id AND (
+  c.origin_country_snapshot IS NULL OR c.destination_country_snapshot IS NULL OR
+  c.destination_type_snapshot IS NULL OR c.pstn_rate_usd_snapshot IS NULL OR
+  c.recording_enabled_snapshot IS NULL
+);
+
+ALTER TABLE coldcall_settings
+  ADD COLUMN IF NOT EXISTS provisioning_state TEXT NOT NULL DEFAULT 'idle',
+  ADD COLUMN IF NOT EXISTS provisioning_claim UUID,
+  ADD COLUMN IF NOT EXISTS provisioning_claimed_at TIMESTAMPTZ;
+
+ALTER TABLE coldcall_credit_ledger ADD COLUMN IF NOT EXISTS payload_fingerprint TEXT;
+DROP FUNCTION IF EXISTS coldcall_deduct_minutes(UUID,NUMERIC,UUID,TEXT);
+DROP FUNCTION IF EXISTS coldcall_pending_usage_calls(UUID);
+DROP FUNCTION IF EXISTS coldcall_grant_minutes(UUID,NUMERIC,TEXT,TEXT,UUID,TEXT,TEXT);
+DROP INDEX IF EXISTS idx_coldcall_ledger_idem;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coldcall_ledger_tenant_idem
+  ON coldcall_credit_ledger(tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+
+WITH ranked_recordings AS (
+  SELECT id,row_number() OVER(PARTITION BY provider_recording_sid ORDER BY created_at DESC,id DESC) AS duplicate_rank
+  FROM coldcall_recordings WHERE provider_recording_sid IS NOT NULL
+)
+UPDATE coldcall_recordings r SET provider_recording_sid=NULL
+FROM ranked_recordings d WHERE r.id=d.id AND d.duplicate_rank>1;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coldcall_recordings_provider_sid
+  ON coldcall_recordings(provider_recording_sid) WHERE provider_recording_sid IS NOT NULL;
+
+ALTER TABLE coldcall_phone_numbers DROP CONSTRAINT IF EXISTS coldcall_phone_numbers_status_check;
+ALTER TABLE coldcall_phone_numbers ADD CONSTRAINT coldcall_phone_numbers_status_check
+  CHECK (status IN ('purchasing','pending_regulatory','active','released'));
+
+CREATE OR REPLACE FUNCTION coldcall_start_call(
+  p_tenant_id UUID, p_company_id UUID, p_contact_id UUID, p_user_id UUID,
+  p_phone_number_id UUID, p_from_e164 TEXT, p_to_e164 TEXT, p_to_country TEXT,
+  p_rate_multiplier NUMERIC, p_origin_country TEXT, p_destination_country TEXT,
+  p_destination_type TEXT, p_pstn_rate_usd NUMERIC, p_recording_enabled BOOLEAN
+) RETURNS coldcall_calls LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_call coldcall_calls; v_balance NUMERIC;
+BEGIN
+  SELECT minutes_balance INTO v_balance FROM coldcall_settings
+    WHERE tenant_id = p_tenant_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_settings_missing' USING ERRCODE='P0002'; END IF;
+  IF v_balance <= 0 THEN RAISE EXCEPTION 'coldcall_balance_exhausted' USING ERRCODE='P0001'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM coldcall_phone_numbers WHERE id=p_phone_number_id
+                 AND tenant_id=p_tenant_id AND status='active' AND e164=p_from_e164) THEN
+    RAISE EXCEPTION 'coldcall_number_invalid' USING ERRCODE='P0001';
+  END IF;
+  INSERT INTO coldcall_calls(
+    tenant_id,company_id,contact_id,user_id,phone_number_id,direction,from_e164,to_e164,
+    to_country,status,rate_multiplier,origin_country_snapshot,destination_country_snapshot,
+    destination_type_snapshot,pstn_rate_usd_snapshot,recording_enabled_snapshot
+  ) VALUES (
+    p_tenant_id,p_company_id,p_contact_id,p_user_id,p_phone_number_id,'outbound',p_from_e164,p_to_e164,
+    p_to_country,'queued',p_rate_multiplier,p_origin_country,p_destination_country,
+    p_destination_type,p_pstn_rate_usd,p_recording_enabled
+  ) RETURNING * INTO v_call;
+  RETURN v_call;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_finalize_call(
+  p_tenant_id UUID, p_call_id UUID, p_status TEXT, p_answered_at TIMESTAMPTZ,
+  p_ended_at TIMESTAMPTZ, p_duration_sec INTEGER, p_billed_minutes NUMERIC,
+  p_cogs_usd NUMERIC
+) RETURNS coldcall_calls LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_call coldcall_calls; v_new NUMERIC; v_expected_billed NUMERIC;
+BEGIN
+  PERFORM 1 FROM coldcall_settings WHERE tenant_id=p_tenant_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_settings_missing' USING ERRCODE='P0002'; END IF;
+  SELECT * INTO v_call FROM coldcall_calls WHERE id=p_call_id AND tenant_id=p_tenant_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_call_not_found' USING ERRCODE='P0002'; END IF;
+  v_expected_billed := CASE WHEN p_status='completed' AND COALESCE(p_duration_sec,0)>0
+    THEN ceil(p_duration_sec::NUMERIC/60)*v_call.rate_multiplier ELSE 0 END;
+  IF COALESCE(p_billed_minutes,0) <> v_expected_billed THEN
+    RAISE EXCEPTION 'coldcall_billed_minutes_mismatch' USING ERRCODE='P0001';
+  END IF;
+  IF v_call.status IN ('completed','busy','no_answer','failed','canceled') THEN
+    IF v_call.status <> p_status OR COALESCE(v_call.billed_minutes,0) <> COALESCE(p_billed_minutes,0)
+       OR COALESCE(v_call.duration_sec,0) <> COALESCE(p_duration_sec,0) THEN
+      RAISE EXCEPTION 'coldcall_finalize_payload_mismatch' USING ERRCODE='P0001';
+    END IF;
+    RETURN v_call;
+  END IF;
+  UPDATE coldcall_calls SET status=p_status, answered_at=p_answered_at, ended_at=p_ended_at,
+    duration_sec=p_duration_sec, billed_minutes=p_billed_minutes, cogs_usd=p_cogs_usd
+    WHERE id=p_call_id RETURNING * INTO v_call;
+  IF v_call.status='completed' AND COALESCE(v_call.billed_minutes,0)>0 THEN
+    UPDATE coldcall_settings SET minutes_balance=minutes_balance-v_call.billed_minutes,updated_at=now()
+      WHERE tenant_id=p_tenant_id RETURNING minutes_balance INTO v_new;
+    INSERT INTO coldcall_credit_ledger(tenant_id,delta_minutes,kind,balance_after,call_id,source,reason)
+      VALUES(p_tenant_id,-v_call.billed_minutes,'usage',v_new,p_call_id,'system','call')
+      ON CONFLICT (call_id) WHERE kind='usage' DO NOTHING;
+  END IF;
+  RETURN v_call;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_reconcile_usage(p_limit INTEGER DEFAULT 100) RETURNS INTEGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE r RECORD; v_new NUMERIC; v_count INTEGER:=0;
+BEGIN
+  FOR r IN SELECT c.id,c.tenant_id,c.billed_minutes FROM coldcall_calls c
+    WHERE c.status='completed' AND COALESCE(c.billed_minutes,0)>0
+      AND NOT EXISTS(SELECT 1 FROM coldcall_credit_ledger l WHERE l.call_id=c.id AND l.kind='usage')
+    ORDER BY c.created_at
+    LIMIT LEAST(GREATEST(p_limit,1),1000)
+  LOOP
+    PERFORM 1 FROM coldcall_settings WHERE tenant_id=r.tenant_id FOR UPDATE;
+    INSERT INTO coldcall_credit_ledger(tenant_id,delta_minutes,kind,balance_after,call_id,source,reason)
+      VALUES(r.tenant_id,-r.billed_minutes,'usage',0,r.id,'system','reconciliation')
+      ON CONFLICT (call_id) WHERE kind='usage' DO NOTHING;
+    IF FOUND THEN
+      UPDATE coldcall_settings SET minutes_balance=minutes_balance-r.billed_minutes,updated_at=now()
+        WHERE tenant_id=r.tenant_id RETURNING minutes_balance INTO v_new;
+      UPDATE coldcall_credit_ledger SET balance_after=v_new WHERE call_id=r.id AND kind='usage';
+      v_count:=v_count+1;
+    END IF;
+  END LOOP;
+  RETURN v_count;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_claim_provisioning(p_tenant_id UUID,p_claim UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  UPDATE coldcall_settings SET provisioning_state='provisioning',provisioning_claim=p_claim,
+    provisioning_claimed_at=now(),updated_at=now()
+  WHERE tenant_id=p_tenant_id AND (
+    provisioning_state='idle' OR provisioning_state='failed' OR
+    provisioning_claimed_at < now()-interval '15 minutes'
+  );
+  RETURN FOUND;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_finish_provisioning(p_tenant_id UUID,p_claim UUID,p_success BOOLEAN)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  UPDATE coldcall_settings SET provisioning_state=CASE WHEN p_success THEN 'complete' ELSE 'failed' END,
+    provisioning_claim=NULL,provisioning_claimed_at=NULL,updated_at=now()
+  WHERE tenant_id=p_tenant_id AND provisioning_claim=p_claim;
+  RETURN FOUND;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_reserve_number(
+ p_tenant_id UUID,p_provider TEXT,p_e164 TEXT,p_country TEXT,p_monthly NUMERIC,p_created_by UUID
+) RETURNS coldcall_phone_numbers LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_max INTEGER; v_num coldcall_phone_numbers;
+BEGIN
+ SELECT max_numbers INTO v_max FROM coldcall_settings WHERE tenant_id=p_tenant_id FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_settings_missing'; END IF;
+ IF (SELECT count(*) FROM coldcall_phone_numbers WHERE tenant_id=p_tenant_id AND status<>'released')>=v_max
+   THEN RAISE EXCEPTION 'coldcall_number_quota'; END IF;
+ INSERT INTO coldcall_phone_numbers(tenant_id,provider,e164,country_code,friendly_name,status,monthly_cost_usd,created_by)
+ VALUES(p_tenant_id,p_provider,p_e164,upper(p_country),p_e164,'purchasing',p_monthly,p_created_by)
+ ON CONFLICT(tenant_id,e164) DO UPDATE SET provider=EXCLUDED.provider,country_code=EXCLUDED.country_code,
+   friendly_name=EXCLUDED.friendly_name,status='purchasing',monthly_cost_usd=EXCLUDED.monthly_cost_usd,
+   created_by=EXCLUDED.created_by,provider_sid=NULL,released_at=NULL
+ WHERE coldcall_phone_numbers.status='released'
+ RETURNING * INTO v_num;
+ IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_number_already_reserved'; END IF;
+ RETURN v_num;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_complete_number(
+ p_tenant_id UUID,p_number_id UUID,p_provider_sid TEXT,p_status TEXT,p_e164 TEXT
+) RETURNS coldcall_phone_numbers LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_num coldcall_phone_numbers;
+BEGIN
+ UPDATE coldcall_phone_numbers SET provider_sid=p_provider_sid,e164=p_e164,friendly_name=p_e164,status=p_status,
+   purchased_at=now() WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='purchasing'
+   RETURNING * INTO v_num;
+ IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_number_reservation_missing'; END IF;
+ RETURN v_num;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_release_number_reservation(p_tenant_id UUID,p_number_id UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ UPDATE coldcall_phone_numbers SET status='released',released_at=now()
+ WHERE id=p_number_id AND tenant_id=p_tenant_id AND status='purchasing';
+ RETURN FOUND;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_claim_recording(
+ p_tenant_id UUID,p_call_id UUID,p_provider_sid TEXT,p_duration INTEGER
+) RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id UUID;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM coldcall_calls WHERE id=p_call_id AND tenant_id=p_tenant_id)
+   THEN RAISE EXCEPTION 'coldcall_call_not_found'; END IF;
+ INSERT INTO coldcall_recordings(call_id,tenant_id,provider_recording_sid,duration_sec,status)
+ VALUES(p_call_id,p_tenant_id,p_provider_sid,p_duration,'processing')
+ ON CONFLICT(provider_recording_sid) WHERE provider_recording_sid IS NOT NULL
+ DO NOTHING RETURNING id INTO v_id;
+ RETURN v_id;
+END; $$;
+
+CREATE OR REPLACE FUNCTION coldcall_grant_minutes(
+ p_tenant_id UUID,p_minutes NUMERIC,p_kind TEXT,p_reason TEXT,p_created_by UUID,p_source TEXT,
+ p_idempotency_key TEXT,p_payload_fingerprint TEXT
+) RETURNS NUMERIC LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_existing coldcall_credit_ledger; v_new NUMERIC; v_id UUID;
+BEGIN
+ PERFORM 1 FROM coldcall_settings WHERE tenant_id=p_tenant_id FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'coldcall_settings_missing'; END IF;
+ SELECT * INTO v_existing FROM coldcall_credit_ledger
+  WHERE tenant_id=p_tenant_id AND idempotency_key=p_idempotency_key;
+ IF FOUND THEN
+   IF v_existing.payload_fingerprint IS DISTINCT FROM p_payload_fingerprint
+     THEN RAISE EXCEPTION 'coldcall_idempotency_payload_mismatch' USING ERRCODE='P0001'; END IF;
+   RETURN v_existing.balance_after;
+ END IF;
+ UPDATE coldcall_settings SET minutes_balance=minutes_balance+p_minutes,updated_at=now()
+  WHERE tenant_id=p_tenant_id RETURNING minutes_balance INTO v_new;
+ INSERT INTO coldcall_credit_ledger(tenant_id,delta_minutes,kind,balance_after,reason,created_by,source,idempotency_key,payload_fingerprint)
+ VALUES(p_tenant_id,p_minutes,p_kind,v_new,p_reason,p_created_by,p_source,p_idempotency_key,p_payload_fingerprint);
+ RETURN v_new;
+END; $$;
+
+REVOKE EXECUTE ON FUNCTION coldcall_start_call(UUID,UUID,UUID,UUID,UUID,TEXT,TEXT,TEXT,NUMERIC,TEXT,TEXT,TEXT,NUMERIC,BOOLEAN) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_finalize_call(UUID,UUID,TEXT,TIMESTAMPTZ,TIMESTAMPTZ,INTEGER,NUMERIC,NUMERIC) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_reconcile_usage(INTEGER) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_claim_provisioning(UUID,UUID) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_finish_provisioning(UUID,UUID,BOOLEAN) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_reserve_number(UUID,TEXT,TEXT,TEXT,NUMERIC,UUID) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_complete_number(UUID,UUID,TEXT,TEXT,TEXT) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_release_number_reservation(UUID,UUID) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_claim_recording(UUID,UUID,TEXT,INTEGER) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION coldcall_grant_minutes(UUID,NUMERIC,TEXT,TEXT,UUID,TEXT,TEXT,TEXT) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION coldcall_start_call(UUID,UUID,UUID,UUID,UUID,TEXT,TEXT,TEXT,NUMERIC,TEXT,TEXT,TEXT,NUMERIC,BOOLEAN) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_finalize_call(UUID,UUID,TEXT,TIMESTAMPTZ,TIMESTAMPTZ,INTEGER,NUMERIC,NUMERIC) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_reconcile_usage(INTEGER) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_claim_provisioning(UUID,UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_finish_provisioning(UUID,UUID,BOOLEAN) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_reserve_number(UUID,TEXT,TEXT,TEXT,NUMERIC,UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_complete_number(UUID,UUID,TEXT,TEXT,TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_release_number_reservation(UUID,UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_claim_recording(UUID,UUID,TEXT,INTEGER) TO service_role;
+GRANT EXECUTE ON FUNCTION coldcall_grant_minutes(UUID,NUMERIC,TEXT,TEXT,UUID,TEXT,TEXT,TEXT) TO service_role;

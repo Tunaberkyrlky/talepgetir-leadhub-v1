@@ -15,8 +15,8 @@ export const coldcallApi = {
     searchNumbers: async (country: string, contains?: string): Promise<{ numbers: AvailableNumber[]; requires_docs: boolean }> =>
         (await api.get('/coldcall/numbers/search', { params: { country, contains: contains || undefined } })).data,
 
-    purchaseNumber: async (country: string, e164: string): Promise<PhoneNumber> =>
-        (await api.post('/coldcall/numbers', { country, e164 })).data,
+    purchaseNumber: async (offer: string): Promise<PhoneNumber> =>
+        (await api.post('/coldcall/numbers', { offer })).data,
 
     releaseNumber: async (id: string): Promise<void> => {
         await api.delete(`/coldcall/numbers/${id}`);

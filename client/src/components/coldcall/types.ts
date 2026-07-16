@@ -54,7 +54,7 @@ export interface PhoneNumber {
     e164: string;
     country_code: string;
     friendly_name: string | null;
-    status: 'pending_regulatory' | 'active' | 'released';
+    status: 'purchasing' | 'pending_regulatory' | 'active' | 'released';
     purchased_at: string;
     /** İtibar/sağlık istatistikleri (listede döner) */
     calls_today?: number;
@@ -72,6 +72,7 @@ export interface AvailableNumber {
     e164: string;
     friendly_name: string;
     locality?: string;
+    offer: string;
 }
 
 export type CallStatus =

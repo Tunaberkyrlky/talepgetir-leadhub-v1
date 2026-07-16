@@ -262,7 +262,7 @@ export default function AdminColdCallTab() {
                                             <Table.Td><Text size="sm">{fmtMinutes(row.billed_minutes)}</Text></Table.Td>
                                             <Table.Td><Text size="sm">{fmtUsd(row.call_cogs_usd)}</Text></Table.Td>
                                             <Table.Td><Text size="sm">{fmtUsd(row.numbers_monthly_usd)}</Text></Table.Td>
-                                            <Table.Td><Text size="sm" fw={700}>{fmtUsd(row.total_cogs_usd)}</Text></Table.Td>
+                                            <Table.Td><Text size="sm" fw={700}>{fmtUsd(row.current_month_cost_usd)}</Text></Table.Td>
                                             <Table.Td>
                                                 <Group gap={6} wrap="nowrap">
                                                     <Button

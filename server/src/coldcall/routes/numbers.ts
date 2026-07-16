@@ -15,6 +15,7 @@ import { COUNTRY_PRICING, countryByCode, multiplierForRate, tierForMultiplier, p
 import { getSettings } from '../lib/settings.js';
 import { usageForNumbers } from '../lib/reputation.js';
 import { providerFor } from '../providers/index.js';
+import { signNumberOffer, verifyNumberOffer } from '../lib/numberOffers.js';
 
 const log = createLogger('coldcall:numbers');
 const router = Router();
@@ -125,9 +126,21 @@ router.get('/search', requireBuyer, async (req: Request, res: Response, next: Ne
         const settings = await getSettings(req.tenantId!);
         // primary.type ile ara: seçilen tip (GB/SE'de mobil belgesiz) doğru envanterde bulunur,
         // satın alınan numara ve kaydedilen COGS ile eşleşir (codex P1).
-        const results = await providerFor(settings).searchNumbers(settings, country, contains, primary.type);
+        const provider = providerFor(settings);
+        const results = await provider.searchNumbers(settings, country, contains, primary.type);
         res.json({
-            numbers: results,
+            numbers: results.map((number) => ({
+                ...number,
+                offer: signNumberOffer({
+                    tenantId: req.tenantId!,
+                    provider: provider.name,
+                    e164: number.e164,
+                    country,
+                    numberType: primary.type,
+                    monthlyCogsUsd: primary.monthlyUsd,
+                    expiresAt: Date.now() + 5 * 60_000,
+                }),
+            })),
             number_type: primary.type,
             requires_docs: primary.docStatus !== 'docless',
         });
@@ -138,62 +151,66 @@ router.get('/search', requireBuyer, async (req: Request, res: Response, next: Ne
 
 // ── POST / — numara satın al ─────────────────────────────────────────────────
 const purchaseSchema = z.object({
-    country: z.string().length(2),
-    e164: z.string().regex(/^\+\d{7,15}$/, 'E.164 format required'),
+    offer: z.string().min(40).max(4000),
 });
 
 router.post('/', requireBuyer, validateBody(purchaseSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const tenantId = req.tenantId!;
-        const { country, e164 } = req.body as z.infer<typeof purchaseSchema>;
+        let signed;
+        try {
+            signed = verifyNumberOffer((req.body as z.infer<typeof purchaseSchema>).offer, tenantId);
+        } catch {
+            throw new AppError('Numara teklifi geçersiz veya süresi dolmuş', 422);
+        }
+        const { country, e164 } = signed;
         const info = countryByCode(country);
         const primary = info ? primaryNumberOffer(info.numbers) : null;
         if (!info || !primary) throw new AppError('Bu ülkede numara satın alınamıyor', 422);
+        if (primary.type !== signed.numberType || primary.monthlyUsd !== signed.monthlyCogsUsd) {
+            throw new AppError('Numara teklifi güncel fiyatla eşleşmiyor', 409);
+        }
         // Numara istenen ülkeye ait olmalı (codex P2) — dial code prefix kontrolü
         if (!e164.startsWith(info.dialCode)) {
             throw new AppError('Numara seçilen ülkenin alan koduyla uyuşmuyor', 422);
         }
 
         const settings = await getSettings(tenantId);
-        const { count, error: cntErr } = await supabaseAdmin
-            .from('coldcall_phone_numbers')
-            .select('id', { count: 'exact', head: true })
-            .eq('tenant_id', tenantId)
-            .neq('status', 'released');
-        if (cntErr) throw new AppError('Failed to check number quota', 500);
-        if ((count ?? 0) >= settings.max_numbers) {
-            throw new AppError(`Numara kotanız dolu (${settings.max_numbers})`, 429);
-        }
-
         const provider = providerFor(settings);
-        const purchased = await provider.purchaseNumber(settings, e164, country);
-
-        const { data, error } = await supabaseAdmin
-            .from('coldcall_phone_numbers')
-            .insert({
-                tenant_id: tenantId,
-                provider: provider.name,
-                provider_sid: purchased.provider_sid,
-                e164: purchased.e164,
-                country_code: country.toUpperCase(),
-                friendly_name: purchased.e164,
-                status: purchased.status,
-                monthly_cost_usd: primary.monthlyUsd,
-                created_by: req.user?.id ?? null,
-            })
-            .select('*')
-            .single();
-        if (error) {
-            // Compensation (codex P1): DB kaydı başarısızsa satın alınan numarayı
-            // iade et — yoksa Twilio'da faturalanan ama uygulamada izlenmeyen
-            // öksüz numara kalır. UNIQUE(tenant_id,e164) ihlali (mükerrer/yarış
-            // satın alma) da buraya düşer; provider'da bırakmayız.
-            log.error({ err: error, e164 }, 'number insert failed after purchase — releasing');
+        if (provider.name !== signed.provider) throw new AppError('Numara teklifi sağlayıcıyla eşleşmiyor', 409);
+        const { data: reservation, error: reserveError } = await supabaseAdmin.rpc('coldcall_reserve_number', {
+            p_tenant_id: tenantId, p_provider: provider.name, p_e164: e164, p_country: country,
+            p_monthly: signed.monthlyCogsUsd, p_created_by: req.user?.id ?? null,
+        });
+        if (reserveError || !reservation) {
+            if (reserveError?.message?.includes('coldcall_number_quota')) {
+                throw new AppError(`Numara kotanız dolu (${settings.max_numbers})`, 429);
+            }
+            throw new AppError('Numara rezervasyonu oluşturulamadı', 409);
+        }
+        let purchased;
+        try {
+            purchased = await provider.purchaseNumber(settings, e164, country);
+        } catch (purchaseError) {
+            await supabaseAdmin.rpc('coldcall_release_number_reservation', {
+                p_tenant_id: tenantId, p_number_id: reservation.id,
+            });
+            throw purchaseError;
+        }
+        const { data, error } = await supabaseAdmin.rpc('coldcall_complete_number', {
+            p_tenant_id: tenantId, p_number_id: reservation.id, p_provider_sid: purchased.provider_sid,
+            p_status: purchased.status, p_e164: purchased.e164,
+        });
+        if (error || !data) {
+            log.error({ err: error, e164 }, 'number activation failed after purchase — releasing');
             try {
                 await provider.releaseNumber(settings, purchased.provider_sid);
             } catch (relErr) {
                 log.error({ err: relErr, providerSid: purchased.provider_sid }, 'compensating release failed — ORPHAN number may be billed');
             }
+            await supabaseAdmin.rpc('coldcall_release_number_reservation', {
+                p_tenant_id: tenantId, p_number_id: reservation.id,
+            });
             throw new AppError('Numara kaydedilemedi', 500);
         }
 

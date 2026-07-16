@@ -1,7 +1,7 @@
 /**
  * Tenant telefoni ayarları + dakika CÜZDANI (ön-ödemeli, rollover).
  * Bakiye (minutes_balance) AY BAŞINDA SIFIRLANMAZ; admin yükler (grantMinutes),
- * çağrı biterken düşer (deductMinutes), her hareket coldcall_credit_ledger'a
+ * çağrı biterken atomik finalize RPC'si düşer, her hareket coldcall_credit_ledger'a
  * append-only yazılır (plan COLD_CALL_CREDIT_PLAN.md §2-4).
  *
  * minutes_quota / minutes_used / period_start kolonları VESTIGIAL — DB'de durur
@@ -11,6 +11,7 @@ import { supabaseAdmin } from '../../lib/supabase.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { createLogger } from '../../lib/logger.js';
 import type { ColdcallSettingsRow } from '../providers/types.js';
+import { createHash } from 'crypto';
 
 const log = createLogger('coldcall:settings');
 
@@ -47,28 +48,6 @@ export function assertBalance(settings: ColdcallSettingsRow): void {
     }
 }
 
-/**
- * Çağrı bitişinde bakiyeden düşer — atomik + çağrı-başına idempotent RPC
- * (coldcall_deduct_minutes, migration 146). Webhook/finalize çift tetiklense
- * bile bakiye yalnız bir kez düşer (partial unique index call_id WHERE kind='usage').
- * Dönüş: yeni bakiye, ya da RPC hata verirse null (loglanır, çağıran taraf bloklamaz —
- * finalize önceki addUsedMinutes davranışıyla tutarlı, best-effort).
- */
-export async function deductMinutes(tenantId: string, minutes: number, callId: string, reason = 'call'): Promise<number | null> {
-    if (!minutes || minutes <= 0) return null;
-    const { data, error } = await supabaseAdmin.rpc('coldcall_deduct_minutes', {
-        p_tenant_id: tenantId,
-        p_minutes: minutes,
-        p_call_id: callId,
-        p_reason: reason,
-    });
-    if (error) {
-        log.error({ err: error, tenantId, minutes, callId }, 'deductMinutes failed');
-        return null;
-    }
-    return Number(data);
-}
-
 export interface GrantMinutesInput {
     tenantId: string;
     minutes: number;
@@ -85,6 +64,13 @@ export interface GrantMinutesInput {
  * yapmaz (partial unique index idempotency_key WHERE NOT NULL).
  */
 export async function grantMinutes(input: GrantMinutesInput): Promise<number> {
+    const fingerprint = createHash('sha256').update(JSON.stringify({
+        minutes: input.minutes,
+        kind: input.kind,
+        reason: input.reason,
+        createdBy: input.createdBy ?? null,
+        source: input.source ?? 'manual',
+    })).digest('hex');
     const { data, error } = await supabaseAdmin.rpc('coldcall_grant_minutes', {
         p_tenant_id: input.tenantId,
         p_minutes: input.minutes,
@@ -93,9 +79,13 @@ export async function grantMinutes(input: GrantMinutesInput): Promise<number> {
         p_created_by: input.createdBy ?? null,
         p_source: input.source ?? 'manual',
         p_idempotency_key: input.idempotencyKey ?? null,
+        p_payload_fingerprint: fingerprint,
     });
     if (error) {
         log.error({ err: error, input }, 'grantMinutes failed');
+        if (error.message?.includes('coldcall_idempotency_payload_mismatch')) {
+            throw new AppError('Idempotency anahtarı farklı bir kredi isteğinde kullanılmış', 409);
+        }
         throw new AppError('Kredi yüklenemedi', 500);
     }
     return Number(data);
@@ -116,7 +106,7 @@ export async function getBalance(tenantId: string): Promise<number> {
 
 /**
  * "Bu ay kullanılan" — bilgi amaçlı (gating BURADA değil, gating minutes_balance
- * üzerinden). DB tarafı aggregate (coldcall_used_this_period RPC, migration 146) —
+ * üzerinden). DB tarafı aggregate (coldcall_used_this_period RPC, wallet migration'ı) —
  * JS'te satır çekip reduce etmek PostgREST satır limitinde toplamı eksik verebiliyordu (codex P2).
  */
 export async function usedThisPeriod(tenantId: string): Promise<number> {
@@ -126,23 +116,4 @@ export async function usedThisPeriod(tenantId: string): Promise<number> {
         return 0;
     }
     return Math.round(Math.abs(Number(data ?? 0)) * 100) / 100;
-}
-
-/**
- * Faturalanıp henüz kredi düşülmemiş çağrıları telafi eder (codex P1): finalize terminal
- * UPDATE'i geçip deductMinutes hata verirse çağrı 'completed'+billed_minutes>0 kalır ama
- * bakiye düşmez. coldcall_pending_usage_calls RPC'si bu çağrıları döner; her biri için
- * deductMinutes tekrar çağrılır (call_id idempotent → zaten düşülenlere dokunmaz).
- * sweepStaleCalls'tan (liste/detay okumaları öncesi) best-effort çağrılır.
- */
-export async function reconcilePendingUsage(tenantId: string): Promise<void> {
-    const { data, error } = await supabaseAdmin.rpc('coldcall_pending_usage_calls', { p_tenant_id: tenantId });
-    if (error) {
-        log.warn({ err: error, tenantId }, 'reconcilePendingUsage query failed');
-        return;
-    }
-    for (const row of (data ?? []) as Array<{ call_id: string; billed_minutes: number }>) {
-        const billed = Number(row.billed_minutes);
-        if (billed > 0) await deductMinutes(tenantId, billed, row.call_id, 'call');
-    }
 }

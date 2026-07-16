@@ -108,7 +108,7 @@ export const mockProvider: TelephonyProvider = {
 
         const lastDigit = call.to_e164.replace(/\D/g, '').slice(-1);
         const announce = settings.recording_mode === 'announce';
-        const record = settings.recording_mode !== 'off';
+        const record = call.recording_enabled_snapshot === true;
 
         const ringTimer = setTimeout(async () => {
             if (lastDigit === '9') {
@@ -158,7 +158,7 @@ export const mockProvider: TelephonyProvider = {
         clearTimers(call.id);
         const fresh = await loadCall(call.id);
         if (!fresh) return;
-        const record = settings.recording_mode !== 'off';
+        const record = fresh.recording_enabled_snapshot === true;
         const announce = settings.recording_mode === 'announce';
         const wasAnswered = fresh.status === 'in_progress' && fresh.answered_at;
         const finalized = await finalizeCall(fresh, {
