@@ -45,15 +45,31 @@ export async function logAuditAction(
     details?: object
 ) {
     try {
-        await supabaseAdmin.from('admin_audit_log').insert({
+        const { error } = await supabaseAdmin.from('admin_audit_log').insert({
             actor_id: actorId,
             action,
             target_type: targetType,
             target_id: targetId,
             details: details || {},
         });
+
+        if (error) {
+            log.error({
+                err: error,
+                actorId,
+                action,
+                targetType,
+                targetId,
+            }, 'Failed to write audit log');
+        }
     } catch (err) {
-        log.error({ err }, 'Failed to write audit log');
+        log.error({
+            err,
+            actorId,
+            action,
+            targetType,
+            targetId,
+        }, 'Failed to write audit log');
     }
 }
 
