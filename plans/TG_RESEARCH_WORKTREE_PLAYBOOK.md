@@ -11,11 +11,18 @@ TG-Research'ü TG-Core production'dan bağımsız ilerletmek, paralel agent çal
 | Worktree | Branch | Rol | Kural |
 |---|---|---|---|
 | `TG-Research` | `feat/customer-support-tawk-consent` | Recovery vault | Çok sayıda karışık, commitlenmemiş çalışma içeriyor. Yeni iş, checkout, toplu commit veya deploy yapılmaz. |
-| `TG-Research-upstream-p0` | `chore/tg-research-upstream-p0` | Known-good integration candidate | P0, dependency ve seçilmiş mail düzeltmeleriyle staging'de doğrulandı. Toparlama süresince yalnız coordinator yazar. |
+| `TG-Research-upstream-p0` | `chore/tg-research-upstream-p0` | Known-good integration candidate | P0, dependency ve seçilmiş mail düzeltmeleri staging'de doğrulandı; ancak daha sonraki deploy bu sürümün üzerine yazdı. Toparlama süresince yalnız coordinator yazar. |
 | `TG-Research-dependency-remediation` | `chore/dependency-remediation` | Tamamlanmış kaynak branch | Yeni feature geliştirilmez; gerektiğinde commit kaynağı ve audit kanıtıdır. |
 | `/private/tmp/.../wt/e*` | `wt/e*` | Recovery candidates | Commitlenmemiş içerik envanteri tamamlanmadan silinmez veya prune edilmez. |
 
 Şu an için yeni ürün geliştirmesi başlatılmaz. Önce recovery ve trunk konsolidasyonu tamamlanır.
+
+## 2026-07-16 runtime ve migration uyarısı
+
+- `68e286a` P0 sürümü `tg-core-staging` üzerinde başarıyla doğrulandı, fakat 19:16 UTC civarında üç TG-Research servisi yeniden deploy edildi. Bu nedenle P0 sürümünün hâlen çalışan sürüm olduğu varsayılmaz.
+- Son görülen Railway deployment'ları: `tg-core-staging=e1d89d29`, `research-api=692207cc`, `worker=13e6e1ba`. Üçü de sağlıklı görünse de CLI mesajı taşımıyor; konsolidasyon öncesi kaynak commitleri ayrıca kanıtlanmalıdır.
+- Paralel agent raporlarına göre test Supabase'e `146`, `149`, `150` ve `151` migration'ları uygulanmış durumda. `146` ile ilişkili cold-call kodu ve `150` migration dosyası henüz kanonik committe değil. Migration ledger ile Git hattı eşitlenmeden yeni migration veya deploy yapılmaz.
+- Bu durum yalnız TG-Research test/staging kapsamındadır. TG-Core production'a dokunulmadı.
 
 ## Konsolidasyon sırası
 
