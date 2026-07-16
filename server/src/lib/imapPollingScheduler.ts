@@ -5,6 +5,7 @@
 
 import { processImapPolling } from './imapInbound.js';
 import { createLogger } from './logger.js';
+import { recordTick } from './heartbeat.js';
 
 const log = createLogger('imapPollingScheduler');
 // Default 5 min; override with IMAP_POLL_INTERVAL_MS (e.g. 60000 for testing).
@@ -29,8 +30,10 @@ export function startImapPollingScheduler(): void {
         _running = true;
         try {
             await processImapPolling();
+            recordTick('imapPolling', true);
         } catch (err) {
             log.error({ err }, 'IMAP polling tick failed');
+            recordTick('imapPolling', false, err);
         } finally {
             _running = false;
         }

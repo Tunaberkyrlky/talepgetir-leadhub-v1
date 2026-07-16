@@ -143,14 +143,17 @@ git push origin {branch}
 
 ### Step 9: Deploy
 
-After push, trigger Railway deploy:
+After push, trigger Railway deploy. IMPORTANT: do NOT pass `--project`/`--service` with hard-coded names — the CLI is already linked to the correct project ("TG-Core") and service ("TG Core main", note the trailing space in the real name makes `-s` flags unreliable). Old hard-coded names (`ideal-amazement`, `talepgetir-leadhub-v1`) are stale and fail with "Service not found".
 
 ```bash
-railway up \
-  --project ideal-amazement \
-  --environment {Staging|production} \
-  --service talepgetir-leadhub-v1 \
-  --detach
+railway up --environment {Staging|production} --detach
+```
+
+Then VERIFY the deploy actually went live (git push does NOT auto-deploy; `/api/health` returns the running version):
+
+```bash
+railway status --json   # environments[...].latestDeployment.status must be SUCCESS
+curl -s https://core.tibexa.com/api/health   # version must match the new release
 ```
 
 Report deploy status to user.

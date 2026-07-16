@@ -8,6 +8,7 @@
 
 import { runDailyDigest } from './dailyDigest.js';
 import { createLogger } from './logger.js';
+import { recordTick } from './heartbeat.js';
 
 const log = createLogger('dailyDigestScheduler');
 
@@ -52,9 +53,11 @@ export function startDailyDigestScheduler(): void {
             const result = await runDailyDigest();
             // Sadece başarıda işaretle; geçici hata sonraki tick'te tekrar denenir.
             _lastRunKey = key;
+            recordTick('dailyDigest', true);
             log.info(result, 'Digest tick complete');
         } catch (err) {
             log.error({ err }, 'Digest tick failed — will retry next tick');
+            recordTick('dailyDigest', false, err);
         } finally {
             _running = false;
         }

@@ -5,6 +5,7 @@
 
 import { processScheduledEmails } from './campaignEngine.js';
 import { createLogger } from './logger.js';
+import { recordTick } from './heartbeat.js';
 
 const log = createLogger('campaignScheduler');
 const TICK_MS = 60_000;
@@ -28,8 +29,10 @@ export function startCampaignScheduler(): void {
         _running = true;
         try {
             await processScheduledEmails();
+            recordTick('campaignScheduler', true);
         } catch (err) {
             log.error({ err }, 'Campaign scheduler tick failed');
+            recordTick('campaignScheduler', false, err);
         } finally {
             _running = false;
         }

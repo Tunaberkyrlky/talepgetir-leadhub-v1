@@ -39,6 +39,31 @@ import trackingRoutes from './routes/tracking.js';
 import { startCampaignScheduler } from './lib/campaignScheduler.js';
 import { startImapPollingScheduler } from './lib/imapPollingScheduler.js';
 import { startDailyDigestScheduler } from './lib/dailyDigestScheduler.js';
+import { getHeartbeats } from './lib/heartbeat.js';
+
+// App version — read once at startup. Works in dev (tsx: __dirname=server/src) and
+// prod (tsc: __dirname=server/dist); package.json sits one level up in both.
+// Surfaced at /api/health so "is the new code actually live?" is answerable.
+let APP_VERSION = 'unknown';
+try {
+    APP_VERSION = JSON.parse(
+        fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')
+    ).version || 'unknown';
+} catch { /* leave 'unknown' */ }
+const STARTED_AT = new Date().toISOString();
+
+// ── Global crash safety net ──────────────────────────────────────────────
+// Long-lived process: a single escaped async error must not silently kill it.
+// unhandledRejection: log and keep serving (Node's default since v15 is to
+// crash the process). uncaughtException: state may be corrupt — log fatal and
+// exit(1); Railway's ON_FAILURE restart policy brings the service back up.
+process.on('unhandledRejection', (reason) => {
+    logger.error({ err: reason }, 'Unhandled promise rejection — continuing');
+});
+process.on('uncaughtException', (err) => {
+    logger.fatal({ err }, 'Uncaught exception — exiting for a clean restart');
+    process.exit(1);
+});
 
 const app = express();
 const PORT = process.env.PORT || process.env.API_PORT || 3001;
@@ -172,12 +197,12 @@ app.get('/api/health', async (_req, res) => {
             .from('tenants')
             .select('id', { count: 'exact', head: true });
         if (error) {
-            res.status(503).json({ status: 'degraded', database: 'unreachable', timestamp: new Date().toISOString() });
+            res.status(503).json({ status: 'degraded', database: 'unreachable', version: APP_VERSION, startedAt: STARTED_AT, timestamp: new Date().toISOString() });
             return;
         }
-        res.json({ status: 'ok', database: 'connected', timestamp: new Date().toISOString() });
+        res.json({ status: 'ok', database: 'connected', version: APP_VERSION, startedAt: STARTED_AT, schedulers: getHeartbeats(), timestamp: new Date().toISOString() });
     } catch {
-        res.status(503).json({ status: 'degraded', database: 'unreachable', timestamp: new Date().toISOString() });
+        res.status(503).json({ status: 'degraded', database: 'unreachable', version: APP_VERSION, startedAt: STARTED_AT, timestamp: new Date().toISOString() });
     }
 });
 
