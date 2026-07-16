@@ -350,7 +350,25 @@ Kod consent mekanizmasını sağlar; hukuki uygunluğu tek başına garanti etme
 - [x] Tercihler sonradan değiştirilebiliyor.
 - [x] İki dilli çerez politikası uygulama içinde erişilebilir.
 - [x] Client ve server production build başarılı.
-- [ ] Tawk.to dashboard/property kurulumu tamamlandı.
-- [ ] Railway production/staging env değerleri girildi.
+- [x] Tawk.to staging property kimlikleri ve Secure Mode anahtarı oluşturuldu.
+- [x] Railway staging Tawk.to, PostHog ve `CLIENT_URL` env değerleri girildi.
+- [x] `feae014` temiz commit snapshot'ı Railway staging'e deploy edildi.
+- [x] Staging `/api/health` yanıtı ve database bağlantısı doğrulandı.
+- [x] Yayındaki frontend bundle'ında Tawk Property/Widget yapılandırması doğrulandı.
+- [x] Public `/cookie-policy` rotası doğrulandı.
+- [ ] Gerçek production servisi/property'si oluşturulup production env değerleri girildi.
+- [ ] Tarayıcıda reject/analytics-only/support-only/accept-all senaryoları tıklanarak doğrulandı.
+- [ ] Tawk.to agent, mobil push, scheduler, telefon alanı, etiket ve hazır cevap ayarları tamamlandı.
 - [ ] Hukuk incelemesi ve DPA/retention kararları tamamlandı.
 - [ ] Gerçek mobil push + telefon callback operasyon testi tamamlandı.
+
+### Staging deployment kaydı — 16 Temmuz 2026
+
+- URL: `https://tg-core-staging-production.up.railway.app`
+- Kaynak commit: `feae014`
+- Railway service: `tg-core-staging`
+- Railway environment: `production` (servis staging olsa da mevcut Railway ortam adı budur)
+- Server build: başarılı
+- Client build: başarılı
+- Health: `status=ok`, `database=connected`
+- Not: Railway build'i mevcut dependency ağacında 2 kritik dahil güvenlik açıkları raporladı. Tawk kapsamından bağımsız bir dependency audit/remediation işi açılmalıdır.
