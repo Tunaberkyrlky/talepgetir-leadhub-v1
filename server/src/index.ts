@@ -66,6 +66,12 @@ process.on('uncaughtException', (err) => {
 });
 
 const app = express();
+// Behind Railway's edge proxy: trust exactly one hop so req.ip is the real client
+// IP (from X-Forwarded-For) instead of the proxy's. Without this, per-IP rate
+// limiting collapses to a single shared bucket for all users. `1` (not `true`)
+// keeps it safe from X-Forwarded-For spoofing. No code reads req.secure/protocol,
+// so there are no cookie/redirect side effects.
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || process.env.API_PORT || 3001;
 
 // Compression (before all routes for smaller responses)
@@ -186,6 +192,34 @@ const plusvibeImportLimiter = rateLimit({
     message: { error: 'Too many PlusVibe import requests, please try again later' },
 });
 
+// Dedicated caps for the compute-heavy endpoints (stats aggregation, campaign
+// send/enroll, inbox thread queries). Generous — sits under the general 300/min
+// and only trips on abuse/runaway polling, not normal heavy use. Per-IP (needs
+// trust proxy, set above).
+const statisticsLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later' },
+});
+
+const emailRepliesLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 240,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later' },
+});
+
+const campaignsLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later' },
+});
+
 // Apply general rate limit to all API routes
 app.use('/api', generalLimiter);
 
@@ -225,15 +259,15 @@ app.use('/api/import', authMiddleware, importLimiter, importRoutes);
 app.use('/api/filter-options', authMiddleware, filterOptionsRoutes);
 app.use('/api/tenants', authMiddleware, tenantsRoutes);
 app.use('/api/settings', authMiddleware, settingsRoutes);
-app.use('/api/statistics', authMiddleware, statisticsRoutes);
+app.use('/api/statistics', authMiddleware, statisticsLimiter, statisticsRoutes);
 app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
 app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
-app.use('/api/email-replies', authMiddleware, dataFilter, emailRepliesRoutes);
+app.use('/api/email-replies', authMiddleware, emailRepliesLimiter, dataFilter, emailRepliesRoutes);
 app.use('/api/plusvibe/import-replies', authMiddleware, plusvibeImportLimiter);
 app.use('/api/plusvibe', authMiddleware, dataFilter, plusvibeRoutes);
 app.use('/api/feedback', authMiddleware, feedbackRoutes);
 app.use('/api/attachment-templates', authMiddleware, attachmentTemplatesRoutes);
-app.use('/api/campaigns', authMiddleware, campaignRoutes);
+app.use('/api/campaigns', authMiddleware, campaignsLimiter, campaignRoutes);
 app.use('/api/email-connections', authMiddleware, emailConnectionRoutes);
 
 // Nango OAuth custom callback — Google, redirect URI'nin bizim sahip olduğumuz
