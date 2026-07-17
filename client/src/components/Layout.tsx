@@ -34,6 +34,7 @@ import {
 } from '@tabler/icons-react';
 import SettingsModal from './SettingsModal';
 import FeedbackModal from './FeedbackModal';
+import ErrorBoundary from './ErrorBoundary';
 import ChangelogModal, { getHasNewChangelog, markChangelogSeen } from './ChangelogModal';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
@@ -344,7 +345,12 @@ export default function Layout() {
             </AppShell.Navbar>
 
             <AppShell.Main>
-                <Outlet />
+                {/* Per-route error isolation: a crash in one page shows the error
+                    inside the content area while the header/navbar stay usable.
+                    Keyed by pathname so navigating to another page resets it. */}
+                <ErrorBoundary key={location.pathname}>
+                    <Outlet />
+                </ErrorBoundary>
             </AppShell.Main>
 
             <SettingsModal opened={settingsOpened} onClose={closeSettings} defaultTab={settingsDefaultTab} />
