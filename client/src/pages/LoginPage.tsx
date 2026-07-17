@@ -11,11 +11,9 @@ import {
     Stack,
     Alert,
     Box,
-    Group,
-    Anchor,
     Loader,
 } from '@mantine/core';
-import { IconAlertCircle } from '@tabler/icons-react';
+import { IconAlertCircle, IconWorld } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -82,6 +80,26 @@ export default function LoginPage() {
                 padding: '24px 0',
             }}
         >
+            {/* Language switcher pinned to the screen corner, outside the card */}
+            <Button
+                variant="subtle"
+                size="xs"
+                radius="xl"
+                leftSection={<IconWorld size={16} />}
+                onClick={toggleLanguage}
+                aria-label="Change language"
+                style={{
+                    position: 'fixed',
+                    top: 16,
+                    right: 16,
+                    zIndex: 10,
+                    color: 'rgba(255,255,255,0.85)',
+                    backgroundColor: 'rgba(255,255,255,0.08)',
+                }}
+            >
+                {i18n.language?.startsWith('tr') ? 'TR' : 'EN'}
+            </Button>
+
             <Container size={420} w="100%" style={{ position: 'relative' }}>
                 <Box style={{
                     position: 'absolute',
@@ -105,11 +123,6 @@ export default function LoginPage() {
                         border: '1px solid rgba(255,255,255,0.2)',
                     }}
                 >
-                    <Group justify="flex-end" mb={4}>
-                        <Anchor component="button" type="button" size="xs" c="dimmed" onClick={toggleLanguage}>
-                            {t('auth.languageToggle')}
-                        </Anchor>
-                    </Group>
                     <Title order={3} ta="center" mb={4}>
                         {t('auth.loginTitle')}
                     </Title>

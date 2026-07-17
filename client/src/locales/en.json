@@ -15,8 +15,7 @@
         "loginErrorInvalid": "Incorrect email or password. Please try again.",
         "loginErrorRateLimit": "Too many attempts. Please wait a moment and try again.",
         "loginErrorNetwork": "Please check your internet connection.",
-        "loggingIn": "Signing in...",
-        "languageToggle": "Türkçe"
+        "loggingIn": "Signing in..."
     },
     "leads": {
         "title": "Leads",
@@ -516,6 +515,10 @@
         "userEmail": "Email",
         "userPassword": "Password",
         "userPasswordHint": "Leave blank to keep current password",
+        "generatePassword": "Generate",
+        "copyPassword": "Copy",
+        "passwordCopied": "Password copied to clipboard",
+        "passwordMin": "Password must be at least 8 characters",
         "userRoles": "Roles",
         "userTenants": "Tenants",
         "userLastSignIn": "Last Sign In",

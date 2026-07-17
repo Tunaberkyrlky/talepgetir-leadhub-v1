@@ -4,10 +4,21 @@ import {
     Modal, TextInput, PasswordInput, Select, Stack, Button, Group,
     Text, Badge, ActionIcon, Tooltip, Divider, Paper,
 } from '@mantine/core';
-import { IconTrash, IconPlus } from '@tabler/icons-react';
+import { IconTrash, IconPlus, IconRefresh, IconCopy } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showSuccess, showErrorFromApi } from '../../lib/notifications';
+
+// Generate a strong random password from a set that excludes visually ambiguous
+// characters (0/O, 1/l/I). 16 chars comfortably clears the 8-char minimum.
+function generatePassword(length = 16): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%*?';
+    const arr = new Uint32Array(length);
+    crypto.getRandomValues(arr);
+    let out = '';
+    for (let i = 0; i < length; i++) out += chars[arr[i] % chars.length];
+    return out;
+}
 
 interface UserMembership {
     id: string;
@@ -44,6 +55,7 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [passwordVisible, setPasswordVisible] = useState(false);
     // Create mode: single tenant+role
     const [tenantId, setTenantId] = useState<string | null>(null);
     const [role, setRole] = useState<string | null>(null);
@@ -55,12 +67,31 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
         if (opened) {
             setEmail(user?.email || '');
             setPassword('');
+            setPasswordVisible(false);
             setTenantId(null);
             setRole(null);
             setAddTenantId(null);
             setAddRole('ops_agent');
         }
     }, [opened, user]);
+
+    // Generate a strong password, drop it into the field and reveal it so the
+    // admin can read/copy it (there is no email delivery — credentials are
+    // handed over manually).
+    const handleGeneratePassword = () => {
+        setPassword(generatePassword());
+        setPasswordVisible(true);
+    };
+
+    const handleCopyPassword = async () => {
+        if (!password) return;
+        try {
+            await navigator.clipboard.writeText(password);
+            showSuccess(t('admin.passwordCopied', 'Şifre panoya kopyalandı'));
+        } catch {
+            // Clipboard API can be unavailable in insecure contexts — ignore silently.
+        }
+    };
 
     // Fetch tenants for selects
     const { data: tenantsData } = useQuery({
@@ -153,8 +184,11 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
     });
 
     const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    // A provided password must be ≥8 (matches the server). Empty is allowed on
+    // edit (keeps the current password); required on create.
+    const passwordTooShort = password.length > 0 && password.length < 8;
     const canSubmitUser = isEdit
-        ? (email !== user?.email || password.length > 0)
+        ? ((email !== user?.email || password.length > 0) && !passwordTooShort)
         : (emailValid && password.length >= 8 && (!tenantId || !!role));
     const canAddMembership = addTenantId && addRole;
 
@@ -180,8 +214,30 @@ export default function UserFormModal({ opened, onClose, user }: UserFormModalPr
                     value={password}
                     onChange={(e) => setPassword(e.currentTarget.value)}
                     required={!isEdit}
+                    visible={passwordVisible}
+                    onVisibilityChange={setPasswordVisible}
+                    error={passwordTooShort ? t('admin.passwordMin', 'Şifre en az 8 karakter olmalı') : undefined}
                     description={isEdit ? t('admin.userPasswordHint') : undefined}
                 />
+                <Group gap="xs" mt={-6}>
+                    <Button
+                        size="xs"
+                        variant="light"
+                        leftSection={<IconRefresh size={14} />}
+                        onClick={handleGeneratePassword}
+                    >
+                        {t('admin.generatePassword', 'Şifre Üret')}
+                    </Button>
+                    <Button
+                        size="xs"
+                        variant="subtle"
+                        leftSection={<IconCopy size={14} />}
+                        onClick={handleCopyPassword}
+                        disabled={!password}
+                    >
+                        {t('admin.copyPassword', 'Kopyala')}
+                    </Button>
+                </Group>
 
                 {/* Create mode: single tenant assignment */}
                 {!isEdit && (

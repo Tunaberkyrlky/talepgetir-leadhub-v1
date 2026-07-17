@@ -15,8 +15,7 @@
         "loginErrorInvalid": "E-posta veya şifre hatalı. Lütfen tekrar deneyin.",
         "loginErrorRateLimit": "Çok fazla deneme yapıldı. Lütfen bir süre bekleyin.",
         "loginErrorNetwork": "İnternet bağlantınızı kontrol edin.",
-        "loggingIn": "Giriş yapılıyor...",
-        "languageToggle": "English"
+        "loggingIn": "Giriş yapılıyor..."
     },
     "leads": {
         "title": "Leads",
@@ -516,6 +515,10 @@
         "userEmail": "E-posta",
         "userPassword": "Şifre",
         "userPasswordHint": "Mevcut şifreyi korumak için boş bırakın",
+        "generatePassword": "Şifre Üret",
+        "copyPassword": "Kopyala",
+        "passwordCopied": "Şifre panoya kopyalandı",
+        "passwordMin": "Şifre en az 8 karakter olmalı",
         "userRoles": "Roller",
         "userTenants": "Müşteriler",
         "userLastSignIn": "Son Giriş",
