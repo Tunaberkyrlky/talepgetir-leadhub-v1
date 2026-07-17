@@ -30,3 +30,17 @@ export function recordTick(name: string, ok: boolean, err?: unknown): void {
 export function getHeartbeats(): Record<string, Heartbeat> {
     return beats;
 }
+
+/**
+ * Public-safe view for the unauthenticated /api/health: timestamps + a boolean
+ * ok flag, WITHOUT the raw lastError text (which can embed internal infra detail
+ * like DB relation/host names). Full lastError stays available via getHeartbeats()
+ * for any future authenticated/admin surface.
+ */
+export function getHeartbeatsPublic(): Record<string, { lastTickAt: string; lastOkAt: string | null; ok: boolean }> {
+    const out: Record<string, { lastTickAt: string; lastOkAt: string | null; ok: boolean }> = {};
+    for (const [name, b] of Object.entries(beats)) {
+        out[name] = { lastTickAt: b.lastTickAt, lastOkAt: b.lastOkAt, ok: b.lastError === null };
+    }
+    return out;
+}

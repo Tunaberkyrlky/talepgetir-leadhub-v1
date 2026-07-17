@@ -39,7 +39,7 @@ import trackingRoutes from './routes/tracking.js';
 import { startCampaignScheduler } from './lib/campaignScheduler.js';
 import { startImapPollingScheduler } from './lib/imapPollingScheduler.js';
 import { startDailyDigestScheduler } from './lib/dailyDigestScheduler.js';
-import { getHeartbeats } from './lib/heartbeat.js';
+import { getHeartbeatsPublic } from './lib/heartbeat.js';
 
 // App version — read once at startup. Works in dev (tsx: __dirname=server/src) and
 // prod (tsc: __dirname=server/dist); package.json sits one level up in both.
@@ -234,7 +234,7 @@ app.get('/api/health', async (_req, res) => {
             res.status(503).json({ status: 'degraded', database: 'unreachable', version: APP_VERSION, startedAt: STARTED_AT, timestamp: new Date().toISOString() });
             return;
         }
-        res.json({ status: 'ok', database: 'connected', version: APP_VERSION, startedAt: STARTED_AT, schedulers: getHeartbeats(), timestamp: new Date().toISOString() });
+        res.json({ status: 'ok', database: 'connected', version: APP_VERSION, startedAt: STARTED_AT, schedulers: getHeartbeatsPublic(), timestamp: new Date().toISOString() });
     } catch {
         res.status(503).json({ status: 'degraded', database: 'unreachable', version: APP_VERSION, startedAt: STARTED_AT, timestamp: new Date().toISOString() });
     }

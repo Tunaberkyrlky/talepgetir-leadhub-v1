@@ -1,0 +1,19 @@
+{
+    // Type-checks the *.test.ts files (the build tsconfig excludes them so test
+    // code + the vitest devDep never reach the prod bundle). Uses `bundler`
+    // resolution so the extensionless imports in tests (`./roles`) and the
+    // NodeNext `.js` specifiers in the source they pull in both resolve — the
+    // same way vitest resolves them. noEmit: this is a gate, not a build.
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "rootDir": ".",
+        "noEmit": true,
+        "declaration": false,
+        "declarationMap": false,
+        "sourceMap": false
+    },
+    "include": ["src/**/*.test.ts", "vitest.config.ts"],
+    "exclude": ["node_modules", "dist"]
+}

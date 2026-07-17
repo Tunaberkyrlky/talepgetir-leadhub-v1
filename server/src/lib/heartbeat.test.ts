@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { recordTick, getHeartbeats } from './heartbeat';
+import { recordTick, getHeartbeats, getHeartbeatsPublic } from './heartbeat';
 
 describe('heartbeat registry', () => {
     it('records a successful tick: lastOkAt set, no error', () => {
@@ -30,5 +30,15 @@ describe('heartbeat registry', () => {
         expect(getHeartbeats()['jobD'].lastError).toBe('plain string');
         recordTick('jobE', false);
         expect(getHeartbeats()['jobE'].lastError).toBe('unknown');
+    });
+
+    it('getHeartbeatsPublic exposes ok boolean but never the raw lastError text', () => {
+        recordTick('pubOk', true);
+        recordTick('pubFail', false, new Error('secret-db-host:5432 relation "x"'));
+        const pub = getHeartbeatsPublic();
+        expect(pub['pubOk'].ok).toBe(true);
+        expect(pub['pubFail'].ok).toBe(false);
+        expect((pub['pubFail'] as Record<string, unknown>).lastError).toBeUndefined();
+        expect(JSON.stringify(pub)).not.toContain('secret-db-host');
     });
 });
