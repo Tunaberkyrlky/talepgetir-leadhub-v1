@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.10',
+        date: '2026-07-17',
+        type: 'improvement',
+        area: 'general',
+        title: { tr: 'Kararlılık İyileştirmeleri', en: 'Stability Improvements' },
+        about: {
+            tr: 'Bir sayfada beklenmedik bir hata olsa bile artık yalnız o sayfa etkileniyor, menü ve diğer ekranlar çalışmaya devam ediyor.',
+            en: 'If an unexpected error occurs on a page, only that page is affected now while the menu and other screens keep working.',
+        },
+        notes: {
+            tr: 'Hatalı sayfada "Yenile" düğmesine basarak ya da başka bir menüye geçerek devam edebilirsiniz.',
+            en: 'On an errored page you can continue by clicking the Reload button or switching to another menu item.',
+        },
+    },
+    {
         version: '1.19.9',
         date: '2026-07-15',
         type: 'improvement',
