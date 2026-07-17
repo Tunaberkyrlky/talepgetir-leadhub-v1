@@ -933,6 +933,11 @@ router.put('/memberships/:id', validateBody(updateMembershipSchema), async (req:
             throw new AppError('Failed to update membership', 500);
         }
 
+        // Force the affected user's next request through a fresh auth check so a
+        // role change / deactivation takes effect immediately instead of lingering
+        // in the 60s auth cache with the old (possibly elevated) role.
+        if (data?.user_id) clearAuthCacheForUser(data.user_id);
+
         await logAuditAction(req.user!.id, 'membership.update', 'membership', id, updateData);
 
         res.json({ data });
@@ -974,6 +979,10 @@ router.delete('/memberships/:id', async (req: Request, res: Response, next: Next
             log.error({ err: error }, 'Delete membership error');
             throw new AppError('Failed to delete membership', 500);
         }
+
+        // Revoke the removed user's cached auth immediately (matches the deactivate/
+        // delete-user paths) so access ends now, not up to 60s later.
+        clearAuthCacheForUser(membership.user_id);
 
         await logAuditAction(req.user!.id, 'membership.delete', 'membership', id);
 

@@ -10,6 +10,25 @@ const log = createLogger('auth');
 interface CachedAuth {
     user: { id: string; email: string; tenantId: string; role: string };
     ts: number;
+    /** Token `exp` in ms since epoch, or null if it couldn't be decoded */
+    exp: number | null;
+}
+
+/**
+ * Decode a JWT's `exp` claim (ms since epoch) without verifying the signature.
+ * Signature verification still happens via supabaseAuth.getUser on cache miss;
+ * this is only used to make sure the 60s auth cache never outlives the token.
+ * Returns null for malformed tokens / missing exp (caller then treats as no-exp).
+ */
+export function getTokenExp(token: string): number | null {
+    try {
+        const payload = token.split('.')[1];
+        if (!payload) return null;
+        const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+        return typeof decoded?.exp === 'number' ? decoded.exp * 1000 : null;
+    } catch {
+        return null;
+    }
 }
 const authCache = new Map<string, CachedAuth>();
 const AUTH_CACHE_TTL = 60_000; // 60 seconds
@@ -72,9 +91,11 @@ export async function authMiddleware(
         const tokenHash = createHash('sha256').update(token).digest('hex').slice(0, 32);
         const cacheKey = requestedTenantId ? `${tokenHash}:${requestedTenantId}` : tokenHash;
 
-        // Check auth cache
+        // Check auth cache — but never serve a cached entry for a token that has
+        // already expired (an access token cached just before its exp would
+        // otherwise stay accepted for the rest of the 60s TTL).
         const cached = authCache.get(cacheKey);
-        if (cached && Date.now() - cached.ts < AUTH_CACHE_TTL) {
+        if (cached && Date.now() - cached.ts < AUTH_CACHE_TTL && (cached.exp === null || Date.now() < cached.exp)) {
             req.user = cached.user;
             req.tenantId = cached.user.tenantId;
             next();
@@ -215,7 +236,7 @@ export async function authMiddleware(
             const sorted = [...authCache.entries()].sort((a, b) => a[1].ts - b[1].ts);
             for (let i = 0; i < evictCount; i++) authCache.delete(sorted[i][0]);
         }
-        authCache.set(cacheKey, { user: authUser, ts: Date.now() });
+        authCache.set(cacheKey, { user: authUser, ts: Date.now(), exp: getTokenExp(token) });
 
         next();
     } catch (err) {

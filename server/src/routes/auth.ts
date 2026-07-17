@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { supabaseAuth } from '../lib/supabase.js';
+import { supabaseAuth, supabaseAdmin } from '../lib/supabase.js';
 import { createLogger } from '../lib/logger.js';
 import { setAuthCookies, clearAuthCookies } from '../lib/cookies.js';
 import { validateBody, loginSchema } from '../lib/validation.js';
@@ -148,8 +148,19 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
     }
 });
 
-// POST /api/auth/logout — clear auth cookies
-router.post('/logout', (_req: Request, res: Response): void => {
+// POST /api/auth/logout — clear auth cookies and revoke the Supabase session
+router.post('/logout', async (req: Request, res: Response): Promise<void> => {
+    // Best-effort: revoke this session server-side so a previously-captured
+    // refresh_token can't be reused after logout (e.g. on a shared machine).
+    // Never block logout on it — always clear the cookies.
+    const token = req.cookies?.access_token;
+    if (token) {
+        try {
+            await supabaseAdmin.auth.admin.signOut(token, 'local');
+        } catch (err) {
+            log.warn({ err }, 'Logout: session revoke failed — clearing cookies anyway');
+        }
+    }
     clearAuthCookies(res);
     res.json({ ok: true });
 });

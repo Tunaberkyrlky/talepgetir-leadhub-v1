@@ -12,7 +12,11 @@
         "loginSubtitle": "Hesabınıza giriş yapın",
         "loginButton": "Giriş Yap",
         "loginError": "E-posta veya şifre hatalı",
-        "loggingIn": "Giriş yapılıyor..."
+        "loginErrorInvalid": "E-posta veya şifre hatalı. Lütfen tekrar deneyin.",
+        "loginErrorRateLimit": "Çok fazla deneme yapıldı. Lütfen bir süre bekleyin.",
+        "loginErrorNetwork": "İnternet bağlantınızı kontrol edin.",
+        "loggingIn": "Giriş yapılıyor...",
+        "languageToggle": "English"
     },
     "leads": {
         "title": "Leads",

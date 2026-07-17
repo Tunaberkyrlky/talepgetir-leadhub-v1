@@ -12,7 +12,11 @@
         "loginSubtitle": "Sign in to your account",
         "loginButton": "Sign In",
         "loginError": "Invalid email or password",
-        "loggingIn": "Signing in..."
+        "loginErrorInvalid": "Incorrect email or password. Please try again.",
+        "loginErrorRateLimit": "Too many attempts. Please wait a moment and try again.",
+        "loginErrorNetwork": "Please check your internet connection.",
+        "loggingIn": "Signing in...",
+        "languageToggle": "Türkçe"
     },
     "leads": {
         "title": "Leads",

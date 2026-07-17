@@ -25,6 +25,25 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.11',
+        date: '2026-07-17',
+        type: 'improvement',
+        area: 'general',
+        title: { tr: 'Giriş ve Güvenlik İyileştirmeleri', en: 'Sign-in & Security Improvements' },
+        about: {
+            tr: 'Giriş ekranını ve hesap güvenliğini iyileştirdik: hata mesajları artık dilinize uygun görünüyor ve bir üyenin yetkisini değiştirdiğinizde değişiklik anında geçerli oluyor.',
+            en: 'We improved the sign-in screen and account security: error messages now appear in your language, and when you change a member\'s permissions the change takes effect immediately.',
+        },
+        usage: {
+            tr: 'Giriş ekranındaki dil bağlantısıyla, hesabınıza girmeden önce Türkçe ile İngilizce arasında geçiş yapabilirsiniz.',
+            en: 'Using the language link on the sign-in screen you can switch between Turkish and English before signing in.',
+        },
+        notes: {
+            tr: 'Bir üyenin rolünü değiştirdiğinizde ya da erişimini kaldırdığınızda değişiklik artık beklemeden uygulanıyor.',
+            en: 'When you change a member\'s role or remove their access, the change is now applied without delay.',
+        },
+    },
+    {
         version: '1.19.10',
         date: '2026-07-17',
         type: 'improvement',

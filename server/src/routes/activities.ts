@@ -64,13 +64,17 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
             throw new AppError('Failed to fetch activities', 500);
         }
 
-        // Resolve contact names (no FK constraint on contact_id)
+        // Resolve contact names (no FK constraint on contact_id). Constrain by
+        // tenant_id too: for internal roles dbClient() is the RLS-bypassing service
+        // client, so a stray/legacy contact_id pointing at another tenant would
+        // otherwise leak that contact's name.
         const contactIds = [...new Set((data || []).map((a: any) => a.contact_id).filter(Boolean))];
         const contactMap: Record<string, string> = {};
         if (contactIds.length > 0) {
             const { data: contacts } = await db
                 .from('contacts')
                 .select('id, first_name, last_name')
+                .eq('tenant_id', tenantId)
                 .in('id', contactIds);
             for (const c of contacts || []) {
                 contactMap[c.id] = [c.first_name, c.last_name].filter(Boolean).join(' ');
@@ -183,13 +187,16 @@ router.get('/all', async (req: Request, res: Response, next: NextFunction): Prom
             throw new AppError('Failed to fetch activities', 500);
         }
 
-        // Resolve contact names for activities that have contact_id
+        // Resolve contact names for activities that have contact_id. Tenant-scope
+        // the lookup too (defense-in-depth: internal roles use the RLS-bypassing
+        // service client, so a cross-tenant contact_id would otherwise leak a name).
         const contactIds = [...new Set((data || []).map((a: any) => a.contact_id).filter(Boolean))];
         const contactMap: Record<string, string> = {};
         if (contactIds.length > 0) {
             const { data: contacts } = await db
                 .from('contacts')
                 .select('id, first_name, last_name')
+                .eq('tenant_id', tenantId)
                 .in('id', contactIds);
             for (const c of contacts || []) {
                 contactMap[c.id] = [c.first_name, c.last_name].filter(Boolean).join(' ');

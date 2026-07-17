@@ -11,6 +11,9 @@ import {
     Stack,
     Alert,
     Box,
+    Group,
+    Anchor,
+    Loader,
 } from '@mantine/core';
 import { IconAlertCircle } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
@@ -18,14 +21,30 @@ import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginPage() {
     const { login, isAuthenticated, isLoading } = useAuth();
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const navigate = useNavigate();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
-    if (isLoading) return null;
+    const GRADIENT = 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)';
+
+    const toggleLanguage = () => {
+        const newLang = i18n.language === 'tr' ? 'en' : 'tr';
+        i18n.changeLanguage(newLang);
+        localStorage.setItem('lang', newLang);
+    };
+
+    // Show a loader on the branded background while the initial /auth/me check runs,
+    // instead of a blank white screen on slow connections.
+    if (isLoading) {
+        return (
+            <Box style={{ minHeight: '100vh', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Loader color="white" />
+            </Box>
+        );
+    }
     if (isAuthenticated) return <Navigate to="/" replace />;
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -56,7 +75,7 @@ export default function LoginPage() {
         <Box
             style={{
                 minHeight: '100vh',
-                background: 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)',
+                background: GRADIENT,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -86,6 +105,11 @@ export default function LoginPage() {
                         border: '1px solid rgba(255,255,255,0.2)',
                     }}
                 >
+                    <Group justify="flex-end" mb={4}>
+                        <Anchor component="button" type="button" size="xs" c="dimmed" onClick={toggleLanguage}>
+                            {t('auth.languageToggle')}
+                        </Anchor>
+                    </Group>
                     <Title order={3} ta="center" mb={4}>
                         {t('auth.loginTitle')}
                     </Title>

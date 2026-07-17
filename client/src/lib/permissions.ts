@@ -28,7 +28,7 @@ export type TierFeature =
 
 const ROLE_PERMISSIONS: Record<RoleFeature, Role[]> = {
     import: ['superadmin', 'ops_agent', 'client_admin'],
-    delete_records: ['superadmin'],
+    delete_records: ['superadmin', 'ops_agent', 'client_admin'],
     crud: ['superadmin', 'ops_agent', 'client_admin'],
     internal_notes: ['superadmin', 'ops_agent'],
     activity_write: ['superadmin', 'ops_agent', 'client_admin'],
@@ -55,9 +55,9 @@ export function isInternal(role: string): boolean {
     return INTERNAL_ROLES.includes(role as Role);
 }
 
-/** Check if a role can delete records */
+/** Check if a role can delete records — single source of truth is delete_records above */
 export function canDelete(role: string): boolean {
-    return ['superadmin', 'ops_agent', 'client_admin'].includes(role);
+    return hasRolePermission(role, 'delete_records');
 }
 
 /** Check if a role can create/edit data */
