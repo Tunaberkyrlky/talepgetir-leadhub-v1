@@ -8,7 +8,6 @@ import {
     Table,
     Badge,
     Text,
-    Pagination,
     Stack,
     Paper,
     Flex,
@@ -16,10 +15,8 @@ import {
     Tooltip,
     Loader,
     Center,
-    Box,
     TextInput,
     MultiSelect,
-    UnstyledButton,
     Menu,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
@@ -29,9 +26,6 @@ import {
     IconPencil,
     IconTrash,
     IconSearch,
-    IconChevronUp,
-    IconChevronDown,
-    IconSelector,
     IconX,
     IconDotsVertical,
     IconUsers,
@@ -42,6 +36,8 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useColumnConfig, type ColumnDef } from '../hooks/useColumnConfig';
 import { ColumnManagerPopover } from '../components/table/ColumnManagerPopover';
+import { TableSortHeader } from '../components/table/TableSortHeader';
+import { TablePagination } from '../components/table/TablePagination';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { canDelete, canWrite } from '../lib/permissions';
@@ -238,39 +234,17 @@ export default function PeoplePage() {
     };
 
     // Sort header component
-    const SortHeader = ({ column, label }: { column: SortKey; label: string }) => {
-        const isSorted = sortBy === column;
-        const Icon = isSorted
-            ? (sortOrder === 'asc' ? IconChevronUp : IconChevronDown)
-            : IconSelector;
-
-        return (
-            <UnstyledButton
-                onClick={() => handleSort(column)}
-                style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-            >
-                <Text size="xs" fw={600} tt="uppercase" style={{ letterSpacing: '0.5px', color: 'white' }}>
-                    {label}
-                </Text>
-                <Icon size={14} color={isSorted ? '#a78bfa' : 'rgba(255,255,255,0.5)'} />
-            </UnstyledButton>
-        );
-    };
-
-    const NonSortHeader = ({ label }: { label: string }) => (
-        <Text size="xs" fw={600} tt="uppercase" c="white" style={{ letterSpacing: '0.5px' }}>
-            {label}
-        </Text>
+    const renderColumnHeader = (key: ColumnKey) => (
+        <Table.Th key={key}>
+            <TableSortHeader
+                label={columnLabels[key]}
+                sortKey={SORTABLE_COLUMNS[key]}
+                sortBy={sortBy}
+                sortOrder={sortOrder}
+                onSort={handleSort}
+            />
+        </Table.Th>
     );
-
-    const renderColumnHeader = (key: ColumnKey) => {
-        const label = columnLabels[key];
-        const sortKey = SORTABLE_COLUMNS[key];
-        if (sortKey) {
-            return <Table.Th key={key}><SortHeader column={sortKey} label={label} /></Table.Th>;
-        }
-        return <Table.Th key={key}><NonSortHeader label={label} /></Table.Th>;
-    };
 
     const renderColumnCell = (key: ColumnKey, contact: Contact) => {
         switch (key) {
@@ -591,23 +565,14 @@ export default function PeoplePage() {
                         </Table.ScrollContainer>
 
                         {/* Pagination */}
-                        {data && data.pagination.totalPages > 1 && (
-                            <Box p="md">
-                                <Flex justify="space-between" align="center">
-                                    <Text size="sm" c="dimmed">
-                                        {t('pagination.showing')} {((page - 1) * 25) + 1}–
-                                        {Math.min(page * 25, data.pagination.total)} {t('pagination.of')} {data.pagination.total}
-                                    </Text>
-                                    <Pagination
-                                        total={data.pagination.totalPages}
-                                        value={page}
-                                        onChange={setPage}
-                                        color="violet"
-                                        radius="md"
-                                        size="sm"
-                                    />
-                                </Flex>
-                            </Box>
+                        {data && (
+                            <TablePagination
+                                page={page}
+                                totalPages={data.pagination.totalPages}
+                                total={data.pagination.total}
+                                pageSize={25}
+                                onChange={setPage}
+                            />
                         )}
                     </>
                 )}
