@@ -26,7 +26,8 @@
         "noDataDescription": "İlk lead'inizi ekleyin veya CSV/XLSX dosyası import edin.",
         "editColumns": "Sütunları düzenle",
         "columns": "Sütunlar",
-        "resetColumns": "Varsayılana sıfırla"
+        "resetColumns": "Varsayılana sıfırla",
+        "minOneColumn": "En az 1 kolon görünür olmalı"
     },
     "company": {
         "name": "Şirket Adı",
@@ -61,6 +62,8 @@
         "cancel": "İptal",
         "delete": "Sil",
         "deleteConfirm": "Bu şirketi silmek istediğinizden emin misiniz?",
+        "deleteTitle": "Şirketi Sil",
+        "deleteConfirmDesc": "Bu şirket kalıcı olarak silinecek. Bu işlem geri alınamaz.",
         "created": "Şirket oluşturuldu",
         "updated": "Şirket güncellendi",
         "deleted": "Şirket silindi",
@@ -456,7 +459,8 @@
         "selected": "seçili",
         "clearSelection": "Seçimi Temizle",
         "moveTo": "Aşama:",
-        "terminalNotBulk": "Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir."
+        "terminalNotBulk": "Sonuç aşamaları toplu olarak değiştirilemez. Her şirket için ayrı sonlandırma raporu gereklidir.",
+        "stageChanged": "Aşama değişikliği"
     },
     "pipeline": {
         "search": "Pipeline'da ara...",

@@ -126,8 +126,8 @@ export default function ContactForm({ opened, onClose, contact, defaultCompanyId
         },
         onSuccess: () => {
             showSuccess(isEdit ? t('contact.updated') : t('contact.created'));
-            queryClient.invalidateQueries({ queryKey: ['contacts'] });
             queryClient.invalidateQueries({ queryKey: ['people'] });
+            queryClient.invalidateQueries({ queryKey: ['companies'] });
             onClose();
         },
         onError: (err) => {

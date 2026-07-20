@@ -38,7 +38,7 @@ export default function ActivationGuard({ emailStepCount, enrolledCount, onActiv
     const { t } = useTranslation();
 
     const { data, isLoading: connLoading } = useQuery<{ connections?: unknown[] }>({
-        queryKey: ['email-connections-status'],
+        queryKey: ['email-connection-status'],
         queryFn: async () => { const r = await api.get('/email-connections/status'); return r.data; },
         staleTime: 60_000,
     });

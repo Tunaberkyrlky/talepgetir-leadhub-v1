@@ -30,6 +30,7 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
+import { showSuccess, showError } from '../lib/notifications';
 
 import { useAuth } from '../contexts/AuthContext';
 import { canWrite } from '../lib/permissions';
@@ -81,9 +82,10 @@ export default function PersonDetailPage() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['person', id] });
             setShowTranslation(true);
+            showSuccess(t('translate.button'));
         },
         onError: () => {
-            // handled by interceptor
+            showError(t('translate.error'));
         },
     });
 
@@ -171,7 +173,7 @@ export default function PersonDetailPage() {
                                     {contact.first_name} {contact.last_name || ''}
                                 </Text>
                                 {contact.is_primary && (
-                                    <Badge size="sm" variant="dot" color="violet">primary</Badge>
+                                    <Badge size="sm" variant="dot" color="violet">{t('contact.isPrimary')}</Badge>
                                 )}
                             </Group>
 

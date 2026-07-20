@@ -57,7 +57,7 @@ import ErrorFeedbackButton from '../components/ErrorFeedbackButton';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useStages } from '../contexts/StagesContext';
-import { canWrite } from '../lib/permissions';
+import { canWrite, canDelete } from '../lib/permissions';
 import { safeUrl } from '../lib/url';
 import TranslatableField from '../components/TranslatableField';
 import EmailStatusIcon from '../components/EmailStatusIcon';
@@ -141,14 +141,14 @@ function saveFieldVisibility(hidden: Set<string>, tenantId?: string): void {
 interface ContactCardProps {
     contact: Contact;
     canEdit: boolean;
-    isSuperadmin: boolean;
+    canDeleteContact: boolean;
     onNavigate: (id: string) => void;
     onEdit: (contact: Contact) => void;
     onDelete: (contact: Contact) => void;
     t: (key: string) => string;
 }
 
-function ContactCard({ contact, canEdit, isSuperadmin, onNavigate, onEdit, onDelete, t }: ContactCardProps) {
+function ContactCard({ contact, canEdit, canDeleteContact, onNavigate, onEdit, onDelete, t }: ContactCardProps) {
     const href = safeUrl(contact.linkedin);
     return (
         <Card withBorder radius="md" p="md" style={{ cursor: 'pointer' }} onClick={() => onNavigate(contact.id)}>
@@ -203,7 +203,7 @@ function ContactCard({ contact, canEdit, isSuperadmin, onNavigate, onEdit, onDel
                                 <Menu.Item leftSection={<IconPencil size={14} />} onClick={() => onEdit(contact)}>
                                     {t('contact.editContact')}
                                 </Menu.Item>
-                                {isSuperadmin && (
+                                {canDeleteContact && (
                                     <Menu.Item color="red" leftSection={<IconTrash size={14} />} onClick={() => onDelete(contact)}>
                                         {t('company.delete')}
                                     </Menu.Item>
@@ -306,6 +306,8 @@ export default function CompanyDetailPage() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['company', id] });
+            queryClient.invalidateQueries({ queryKey: ['companies'] });
+            queryClient.invalidateQueries({ queryKey: ['people'] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
             showSuccess(t('contact.created'));
             close();
@@ -322,6 +324,8 @@ export default function CompanyDetailPage() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['company', id] });
+            queryClient.invalidateQueries({ queryKey: ['companies'] });
+            queryClient.invalidateQueries({ queryKey: ['people'] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
             showSuccess(t('contact.updated'));
             close();
@@ -338,6 +342,8 @@ export default function CompanyDetailPage() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['company', id] });
+            queryClient.invalidateQueries({ queryKey: ['companies'] });
+            queryClient.invalidateQueries({ queryKey: ['people'] });
             queryClient.invalidateQueries({ queryKey: ['statistics'] });
             showSuccess(t('contact.deleted'));
             setDeleteContactTarget(null);
@@ -633,7 +639,7 @@ export default function CompanyDetailPage() {
                 </Group>
 
                 {/* Details Grid */}
-                <SimpleGrid cols={2}>
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
                     {!hiddenFields.has('product_services') && company.product_services?.length ? (
                         <Box>
                             <Text size="xs" c="dimmed" fw={600} tt="uppercase">{t('company.productServices')}</Text>
@@ -754,7 +760,7 @@ export default function CompanyDetailPage() {
                         ) : (() => {
                             const cardProps = {
                                 canEdit,
-                                isSuperadmin: user?.role === 'superadmin',
+                                canDeleteContact: canDelete(user?.role || ''),
                                 onNavigate: (cid: string) => navigate(`/people/${cid}`),
                                 onEdit: handleEditContact,
                                 onDelete: setDeleteContactTarget,
@@ -844,7 +850,10 @@ export default function CompanyDetailPage() {
                 opened={editCompanyOpened}
                 onClose={closeEditCompany}
                 company={company}
-                onSuccess={() => queryClient.invalidateQueries({ queryKey: ['company', id] })}
+                onSuccess={() => {
+                    queryClient.invalidateQueries({ queryKey: ['company', id] });
+                    queryClient.invalidateQueries({ queryKey: ['companies'] });
+                }}
                 onTerminalStageSelected={(cId, cName, stage) => {
                     closeEditCompany();
                     setClosingReportTarget({ companyId: cId, companyName: cName, targetStage: stage as ClosingOutcome });
@@ -941,6 +950,7 @@ export default function CompanyDetailPage() {
                 onSuccess={() => {
                     setClosingReportTarget(null);
                     queryClient.invalidateQueries({ queryKey: ['company', id] });
+                    queryClient.invalidateQueries({ queryKey: ['companies'] });
                 }}
             />
         )}

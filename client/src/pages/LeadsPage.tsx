@@ -553,7 +553,7 @@ export default function LeadsPage() {
         const col = columns.find(c => c.key === key);
         if (col?.visible && visibleCount <= 1) {
             notifications.show({
-                message: t('leads.minOneColumn', 'En az 1 kolon görünür olmalı'),
+                message: t('leads.minOneColumn'),
                 color: 'yellow',
                 autoClose: 2500,
             });
@@ -783,7 +783,7 @@ export default function LeadsPage() {
                                                 queryClient.invalidateQueries({ queryKey: ['statistics'] });
                                                 queryClient.invalidateQueries({ queryKey: ['pipeline'] });
                                                 undoStack.push({
-                                                    description: t('bulk.stageChanged', 'Aşama değişikliği'),
+                                                    description: t('bulk.stageChanged'),
                                                     undo: async () => {
                                                         const grouped = new Map<string, string[]>();
                                                         for (const id of ids) {
@@ -1294,17 +1294,14 @@ export default function LeadsPage() {
                             <Table.Thead>
                                 <Table.Tr>
                                     <Table.Th style={{ width: 48, padding: '0 8px' }}>
-                                        {someSelected ? (
-                                            <Checkbox
-                                                checked={allSelected}
-                                                onChange={toggleSelectAll}
-                                                size="sm"
-                                                color="violet"
-                                                styles={{ input: { cursor: 'pointer' }, root: { padding: 4 } }}
-                                            />
-                                        ) : (
-                                            <Box style={{ width: 20, height: 20 }} />
-                                        )}
+                                        <Checkbox
+                                            checked={allSelected}
+                                            indeterminate={someSelected && !allSelected}
+                                            onChange={toggleSelectAll}
+                                            size="sm"
+                                            color="violet"
+                                            styles={{ input: { cursor: 'pointer' }, root: { padding: 4 } }}
+                                        />
                                     </Table.Th>
                                     {visibleColumns.map(col => renderColumnHeader(col.key))}
                                     <Table.Th style={{ width: 40, padding: '0 4px' }}>
@@ -1497,7 +1494,7 @@ export default function LeadsPage() {
             <Modal
                 opened={!!deleteModalCompany}
                 onClose={() => setDeleteModalCompany(null)}
-                title={t('company.deleteTitle', 'Şiirketi Sil')}
+                title={t('company.deleteTitle')}
                 radius="lg"
                 centered
                 size="sm"
@@ -1506,7 +1503,7 @@ export default function LeadsPage() {
                     <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
                         <Text size="sm" fw={600}>{deleteModalCompany?.name}</Text>
                         <Text size="sm" c="dimmed" mt={4}>
-                            {t('company.deleteConfirmDesc', 'Bu şirket kalıcı olarak silinecek. Bu işlem geri alınamaz.')}
+                            {t('company.deleteConfirmDesc')}
                         </Text>
                     </Alert>
                     <Group justify="flex-end">

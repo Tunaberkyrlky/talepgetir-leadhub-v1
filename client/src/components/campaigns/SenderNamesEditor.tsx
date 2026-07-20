@@ -12,7 +12,7 @@ export default function SenderNamesEditor({ readOnly }: { readOnly?: boolean }) 
     const qc = useQueryClient();
 
     const { data: connData, isLoading } = useQuery<{ connections?: { email_address: string }[] }>({
-        queryKey: ['email-connections-status'],
+        queryKey: ['email-connection-status'],
         queryFn: async () => (await api.get('/email-connections/status')).data,
         staleTime: 5 * 60_000,
     });

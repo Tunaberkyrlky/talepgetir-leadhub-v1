@@ -25,6 +25,25 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.13',
+        date: '2026-07-20',
+        type: 'improvement',
+        area: 'general',
+        title: { tr: 'Ekran Güncelleme Tutarlılığı', en: 'Screen Refresh Consistency' },
+        about: {
+            tr: 'Bir kayıt eklediğinizde ya da düzenlediğinizde ilgili listeler, sayaçlar ve kampanya ekranları artık otomatik güncelleniyor.',
+            en: 'When you add or edit a record, the related lists, counters and campaign screens now refresh automatically.',
+        },
+        usage: {
+            tr: 'Şirket listesinde en üstteki kutucukla tüm satırları tek seferde seçebilirsiniz.',
+            en: 'You can select all rows at once with the checkbox at the top of the company list.',
+        },
+        notes: {
+            tr: 'Bir posta kutusu bağladığınızda kampanya aktivasyon durumu beklemeden güncelleniyor.',
+            en: 'When you connect a mailbox, the campaign activation status updates without waiting.',
+        },
+    },
+    {
         version: '1.19.11',
         date: '2026-07-17',
         type: 'improvement',

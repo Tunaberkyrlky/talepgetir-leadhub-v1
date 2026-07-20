@@ -97,7 +97,7 @@ export default function CampaignSettingsPanel({
     // Bağlı tüm kutular (rotasyon için). Router gönderirken her adres için doğru
     // sağlayıcıyı (smtp / Gmail / Outlook) seçer.
     const { data: connData } = useQuery<{ connections?: { email_address: string }[] }>({
-        queryKey: ['email-connections-status'],
+        queryKey: ['email-connection-status'],
         queryFn: async () => (await api.get('/email-connections/status')).data,
         staleTime: 5 * 60_000,
     });

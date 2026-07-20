@@ -61,7 +61,7 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
 
     // ── Filter option values ──
     const { data: options } = useQuery<FilterOptions>({
-        queryKey: ['filter-options'],
+        queryKey: ['filterOptions'],
         queryFn: async () => (await api.get('/filter-options')).data,
         enabled: canEnroll,
         staleTime: 5 * 60_000,
