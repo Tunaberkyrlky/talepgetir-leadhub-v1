@@ -18,6 +18,8 @@ import {
     TextInput,
     MultiSelect,
     Menu,
+    Modal,
+    Alert,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
@@ -25,6 +27,7 @@ import {
     IconPlus,
     IconPencil,
     IconTrash,
+    IconAlertCircle,
     IconSearch,
     IconX,
     IconDotsVertical,
@@ -38,6 +41,7 @@ import { useColumnConfig, type ColumnDef } from '../hooks/useColumnConfig';
 import { ColumnManagerPopover } from '../components/table/ColumnManagerPopover';
 import { TableSortHeader } from '../components/table/TableSortHeader';
 import { TablePagination } from '../components/table/TablePagination';
+import { formatListDate } from '../lib/formatDate';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { canDelete, canWrite } from '../lib/permissions';
@@ -117,7 +121,7 @@ const SORTABLE_COLUMNS: Record<string, SortKey> = {
 
 
 export default function PeoplePage() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const navigate = useNavigate();
     const { user } = useAuth();
     const { getStageColor, getStageLabel } = useStages();
@@ -193,12 +197,15 @@ export default function PeoplePage() {
         },
     });
 
+    const [deleteTarget, setDeleteTarget] = useState<Contact | null>(null);
+
     // Delete mutation
     const deleteMutation = useMutation({
         mutationFn: (id: string) => api.delete(`/contacts/${id}`),
         onSuccess: () => {
             showSuccess(t('contact.deleted'));
             queryClient.invalidateQueries({ queryKey: ['people'] });
+            setDeleteTarget(null);
         },
         onError: (err) => {
             showErrorFromApi(err);
@@ -218,11 +225,7 @@ export default function PeoplePage() {
     const openCreate = () => { setEditContact(null); openForm(); };
     const openEdit = (contact: Contact) => { setEditContact(contact); openForm(); };
 
-    const formatDate = (dateStr: string) => {
-        return new Date(dateStr).toLocaleDateString(undefined, {
-            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-        });
-    };
+    const formatDate = (dateStr: string) => formatListDate(dateStr, i18n.language);
 
     const hasActiveFilters = debouncedSearch || filterCompanies.length || filterSeniorities.length || filterCountries.length;
 
@@ -546,9 +549,7 @@ export default function PeoplePage() {
                                                                 leftSection={<IconTrash size={14} />}
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    if (confirm(t('contact.deleteConfirm'))) {
-                                                                        deleteMutation.mutate(contact.id);
-                                                                    }
+                                                                    setDeleteTarget(contact);
                                                                 }}
                                                             >
                                                                 {t('company.delete')}
@@ -584,6 +585,35 @@ export default function PeoplePage() {
                 onClose={closeForm}
                 contact={editContact}
             />
+
+            {/* Delete Confirm Modal */}
+            <Modal
+                opened={!!deleteTarget}
+                onClose={() => setDeleteTarget(null)}
+                title={t('contact.deleteTitle')}
+                radius="lg"
+                centered
+                size="sm"
+            >
+                <Stack gap="md">
+                    <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
+                        <Text size="sm" fw={600}>
+                            {[deleteTarget?.first_name, deleteTarget?.last_name].filter(Boolean).join(' ')}
+                        </Text>
+                        <Text size="sm" c="dimmed" mt={4}>{t('contact.deleteConfirm')}</Text>
+                    </Alert>
+                    <Group justify="flex-end">
+                        <Button variant="default" onClick={() => setDeleteTarget(null)}>{t('common.cancel')}</Button>
+                        <Button
+                            color="red"
+                            loading={deleteMutation.isPending}
+                            onClick={() => { if (deleteTarget) deleteMutation.mutate(deleteTarget.id); }}
+                        >
+                            {t('company.delete')}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
         </Container>
     );
 }

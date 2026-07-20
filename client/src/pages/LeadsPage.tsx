@@ -51,6 +51,7 @@ import { useColumnConfig, type ColumnDef } from '../hooks/useColumnConfig';
 import { ColumnManagerPopover } from '../components/table/ColumnManagerPopover';
 import { TableSortHeader } from '../components/table/TableSortHeader';
 import { TablePagination } from '../components/table/TablePagination';
+import { formatListDate } from '../lib/formatDate';
 import api from '../lib/api';
 import { localizeCountry } from '../lib/countryNamesTr';
 import { useAuth } from '../contexts/AuthContext';
@@ -522,17 +523,7 @@ export default function LeadsPage() {
         setPage(1);
     };
 
-    const formatDate = (dateStr: string) => {
-        const date = new Date(dateStr);
-        const isCurrentYear = date.getFullYear() === new Date().getFullYear();
-        return date.toLocaleDateString(undefined, {
-            year: isCurrentYear ? undefined : 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
-    };
+    const formatDate = (dateStr: string) => formatListDate(dateStr, i18n.language);
 
     const hasActiveFilters = !!(debouncedSearch || selectedStages.length || selectedIndustries.length || selectedLocations.length || selectedCountries.length || selectedProducts.length);
 

@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.19.16',
+        date: '2026-07-20',
+        type: 'improvement',
+        area: 'general',
+        title: { tr: 'Kişiler Listesi Rötuşları', en: 'Contacts List Polish' },
+        about: {
+            tr: 'Kişiler listesinde silme onayı artık uygulama temasıyla uyumlu bir pencerede açılıyor ve tarihler dilinize göre, eski kayıtlarda yılı da gösterecek şekilde biçimleniyor.',
+            en: 'On the Contacts list, delete confirmation now opens in a themed window, and dates follow your language and show the year for older records.',
+        },
+    },
+    {
         version: '1.19.13',
         date: '2026-07-20',
         type: 'improvement',
