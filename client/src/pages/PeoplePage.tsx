@@ -21,9 +21,6 @@ import {
     MultiSelect,
     UnstyledButton,
     Menu,
-    Popover,
-    Checkbox,
-    Divider,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { showSuccess, showErrorFromApi } from '../lib/notifications';
@@ -38,30 +35,13 @@ import {
     IconX,
     IconDotsVertical,
     IconUsers,
-    IconAdjustments,
-    IconGripVertical,
     IconMail,
     IconPhone,
     IconBrandLinkedin,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
-import {
-    DndContext,
-    closestCenter,
-    KeyboardSensor,
-    PointerSensor,
-    useSensor,
-    useSensors,
-    type DragEndEvent,
-} from '@dnd-kit/core';
-import {
-    arrayMove,
-    SortableContext,
-    sortableKeyboardCoordinates,
-    useSortable,
-    verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import { useColumnConfig, type ColumnDef } from '../hooks/useColumnConfig';
+import { ColumnManagerPopover } from '../components/table/ColumnManagerPopover';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { canDelete, canWrite } from '../lib/permissions';
@@ -114,14 +94,9 @@ type ColumnKey =
     | 'seniority' | 'country' | 'linkedin' | 'is_primary'
     | 'updated_at' | 'created_at';
 
-interface ColumnDef {
-    key: ColumnKey;
-    visible: boolean;
-}
-
 const COLUMNS_STORAGE_KEY = 'people_columns_v1';
 
-const DEFAULT_COLUMNS: ColumnDef[] = [
+const DEFAULT_COLUMNS: ColumnDef<ColumnKey>[] = [
     { key: 'full_name', visible: true },
     { key: 'company', visible: true },
     { key: 'title_dept', visible: true },
@@ -144,64 +119,6 @@ const SORTABLE_COLUMNS: Record<string, SortKey> = {
     seniority: 'seniority',
 };
 
-function loadColumnConfig(): ColumnDef[] {
-    try {
-        const stored = localStorage.getItem(COLUMNS_STORAGE_KEY);
-        if (stored) {
-            const parsed = JSON.parse(stored) as ColumnDef[];
-            const keys = parsed.map(c => c.key);
-            const missing = DEFAULT_COLUMNS.filter(c => !keys.includes(c.key));
-            return [...parsed, ...missing];
-        }
-    } catch {}
-    return DEFAULT_COLUMNS;
-}
-
-// Sortable column item for the popover
-function SortableColumnItem({
-    col,
-    label,
-    onToggle,
-}: {
-    col: ColumnDef;
-    label: string;
-    onToggle: () => void;
-}) {
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        transform,
-        transition,
-        isDragging,
-    } = useSortable({ id: col.key });
-
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.5 : 1,
-    };
-
-    return (
-        <Group ref={setNodeRef} style={style} justify="space-between" wrap="nowrap">
-            <Group gap="xs" wrap="nowrap" style={{ flex: 1 }}>
-                <Box
-                    {...attributes}
-                    {...listeners}
-                    style={{ cursor: 'grab', display: 'flex', alignItems: 'center', touchAction: 'none' }}
-                >
-                    <IconGripVertical size={14} color="gray" />
-                </Box>
-                <Checkbox
-                    checked={col.visible}
-                    onChange={onToggle}
-                    label={<Text size="sm">{label}</Text>}
-                    size="xs"
-                />
-            </Group>
-        </Group>
-    );
-}
 
 export default function PeoplePage() {
     const { t } = useTranslation();
@@ -223,8 +140,8 @@ export default function PeoplePage() {
     const [editContact, setEditContact] = useState<Contact | null>(null);
 
     // Column visibility state
-    const [columns, setColumns] = useState<ColumnDef[]>(loadColumnConfig);
-    const [colPopoverOpen, setColPopoverOpen] = useState(false);
+    const { columns, visibleColumns, toggle: toggleColumn, reorder: reorderColumns, reset: resetColumns } =
+        useColumnConfig<ColumnKey>(COLUMNS_STORAGE_KEY, DEFAULT_COLUMNS);
 
     const userRole = user?.role || '';
     const userCanEdit = canWrite(userRole);
@@ -244,34 +161,6 @@ export default function PeoplePage() {
         updated_at: t('people.updatedAt'),
     };
 
-    const saveColumns = (cols: ColumnDef[]) => {
-        setColumns(cols);
-        localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(cols));
-    };
-
-    const toggleColumn = (key: ColumnKey) => {
-        const visibleCount = columns.filter(c => c.visible).length;
-        const col = columns.find(c => c.key === key);
-        if (col?.visible && visibleCount <= 1) return;
-        saveColumns(columns.map(c => c.key === key ? { ...c, visible: !c.visible } : c));
-    };
-
-    // DnD sensors
-    const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-    );
-
-    const handleDragEnd = (event: DragEndEvent) => {
-        const { active, over } = event;
-        if (over && active.id !== over.id) {
-            const oldIndex = columns.findIndex(c => c.key === active.id);
-            const newIndex = columns.findIndex(c => c.key === over.id);
-            saveColumns(arrayMove(columns, oldIndex, newIndex));
-        }
-    };
-
-    const visibleColumns = columns.filter(c => c.visible);
 
     // Reset page when filters change
     useEffect(() => {
@@ -637,66 +526,13 @@ export default function PeoplePage() {
                                 <Table.Tr>
                                     {visibleColumns.map(col => renderColumnHeader(col.key))}
                                     <Table.Th style={{ width: 40, padding: '0 4px' }}>
-                                        <Popover
-                                            opened={colPopoverOpen}
-                                            onChange={setColPopoverOpen}
-                                            position="bottom-end"
-                                            shadow="md"
-                                            withArrow
-                                        >
-                                            <Popover.Target>
-                                                <Tooltip label={t('leads.editColumns')} withArrow position="left">
-                                                    <ActionIcon
-                                                        variant="subtle"
-                                                        size="sm"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setColPopoverOpen(o => !o);
-                                                        }}
-                                                        style={{ color: 'rgba(255,255,255,0.6)' }}
-                                                    >
-                                                        <IconAdjustments size={16} />
-                                                    </ActionIcon>
-                                                </Tooltip>
-                                            </Popover.Target>
-                                            <Popover.Dropdown p="sm" style={{ minWidth: 240, maxHeight: 400, overflowY: 'auto' }}>
-                                                <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs" style={{ letterSpacing: '0.5px' }}>
-                                                    {t('leads.columns')}
-                                                </Text>
-                                                <Divider mb="xs" />
-                                                <DndContext
-                                                    sensors={sensors}
-                                                    collisionDetection={closestCenter}
-                                                    onDragEnd={handleDragEnd}
-                                                >
-                                                    <SortableContext
-                                                        items={columns.map(c => c.key)}
-                                                        strategy={verticalListSortingStrategy}
-                                                    >
-                                                        <Stack gap={6}>
-                                                            {columns.map((col) => (
-                                                                <SortableColumnItem
-                                                                    key={col.key}
-                                                                    col={col}
-                                                                    label={columnLabels[col.key]}
-                                                                    onToggle={() => toggleColumn(col.key)}
-                                                                />
-                                                            ))}
-                                                        </Stack>
-                                                    </SortableContext>
-                                                </DndContext>
-                                                <Divider mt="xs" mb="xs" />
-                                                <Button
-                                                    size="xs"
-                                                    variant="subtle"
-                                                    color="gray"
-                                                    fullWidth
-                                                    onClick={() => saveColumns(DEFAULT_COLUMNS)}
-                                                >
-                                                    {t('leads.resetColumns')}
-                                                </Button>
-                                            </Popover.Dropdown>
-                                        </Popover>
+                                        <ColumnManagerPopover
+                                            columns={columns}
+                                            labels={columnLabels}
+                                            onToggle={toggleColumn}
+                                            onReorder={reorderColumns}
+                                            onReset={resetColumns}
+                                        />
                                     </Table.Th>
                                 </Table.Tr>
                             </Table.Thead>
