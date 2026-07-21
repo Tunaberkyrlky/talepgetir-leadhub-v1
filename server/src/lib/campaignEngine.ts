@@ -71,7 +71,7 @@ interface TemplateCtx {
 
 const TEMPLATE_KEYS = ['first_name', 'last_name', 'email', 'title', 'company_name', 'website', 'industry'] as const;
 
-async function resolveTemplate(tenantId: string, contactId: string, companyId: string): Promise<TemplateCtx> {
+export async function resolveTemplate(tenantId: string, contactId: string, companyId: string): Promise<TemplateCtx> {
     const [cRes, coRes] = await Promise.all([
         supabaseAdmin.from('contacts').select('first_name, last_name, email, title').eq('id', contactId).eq('tenant_id', tenantId).single(),
         supabaseAdmin.from('companies').select('name, website, industry').eq('id', companyId).eq('tenant_id', tenantId).single(),
@@ -85,7 +85,7 @@ async function resolveTemplate(tenantId: string, contactId: string, companyId: s
     };
 }
 
-function applyTemplate(template: string, ctx: TemplateCtx): string {
+export function applyTemplate(template: string, ctx: TemplateCtx): string {
     let result = template;
     for (const key of TEMPLATE_KEYS) {
         result = result.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'gi'), ctx[key] || '');
@@ -96,7 +96,7 @@ function applyTemplate(template: string, ctx: TemplateCtx): string {
 // Spintax: {{random|A|B|C}} → her gönderimde rastgele bir seçenek. Boş seçenek
 // (ör. {{random|please|}}) atlamayı sağlar. Seçenekler {{first_name}} gibi tek
 // seviye değişken içerebilir (değişkenler spintax çözüldükten sonra uygulanır).
-function applySpintax(template: string): string {
+export function applySpintax(template: string): string {
     return template.replace(/\{\{\s*random\s*\|((?:[^{}]|\{\{[^{}]*\}\})*)\}\}/gi, (_m, group: string) => {
         const opts = group.split('|');
         return (opts[Math.floor(Math.random() * opts.length)] || '').trim();

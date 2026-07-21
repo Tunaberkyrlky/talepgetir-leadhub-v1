@@ -14,11 +14,12 @@ import { showSuccess, showErrorFromApi } from '../lib/notifications';
 import SequenceTimeline from '../components/campaigns/SequenceTimeline';
 import StepEditor from '../components/campaigns/StepEditor';
 import ConditionInspector from '../components/campaigns/graph/ConditionInspector';
+import CampaignStepRecipients from '../components/campaigns/CampaignStepRecipients';
 import EnrollmentPanel from '../components/campaigns/EnrollmentPanel';
 import ActivationGuard from '../components/campaigns/ActivationGuard';
 import CampaignStatsPanel from '../components/campaigns/CampaignStatsPanel';
 import CampaignSettingsPanel from '../components/campaigns/CampaignSettingsPanel';
-import type { Campaign, CampaignStep, CampaignSettings } from '../types/campaign';
+import type { Campaign, CampaignStep, CampaignSettings, Enrollment } from '../types/campaign';
 import { newId, serializeStepsToNodes, relinkLinear, TRIGGER_ID } from '../lib/graph';
 
 // Görsel tuval (React Flow) yalnız "Görsel" görünüme geçilince yüklensin — Basit
@@ -92,6 +93,16 @@ export default function CampaignEditorPage() {
         queryFn: async () => { const r = await api.get(`/campaigns/${id}`); return r.data.data; },
         enabled: !isNew && !!id,
     });
+
+    // CSV importlu kampanya mı? Alıcılarda satır bazlı hazır mesaj varsa, Dizi
+    // sekmesinde giriş email adımının boş gövde slotu alıcı mailleriyle doldurulur.
+    // ['campaign-enrollments', id] anahtarı Kitle sekmesiyle paylaşılır (tek fetch).
+    const { data: csvEnrollments } = useQuery<Enrollment[]>({
+        queryKey: ['campaign-enrollments', id],
+        queryFn: async () => (await api.get(`/campaigns/${id}/enrollments`)).data.data,
+        enabled: !isNew && !!id,
+    });
+    const hasCsvRecipients = (csvEnrollments || []).some((e) => e.has_custom_message);
 
     // Sunucudan farklı bir kampanya yüklendiğinde düzenlenebilir state'i sıfırla.
     // Effect yerine render-anı reset (React'in "prop değişince state sıfırla" deseni):
@@ -302,7 +313,11 @@ export default function CampaignEditorPage() {
     ) : (
         <StepEditor key={selectedIdx} step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0}
             onSendTest={!isNew && id ? (p) => testMut.mutateAsync(p).then(() => undefined) : undefined}
-            defaultTestEmail={user?.email} />
+            defaultTestEmail={user?.email}
+            csvBody={hasCsvRecipients && id && selectedStep.step_type === 'email'
+                && selectedIdx === (steps.findIndex((s) => s.is_entry) >= 0 ? steps.findIndex((s) => s.is_entry) : 0)
+                ? <CampaignStepRecipients campaignId={id} />
+                : undefined} />
     );
 
     if (!isNew && isLoading) return <Center py="xl"><Loader color="violet" /></Center>;

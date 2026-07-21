@@ -9,7 +9,7 @@ import { requireRole, requireTier } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, saveGraphSchema, enrollLeadsSchema, audienceFilterSchema, testSendSchema, bulkEnrollmentActionSchema } from '../lib/validation.js';
-import { enrollLeads, getCampaignStats, sendTestEmail, resumePausedEnrollments, pauseEnrollment, resumeEnrollment, bulkPauseEnrollments, bulkResumeEnrollments } from '../lib/campaignEngine.js';
+import { enrollLeads, getCampaignStats, sendTestEmail, resumePausedEnrollments, pauseEnrollment, resumeEnrollment, bulkPauseEnrollments, bulkResumeEnrollments, resolveTemplate, applyTemplate, applySpintax, plainTextToHtml } from '../lib/campaignEngine.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import posthog from '../lib/posthog.js';
 
@@ -511,6 +511,7 @@ router.get('/:id/enrollments', async (req: Request, res: Response, next: NextFun
             dnc_status: e.dnc_status || null,
             excluded_reason: e.excluded_reason || null,
             has_custom_message: !!e.custom_body_text,
+            message_snippet: (e.custom_body_text || '').replace(/\s+/g, ' ').trim().slice(0, 120),
         }));
 
         res.json({ data: mapped });
@@ -518,6 +519,52 @@ router.get('/:id/enrollments', async (req: Request, res: Response, next: NextFun
         if (err instanceof AppError) return next(err);
         log.error({ err }, 'Enrollments error');
         res.status(500).json({ error: 'Failed to fetch enrollments' });
+    }
+});
+
+// ── GET /:id/enrollments/:enrollmentId/preview ──────────────────────────────
+// Bir alıcının gönderilecek mailini birebir gösterir: konu + gövde (HTML).
+// Motorun gönderim mantığıyla aynı: custom_body_text varsa plainTextToHtml ile
+// o kullanılır (spintax/değişken yok), yoksa adım şablonu (spintax→değişken).
+// Takip pikseli + abonelikten-çık gönderimde eklenir; önizlemede gösterilmez.
+router.get('/:id/enrollments/:enrollmentId/preview', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { data: e } = await supabaseAdmin
+            .from('campaign_enrollments')
+            .select('id, email, custom_subject, custom_body_text, current_step_id, company_id, contact_id, tenant_id')
+            .eq('id', (req.params.enrollmentId as string))
+            .eq('campaign_id', (req.params.id as string))
+            .eq('tenant_id', req.tenantId!)
+            .single();
+        if (!e) { res.status(404).json({ error: 'Enrollment not found' }); return; }
+
+        const { data: step } = e.current_step_id
+            ? await supabaseAdmin.from('campaign_steps').select('subject, body_html').eq('id', e.current_step_id).single()
+            : { data: null };
+
+        const ctx = (e.contact_id && e.company_id)
+            ? await resolveTemplate(e.tenant_id, e.contact_id, e.company_id)
+            : { first_name: '', last_name: '', email: e.email, title: '', company_name: '', website: '', industry: '' };
+
+        const subject = e.custom_subject
+            ? e.custom_subject
+            : applyTemplate(applySpintax(step?.subject || ''), ctx);
+        const bodyHtml = e.custom_body_text
+            ? plainTextToHtml(e.custom_body_text)
+            : applyTemplate(applySpintax(step?.body_html || ''), ctx);
+
+        res.json({
+            to: e.email,
+            subject,
+            body_html: bodyHtml,
+            has_custom: !!e.custom_body_text,
+            company_name: ctx.company_name,
+            contact_name: [ctx.first_name, ctx.last_name].filter(Boolean).join(' '),
+        });
+    } catch (err) {
+        if (err instanceof AppError) return next(err);
+        log.error({ err }, 'Enrollment preview error');
+        res.status(500).json({ error: 'Failed to build message preview' });
     }
 });
 

@@ -2,21 +2,23 @@ import { useState, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Modal, Stepper, Group, Button, Text, Stack, Badge, Alert, Progress, MultiSelect,
-    SimpleGrid, Paper, Loader, Center, Tooltip,
+    SimpleGrid, Paper, Loader, Center, Tooltip, TextInput, NumberInput,
 } from '@mantine/core';
 import { Dropzone, MIME_TYPES } from '@mantine/dropzone';
 import {
     IconUpload, IconX, IconFileSpreadsheet, IconAlertCircle, IconCheck, IconInfoCircle,
+    IconSpeakerphone, IconArrowRight,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showErrorFromApi, showSuccess } from '../../lib/notifications';
+import { newId, serializeStepsToNodes } from '../../lib/graph';
 import MappingEditor from '../MappingEditor';
 import { EMAIL_STATUS_COLORS } from './emailStatusColors';
 import type {
     MappingSuggestion, AvailableField, CampaignImportPreflight, CampaignImportResult,
 } from '../../types/import';
-import type { Campaign, CampaignEmailStatus } from '../../types/campaign';
+import type { Campaign, CampaignEmailStatus, CampaignStep } from '../../types/campaign';
 
 interface PreviewData {
     fileName: string;
@@ -30,17 +32,27 @@ interface PreviewData {
 }
 
 interface Props {
-    campaignId: string;
+    /** Mevcut kampanyaya alıcı ekleme (Kitle sekmesi). createMode ile birlikte verilmez. */
+    campaignId?: string;
+    /** Sıfırdan CSV kampanyası sihirbazı: önce ad+konu ile kampanya oluşturur, sonra import eder. */
+    createMode?: boolean;
     opened: boolean;
     onClose: () => void;
+    /** createMode'da import bitince yeni kampanyanın id'si — çağıran yönlendirme için kullanır. */
+    onCreated?: (id: string) => void;
 }
 
 // Zorunlu eşlemeler: alıcı adresi, satır bazlı mesaj, şirket adı (CRM upsert için)
 const REQUIRED_FIELDS = ['campaign.email', 'campaign.message', 'companies.name'];
+const DEFAULT_SUBJECT = 'Hakkında: {{company_name}}';
 
-export default function CampaignImportModal({ campaignId, opened, onClose }: Props) {
+export default function CampaignImportModal({ campaignId, createMode, opened, onClose, onCreated }: Props) {
     const { t } = useTranslation();
     const qc = useQueryClient();
+
+    // Adım anahtarları: createMode'da başa "Kampanya" adımı eklenir.
+    const stepKeys = createMode ? ['campaign', 'upload', 'map', 'preview'] : ['upload', 'map', 'preview'];
+    const idxOf = (k: string) => stepKeys.indexOf(k);
 
     const [active, setActive] = useState(0);
     const [previewData, setPreviewData] = useState<PreviewData | null>(null);
@@ -49,11 +61,20 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
     const [result, setResult] = useState<CampaignImportResult | null>(null);
     const [dropError, setDropError] = useState<string | null>(null);
 
+    // createMode adım 0 alanları
+    const [campaignName, setCampaignName] = useState('');
+    const [subjectTemplate, setSubjectTemplate] = useState(DEFAULT_SUBJECT);
+    const [dailyLimit, setDailyLimit] = useState<number | ''>(40);
+    const [createdId, setCreatedId] = useState<string | null>(null);
+
+    // Etkin kampanya id'si: mevcut modda prop, createMode'da oluşturulan taslak.
+    const activeCampaignId = campaignId ?? createdId ?? undefined;
+
     // Kampanya (send_statuses için) — editor sayfasıyla aynı query key'i paylaşır
     const { data: campaign } = useQuery<Campaign>({
-        queryKey: ['campaign', campaignId],
-        queryFn: async () => (await api.get(`/campaigns/${campaignId}`)).data.data,
-        enabled: opened,
+        queryKey: ['campaign', activeCampaignId],
+        queryFn: async () => (await api.get(`/campaigns/${activeCampaignId}`)).data.data,
+        enabled: opened && !!activeCampaignId,
     });
     const sendStatuses = (campaign?.settings?.send_statuses?.length
         ? campaign.settings.send_statuses
@@ -62,14 +83,38 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
     const reset = () => {
         setActive(0); setPreviewData(null); setMapping({}); setJobId(null);
         setResult(null); setDropError(null);
+        setCampaignName(''); setSubjectTemplate(DEFAULT_SUBJECT); setDailyLimit(40); setCreatedId(null);
     };
     const handleClose = () => {
-        if (executeMut.isPending) return; // çalışırken kapatma — iptal butonu var
+        if (executeMut.isPending || createCampaignMut.isPending) return; // çalışırken kapatma
         reset();
         onClose();
     };
 
-    // ── 1. Upload ──
+    // ── createMode adım 0: kampanya + email adımı oluştur ──
+    const createCampaignMut = useMutation({
+        mutationFn: async () => {
+            const settings = typeof dailyLimit === 'number' && dailyLimit > 0 ? { daily_limit: dailyLimit } : {};
+            const r = await api.post('/campaigns', { name: campaignName.trim(), settings });
+            const cid = r.data.data.id as string;
+            // Tek email giriş adımı: konu şablon, gövde boş (alıcı bazlı custom_body_text devralır).
+            const emailStep: CampaignStep = {
+                id: newId(), step_order: 1, step_type: 'email',
+                subject: subjectTemplate.trim() || DEFAULT_SUBJECT, body_html: '', body_text: null,
+                delay_days: 0, delay_hours: 0,
+            };
+            await api.put(`/campaigns/${cid}/steps`, { nodes: serializeStepsToNodes([emailStep]) });
+            return cid;
+        },
+        onSuccess: (cid) => {
+            setCreatedId(cid);
+            qc.invalidateQueries({ queryKey: ['campaigns'] });
+            setActive(idxOf('upload'));
+        },
+        onError: (err) => showErrorFromApi(err),
+    });
+
+    // ── Upload ──
     const uploadMut = useMutation({
         mutationFn: async (file: File) => {
             const formData = new FormData();
@@ -85,7 +130,7 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
             const initial: Record<string, string | null> = {};
             data.suggestions.forEach((s) => { initial[s.fileHeader] = s.dbField; });
             setMapping(initial);
-            setActive(1);
+            setActive(idxOf('map'));
         },
         onError: (err) => showErrorFromApi(err, t('import.uploadError')),
     });
@@ -97,21 +142,21 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
     const mappedFields = new Set(Object.values(mapping).filter(Boolean) as string[]);
     const missingRequired = REQUIRED_FIELDS.filter((f) => !mappedFields.has(f));
 
-    // ── 3. Ön-uçuş özeti (salt-okunur) ──
+    // ── Ön-uçuş özeti (salt-okunur) ──
     const { data: preflight, isFetching: preflightLoading } = useQuery<CampaignImportPreflight>({
-        queryKey: ['campaign-import-preflight', campaignId, previewData?.fileId, mapping, sendStatuses],
+        queryKey: ['campaign-import-preflight', activeCampaignId, previewData?.fileId, mapping, sendStatuses],
         queryFn: async () => (await api.post('/import/campaign-summary', {
-            fileId: previewData!.fileId, mapping, campaignId,
+            fileId: previewData!.fileId, mapping, campaignId: activeCampaignId,
         })).data,
-        enabled: opened && active === 2 && !!previewData && !result,
+        enabled: opened && stepKeys[active] === 'preview' && !!previewData && !!activeCampaignId && !result,
     });
 
-    // send_statuses kampanyaya kalıcı yazılır (modal dışında Ayarlar'dan da düzenlenebilir)
+    // send_statuses kampanyaya kalıcı yazılır
     const statusesMut = useMutation({
-        mutationFn: async (v: string[]) => api.put(`/campaigns/${campaignId}`, {
+        mutationFn: async (v: string[]) => api.put(`/campaigns/${activeCampaignId}`, {
             settings: { ...(campaign?.settings || {}), send_statuses: v as CampaignEmailStatus[] },
         }),
-        onSuccess: () => qc.invalidateQueries({ queryKey: ['campaign', campaignId] }),
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['campaign', activeCampaignId] }),
         onError: (err) => showErrorFromApi(err),
     });
 
@@ -124,7 +169,7 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
                 totalRows: previewData!.totalRows,
                 mapping,
                 importType: 'campaign_recipients',
-                campaignId,
+                campaignId: activeCampaignId,
             });
             const newJobId: string = beginRes.data.jobId;
             setJobId(newJobId);
@@ -141,15 +186,14 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
             setResult(data);
             setJobId(null);
             if (!data.cancelled) showSuccess(t('campaign.import.doneToast', { count: data.campaign.enrolled, defaultValue: '{{count}} recipients enrolled' }));
-            qc.invalidateQueries({ queryKey: ['campaign-enrollments', campaignId] });
+            qc.invalidateQueries({ queryKey: ['campaign-enrollments', activeCampaignId] });
             qc.invalidateQueries({ queryKey: ['campaigns'] });
-            qc.invalidateQueries({ queryKey: ['campaign', campaignId] });
+            qc.invalidateQueries({ queryKey: ['campaign', activeCampaignId] });
         },
         onError: (err) => { setJobId(null); showErrorFromApi(err, t('import.importError')); },
     });
 
-    // Global ImportProgressContext'e bilinçli bağlanmıyoruz — o sessionStorage ile
-    // CRM ImportPage'e kilitli. Lokal 2 sn poll modal içinde yeterli.
+    // Lokal 2 sn poll (global ImportProgressContext'e bilinçli bağlanmıyoruz).
     const { data: jobProgress } = useQuery<{ progress_count: number; total_rows: number }>({
         queryKey: ['campaign-import-job', jobId],
         queryFn: async () => (await api.get(`/import/jobs/${jobId}`)).data.data,
@@ -174,22 +218,62 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
     );
 
     const excludedTotal = result ? Object.values(result.campaign.excluded).reduce((a, b) => a + b, 0) : 0;
+    const stepKey = stepKeys[active];
 
     return (
         <Modal
             opened={opened} onClose={handleClose} size="xl" radius="lg" centered
-            title={t('campaign.import.title', 'Import recipients from CSV')}
+            title={createMode
+                ? t('campaign.import.createTitle', 'New campaign from CSV')
+                : t('campaign.import.title', 'Import recipients from CSV')}
             overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}
-            closeOnClickOutside={!executeMut.isPending}
+            closeOnClickOutside={!executeMut.isPending && !createCampaignMut.isPending}
         >
             <Stepper active={active} size="sm" color="violet" mb="md">
+                {createMode && <Stepper.Step label={t('campaign.import.stepCampaign', 'Campaign')} />}
                 <Stepper.Step label={t('campaign.import.stepUpload', 'Upload')} />
                 <Stepper.Step label={t('campaign.import.stepMap', 'Map columns')} />
                 <Stepper.Step label={t('campaign.import.stepRun', 'Preview & run')} />
             </Stepper>
 
-            {/* ── Adım 1: Upload ── */}
-            {active === 0 && (
+            {/* ── Adım 0 (createMode): Kampanya + konu ── */}
+            {stepKey === 'campaign' && (
+                <Stack gap="sm">
+                    <TextInput
+                        label={t('campaign.import.nameLabel', 'Campaign name')}
+                        placeholder={t('campaign.import.namePlaceholder', 'e.g. Russia cold outreach - March')}
+                        value={campaignName} onChange={(e) => setCampaignName(e.currentTarget.value)}
+                        required radius="md"
+                    />
+                    <TextInput
+                        label={t('campaign.import.subjectLabel', 'Email subject template')}
+                        description={t('campaign.import.subjectDesc', 'Used as the intro email subject. Variables: {{company_name}}, {{website}}, {{industry}}. If your CSV has a Subject column, the per-row value wins.')}
+                        value={subjectTemplate} onChange={(e) => setSubjectTemplate(e.currentTarget.value)}
+                        radius="md"
+                    />
+                    <NumberInput
+                        label={t('campaign.import.dailyLimitLabel', 'Daily send limit')}
+                        description={t('campaign.import.dailyLimitDesc', 'Spreads the drip and protects mailbox reputation. You can change it later in campaign settings.')}
+                        min={1} max={500} radius="md" maw={260}
+                        value={dailyLimit}
+                        onChange={(v) => setDailyLimit(typeof v === 'number' ? v : '')}
+                    />
+                    <Alert color="grape" variant="light" icon={<IconInfoCircle size={16} />} radius="md">
+                        {t('campaign.import.createNote', 'A draft campaign with a single intro email step is created. The per-row message from your CSV becomes each recipient\'s email body. Nothing is sent until you activate the campaign.')}
+                    </Alert>
+                    <Group justify="flex-end" mt="xs">
+                        <Button variant="default" radius="md" onClick={handleClose}>{t('common.cancel', 'Cancel')}</Button>
+                        <Button color="violet" radius="md" rightSection={<IconArrowRight size={16} />}
+                            disabled={!campaignName.trim()} loading={createCampaignMut.isPending}
+                            onClick={() => createCampaignMut.mutate()}>
+                            {t('common.next', 'Next')}
+                        </Button>
+                    </Group>
+                </Stack>
+            )}
+
+            {/* ── Upload ── */}
+            {stepKey === 'upload' && (
                 <Stack gap="sm">
                     <Dropzone
                         onDrop={handleDrop}
@@ -213,11 +297,18 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
                     <Alert color="grape" variant="light" icon={<IconInfoCircle size={16} />} radius="md">
                         {t('campaign.import.uploadNote', 'Each row becomes a campaign recipient; the row message is sent as the intro email body. Companies and contacts are also created in the CRM.')}
                     </Alert>
+                    {createMode && (
+                        <Group justify="flex-start">
+                            <Button variant="subtle" color="gray" radius="md" onClick={() => setActive(idxOf('campaign'))}>
+                                {t('common.back', 'Back')}
+                            </Button>
+                        </Group>
+                    )}
                 </Stack>
             )}
 
-            {/* ── Adım 2: Map ── */}
-            {active === 1 && previewData && (
+            {/* ── Map ── */}
+            {stepKey === 'map' && previewData && (
                 <Stack gap="sm">
                     <Group justify="space-between">
                         <Text size="sm" c="dimmed">
@@ -237,16 +328,16 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
                         previewRows={previewData.previewRows}
                     />
                     <Group justify="space-between" mt="xs">
-                        <Button variant="default" radius="md" onClick={() => setActive(0)}>{t('common.back', 'Back')}</Button>
-                        <Button color="violet" radius="md" disabled={missingRequired.length > 0} onClick={() => setActive(2)}>
+                        <Button variant="default" radius="md" onClick={() => setActive(idxOf('upload'))}>{t('common.back', 'Back')}</Button>
+                        <Button color="violet" radius="md" disabled={missingRequired.length > 0} onClick={() => setActive(idxOf('preview'))}>
                             {t('common.next', 'Next')}
                         </Button>
                     </Group>
                 </Stack>
             )}
 
-            {/* ── Adım 3: Önizleme + çalıştır / sonuç ── */}
-            {active === 2 && previewData && !result && (
+            {/* ── Önizleme + çalıştır ── */}
+            {stepKey === 'preview' && previewData && !result && (
                 <Stack gap="sm">
                     {preflightLoading || !preflight ? (
                         <Center py="xl"><Loader color="violet" /></Center>
@@ -315,7 +406,7 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
                             )}
 
                             <Group justify="space-between" mt="xs">
-                                <Button variant="default" radius="md" disabled={executeMut.isPending} onClick={() => setActive(1)}>
+                                <Button variant="default" radius="md" disabled={executeMut.isPending} onClick={() => setActive(idxOf('map'))}>
                                     {t('common.back', 'Back')}
                                 </Button>
                                 <Button color="violet" radius="md" loading={executeMut.isPending}
@@ -330,7 +421,7 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
             )}
 
             {/* ── Sonuç ── */}
-            {active === 2 && result && (
+            {stepKey === 'preview' && result && (
                 <Stack gap="sm">
                     <Alert
                         color={result.cancelled ? 'yellow' : 'green'} radius="md"
@@ -343,7 +434,7 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
                     <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
                         {statCard(t('campaign.import.enrolled', 'Enrolled (active)'), result.campaign.enrolled, 'green')}
                         {statCard(t('campaign.import.excludedCount', 'Excluded (paused)'), excludedTotal, excludedTotal > 0 ? 'yellow' : undefined)}
-                        {statCard(t('campaign.import.alreadyEnrolled', 'Already enrolled'), result.campaign.skippedAlreadyEnrolled)}
+                        {statCard(t('campaign.import.createdCompanies', 'Companies in CRM'), result.createdCompanies + result.updatedCompanies)}
                         {statCard(t('campaign.import.errorRows', 'Rows with errors'), result.errorCount, result.errorCount > 0 ? 'red' : undefined)}
                     </SimpleGrid>
                     {Object.keys(result.campaign.excluded).length > 0 && (
@@ -355,16 +446,21 @@ export default function CampaignImportModal({ campaignId, opened, onClose }: Pro
                             ))}
                         </Group>
                     )}
-                    {result.campaign.estimatedDays != null && !result.cancelled && (
-                        <Text size="sm" c="dimmed">
-                            {t('campaign.import.resultEstimate', {
-                                days: result.campaign.estimatedDays,
-                                defaultValue: 'Estimated sending duration: ≈{{days}} day(s) at the current daily limit.',
-                            })}
-                        </Text>
-                    )}
+                    <Alert color="blue" variant="light" icon={<IconSpeakerphone size={16} />} radius="md">
+                        {t('campaign.import.nextStep', 'Recipients and their messages are ready as a draft. Open the campaign to review and click Activate to start sending (a connected mailbox is required).')}
+                    </Alert>
                     <Group justify="flex-end">
-                        <Button color="violet" radius="md" onClick={handleClose}>{t('common.close', 'Close')}</Button>
+                        {createMode && createdId
+                            ? (
+                                <>
+                                    <Button variant="default" radius="md" onClick={handleClose}>{t('common.close', 'Close')}</Button>
+                                    <Button color="violet" radius="md" rightSection={<IconArrowRight size={16} />}
+                                        onClick={() => { const id = createdId; reset(); onClose(); onCreated?.(id); }}>
+                                        {t('campaign.import.openCampaign', 'Open campaign')}
+                                    </Button>
+                                </>
+                            )
+                            : <Button color="violet" radius="md" onClick={handleClose}>{t('common.close', 'Close')}</Button>}
                     </Group>
                 </Stack>
             )}

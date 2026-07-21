@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useCallback, useState, type ReactNode } from 'react';
 import {
     Stack, TextInput, Textarea, Group, NumberInput, Text, Paper, Badge, Tooltip,
     SegmentedControl, Box, Button, Modal,
@@ -22,6 +22,9 @@ interface Props {
     isFirst?: boolean;
     onSendTest?: (p: { to: string; subject: string; body_html: string }) => Promise<void>;
     defaultTestEmail?: string;
+    // CSV kampanyalarında gövde alıcı bazından gelir — bu slot verilirse şablon
+    // gövde editörü yerine (boş kalacağı için) bu panel gösterilir (alıcı mailleri).
+    csvBody?: ReactNode;
 }
 
 const VARS = [
@@ -65,7 +68,7 @@ function insertAtRef(el: HTMLInputElement | HTMLTextAreaElement | null, val: str
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + text.length, start + text.length); });
 }
 
-export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTest, defaultTestEmail }: Props) {
+export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTest, defaultTestEmail, csvBody }: Props) {
     const { t } = useTranslation();
     const subjectEditorRef = useRef<SubjectEditorRef>(null);
     const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -206,6 +209,7 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
             </Group>
             <Text size="xs" c="dimmed">{t('campaign.editor.typeHint', 'Tip: you can also type variables and spintax by hand.')}</Text>
 
+            {csvBody ? csvBody : (<>
             <Group justify="space-between" align="center">
                 <Text size="sm" fw={500}>{t('campaign.body', 'Email Body')}</Text>
                 <Group gap="xs">
@@ -275,6 +279,7 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                     <Text size="xs" c="dimmed" mt="sm">{t('campaign.editor.previewNote', 'Preview uses sample data (e.g. Ahmet, Acme A.Ş.).')}</Text>
                 </Paper>
             )}
+            </>)}
 
             <Modal opened={testOpen} onClose={() => setTestOpen(false)} radius="lg" centered size="sm"
                 title={t('campaign.editor.testSendTitle', 'Send test email')}

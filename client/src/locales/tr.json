@@ -1119,7 +1119,9 @@
             "testTo": "Şu adrese gönder",
             "testNote": "Spintax ve değişkenler örnek verilerle doldurulur (ör. Ahmet, Acme).",
             "testSent": "Test {{to}} adresine gönderildi",
-            "saveBeforeAudience": "Alıcı içe aktarmak ya da eklemek için önce kampanyayı kaydedin, sonra CSV listesini buradan yükleyebilirsiniz."
+            "saveBeforeAudience": "Alıcı içe aktarmak ya da eklemek için önce kampanyayı kaydedin, sonra CSV listesini buradan yükleyebilirsiniz.",
+            "csvBodyNote": "Bu adımın gövdesi her alıcıya CSV importundan geliyor. Gidecek maili görmek için bir alıcıya tıklayın.",
+            "csvRecipients": "Alıcı mailleri"
         },
         "settings": {
             "title": "Kampanya Ayarları",
@@ -1243,7 +1245,13 @@
                 "error_status": "Doğrulama hatası, otomatik gönderilmez",
                 "status_filtered": "Doğrulama statüsü kampanyanın gönderim listesinde değil",
                 "dnc": "DNC kontrolünü geçemedi, otomatik gönderilmez"
-            }
+            },
+            "previewTitle": "Mail önizleme",
+            "previewTo": "Kime",
+            "previewCustom": "CSV'den",
+            "previewTemplate": "Şablondan",
+            "previewEmpty": "Bu alıcının mesaj gövdesi yok.",
+            "previewNote": "Takip pikseli ve abonelikten çıkma bağlantısı gönderimde otomatik eklenir."
         },
         "activation": {
             "title": "Başlatmaya hazır mı?",
@@ -1307,7 +1315,25 @@
                 "error_status": "hata statüsü",
                 "status_filtered": "statü filtresi",
                 "dnc": "DNC"
-            }
+            },
+            "createTitle": "CSV'den Yeni Kampanya",
+            "stepCampaign": "Kampanya",
+            "nameLabel": "Kampanya adı",
+            "namePlaceholder": "ör. Rusya soğuk erişim - Mart",
+            "subjectLabel": "E-posta konu şablonu",
+            "subjectDesc": "Giriş mailinin konusu olarak kullanılır. Değişkenler: {{company_name}}, {{website}}, {{industry}}. CSV'de Konu kolonu varsa satır bazlı değer öne geçer.",
+            "dailyLimitLabel": "Günlük gönderim limiti",
+            "dailyLimitDesc": "Gönderimi zamana yayar ve kutu itibarını korur. Sonradan ayarlardan değiştirebilirsiniz.",
+            "createNote": "Tek giriş email adımı olan bir taslak kampanya oluşturulur. CSV'deki satır bazlı mesaj her alıcının mail gövdesi olur. Kampanyayı aktifleştirene kadar hiçbir şey gönderilmez.",
+            "createdCompanies": "CRM'deki şirket",
+            "nextStep": "Alıcılar ve mesajları taslak olarak hazır. Gözden geçirmek için kampanyayı açın, göndermeye başlamak için Aktifleştir'e basın (bağlı bir kutu gerekir).",
+            "openCampaign": "Kampanyayı aç"
+        },
+        "newChoice": {
+            "csvTitle": "Hazır liste yükle (CSV)",
+            "csvDesc": "Satır bazlı mesajlı alıcılar tek akışta drip kampanyaya dönüşür.",
+            "scratchTitle": "Sıfırdan oluştur",
+            "scratchDesc": "Diziyi kendiniz kurun, alıcıları CRM'den ekleyin."
         }
     },
     "feedback": {

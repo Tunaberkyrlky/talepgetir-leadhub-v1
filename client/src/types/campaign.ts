@@ -88,6 +88,17 @@ export interface Enrollment {
     dnc_status: string | null;
     excluded_reason: string | null; // invalid_status | error_status | status_filtered | dnc
     has_custom_message: boolean;
+    message_snippet?: string; // custom_body_text ilk ~120 karakter (liste önizlemesi)
+}
+
+// GET /campaigns/:id/enrollments/:eid/preview — gönderilecek mailin birebir hali
+export interface EnrollmentMessagePreview {
+    to: string;
+    subject: string;
+    body_html: string;
+    has_custom: boolean;
+    company_name: string;
+    contact_name: string;
 }
 
 export interface CampaignStats {

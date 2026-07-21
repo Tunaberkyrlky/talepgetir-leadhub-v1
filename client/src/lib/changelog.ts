@@ -35,8 +35,8 @@ export const changelog: ChangelogEntry[] = [
             en: 'You can import a ready recipient list (with company, email and a per-row message) from CSV and enroll it directly into a drip campaign.',
         },
         usage: {
-            tr: 'Kampanya düzenleme ekranındaki Kitle sekmesinde "CSV\'den içe aktar" düğmesiyle dosyanızı yükleyip kolonları eşleyin ve önizlemeden sonra çalıştırın.',
-            en: 'On a campaign\'s Audience tab, use the "Import from CSV" button to upload your file, map the columns and run it after the preview.',
+            tr: 'Kampanyalar sayfasında Yeni Kampanya → "Hazır liste yükle (CSV)" ile listeyi yükleyip alıcıları ekleyin; her alıcıya gidecek maili Dizi sekmesinde ilgili kişiye tıklayarak önizleyebilirsiniz.',
+            en: 'On the Campaigns page choose New Campaign → "Upload a ready list (CSV)" to import your list; preview each recipient\'s outgoing email by clicking them in the Sequence tab.',
         },
         notes: {
             tr: 'E-posta doğrulaması geçersiz ya da rahatsız edilmeme listesindeki adresler içe aktarılır ama otomatik gönderilmez; hangi doğrulama durumlarının gönderileceğini kampanya ayarlarından belirleyebilirsiniz.',

@@ -1119,7 +1119,9 @@
             "testTo": "Send to",
             "testNote": "Spintax and variables are filled with sample data (e.g. Ahmet, Acme).",
             "testSent": "Test sent to {{to}}",
-            "saveBeforeAudience": "Save the campaign first, then you can import a CSV list or add recipients here."
+            "saveBeforeAudience": "Save the campaign first, then you can import a CSV list or add recipients here.",
+            "csvBodyNote": "This step's body comes per recipient from your CSV import. Click a recipient to preview the exact email.",
+            "csvRecipients": "Recipient emails"
         },
         "settings": {
             "title": "Campaign Settings",
@@ -1243,7 +1245,13 @@
                 "error_status": "Verification errored; never sent automatically",
                 "status_filtered": "Verification status is not in the campaign's send list",
                 "dnc": "Failed the DNC check; never sent automatically"
-            }
+            },
+            "previewTitle": "Email preview",
+            "previewTo": "To",
+            "previewCustom": "From CSV",
+            "previewTemplate": "From template",
+            "previewEmpty": "This recipient has no message body.",
+            "previewNote": "Tracking pixel and unsubscribe footer are added automatically when sent."
         },
         "activation": {
             "title": "Ready to activate?",
@@ -1307,7 +1315,25 @@
                 "error_status": "error status",
                 "status_filtered": "status filter",
                 "dnc": "DNC"
-            }
+            },
+            "createTitle": "New Campaign from CSV",
+            "stepCampaign": "Campaign",
+            "nameLabel": "Campaign name",
+            "namePlaceholder": "e.g. Russia cold outreach - March",
+            "subjectLabel": "Email subject template",
+            "subjectDesc": "Used as the intro email subject. Variables: {{company_name}}, {{website}}, {{industry}}. If your CSV has a Subject column, the per-row value wins.",
+            "dailyLimitLabel": "Daily send limit",
+            "dailyLimitDesc": "Spreads the drip and protects mailbox reputation. You can change it later in campaign settings.",
+            "createNote": "A draft campaign with a single intro email step is created. The per-row message from your CSV becomes each recipient's email body. Nothing is sent until you activate the campaign.",
+            "createdCompanies": "Companies in CRM",
+            "nextStep": "Recipients and their messages are ready as a draft. Open the campaign to review and click Activate to start sending (a connected mailbox is required).",
+            "openCampaign": "Open campaign"
+        },
+        "newChoice": {
+            "csvTitle": "Upload a ready list (CSV)",
+            "csvDesc": "Recipients with per-row messages become a drip campaign in one flow.",
+            "scratchTitle": "Create from scratch",
+            "scratchDesc": "Build the sequence and add recipients from your CRM."
         }
     },
     "feedback": {

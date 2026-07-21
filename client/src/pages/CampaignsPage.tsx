@@ -9,6 +9,7 @@ import {
     IconSpeakerphone, IconMail, IconEye, IconMessageReply, IconCheck,
     IconPlus, IconMailForward, IconLink, IconSearch, IconFilter, IconDots,
     IconCopy, IconTrash, IconPencil, IconAlertCircle, IconSend, IconUsers, IconArrowsSort,
+    IconFileImport, IconWand, IconChevronRight,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -17,6 +18,7 @@ import StatCard from '../components/StatCard';
 import { TierGate } from '../components/FeatureGate';
 import { useAuth } from '../contexts/AuthContext';
 import CampaignAssignmentTab from '../components/campaigns/CampaignAssignmentTab';
+import CampaignImportModal from '../components/campaigns/CampaignImportModal';
 import type { CampaignsResponse, PlusVibeCampaign } from '../types/plusvibe';
 import type { Campaign } from '../types/campaign';
 
@@ -132,6 +134,8 @@ function DripTab() {
     const [page, setPage] = useState(1);
     const [deleteTarget, setDeleteTarget] = useState<Campaign | null>(null);
     const [pendingId, setPendingId] = useState<string | null>(null); // toggle yükleme halkası için
+    const [newChoice, setNewChoice] = useState(false); // "New Campaign" → yol seçimi modalı
+    const [csvWizard, setCsvWizard] = useState(false); // CSV'den kampanya sihirbazı
 
     const [sortCol, sortDir] = sortValue.split(':');
 
@@ -234,7 +238,7 @@ function DripTab() {
                 </Group>
                 <Button size="sm" leftSection={<IconPlus size={16} />}
                     variant="gradient" gradient={{ from: '#6c63ff', to: '#3b82f6', deg: 135 }}
-                    radius="md" onClick={() => navigate('/campaigns/drip/new')}
+                    radius="md" onClick={() => setNewChoice(true)}
                 >
                     {t('campaign.new', 'New Campaign')}
                 </Button>
@@ -260,7 +264,7 @@ function DripTab() {
                         </Text>
                         <Button leftSection={<IconPlus size={16} />}
                             variant="gradient" gradient={{ from: '#6c63ff', to: '#3b82f6', deg: 135 }}
-                            radius="md" mt="xs" onClick={() => navigate('/campaigns/drip/new')}
+                            radius="md" mt="xs" onClick={() => setNewChoice(true)}
                         >
                             {t('campaign.new', 'New Campaign')}
                         </Button>
@@ -370,6 +374,46 @@ function DripTab() {
                 )}
                 </>
             )}
+
+            {/* "New Campaign" → yol seçimi: hazır CSV listesi mi, sıfırdan mı */}
+            <Modal opened={newChoice} onClose={() => setNewChoice(false)} centered radius="lg" size="md"
+                title={t('campaign.new', 'New Campaign')} overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}>
+                <Stack gap="sm">
+                    <Paper withBorder radius="md" p="md" style={{ cursor: 'pointer' }}
+                        onClick={() => { setNewChoice(false); setCsvWizard(true); }}>
+                        <Group wrap="nowrap" justify="space-between">
+                            <Group wrap="nowrap" gap="sm">
+                                <IconFileImport size={26} color="var(--mantine-color-grape-6)" />
+                                <div>
+                                    <Text size="sm" fw={600}>{t('campaign.newChoice.csvTitle', 'Upload a ready list (CSV)')}</Text>
+                                    <Text size="xs" c="dimmed">{t('campaign.newChoice.csvDesc', 'Recipients with per-row messages become a drip campaign in one flow.')}</Text>
+                                </div>
+                            </Group>
+                            <IconChevronRight size={18} color="var(--mantine-color-gray-5)" />
+                        </Group>
+                    </Paper>
+                    <Paper withBorder radius="md" p="md" style={{ cursor: 'pointer' }}
+                        onClick={() => { setNewChoice(false); navigate('/campaigns/drip/new'); }}>
+                        <Group wrap="nowrap" justify="space-between">
+                            <Group wrap="nowrap" gap="sm">
+                                <IconWand size={26} color="var(--mantine-color-violet-6)" />
+                                <div>
+                                    <Text size="sm" fw={600}>{t('campaign.newChoice.scratchTitle', 'Create from scratch')}</Text>
+                                    <Text size="xs" c="dimmed">{t('campaign.newChoice.scratchDesc', 'Build the sequence and add recipients from your CRM.')}</Text>
+                                </div>
+                            </Group>
+                            <IconChevronRight size={18} color="var(--mantine-color-gray-5)" />
+                        </Group>
+                    </Paper>
+                </Stack>
+            </Modal>
+
+            <CampaignImportModal
+                createMode
+                opened={csvWizard}
+                onClose={() => setCsvWizard(false)}
+                onCreated={(id) => navigate(`/campaigns/drip/${id}/edit`)}
+            />
 
             <Modal opened={!!deleteTarget} onClose={() => setDeleteTarget(null)}
                 title={t('campaign.list.deleteConfirmTitle', 'Delete campaign')} radius="lg" centered size="sm"
