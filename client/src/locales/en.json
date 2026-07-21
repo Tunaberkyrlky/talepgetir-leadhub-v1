@@ -1118,7 +1118,8 @@
             "testSendTitle": "Send test email",
             "testTo": "Send to",
             "testNote": "Spintax and variables are filled with sample data (e.g. Ahmet, Acme).",
-            "testSent": "Test sent to {{to}}"
+            "testSent": "Test sent to {{to}}",
+            "saveBeforeAudience": "Save the campaign first, then you can import a CSV list or add recipients here."
         },
         "settings": {
             "title": "Campaign Settings",

@@ -345,7 +345,7 @@ export default function CampaignEditorPage() {
                 <Tabs value={activeTab} onChange={setActiveTab} radius="md">
                     <Tabs.List>
                         <Tabs.Tab value="steps" leftSection={<IconList size={14} />}>{t('campaign.editor.tabSequence', 'Sequence')}</Tabs.Tab>
-                        <Tabs.Tab value="enrollments" leftSection={<IconUsers size={14} />} disabled={isNew}>
+                        <Tabs.Tab value="enrollments" leftSection={<IconUsers size={14} />}>
                             {t('campaign.editor.tabAudience', 'Audience')} {campaign?.total_enrolled ? <Badge size="xs" variant="light" color="violet" ml={6}>{campaign.total_enrolled}</Badge> : null}
                         </Tabs.Tab>
                         <Tabs.Tab value="settings" leftSection={<IconSettings size={14} />}>{t('campaign.editor.tabSettings', 'Settings')}</Tabs.Tab>
@@ -411,7 +411,22 @@ export default function CampaignEditorPage() {
                     </Tabs.Panel>
 
                     <Tabs.Panel value="enrollments" pt="md">
-                        {id && <EnrollmentPanel campaignId={id} campaignStatus={campaign?.status || 'draft'} />}
+                        {id
+                            ? <EnrollmentPanel campaignId={id} campaignStatus={campaign?.status || 'draft'} />
+                            : (
+                                <Center h={220}>
+                                    <Stack gap="xs" align="center" maw={360}>
+                                        <IconUsers size={28} color="var(--mantine-color-violet-4)" />
+                                        <Text size="sm" c="dimmed" ta="center">
+                                            {t('campaign.editor.saveBeforeAudience', 'Save the campaign first, then you can import a CSV list or add recipients here.')}
+                                        </Text>
+                                        <Button size="xs" color="violet" radius="md" leftSection={<IconDeviceFloppy size={14} />}
+                                            onClick={() => saveMut.mutate()} loading={saveMut.isPending} disabled={!name.trim()}>
+                                            {t('campaign.editor.save', 'Save')}
+                                        </Button>
+                                    </Stack>
+                                </Center>
+                            )}
                     </Tabs.Panel>
 
                     <Tabs.Panel value="settings" pt="md">

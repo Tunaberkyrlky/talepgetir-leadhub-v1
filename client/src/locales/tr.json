@@ -1118,7 +1118,8 @@
             "testSendTitle": "Test maili gönder",
             "testTo": "Şu adrese gönder",
             "testNote": "Spintax ve değişkenler örnek verilerle doldurulur (ör. Ahmet, Acme).",
-            "testSent": "Test {{to}} adresine gönderildi"
+            "testSent": "Test {{to}} adresine gönderildi",
+            "saveBeforeAudience": "Alıcı içe aktarmak ya da eklemek için önce kampanyayı kaydedin, sonra CSV listesini buradan yükleyebilirsiniz."
         },
         "settings": {
             "title": "Kampanya Ayarları",
