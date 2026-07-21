@@ -4,12 +4,12 @@ import {
     Stack, Paper, Group, Text, Badge, Select, NumberInput, TextInput, Switch, Chip, MultiSelect, TagsInput,
 } from '@mantine/core';
 import {
-    IconCalendarTime, IconGauge, IconInbox, IconAt, IconEye,
+    IconCalendarTime, IconGauge, IconInbox, IconAt, IconEye, IconMailCheck,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import SenderNamesEditor from './SenderNamesEditor';
-import type { CampaignSettings } from '../../types/campaign';
+import type { CampaignSettings, CampaignEmailStatus } from '../../types/campaign';
 
 interface Props {
     settings: CampaignSettings;
@@ -177,6 +177,25 @@ export default function CampaignSettingsPanel({
                         disabled={readOnly}
                     />
                 </Group>
+            </SettingSection>
+
+            {/* ── CSV alıcı doğrulama statüleri ── */}
+            <SettingSection
+                icon={<IconMailCheck size={16} color="var(--mantine-color-violet-6)" />}
+                title={t('campaign.settings.sendStatuses', 'Recipient verification statuses')}
+                desc={t('campaign.settings.sendStatusesDesc', 'For CSV-imported recipients: which email verification statuses are eligible for sending. invalid and error are never sent automatically.')}
+            >
+                <MultiSelect
+                    data={[
+                        { value: 'ok', label: 'ok' },
+                        { value: 'catch_all', label: 'catch_all' },
+                        { value: 'unknown', label: 'unknown' },
+                    ]}
+                    value={settings.send_statuses?.length ? settings.send_statuses : ['ok', 'catch_all']}
+                    onChange={(v) => { if (v.length > 0) patch({ send_statuses: v as CampaignEmailStatus[] }); }}
+                    radius="md" size="sm" maw={420}
+                    disabled={readOnly}
+                />
             </SettingSection>
 
             {/* ── Gönderen Kutular (rotasyon) ── */}

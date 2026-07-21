@@ -400,6 +400,9 @@ const campaignSettingsSchema = z.object({
         open: z.boolean().optional(),
         click: z.boolean().optional(),
     }).optional(),
+    // CSV importlu alıcılarda hangi e-posta doğrulama statülerinin gönderime uygun
+    // sayılacağı (tanımsızsa ok + catch_all). invalid/error hiçbir zaman seçilemez.
+    send_statuses: z.array(z.enum(['ok', 'catch_all', 'unknown'])).max(3).optional(),
 });
 
 export const createCampaignSchema = z.object({

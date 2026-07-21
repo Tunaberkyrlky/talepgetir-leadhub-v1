@@ -270,6 +270,137 @@ const FIELD_ALIASES: Record<string, { table: string; field: string; aliases: str
     },
 };
 
+// Kampanya CSV importu (drip alıcı listeleri) için AYRI sözlük. CRM sözlüğüyle
+// bilinçli paylaşılmaz: ör. "status" CRM'de companies.stage'e giderken kampanyada
+// e-posta doğrulama statüsüne gitmeli. `table:'campaign'` alanları enrollment'a
+// yazılır; companies.* alt kümesi CRM upsert'i için kullanılır (stage/fit_score
+// gibi alanlar bilinçli olarak sunulmaz).
+const CAMPAIGN_FIELD_ALIASES: Record<string, { table: string; field: string; aliases: string[]; required: boolean }> = {
+    'companies.name': {
+        table: 'companies',
+        field: 'name',
+        aliases: [
+            'company_name', 'company name', 'name', 'firma', 'firma adı', 'şirket', 'şirket adı',
+            'sirket', 'sirket adi', 'kurum', 'kurum adı', 'organization', 'organisation', 'account name',
+        ],
+        required: true,
+    },
+    'companies.website': {
+        table: 'companies',
+        field: 'website',
+        aliases: [
+            'website', 'web', 'url', 'site', 'domain', 'web sitesi', 'web site',
+            'company website', 'company url', 'web adresi', 'homepage',
+        ],
+        required: false,
+    },
+    'companies.location': {
+        table: 'companies',
+        field: 'location',
+        aliases: [
+            'location', 'konum', 'lokasyon', 'ülke', 'ulke', 'country', 'şehir', 'sehir', 'city',
+            'address', 'adres', 'headquarters', 'merkez',
+        ],
+        required: false,
+    },
+    'companies.industry': {
+        table: 'companies',
+        field: 'industry',
+        aliases: [
+            'industry', 'sektör', 'sektor', 'sector', 'endüstri', 'endustri', 'vertical',
+            'iş alanı', 'is alani', 'faaliyet alanı', 'faaliyet alani',
+        ],
+        required: false,
+    },
+    'campaign.email': {
+        table: 'campaign',
+        field: 'email',
+        aliases: [
+            'email', 'e-posta', 'eposta', 'e_posta', 'mail', 'email address', 'emails',
+            'e-posta(lar)', 'e-postalar', 'epostalar', 'mails', 'alıcı', 'alici',
+            'recipient', 'recipient email', 'to', 'kime',
+        ],
+        required: true,
+    },
+    'campaign.message': {
+        table: 'campaign',
+        field: 'message',
+        aliases: [
+            'message', 'mesaj', 'body', 'gövde', 'govde', 'mesaj metni', 'mesaj gövdesi',
+            'mesaj govdesi', 'email body', 'mail body', 'içerik', 'icerik', 'content',
+            'kişisel mesaj', 'kisisel mesaj', 'personalized message', 'custom message',
+        ],
+        required: true,
+    },
+    'campaign.subject': {
+        table: 'campaign',
+        field: 'subject',
+        aliases: [
+            'subject', 'konu', 'başlık', 'baslik', 'email subject', 'mail konusu', 'konu başlığı',
+        ],
+        required: false,
+    },
+    'campaign.email_status': {
+        table: 'campaign',
+        field: 'email_status',
+        aliases: [
+            'status', 'email_status', 'email status', 'durum', 'doğrulama', 'dogrulama',
+            'doğrulama durumu', 'dogrulama durumu', 'verification', 'verification status',
+            'email verification', 'e-posta durumu', 'e-posta doğrulama', 'mail doğrulama',
+            'mail dogrulama', 'omniverifier status', 'verify status',
+        ],
+        required: false,
+    },
+    'campaign.dnc_status': {
+        table: 'campaign',
+        field: 'dnc_status',
+        aliases: [
+            'dnc', 'dnc check', 'dnc kontrolü', 'dnc kontrolu', 'dnc kontrol', 'dnc status',
+            'do not contact', 'dnc durumu',
+        ],
+        required: false,
+    },
+    'campaign.language': {
+        table: 'campaign',
+        field: 'language',
+        aliases: [
+            'language', 'dil', 'gönderim dili', 'gonderim dili', 'lang', 'mesaj dili',
+        ],
+        required: false,
+    },
+    'campaign.angle': {
+        table: 'campaign',
+        field: 'angle',
+        aliases: [
+            'angle', 'açı', 'aci', 'mesaj açısı', 'mesaj acisi', 'message angle',
+            'yaklaşım', 'yaklasim', 'approach',
+        ],
+        required: false,
+    },
+    'campaign.region': {
+        table: 'campaign',
+        field: 'region',
+        aliases: [
+            'region', 'bölge', 'bolge', 'market', 'pazar',
+        ],
+        required: false,
+    },
+    'campaign.source_row': {
+        table: 'campaign',
+        field: 'source_row',
+        aliases: [
+            'source_row', 'source row', 'satır', 'satir', 'satır no', 'satir no', 'row', 'sıra', 'sira',
+        ],
+        required: false,
+    },
+};
+
+export type ImportType = 'crm' | 'campaign_recipients';
+
+function aliasDict(importType: ImportType) {
+    return importType === 'campaign_recipients' ? CAMPAIGN_FIELD_ALIASES : FIELD_ALIASES;
+}
+
 export interface MappingSuggestion {
     fileHeader: string;
     dbField: string | null; // null = unmapped → custom_fields
@@ -405,8 +536,9 @@ function similarity(a: string, b: string): number {
  * This ensures the most direct match (Employee Size → employee_size) beats
  * a synonym (Headcount → employee_size) when they compete for the same field.
  */
-export function autoMapHeaders(fileHeaders: string[]): MappingSuggestion[] {
+export function autoMapHeaders(fileHeaders: string[], importType: ImportType = 'crm'): MappingSuggestion[] {
     const MIN_SCORE = 0.6;
+    const dict = aliasDict(importType);
 
     // Build all viable (header, dbField, score) candidates
     const candidates: { header: string; key: string; aliasScore: number; totalScore: number }[] = [];
@@ -414,7 +546,7 @@ export function autoMapHeaders(fileHeaders: string[]): MappingSuggestion[] {
     for (const header of fileHeaders) {
         const effectiveHeader = header.startsWith('people_') ? header.slice(7) : header;
 
-        for (const [key, fieldDef] of Object.entries(FIELD_ALIASES)) {
+        for (const [key, fieldDef] of Object.entries(dict)) {
             let bestAliasScore = 0;
             let bestAliasLength = 0;
             for (const alias of fieldDef.aliases) {
@@ -445,7 +577,7 @@ export function autoMapHeaders(fileHeaders: string[]): MappingSuggestion[] {
 
     for (const { header, key, aliasScore } of candidates) {
         if (usedHeaders.has(header) || usedDbFields.has(key)) continue;
-        const fieldDef = FIELD_ALIASES[key];
+        const fieldDef = dict[key];
         usedHeaders.add(header);
         usedDbFields.add(key);
         result.set(header, {
@@ -474,8 +606,8 @@ export function autoMapHeaders(fileHeaders: string[]): MappingSuggestion[] {
 /**
  * Get all available DB fields for manual mapping dropdown
  */
-export function getAvailableDbFields() {
-    return Object.entries(FIELD_ALIASES).map(([key, def]) => ({
+export function getAvailableDbFields(importType: ImportType = 'crm') {
+    return Object.entries(aliasDict(importType)).map(([key, def]) => ({
         value: key,
         label: `${def.table}.${def.field}`,
         table: def.table,

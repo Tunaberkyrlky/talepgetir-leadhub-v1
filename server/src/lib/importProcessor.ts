@@ -149,7 +149,8 @@ interface ColumnMapping {
  * Parse a CSV file and return rows as objects
  */
 export async function parseCSV(filePath: string): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
-    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    // UTF-8 BOM ilk header'ı kirletir (ör. "﻿Firma") ve auto-map'i kırar
+    const fileContent = fs.readFileSync(filePath, 'utf-8').replace(/^﻿/, '');
 
     return new Promise((resolve, reject) => {
         Papa.parse(fileContent, {
@@ -224,6 +225,8 @@ export async function createImportJob(
     fileType: 'csv' | 'xlsx' | 'matched',
     totalRows: number,
     mapping: ColumnMapping,
+    importType: 'crm' | 'campaign_recipients' = 'crm',
+    campaignId?: string,
 ): Promise<string> {
     const storedFileType = fileType === 'matched' ? 'csv' : fileType;
     const { data: job, error } = await supabaseAdmin
@@ -237,6 +240,8 @@ export async function createImportJob(
             column_mapping: mapping,
             created_by: userId,
             progress_count: 0,
+            import_type: importType,
+            campaign_id: campaignId || null,
         })
         .select('id')
         .single();

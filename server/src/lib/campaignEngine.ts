@@ -103,6 +103,37 @@ function applySpintax(template: string): string {
     });
 }
 
+// CSV'den gelen düz metin hazır mesajı e-posta HTML'ine çevirir: HTML escape →
+// boş satır(lar) paragraf sınırı, tekil satır sonu <br>. Tracking + unsubscribe
+// enjeksiyonu bu çıktı üzerinde değişmeden çalışır.
+export function plainTextToHtml(text: string): string {
+    const escaped = text
+        .replace(/\r\n/g, '\n')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    return escaped
+        .split(/\n{2,}/)
+        .map((p) => `<p style="margin:0 0 1em">${p.replace(/\n/g, '<br>')}</p>`)
+        .join('');
+}
+
+// Giriş adımı mı? enrollLeads ile aynı kural: is_entry işaretli node, o yoksa en
+// küçük step_order'lı adım. Yalnız custom-body'li (CSV importlu) gönderimlerde
+// çağrılır — satır bazlı hazır mesaj follow-up adımlarına uygulanmasın diye.
+async function isEntryStep(step: CampaignStep): Promise<boolean> {
+    if (step.is_entry) return true;
+    const { data } = await supabaseAdmin
+        .from('campaign_steps')
+        .select('id, is_entry, step_order')
+        .eq('campaign_id', step.campaign_id)
+        .order('step_order');
+    if (!data?.length) return false;
+    if (data.some((s) => s.is_entry)) return false; // giriş başka bir node
+    return data[0].id === step.id;
+}
+
 // Inbox rotasyonu: enrollment id'sine göre deterministik mailbox seçimi. Aynı kişiye
 // hep aynı kutudan gidilir (thread tutarlılığı), kişiler kutulara dağılır.
 function hashStr(s: string): number {
@@ -392,18 +423,62 @@ export async function enrollLeads(
     return { enrolled, skipped };
 }
 
+// CSV alıcı importu için: kampanyanın giriş adımı + ilk gönderim zamanı.
+// enrollLeads ile birebir aynı kural (is_entry işaretli node, yoksa en küçük
+// step_order; jitter + gönderim penceresi clamp'i). Giriş adımı email değilse
+// 422 — satır bazlı hazır mesaj giriş mailine uygulanır; hiçbir yazım yapılmadan
+// reddedilir ki yarım import oluşmasın.
+export async function getEntryStepSchedule(
+    campaignId: string,
+    tenantId: string,
+): Promise<{ entryStepId: string; firstScheduleAt: string; settings: any }> {
+    const { data: campaign, error } = await supabaseAdmin
+        .from('campaigns')
+        .select('id, settings')
+        .eq('id', campaignId)
+        .eq('tenant_id', tenantId)
+        .single();
+    if (error || !campaign) throw new AppError('Campaign not found', 404);
+
+    const { data: steps } = await supabaseAdmin
+        .from('campaign_steps')
+        .select('*')
+        .eq('campaign_id', campaignId)
+        .order('step_order');
+    if (!steps?.length) throw new AppError('Campaign has no steps', 422);
+
+    const entry = ((steps as CampaignStep[]).find((s) => s.is_entry) || steps[0]) as CampaignStep;
+    if ((entry.step_kind || entry.step_type) !== 'email') {
+        throw new AppError('Campaign entry step must be an email step', 422);
+    }
+
+    const firstScheduleAt = new Date(
+        scheduleMs(applyJitter(Date.now() + calcDelayMs(entry), campaign.settings), campaign.settings),
+    ).toISOString();
+    return { entryStepId: entry.id, firstScheduleAt, settings: campaign.settings || {} };
+}
+
 // ── Scheduled Email Processing ─────────────────────────────────────────────
 
 export async function processScheduledEmails(): Promise<{ sent: number; failed: number; advanced: number }> {
-    // Drip emails go out via Nango (user's own Gmail/Outlook), not Resend.
-    // If Nango is not configured, no tenant can have an active connection — skip the tick.
-    if (!process.env.NANGO_SECRET_KEY) return { sent: 0, failed: 0, advanced: 0 };
+    // Drip emails go out via Nango (user's own Gmail/Outlook) or a connected SMTP
+    // mailbox. Nango yoksa: aktif SMTP bağlantısı olan tenant olabilir — tick'i
+    // ancak hiçbir SMTP kutusu da yoksa atla (Nango'lu prod davranışı birebir aynı).
+    if (!process.env.NANGO_SECRET_KEY) {
+        const { count: smtpCount } = await supabaseAdmin
+            .from('email_connections')
+            .select('id', { count: 'exact', head: true })
+            .eq('provider', 'smtp')
+            .eq('is_active', true);
+        if (!smtpCount) return { sent: 0, failed: 0, advanced: 0 };
+    }
 
     const { data: dueEnrollments, error } = await supabaseAdmin
         .from('campaign_enrollments')
         .select(`
             id, tenant_id, campaign_id, contact_id, company_id, email,
-            current_step_id, next_scheduled_at, branch_path, status, replied_at
+            current_step_id, next_scheduled_at, branch_path, status, replied_at,
+            custom_subject, custom_body_text, excluded_reason
         `)
         .eq('status', 'active')
         .lte('next_scheduled_at', new Date().toISOString())
@@ -523,8 +598,19 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
 
                 // Resolve spintax (gönderim başına rastgele) → sonra değişkenler.
                 const ctx = await resolveTemplate(enrollment.tenant_id, enrollment.contact_id, enrollment.company_id);
-                const subject = applyTemplate(applySpintax(currentStep.subject || ''), ctx);
+                let subject = applyTemplate(applySpintax(currentStep.subject || ''), ctx);
                 let bodyHtml = applyTemplate(applySpintax(currentStep.body_html || ''), ctx);
+
+                // CSV importlu alıcının satır bazlı hazır mesajı yalnız GİRİŞ email
+                // adımında şablonun yerine geçer (final metin; spintax/değişken
+                // uygulanmaz). Konu: custom_subject varsa aynen, yoksa adım
+                // şablonundan çözülen. Follow-up adımları her zaman şablondan gider.
+                let usedCustomBody = false;
+                if (enrollment.custom_body_text && (await isEntryStep(currentStep))) {
+                    bodyHtml = plainTextToHtml(enrollment.custom_body_text);
+                    if (enrollment.custom_subject) subject = enrollment.custom_subject;
+                    usedCustomBody = true;
+                }
 
                 // Create activity first (we need the ID for tracking)
                 const { data: activity, error: actErr } = await supabaseAdmin
@@ -535,7 +621,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         contact_id: enrollment.contact_id,
                         type: 'campaign_email',
                         summary: subject,
-                        detail: (currentStep.body_html || '').slice(0, 500), // snippet for timeline
+                        detail: (usedCustomBody ? (enrollment.custom_body_text || '') : (currentStep.body_html || '')).slice(0, 500), // snippet for timeline
                         outcome: 'sending',
                         campaign_id: enrollment.campaign_id,
                         enrollment_id: enrollment.id,
@@ -701,6 +787,7 @@ export async function resumePausedEnrollments(campaignId: string, tenantId: stri
         .eq('campaign_id', campaignId)
         .eq('tenant_id', tenantId)
         .eq('status', 'paused')
+        .is('excluded_reason', null) // invalid/dnc/statü-dışı satırlar toplu resume ile açılmaz
         .select('id');
     const count = data?.length || 0;
     if (count > 0) log.info({ campaignId, count }, 'Resumed paused enrollments');
@@ -721,12 +808,13 @@ export async function pauseEnrollment(campaignId: string, enrollmentId: string, 
 }
 
 // Tek bir kaydı sürdür (yalnız 'paused' iken). Kaldığı adımdan, gönderim
-// penceresine göre yeniden zamanlanır.
+// penceresine göre yeniden zamanlanır. excluded_reason da temizlenir — tekil
+// resume, kilitli (invalid/dnc/statü-dışı) satır için bilinçli kullanıcı override'ıdır.
 export async function resumeEnrollment(campaignId: string, enrollmentId: string, tenantId: string, settings: any): Promise<boolean> {
     const resumeAt = new Date(scheduleMs(Date.now(), settings)).toISOString();
     const { data } = await supabaseAdmin
         .from('campaign_enrollments')
-        .update({ status: 'active', next_scheduled_at: resumeAt })
+        .update({ status: 'active', next_scheduled_at: resumeAt, excluded_reason: null })
         .eq('id', enrollmentId)
         .eq('campaign_id', campaignId)
         .eq('tenant_id', tenantId)
@@ -749,6 +837,7 @@ export async function bulkPauseEnrollments(campaignId: string, ids: string[], te
 }
 
 // Toplu sürdür — yalnız 'paused' kayıtlar; gönderim penceresine göre yeniden zamanlanır.
+// Kilitli (excluded_reason dolu) satırlar toplu işlemle açılmaz; yalnız tekil resume açar.
 export async function bulkResumeEnrollments(campaignId: string, ids: string[], tenantId: string, settings: any): Promise<number> {
     const resumeAt = new Date(scheduleMs(Date.now(), settings)).toISOString();
     const { data } = await supabaseAdmin
@@ -758,6 +847,7 @@ export async function bulkResumeEnrollments(campaignId: string, ids: string[], t
         .eq('campaign_id', campaignId)
         .eq('tenant_id', tenantId)
         .eq('status', 'paused')
+        .is('excluded_reason', null)
         .select('id');
     return data?.length || 0;
 }

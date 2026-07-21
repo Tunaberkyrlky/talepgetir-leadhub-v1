@@ -261,7 +261,9 @@
         "unsavedChanges": "You have unsaved changes. Are you sure you want to leave?",
         "unsavedChangesTitle": "Unsaved Changes",
         "stayEditing": "Keep Editing",
-        "discardChanges": "Discard Changes"
+        "discardChanges": "Discard Changes",
+        "next": "Next",
+        "close": "Close"
     },
     "filter": {
         "stage": "Filter by stage...",
@@ -625,7 +627,6 @@
             "lost": "Lost",
             "on_hold": "On Hold"
         },
-        "dateTime": "Date & Time",
         "dateRequired": "Please select a valid date and time",
         "invalidDate": "Invalid date format, please select again",
         "tierRequired": "Activity timeline is available on the Pro plan"
@@ -1152,7 +1153,9 @@
             "tracking": "Tracking",
             "trackingDesc": "Toggle open and click tracking for this campaign.",
             "openTracking": "Open tracking",
-            "clickTracking": "Click tracking"
+            "clickTracking": "Click tracking",
+            "sendStatuses": "Recipient Verification Statuses",
+            "sendStatusesDesc": "For CSV-imported recipients: which email verification statuses are eligible for sending. invalid and error are never sent automatically."
         },
         "list": {
             "search": "Search campaigns...",
@@ -1230,6 +1233,15 @@
                 "replied": "Replied",
                 "bounced": "Bounced",
                 "unsubscribed": "Unsubscribed"
+            },
+            "importCsv": "Import from CSV",
+            "colVerification": "Verification",
+            "customMessage": "Personalized message from CSV",
+            "excludedReason": {
+                "invalid_status": "Email verification is invalid; never sent automatically",
+                "error_status": "Verification errored; never sent automatically",
+                "status_filtered": "Verification status is not in the campaign's send list",
+                "dnc": "Failed the DNC check; never sent automatically"
             }
         },
         "activation": {
@@ -1258,6 +1270,43 @@
             "byStep": "By step",
             "stepN": "Step {{n}}",
             "trackingOff": "Open and click tracking is not configured, so these counts may stay at zero. Replies are still tracked."
+        },
+        "import": {
+            "title": "Import Recipients from CSV",
+            "stepUpload": "Upload",
+            "stepMap": "Map Columns",
+            "stepRun": "Preview & Run",
+            "uploadHint": "Drag the recipient list (CSV/XLSX) here or click to select",
+            "uploadNote": "Each row becomes a campaign recipient and the row message is sent as the intro email body. Companies and contacts are also created in the CRM.",
+            "rowCount": "{{count}} rows",
+            "mapRequired": "Email, Message and Company columns must be mapped",
+            "total": "Total rows",
+            "eligible": "Eligible to send",
+            "invalidEmails": "Invalid emails",
+            "duplicates": "Duplicates in file",
+            "multiEmail": "{{count}} multi-email cells",
+            "multiEmailHint": "In cells with multiple addresses the first valid one is used; the rest are stored.",
+            "sendStatuses": "Verification statuses eligible for sending",
+            "sendStatusesHint": "invalid and error rows are imported but never sent automatically. This setting is saved on the campaign.",
+            "estimate": "At {{limit}}/day the eligible recipients take ≈{{days}} day(s) to send.",
+            "noDailyLimit": "No daily limit is set on this campaign; consider setting one before sending a cold list.",
+            "junkHint": "Tip: remove suspicious generic addresses (e.g. donate@/info@) beforehand, or pause them individually after import.",
+            "run": "Import ({{count}} eligible)",
+            "running": "Importing...",
+            "doneToast": "{{count}} recipients enrolled",
+            "resultTitle": "Import completed",
+            "cancelledNote": "Import cancelled — rows written before cancelling remain enrolled.",
+            "enrolled": "Enrolled (active)",
+            "excludedCount": "Excluded (paused)",
+            "alreadyEnrolled": "Already enrolled",
+            "errorRows": "Rows with errors",
+            "resultEstimate": "Estimated sending duration: ≈{{days}} day(s) at the current daily limit.",
+            "reason": {
+                "invalid_status": "invalid status",
+                "error_status": "error status",
+                "status_filtered": "status filter",
+                "dnc": "DNC"
+            }
         }
     },
     "feedback": {

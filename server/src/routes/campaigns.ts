@@ -485,6 +485,7 @@ router.get('/:id/enrollments', async (req: Request, res: Response, next: NextFun
             .select(`
                 id, email, status, current_step_id, next_scheduled_at,
                 enrolled_at, completed_at,
+                email_status, dnc_status, excluded_reason, custom_body_text,
                 contacts(first_name, last_name, email),
                 companies(name),
                 campaign_steps(step_order, step_type)
@@ -506,6 +507,10 @@ router.get('/:id/enrollments', async (req: Request, res: Response, next: NextFun
             next_scheduled_at: e.next_scheduled_at,
             enrolled_at: e.enrolled_at,
             completed_at: e.completed_at,
+            email_status: e.email_status || null,
+            dnc_status: e.dnc_status || null,
+            excluded_reason: e.excluded_reason || null,
+            has_custom_message: !!e.custom_body_text,
         }));
 
         res.json({ data: mapped });

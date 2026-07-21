@@ -57,3 +57,35 @@ export interface ImportResult {
     matchReport?: MatchReport;
     cancelled?: boolean;
 }
+
+// ── Kampanya alıcı importu (CampaignImportModal) ───────────────────────────
+
+export type ImportType = 'crm' | 'campaign_recipients';
+
+/** POST /import/campaign-summary — execute öncesi salt-okunur ön-uçuş özeti. */
+export interface CampaignImportPreflight {
+    total: number;
+    byStatus: Record<string, number>;
+    dncExcluded: number;
+    duplicatesInFile: number;
+    invalidEmails: number;
+    multiEmailCells: number;
+    eligible: number;
+    estimatedDays: number | null;
+    sendStatuses: string[];
+    dailyLimit: number | null;
+}
+
+/** import_jobs.match_report.campaign — execute sonrası kalıcı özet. */
+export interface CampaignImportSummary {
+    enrolled: number;
+    excluded: Record<string, number>;
+    skippedDuplicateInFile: number;
+    skippedAlreadyEnrolled: number;
+    byStatus: Record<string, number>;
+    estimatedDays: number | null;
+}
+
+export interface CampaignImportResult extends Omit<ImportResult, 'matchReport'> {
+    campaign: CampaignImportSummary;
+}

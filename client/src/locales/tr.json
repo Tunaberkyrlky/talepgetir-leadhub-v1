@@ -261,7 +261,9 @@
         "unsavedChanges": "Kaydedilmemiş değişiklikler var. Çıkmak istediğinize emin misiniz?",
         "unsavedChangesTitle": "Kaydedilmemiş Değişiklikler",
         "stayEditing": "Düzenlemeye Dön",
-        "discardChanges": "Değişiklikleri At"
+        "discardChanges": "Değişiklikleri At",
+        "next": "İleri",
+        "close": "Kapat"
     },
     "filter": {
         "stage": "Aşamaya göre filtrele...",
@@ -625,7 +627,6 @@
             "lost": "Kaybedildi",
             "on_hold": "Askıda"
         },
-        "dateTime": "Tarih ve Saat",
         "dateRequired": "Lütfen geçerli bir tarih ve saat seçin",
         "invalidDate": "Geçersiz tarih formatı, lütfen tekrar seçin",
         "tierRequired": "Aktivite zaman çizelgesi Pro planda kullanılabilir"
@@ -1152,7 +1153,9 @@
             "tracking": "Takip",
             "trackingDesc": "Açılma ve tıklama takibini bu kampanya için açıp kapatın.",
             "openTracking": "Açılma takibi",
-            "clickTracking": "Tıklama takibi"
+            "clickTracking": "Tıklama takibi",
+            "sendStatuses": "CSV Alıcı Doğrulama Statüleri",
+            "sendStatusesDesc": "CSV'den içe aktarılan alıcılarda hangi e-posta doğrulama statülerinin gönderime uygun sayılacağı. invalid ve error asla otomatik gönderilmez."
         },
         "list": {
             "search": "Kampanya ara...",
@@ -1230,6 +1233,15 @@
                 "replied": "Yanıtladı",
                 "bounced": "Sekti",
                 "unsubscribed": "Çıktı"
+            },
+            "importCsv": "CSV'den içe aktar",
+            "colVerification": "Doğrulama",
+            "customMessage": "CSV'den kişiye özel mesaj",
+            "excludedReason": {
+                "invalid_status": "E-posta doğrulaması geçersiz, otomatik gönderilmez",
+                "error_status": "Doğrulama hatası, otomatik gönderilmez",
+                "status_filtered": "Doğrulama statüsü kampanyanın gönderim listesinde değil",
+                "dnc": "DNC kontrolünü geçemedi, otomatik gönderilmez"
             }
         },
         "activation": {
@@ -1258,6 +1270,43 @@
             "byStep": "Adıma göre",
             "stepN": "Adım {{n}}",
             "trackingOff": "Açılma ve tıklama takibi yapılandırılmadığı için bu sayılar sıfır kalabilir. Yanıtlar yine de izlenir."
+        },
+        "import": {
+            "title": "CSV'den Alıcı İçe Aktarma",
+            "stepUpload": "Yükle",
+            "stepMap": "Kolonları Eşle",
+            "stepRun": "Önizle ve Çalıştır",
+            "uploadHint": "Alıcı listesini (CSV/XLSX) buraya sürükleyin veya tıklayıp seçin",
+            "uploadNote": "Her satır kampanyaya bir alıcı olarak eklenir, satırdaki mesaj giriş mailinin gövdesi olur. Şirket ve kişi kayıtları CRM'e de işlenir.",
+            "rowCount": "{{count}} satır",
+            "mapRequired": "E-posta, Mesaj ve Firma kolonları eşlenmeli",
+            "total": "Toplam satır",
+            "eligible": "Gönderime uygun",
+            "invalidEmails": "Geçersiz e-posta",
+            "duplicates": "Dosya içi tekrar",
+            "multiEmail": "{{count}} çoklu e-posta hücresi",
+            "multiEmailHint": "Birden fazla adres içeren hücrelerde ilk geçerli adres kullanılır, kalanlar kayıt altında tutulur.",
+            "sendStatuses": "Gönderilecek doğrulama statüleri",
+            "sendStatusesHint": "invalid ve error satırlar içe aktarılır ama asla otomatik gönderilmez. Bu ayar kampanyaya kaydedilir.",
+            "estimate": "Günde {{limit}} gönderimle uygun alıcılar ≈{{days}} günde tamamlanır.",
+            "noDailyLimit": "Bu kampanyada günlük limit tanımlı değil, soğuk liste göndermeden önce bir limit belirleyebilirsiniz.",
+            "junkHint": "İpucu: şüpheli genel adresleri (ör. donate@/info@) önceden listeden çıkarabilir veya import sonrası tek tek duraklatabilirsiniz.",
+            "run": "İçe aktar ({{count}} uygun)",
+            "running": "İçe aktarılıyor...",
+            "doneToast": "{{count}} alıcı kampanyaya eklendi",
+            "resultTitle": "İçe aktarma tamamlandı",
+            "cancelledNote": "İçe aktarma iptal edildi, iptalden önce yazılan satırlar kayıtlı kalır.",
+            "enrolled": "Eklendi (aktif)",
+            "excludedCount": "Hariç tutuldu (duraklı)",
+            "alreadyEnrolled": "Zaten kayıtlı",
+            "errorRows": "Hatalı satır",
+            "resultEstimate": "Tahmini gönderim süresi: mevcut günlük limitle ≈{{days}} gün.",
+            "reason": {
+                "invalid_status": "geçersiz statü",
+                "error_status": "hata statüsü",
+                "status_filtered": "statü filtresi",
+                "dnc": "DNC"
+            }
         }
     },
     "feedback": {

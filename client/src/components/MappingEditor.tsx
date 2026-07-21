@@ -1,5 +1,5 @@
 import { Table, Text, Select, Badge, Divider, Group, Stack, Tooltip } from '@mantine/core';
-import { IconArrowRight, IconLink, IconLinkOff, IconBuildingSkyscraper, IconUsers } from '@tabler/icons-react';
+import { IconArrowRight, IconLink, IconLinkOff, IconBuildingSkyscraper, IconUsers, IconMail } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import type { MappingSuggestion, AvailableField } from '../types/import';
@@ -88,9 +88,11 @@ export default function MappingEditor({ suggestions, mapping, availableFields, o
                     <Group gap="xs">
                         {f.table === 'companies'
                             ? <IconBuildingSkyscraper size={14} color="var(--mantine-color-blue-5)" />
-                            : <IconUsers size={14} color="var(--mantine-color-teal-5)" />
+                            : f.table === 'campaign'
+                                ? <IconMail size={14} color="var(--mantine-color-grape-5)" />
+                                : <IconUsers size={14} color="var(--mantine-color-teal-5)" />
                         }
-                        <Text fw={500} size="sm" c={f.table === 'companies' ? 'blue' : 'teal'}>
+                        <Text fw={500} size="sm" c={f.table === 'companies' ? 'blue' : f.table === 'campaign' ? 'grape' : 'teal'}>
                             {getFieldLabel(f)}
                             {f.required && <Text span c="red" ml={4}>*</Text>}
                         </Text>

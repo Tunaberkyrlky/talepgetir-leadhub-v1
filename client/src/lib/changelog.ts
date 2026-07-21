@@ -25,6 +25,25 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.20.0',
+        date: '2026-07-21',
+        type: 'feature',
+        area: 'campaigns',
+        title: { tr: 'CSV\'den Kampanya Alıcısı Ekleme', en: 'Campaign Recipients from CSV' },
+        about: {
+            tr: 'Hazır bir alıcı listesini (şirket, e-posta ve satır bazında yazılmış mesajlarıyla) CSV olarak içe aktarıp doğrudan bir drip kampanyasına ekleyebilirsiniz.',
+            en: 'You can import a ready recipient list (with company, email and a per-row message) from CSV and enroll it directly into a drip campaign.',
+        },
+        usage: {
+            tr: 'Kampanya düzenleme ekranındaki Kitle sekmesinde "CSV\'den içe aktar" düğmesiyle dosyanızı yükleyip kolonları eşleyin ve önizlemeden sonra çalıştırın.',
+            en: 'On a campaign\'s Audience tab, use the "Import from CSV" button to upload your file, map the columns and run it after the preview.',
+        },
+        notes: {
+            tr: 'E-posta doğrulaması geçersiz ya da rahatsız edilmeme listesindeki adresler içe aktarılır ama otomatik gönderilmez; hangi doğrulama durumlarının gönderileceğini kampanya ayarlarından belirleyebilirsiniz.',
+            en: 'Addresses that failed email verification or are on the do-not-contact list are imported but never sent automatically; you can choose which verification statuses are eligible in the campaign settings.',
+        },
+    },
+    {
         version: '1.19.16',
         date: '2026-07-20',
         type: 'improvement',

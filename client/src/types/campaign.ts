@@ -28,7 +28,11 @@ export interface CampaignSettings {
     sending_window?: SendingWindow;  // gönderim programı (Faz 1.1)
     sending_accounts?: string[];     // inbox rotasyonu — kullanılacak gönderen mailler (canlı)
     tracking?: CampaignTracking;     // açılma/tıklama takip toggle'ları (canlı)
+    send_statuses?: CampaignEmailStatus[]; // CSV importlu alıcılarda gönderime uygun statüler (boşsa ok+catch_all)
 }
+
+// CSV alıcı importundaki e-posta doğrulama statüsü (harici doğrulayıcıdan).
+export type CampaignEmailStatus = 'ok' | 'catch_all' | 'unknown' | 'invalid' | 'error';
 
 export interface Campaign {
     id: string;
@@ -79,6 +83,11 @@ export interface Enrollment {
     next_scheduled_at: string | null;
     enrolled_at: string;
     completed_at: string | null;
+    // CSV importlu alıcı alanları (import edilmemiş kayıtlarda null/false)
+    email_status: CampaignEmailStatus | null;
+    dnc_status: string | null;
+    excluded_reason: string | null; // invalid_status | error_status | status_filtered | dnc
+    has_custom_message: boolean;
 }
 
 export interface CampaignStats {

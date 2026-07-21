@@ -2,15 +2,18 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Stack, Group, Text, Badge, Button, Table, TextInput, MultiSelect, Paper, Loader, Center, Checkbox, Skeleton,
-    Menu, ActionIcon, Modal, Select, Pagination,
+    Menu, ActionIcon, Modal, Select, Pagination, Tooltip,
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import {
     IconPlus, IconSearch, IconUsers, IconUserPlus, IconDots, IconPlayerPause, IconPlayerPlay, IconTrash,
+    IconFileImport, IconMessage2,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
 import { showSuccess, showErrorFromApi } from '../../lib/notifications';
+import CampaignImportModal from './CampaignImportModal';
+import { EMAIL_STATUS_COLORS } from './emailStatusColors';
 import type { Enrollment, EnrollLeadPayload } from '../../types/campaign';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -46,6 +49,7 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
     const [countries, setCountries] = useState<string[]>([]);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [toRemove, setToRemove] = useState<Enrollment | null>(null);
+    const [importOpen, setImportOpen] = useState(false);
     const [debSearch] = useDebouncedValue(search, 350);
 
     // Duraklatılmış kampanyaya da kişi eklenebilir; zamanlayıcı kampanya aktif olana
@@ -188,10 +192,18 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
 
     return (
         <Stack gap="md">
-            <Group gap="xs">
-                <IconUsers size={18} color="var(--mantine-color-violet-6)" />
-                <Text size="sm" fw={600}>{t('campaign.editor.tabAudience', 'Audience')}</Text>
-                {enrollments && <Badge size="sm" variant="light" color="violet" radius="xl">{enrollments.length}</Badge>}
+            <Group justify="space-between">
+                <Group gap="xs">
+                    <IconUsers size={18} color="var(--mantine-color-violet-6)" />
+                    <Text size="sm" fw={600}>{t('campaign.editor.tabAudience', 'Audience')}</Text>
+                    {enrollments && <Badge size="sm" variant="light" color="violet" radius="xl">{enrollments.length}</Badge>}
+                </Group>
+                {canEnroll && (
+                    <Button size="xs" variant="light" color="grape" radius="md" leftSection={<IconFileImport size={14} />}
+                        onClick={() => setImportOpen(true)}>
+                        {t('campaign.audience.importCsv', 'Import from CSV')}
+                    </Button>
+                )}
             </Group>
 
             {canEnroll && (
@@ -308,6 +320,7 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
                                             <Table.Th>{t('campaign.audience.colCompany', 'Company')}</Table.Th>
                                             <Table.Th>{t('campaign.audience.colStep', 'Step')}</Table.Th>
                                             <Table.Th>{t('campaign.audience.colNext', 'Next')}</Table.Th>
+                                            <Table.Th>{t('campaign.audience.colVerification', 'Verification')}</Table.Th>
                                             <Table.Th>{t('campaigns.table.status', 'Status')}</Table.Th>
                                             <Table.Th w={40} />
                                         </Table.Tr>
@@ -320,7 +333,27 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
                                                 <Table.Td><Text size="xs">{e.company_name}</Text></Table.Td>
                                                 <Table.Td><Text size="xs">{e.current_step_order ? `${t('campaign.audience.colStep', 'Step')} ${e.current_step_order}` : '—'}</Text></Table.Td>
                                                 <Table.Td><Text size="xs" c="dimmed">{e.status === 'active' ? fmtNext(e.next_scheduled_at) : '—'}</Text></Table.Td>
-                                                <Table.Td><Badge size="xs" variant="light" color={STATUS_COLORS[e.status] || 'gray'}>{statusLabel(e.status)}</Badge></Table.Td>
+                                                <Table.Td>
+                                                    <Group gap={4} wrap="nowrap">
+                                                        {e.email_status
+                                                            ? <Badge size="xs" variant="light" color={EMAIL_STATUS_COLORS[e.email_status] || 'gray'}>{e.email_status}</Badge>
+                                                            : <Text size="xs" c="dimmed">—</Text>}
+                                                        {e.has_custom_message && (
+                                                            <Tooltip label={t('campaign.audience.customMessage', 'Personalized message from CSV')}>
+                                                                <IconMessage2 size={14} color="var(--mantine-color-grape-5)" />
+                                                            </Tooltip>
+                                                        )}
+                                                    </Group>
+                                                </Table.Td>
+                                                <Table.Td>
+                                                    {e.excluded_reason ? (
+                                                        <Tooltip label={t(`campaign.audience.excludedReason.${e.excluded_reason}`, e.excluded_reason)} withArrow>
+                                                            <Badge size="xs" variant="light" color={STATUS_COLORS[e.status] || 'gray'}>{statusLabel(e.status)}</Badge>
+                                                        </Tooltip>
+                                                    ) : (
+                                                        <Badge size="xs" variant="light" color={STATUS_COLORS[e.status] || 'gray'}>{statusLabel(e.status)}</Badge>
+                                                    )}
+                                                </Table.Td>
                                                 <Table.Td>
                                                     <Menu position="bottom-end" withinPortal shadow="md" width={170}>
                                                         <Menu.Target>
@@ -380,6 +413,8 @@ export default function EnrollmentPanel({ campaignId, campaignStatus }: Props) {
                     </Group>
                 </Stack>
             </Modal>
+
+            <CampaignImportModal campaignId={campaignId} opened={importOpen} onClose={() => setImportOpen(false)} />
 
             <Modal opened={bulkRemove} onClose={() => setBulkRemove(false)} centered radius="lg" size="sm"
                 title={t('campaign.audience.removeTitle', 'Remove contact')} overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}>

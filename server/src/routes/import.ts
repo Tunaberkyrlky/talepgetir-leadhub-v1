@@ -10,6 +10,7 @@ import { requireRole } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { autoMapHeaders, getAvailableDbFields } from '../lib/importMapper.js';
 import { parseCSV, parseXLSX, executeImport, createImportJob } from '../lib/importProcessor.js';
+import { executeCampaignImport, summarizeCampaignImport } from '../lib/campaignImportProcessor.js';
 import { detectMatchStrategy, matchFiles } from '../lib/dataMatcher.js';
 import { supabaseAdmin } from '../lib/supabase.js';
 import posthog from '../lib/posthog.js';
@@ -131,11 +132,30 @@ router.post(
     requireRole('superadmin', 'ops_agent', 'client_admin'),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
-            const { fileName, fileType, totalRows, mapping } = req.body;
+            const { fileName, fileType, totalRows, mapping, importType, campaignId } = req.body;
 
             if (!fileName || !fileType || !totalRows || !mapping) {
                 res.status(400).json({ error: 'Please complete the import setup before proceeding' });
                 return;
+            }
+
+            const resolvedImportType = importType === 'campaign_recipients' ? 'campaign_recipients' : 'crm';
+            if (resolvedImportType === 'campaign_recipients') {
+                // Kampanya tenant doğrulaması — job yaratılmadan önce
+                if (!campaignId) {
+                    res.status(400).json({ error: 'Campaign is required for recipient import' });
+                    return;
+                }
+                const { data: campaign } = await supabaseAdmin
+                    .from('campaigns')
+                    .select('id')
+                    .eq('id', campaignId)
+                    .eq('tenant_id', req.tenantId!)
+                    .single();
+                if (!campaign) {
+                    res.status(404).json({ error: 'Campaign not found' });
+                    return;
+                }
             }
 
             const jobId = await createImportJob(
@@ -145,6 +165,8 @@ router.post(
                 fileType,
                 Number(totalRows),
                 mapping,
+                resolvedImportType,
+                resolvedImportType === 'campaign_recipients' ? campaignId : undefined,
             );
 
             res.json({ jobId });
@@ -190,9 +212,10 @@ router.post(
             // Clean up temp file immediately — data goes to DB
             cleanupTempFile(filePath);
 
-            // Get auto-mapping suggestions
-            const suggestions = autoMapHeaders(headers);
-            const availableFields = getAvailableDbFields();
+            // Get auto-mapping suggestions (kampanya importu ayrı alias sözlüğü kullanır)
+            const importType = req.body?.importType === 'campaign_recipients' ? 'campaign_recipients' : 'crm';
+            const suggestions = autoMapHeaders(headers, importType);
+            const availableFields = getAvailableDbFields(importType);
 
             // Return preview (first 10 rows)
             const previewRows = rows.slice(0, 10);
@@ -359,6 +382,44 @@ router.post(
                 return;
             }
 
+            // Job'ın tipi /begin'de doğrulanıp yazıldı — güvenilir kaynak job satırıdır.
+            const { data: jobRow } = await supabaseAdmin
+                .from('import_jobs')
+                .select('import_type, campaign_id')
+                .eq('id', jobId)
+                .eq('tenant_id', req.tenantId!)
+                .single();
+
+            if (jobRow?.import_type === 'campaign_recipients') {
+                if (!jobRow.campaign_id) {
+                    res.status(400).json({ error: 'Import job has no campaign attached' });
+                    return;
+                }
+                const result = await executeCampaignImport(
+                    req.tenantId!,
+                    req.user!.id,
+                    rows,
+                    mapping,
+                    jobId,
+                    jobRow.campaign_id,
+                );
+                log.info({ jobId, successCount: result.successCount, errorCount: result.errorCount }, 'Campaign import execute completed');
+                posthog.capture({
+                    distinctId: req.user!.id,
+                    event: 'campaign_import_completed',
+                    properties: {
+                        job_id: jobId,
+                        campaign_id: jobRow.campaign_id,
+                        total_rows: rows.length,
+                        enrolled: result.campaign.enrolled,
+                        error_count: result.errorCount,
+                        tenant_id: req.tenantId!,
+                    },
+                });
+                res.json(result);
+                return;
+            }
+
             // Check if any custom fields were mapped, and save their labels
             const newSettings: Record<string, string> = {};
             for (const [header, dbField] of Object.entries(mapping)) {
@@ -422,6 +483,36 @@ router.post(
     }
 );
 
+// POST /api/import/campaign-summary — Kampanya importu ön-uçuş özeti (salt-okunur).
+// Modal'ın Önizleme adımı: statü kırılımı, DNC/duplicate/geçersiz sayıları, uygun
+// alıcı sayısı ve tahmini gün. Hiçbir yazım yapmaz; execute'tan bağımsız çağrılır.
+router.post(
+    '/campaign-summary',
+    requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { fileId, mapping, campaignId } = req.body;
+            if (!fileId || !mapping || !campaignId) {
+                res.status(400).json({ error: 'fileId, mapping and campaignId are required' });
+                return;
+            }
+
+            const cached = await getFileCache(fileId, req.tenantId!);
+            if (!cached) {
+                res.status(400).json({ error: 'Upload expired or invalid. Please re-upload the file.' });
+                return;
+            }
+
+            const summary = await summarizeCampaignImport(req.tenantId!, cached.rows, mapping, campaignId);
+            res.json(summary);
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Campaign summary error');
+            res.status(500).json({ error: 'Failed to summarize campaign import' });
+        }
+    }
+);
+
 // POST /api/import/cancel/:id — Cancel an in-progress import
 router.post(
     '/cancel/:id',
@@ -457,7 +548,7 @@ router.get(
         try {
             const { data, error } = await supabaseAdmin
                 .from('import_jobs')
-                .select('id, file_name, file_type, status, total_rows, success_count, error_count, created_at, completed_at')
+                .select('id, file_name, file_type, status, total_rows, success_count, error_count, created_at, completed_at, import_type, campaign_id')
                 .eq('tenant_id', req.tenantId!)
                 .order('created_at', { ascending: false })
                 .limit(50);
