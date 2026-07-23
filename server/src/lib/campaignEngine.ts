@@ -473,6 +473,13 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
         if (!smtpCount) return { sent: 0, failed: 0, advanced: 0 };
     }
 
+    // Kurtarma (#1): tick ortasında process ölürse (deploy/OOM/restart) claim edilmiş
+    // enrollment 'active' + next_scheduled_at=NULL kalır; due sorgusu onu asla seçmez
+    // (NULL <= now değil) → sessizce düşer. Bu tür bayat (updated_at eski) kayıtları
+    // yeniden zamanla. Eşik 5 dk: tek tick'in makul süresinden uzun, böylece
+    // ŞU AN işlenmekte olan (taze updated_at) kayda dokunulmaz.
+    await recoverStuckEnrollments();
+
     const { data: dueEnrollments, error } = await supabaseAdmin
         .from('campaign_enrollments')
         .select(`
@@ -549,6 +556,28 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 if (!enrollment.contact_id || !enrollment.company_id) {
                     await markEnrollmentFailed(enrollment.id, 'Missing contact or company');
                     failed++; continue;
+                }
+
+                // #2 — Idempotency guard: bu enrollment bu adım için zaten gönderilmiş/
+                // denenmiş mi? Önceki tick'te sendMail başarılı olup mark-sent ya da
+                // ilerletme yarıda kaldıysa aktivite 'sent'/'sending' kalır — bu tick
+                // ASLA resend etmemeli (mükerrer cold mail = spam şikayeti). Varsa
+                // göndermeyi atla, yalnız ilerlet.
+                const { data: priorSend } = await supabaseAdmin
+                    .from('activities')
+                    .select('id')
+                    .eq('enrollment_id', enrollment.id)
+                    .eq('campaign_step_order', currentStep.step_order)
+                    .eq('type', 'campaign_email')
+                    .in('outcome', ['sent', 'sending'])
+                    .limit(1)
+                    .maybeSingle();
+
+                if (priorSend) {
+                    log.warn({ enrollmentId: enrollment.id, step: currentStep.step_order },
+                        'Email already sent for this step — advancing without resend');
+                    await advanceEnrollment(currentStep, enrollment, campaign.settings);
+                    continue;
                 }
 
                 // ── Gönderim penceresi + günlük limit kapıları ──────────
@@ -654,15 +683,20 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 });
                 bodyHtml += buildUnsubscribeFooter(enrollment.id);
 
-                try {
-                    // CC: campaign-level override > tenant-level default
-                    const ccAddresses: string[] = (campaign.settings?.cc
-                        || tenantSettings.cc_addresses?.map((a: any) => a.email)
-                        || []);
+                // CC: campaign-level override > tenant-level default
+                const ccAddresses: string[] = (campaign.settings?.cc
+                    || tenantSettings.cc_addresses?.map((a: any) => a.email)
+                    || []);
+                // Gönderen adı kutuya ait (tüm kampanyalarda ortak); yoksa kampanya from_name'i.
+                const senderNames = tenantSettings.sender_names || {};
+                const fromName = senderNames[(accountEmail || '').toLowerCase()] || campaign.from_name || undefined;
 
-                    // Gönderen adı kutuya ait (tüm kampanyalarda ortak); yoksa kampanya from_name'i.
-                    const senderNames = tenantSettings.sender_names || {};
-                    const fromName = senderNames[(accountEmail || '').toLowerCase()] || campaign.from_name || undefined;
+                // #2 — Gönderimi bookkeeping'den AYIR: sendMail başarılıysa mail GİTMİŞTİR;
+                // ondan sonraki hiçbir DB hatası aktiviteyi 'failed' yapmamalı ve resend'e
+                // yol açmamalı. Yalnız sendMail'in KENDİSİ başarısızsa +5 dk retry edilir.
+                let sendOk = false;
+                let sendErrMsg = '';
+                try {
                     const result = await sendMail({
                         channel: 'campaign',
                         tenantId: enrollment.tenant_id,
@@ -674,30 +708,33 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         accountEmail,
                         campaignId: enrollment.campaign_id,
                     });
-                    if (!result.success) throw new Error('Send failed');
-
-                    // Mark activity as sent
-                    await supabaseAdmin
-                        .from('activities')
-                        .update({ outcome: 'sent' })
-                        .eq('id', activity.id);
-
-                    sent++;
-                    log.info({ enrollmentId: enrollment.id, to: enrollment.email, activityId: activity.id }, 'Campaign email sent');
+                    sendOk = !!result.success;
+                    if (!sendOk) sendErrMsg = 'Send failed';
                 } catch (sendErr) {
-                    const msg = sendErr instanceof Error ? sendErr.message : String(sendErr);
-                    await supabaseAdmin
-                        .from('activities')
-                        .update({ outcome: `failed: ${msg.slice(0, 200)}` })
+                    sendErrMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+                }
+
+                if (!sendOk) {
+                    await supabaseAdmin.from('activities')
+                        .update({ outcome: `failed: ${sendErrMsg.slice(0, 200)}` })
                         .eq('id', activity.id);
                     failed++;
-                    log.error({ err: sendErr, enrollmentId: enrollment.id }, 'Campaign email send failed');
-                    // Keep enrollment on current step — retry on next scheduler tick
+                    log.error({ err: sendErrMsg, enrollmentId: enrollment.id }, 'Campaign email send failed');
+                    // Adımda kal — sonraki tick'te retry (idempotency guard resend'i engeller).
                     await supabaseAdmin.from('campaign_enrollments')
                         .update({ next_scheduled_at: new Date(Date.now() + 5 * 60_000).toISOString() })
                         .eq('id', enrollment.id);
                     continue;
                 }
+
+                // ── SEND SUCCEEDED — bundan sonra resend YOK ──
+                sent++;
+                // mark-sent best-effort: hata olsa bile mail gitti; aktivite 'sending' kalır
+                // ve sonraki tick'te idempotency guard onu yakalayıp mükerrer gönderimi önler.
+                const { error: markErr } = await supabaseAdmin.from('activities')
+                    .update({ outcome: 'sent' }).eq('id', activity.id);
+                if (markErr) log.error({ err: markErr, enrollmentId: enrollment.id }, 'Mark-sent failed (non-fatal; email already delivered)');
+                log.info({ enrollmentId: enrollment.id, to: enrollment.email, activityId: activity.id }, 'Campaign email sent');
             } else {
                 // email DIŞI node'lar (delay/wait/condition/split/action) mail göndermez —
                 // sadece ilerletir. (Aksiyon node yürütmesi Batch 5'te eklenecek.)
@@ -706,39 +743,8 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 advanced++;
             }
 
-            // ── Advance to next step (graf: pointer/koşul; yoksa step_order fallback) ──
-            const { nextStepId, branchSegment } = await resolveNextStep(currentStep, enrollment);
-
-            if (!nextStepId) {
-                await completeEnrollment(enrollment.id);
-            } else {
-                const { data: nextRow } = await supabaseAdmin
-                    .from('campaign_steps').select('*').eq('id', nextStepId).single();
-                if (!nextRow) {
-                    // Kopuk kenar (silinmiş node) → güvenli durdur (asılı kalmaz).
-                    await completeEnrollment(enrollment.id);
-                } else {
-                    const nextStep = nextRow as CampaignStep;
-                    const nextKind = nextStep.step_kind || nextStep.step_type;
-                    // Wait-before modeli: sıradaki node'un delay'i kadar bekle. Condition
-                    // node bir "bekle-sonra-değerlendir" düğümü: condition_wait_hours kadar
-                    // oturur. Gönderim penceresi varsa açılışa clamp'lenir.
-                    const delayMs = nextKind === 'condition'
-                        ? (nextStep.condition_wait_hours ?? 72) * 3_600_000
-                        : calcDelayMs(nextStep);
-                    const newPath = branchSegment
-                        ? `${enrollment.branch_path || '/'}${branchSegment}/`
-                        : (enrollment.branch_path || '/');
-                    await supabaseAdmin
-                        .from('campaign_enrollments')
-                        .update({
-                            current_step_id: nextStep.id,
-                            branch_path: newPath,
-                            next_scheduled_at: new Date(scheduleMs(applyJitter(Date.now() + delayMs, campaign.settings), campaign.settings)).toISOString(),
-                        })
-                        .eq('id', enrollment.id);
-                }
-            }
+            // ── Sıradaki adıma ilerlet (email gönderimi + email-dışı node ortak yol) ──
+            await advanceEnrollment(currentStep, enrollment, campaign.settings);
 
         } catch (err) {
             log.error({ err, enrollmentId: enrollment.id }, 'Enrollment processing error');
@@ -765,6 +771,57 @@ async function completeEnrollment(enrollmentId: string): Promise<void> {
         .from('campaign_enrollments')
         .update({ status: 'completed', completed_at: new Date().toISOString(), next_scheduled_at: null })
         .eq('id', enrollmentId);
+}
+
+// #1 — Takılı enrollment kurtarma: 'active' + next_scheduled_at=NULL, üstelik
+// updated_at 5 dk'dan eski olanları yeniden zamanlar (next_scheduled_at=now).
+// Bunlar yalnız claim edilip (next_scheduled_at null'landı) işlenemeden process
+// ölen kayıtlardır — normalde active bir kaydın next_scheduled_at'i hep dolu olur.
+// Taze updated_at'liler (şu an işlenen claim'ler) eşiğin altında kalır, dokunulmaz.
+async function recoverStuckEnrollments(): Promise<number> {
+    const staleCutoff = new Date(Date.now() - 5 * 60_000).toISOString();
+    const { data, error } = await supabaseAdmin
+        .from('campaign_enrollments')
+        .update({ next_scheduled_at: new Date().toISOString() })
+        .eq('status', 'active')
+        .is('next_scheduled_at', null)
+        .lt('updated_at', staleCutoff)
+        .select('id');
+    if (error) { log.error({ err: error }, 'Stuck-enrollment recovery failed'); return 0; }
+    const n = data?.length || 0;
+    if (n > 0) log.warn({ recovered: n }, 'Recovered stuck enrollments (active + next_scheduled_at NULL)');
+    return n;
+}
+
+// Enrollment'ı sıradaki adıma ilerletir (graf pointer/koşul; yoksa step_order fallback).
+// Gönderimden AYRI tutulur (#2): email başarıyla gittikten sonra çağrılır, böylece
+// gönderim-sonrası bir DB hatası tick'i patlatsa bile idempotency guard resend'i engeller.
+async function advanceEnrollment(currentStep: CampaignStep, enrollment: EnrollmentRef, campaignSettings: any): Promise<void> {
+    const { nextStepId, branchSegment } = await resolveNextStep(currentStep, enrollment);
+    if (!nextStepId) { await completeEnrollment(enrollment.id); return; }
+
+    const { data: nextRow } = await supabaseAdmin
+        .from('campaign_steps').select('*').eq('id', nextStepId).single();
+    if (!nextRow) { await completeEnrollment(enrollment.id); return; } // kopuk kenar → güvenli durdur
+
+    const nextStep = nextRow as CampaignStep;
+    const nextKind = nextStep.step_kind || nextStep.step_type;
+    // Wait-before modeli: sıradaki node'un delay'i kadar bekle. Condition node
+    // condition_wait_hours kadar oturur. Gönderim penceresi varsa açılışa clamp'lenir.
+    const delayMs = nextKind === 'condition'
+        ? (nextStep.condition_wait_hours ?? 72) * 3_600_000
+        : calcDelayMs(nextStep);
+    const newPath = branchSegment
+        ? `${enrollment.branch_path || '/'}${branchSegment}/`
+        : (enrollment.branch_path || '/');
+    await supabaseAdmin
+        .from('campaign_enrollments')
+        .update({
+            current_step_id: nextStep.id,
+            branch_path: newPath,
+            next_scheduled_at: new Date(scheduleMs(applyJitter(Date.now() + delayMs, campaignSettings), campaignSettings)).toISOString(),
+        })
+        .eq('id', enrollment.id);
 }
 
 async function markEnrollmentFailed(enrollmentId: string, reason: string): Promise<void> {

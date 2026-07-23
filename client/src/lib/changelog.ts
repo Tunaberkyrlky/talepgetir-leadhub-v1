@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.20.1',
+        date: '2026-07-23',
+        type: 'fix',
+        area: 'campaigns',
+        title: { tr: 'Kampanya Gönderim Güvenilirliği', en: 'Campaign Sending Reliability' },
+        about: {
+            tr: 'Drip kampanya gönderimini sağlamlaştırdık: sunucu yeniden başlasa bile alıcılar atlanmıyor ve teknik bir aksaklık aynı kişiye mükerrer mail göndermiyor.',
+            en: 'We hardened drip campaign sending: recipients are no longer skipped even if the server restarts, and a technical hiccup no longer sends duplicate emails to the same person.',
+        },
+    },
+    {
         version: '1.20.0',
         date: '2026-07-21',
         type: 'feature',
