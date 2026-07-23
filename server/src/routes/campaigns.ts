@@ -485,7 +485,7 @@ router.get('/:id/enrollments', async (req: Request, res: Response, next: NextFun
             .select(`
                 id, email, status, current_step_id, next_scheduled_at,
                 enrolled_at, completed_at,
-                email_status, dnc_status, excluded_reason, custom_body_text,
+                email_status, dnc_status, excluded_reason, custom_body_text, step_messages,
                 contacts(first_name, last_name, email),
                 companies(name),
                 campaign_steps(step_order, step_type)
@@ -510,8 +510,17 @@ router.get('/:id/enrollments', async (req: Request, res: Response, next: NextFun
             email_status: e.email_status || null,
             dnc_status: e.dnc_status || null,
             excluded_reason: e.excluded_reason || null,
-            has_custom_message: !!e.custom_body_text,
+            has_custom_message: !!e.custom_body_text || (e.step_messages && Object.keys(e.step_messages).length > 0),
             message_snippet: (e.custom_body_text || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+            // Per-adım snippet (step_id → ilk ~120 karakter) — Dizi sekmesinde seçili adıma göre.
+            step_snippets: (() => {
+                const out: Record<string, string> = {};
+                const sm = (e.step_messages || {}) as Record<string, { body?: string | null }>;
+                for (const [sid, m] of Object.entries(sm)) {
+                    if (m?.body) out[sid] = String(m.body).replace(/\s+/g, ' ').trim().slice(0, 120);
+                }
+                return out;
+            })(),
         }));
 
         res.json({ data: mapped });
@@ -522,42 +531,51 @@ router.get('/:id/enrollments', async (req: Request, res: Response, next: NextFun
     }
 });
 
-// ── GET /:id/enrollments/:enrollmentId/preview ──────────────────────────────
-// Bir alıcının gönderilecek mailini birebir gösterir: konu + gövde (HTML).
-// Motorun gönderim mantığıyla aynı: custom_body_text varsa plainTextToHtml ile
-// o kullanılır (spintax/değişken yok), yoksa adım şablonu (spintax→değişken).
-// Takip pikseli + abonelikten-çık gönderimde eklenir; önizlemede gösterilmez.
+// ── GET /:id/enrollments/:enrollmentId/preview?step_id= ─────────────────────
+// Bir alıcının belirli bir adımda gönderilecek mailini birebir gösterir (konu+gövde).
+// step_id verilmezse mevcut adım. Motor mantığıyla AYNI çözüm: step_messages[stepId]
+// varsa o (plainTextToHtml, spintax/değişken yok), yoksa entry adımı için eski tek-kolon,
+// o da yoksa adım şablonu (spintax→değişken). Takip+unsubscribe gönderimde eklenir.
 router.get('/:id/enrollments/:enrollmentId/preview', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { data: e } = await supabaseAdmin
             .from('campaign_enrollments')
-            .select('id, email, custom_subject, custom_body_text, current_step_id, company_id, contact_id, tenant_id')
+            .select('id, email, custom_subject, custom_body_text, step_messages, current_step_id, company_id, contact_id, tenant_id')
             .eq('id', (req.params.enrollmentId as string))
             .eq('campaign_id', (req.params.id as string))
             .eq('tenant_id', req.tenantId!)
             .single();
         if (!e) { res.status(404).json({ error: 'Enrollment not found' }); return; }
 
-        const { data: step } = e.current_step_id
-            ? await supabaseAdmin.from('campaign_steps').select('subject, body_html').eq('id', e.current_step_id).single()
+        const stepId = (req.query.step_id as string) || e.current_step_id;
+        const { data: step } = stepId
+            ? await supabaseAdmin.from('campaign_steps').select('id, subject, body_html, is_entry, campaign_id').eq('id', stepId).single()
             : { data: null };
+        if (step && step.campaign_id !== (req.params.id as string)) { res.status(404).json({ error: 'Step not in campaign' }); return; }
 
         const ctx = (e.contact_id && e.company_id)
             ? await resolveTemplate(e.tenant_id, e.contact_id, e.company_id)
             : { first_name: '', last_name: '', email: e.email, title: '', company_name: '', website: '', industry: '' };
 
-        const subject = e.custom_subject
-            ? e.custom_subject
-            : applyTemplate(applySpintax(step?.subject || ''), ctx);
-        const bodyHtml = e.custom_body_text
-            ? plainTextToHtml(e.custom_body_text)
-            : applyTemplate(applySpintax(step?.body_html || ''), ctx);
+        const sm = stepId ? (e.step_messages as Record<string, { subject?: string | null; body?: string | null }> | null)?.[stepId] : null;
+        let customBody: string | null = null;
+        let customSubj: string | null = null;
+        if (sm) {
+            customBody = sm.body ?? null;
+            customSubj = sm.subject ?? null;
+        } else if (step?.is_entry) {
+            customBody = e.custom_body_text ?? null;
+            customSubj = e.custom_subject ?? null;
+        }
+
+        const subject = customSubj ? customSubj : applyTemplate(applySpintax(step?.subject || ''), ctx);
+        const bodyHtml = customBody ? plainTextToHtml(customBody) : applyTemplate(applySpintax(step?.body_html || ''), ctx);
 
         res.json({
             to: e.email,
             subject,
             body_html: bodyHtml,
-            has_custom: !!e.custom_body_text,
+            has_custom: !!customBody,
             company_name: ctx.company_name,
             contact_name: [ctx.first_name, ctx.last_name].filter(Boolean).join(' '),
         });

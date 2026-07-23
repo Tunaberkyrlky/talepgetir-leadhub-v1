@@ -25,6 +25,25 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.21.0',
+        date: '2026-07-23',
+        type: 'feature',
+        area: 'campaigns',
+        title: { tr: 'Takip (Follow-up) Mailleri', en: 'Follow-up Emails' },
+        about: {
+            tr: 'CSV kampanyalarına, yanıt gelmeyen alıcılara belirlediğiniz gün sonra otomatik gönderilen takip mailleri ekleyebilirsiniz.',
+            en: 'You can add follow-up emails to CSV campaigns, sent automatically after a set number of days to recipients who did not reply.',
+        },
+        usage: {
+            tr: 'Yeni Kampanya → Hazır liste (CSV) akışında follow-up sayısını ve bekleme günlerini seçin, ardından her mailin mesaj ve konu kolonlarını eşleyin.',
+            en: 'In New Campaign → Upload a ready list (CSV), choose the number of follow-ups and wait days, then map each email\'s message and subject columns.',
+        },
+        notes: {
+            tr: 'Bir alıcı yanıt verdiğinde onun takip dizisi otomatik durur; her mailin gövdesini ve konusunu Dizi sekmesinde alıcı bazında önizleyebilirsiniz.',
+            en: 'When a recipient replies, their follow-up sequence stops automatically; you can preview each email\'s body and subject per recipient on the Sequence tab.',
+        },
+    },
+    {
         version: '1.20.1',
         date: '2026-07-23',
         type: 'fix',

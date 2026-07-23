@@ -337,6 +337,46 @@ const CAMPAIGN_FIELD_ALIASES: Record<string, { table: string; field: string; ali
         field: 'subject',
         aliases: [
             'subject', 'konu', 'başlık', 'baslik', 'email subject', 'mail konusu', 'konu başlığı',
+            'intro subject', 'intro konu', '1. konu', 'mail 1 konu',
+        ],
+        required: false,
+    },
+    // Follow-up adımları (intro'dan sonra, yanıt yoksa). Mesaj + konu ayrı kolonlar.
+    'campaign.followup1_message': {
+        table: 'campaign',
+        field: 'followup1_message',
+        aliases: [
+            'follow up 1', 'followup 1', 'followup1', 'follow-up 1', 'fu1', 'fu 1',
+            'takip 1', 'takip1', 'takip mesajı 1', '1. takip', '1. takip mesaj', 'takip 1 mesaj',
+            'follow up message 1', 'follow-up message', '2. mail', 'ikinci mail', 'mail 2',
+        ],
+        required: false,
+    },
+    'campaign.followup1_subject': {
+        table: 'campaign',
+        field: 'followup1_subject',
+        aliases: [
+            'follow up 1 subject', 'followup1 subject', 'fu1 subject', 'fu1 konu',
+            'takip 1 konu', 'takip konu 1', '1. takip konu', '2. mail konu', 'mail 2 konu',
+        ],
+        required: false,
+    },
+    'campaign.followup2_message': {
+        table: 'campaign',
+        field: 'followup2_message',
+        aliases: [
+            'follow up 2', 'followup 2', 'followup2', 'follow-up 2', 'fu2', 'fu 2',
+            'takip 2', 'takip2', 'takip mesajı 2', '2. takip', '2. takip mesaj', 'takip 2 mesaj',
+            'follow up message 2', '3. mail', 'üçüncü mail', 'mail 3',
+        ],
+        required: false,
+    },
+    'campaign.followup2_subject': {
+        table: 'campaign',
+        field: 'followup2_subject',
+        aliases: [
+            'follow up 2 subject', 'followup2 subject', 'fu2 subject', 'fu2 konu',
+            'takip 2 konu', 'takip konu 2', '2. takip konu', '3. mail konu', 'mail 3 konu',
         ],
         required: false,
     },

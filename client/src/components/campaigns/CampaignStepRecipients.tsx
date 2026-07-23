@@ -15,13 +15,14 @@ const STATUS_COLORS: Record<string, string> = {
 
 interface Props {
     campaignId: string;
+    stepId?: string; // hangi email adımı seçili — snippet + önizleme o adımın mesajını gösterir
 }
 
 // Dizi sekmesinde CSV kampanyasının email adımının gövde slotunu doldurur:
 // gövde boş çünkü her alıcının mesajı CSV'den geliyor. Bu panel "bu adımda kime
 // ne gidecek"i gösterir — alıcı listesi + tıkla-önizle. Yönetim (durdur/çıkar)
 // Kitle sekmesinde; burası salt-okunur "gidecek mailler" görünümü.
-export default function CampaignStepRecipients({ campaignId }: Props) {
+export default function CampaignStepRecipients({ campaignId, stepId }: Props) {
     const { t } = useTranslation();
     const [search, setSearch] = useState('');
     const [debSearch] = useDebouncedValue(search, 250);
@@ -32,10 +33,13 @@ export default function CampaignStepRecipients({ campaignId }: Props) {
         queryFn: async () => (await api.get(`/campaigns/${campaignId}/enrollments`)).data.data,
     });
 
+    // Seçili adımın per-alıcı mesaj snippet'i (yoksa intro'ya düş).
+    const snippetOf = (e: Enrollment) => (stepId ? e.step_snippets?.[stepId] : undefined) ?? e.message_snippet;
+
     const rows = (enrollments || []).filter((e) => {
         if (!debSearch) return true;
         const q = debSearch.toLowerCase();
-        return `${e.contact_name} ${e.email} ${e.company_name} ${e.message_snippet || ''}`.toLowerCase().includes(q);
+        return `${e.contact_name} ${e.email} ${e.company_name} ${snippetOf(e) || ''}`.toLowerCase().includes(q);
     });
 
     const statusLabel = (s: string) => t(`campaign.audience.status.${s}`, s);
@@ -85,10 +89,10 @@ export default function CampaignStepRecipients({ campaignId }: Props) {
                                                 <Badge size="xs" variant="light" color={STATUS_COLORS[e.status] || 'gray'}>{statusLabel(e.status)}</Badge>
                                             </Group>
                                             <Text size="xs" c="dimmed" truncate>{e.email}</Text>
-                                            {e.message_snippet && (
+                                            {snippetOf(e) && (
                                                 <Group gap={4} wrap="nowrap" mt={2}>
                                                     <IconMessage2 size={12} color="var(--mantine-color-grape-5)" style={{ flexShrink: 0 }} />
-                                                    <Text size="xs" c="dimmed" truncate fs="italic">{e.message_snippet}…</Text>
+                                                    <Text size="xs" c="dimmed" truncate fs="italic">{snippetOf(e)}…</Text>
                                                 </Group>
                                             )}
                                         </div>
@@ -101,7 +105,7 @@ export default function CampaignStepRecipients({ campaignId }: Props) {
                 </ScrollArea.Autosize>
             )}
 
-            <EmailPreviewModal campaignId={campaignId} enrollmentId={previewId} onClose={() => setPreviewId(null)} />
+            <EmailPreviewModal campaignId={campaignId} enrollmentId={previewId} stepId={stepId} onClose={() => setPreviewId(null)} />
         </Stack>
     );
 }

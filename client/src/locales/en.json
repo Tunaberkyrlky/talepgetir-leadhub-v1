@@ -1327,7 +1327,11 @@
             "createNote": "A draft campaign with a single intro email step is created. The per-row message from your CSV becomes each recipient's email body. Nothing is sent until you activate the campaign.",
             "createdCompanies": "Companies in CRM",
             "nextStep": "Recipients and their messages are ready as a draft. Open the campaign to review and click Activate to start sending (a connected mailbox is required).",
-            "openCampaign": "Open campaign"
+            "openCampaign": "Open campaign",
+            "followupTitle": "Follow-ups (if no reply)",
+            "followupNone": "None",
+            "followupWait": "Follow-up {{n}}: days after",
+            "followupHint": "Follow-up message and subject columns are mapped in the next step. A reply stops the sequence for that recipient."
         },
         "newChoice": {
             "csvTitle": "Upload a ready list (CSV)",

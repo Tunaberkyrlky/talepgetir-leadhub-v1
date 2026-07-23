@@ -1327,7 +1327,11 @@
             "createNote": "Tek giriş email adımı olan bir taslak kampanya oluşturulur. CSV'deki satır bazlı mesaj her alıcının mail gövdesi olur. Kampanyayı aktifleştirene kadar hiçbir şey gönderilmez.",
             "createdCompanies": "CRM'deki şirket",
             "nextStep": "Alıcılar ve mesajları taslak olarak hazır. Gözden geçirmek için kampanyayı açın, göndermeye başlamak için Aktifleştir'e basın (bağlı bir kutu gerekir).",
-            "openCampaign": "Kampanyayı aç"
+            "openCampaign": "Kampanyayı aç",
+            "followupTitle": "Follow-up (yanıt yoksa)",
+            "followupNone": "Yok",
+            "followupWait": "{{n}}. follow-up: kaç gün sonra",
+            "followupHint": "Follow-up mesaj ve konu kolonlarını bir sonraki adımda eşlersiniz. Yanıt gelen alıcıda dizi durur."
         },
         "newChoice": {
             "csvTitle": "Hazır liste yükle (CSV)",

@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Modal, Stepper, Group, Button, Text, Stack, Badge, Alert, Progress, MultiSelect,
-    SimpleGrid, Paper, Loader, Center, Tooltip, TextInput, NumberInput,
+    SimpleGrid, Paper, Loader, Center, Tooltip, TextInput, NumberInput, SegmentedControl,
 } from '@mantine/core';
 import { Dropzone, MIME_TYPES } from '@mantine/dropzone';
 import {
@@ -65,7 +65,10 @@ export default function CampaignImportModal({ campaignId, createMode, opened, on
     const [campaignName, setCampaignName] = useState('');
     const [subjectTemplate, setSubjectTemplate] = useState(DEFAULT_SUBJECT);
     const [dailyLimit, setDailyLimit] = useState<number | ''>(40);
+    const [followupCount, setFollowupCount] = useState(0); // 0 / 1 / 2 (yanıt yoksa follow-up)
+    const [followupWaits, setFollowupWaits] = useState<number[]>([3, 3]); // gün, fu1 / fu2
     const [createdId, setCreatedId] = useState<string | null>(null);
+    const setWait = (i: number, v: number) => setFollowupWaits((p) => { const n = [...p]; n[i] = v; return n; });
 
     // Etkin kampanya id'si: mevcut modda prop, createMode'da oluşturulan taslak.
     const activeCampaignId = campaignId ?? createdId ?? undefined;
@@ -83,7 +86,8 @@ export default function CampaignImportModal({ campaignId, createMode, opened, on
     const reset = () => {
         setActive(0); setPreviewData(null); setMapping({}); setJobId(null);
         setResult(null); setDropError(null);
-        setCampaignName(''); setSubjectTemplate(DEFAULT_SUBJECT); setDailyLimit(40); setCreatedId(null);
+        setCampaignName(''); setSubjectTemplate(DEFAULT_SUBJECT); setDailyLimit(40);
+        setFollowupCount(0); setFollowupWaits([3, 3]); setCreatedId(null);
     };
     const handleClose = () => {
         if (executeMut.isPending || createCampaignMut.isPending) return; // çalışırken kapatma
@@ -91,19 +95,39 @@ export default function CampaignImportModal({ campaignId, createMode, opened, on
         onClose();
     };
 
-    // ── createMode adım 0: kampanya + email adımı oluştur ──
+    // ── createMode adım 0: kampanya + graf (intro + N follow-up) oluştur ──
     const createCampaignMut = useMutation({
         mutationFn: async () => {
             const settings = typeof dailyLimit === 'number' && dailyLimit > 0 ? { daily_limit: dailyLimit } : {};
             const r = await api.post('/campaigns', { name: campaignName.trim(), settings });
             const cid = r.data.data.id as string;
-            // Tek email giriş adımı: konu şablon, gövde boş (alıcı bazlı custom_body_text devralır).
-            const emailStep: CampaignStep = {
+
+            // Graf: intro(email) → [koşul(yanıt yok, N gün) → follow-up(email)] × followupCount.
+            // Gövde/konu alıcı bazlı step_messages'tan gelir (import yazar); adım şablonu boş.
+            // serializeStepsToNodes email adımlarını dizi sırasına göre lineer bağlar; koşullar
+            // condition_true (→ follow-up) / condition_false (→ null=biter) ile dallanır.
+            const intro: CampaignStep = {
                 id: newId(), step_order: 1, step_type: 'email',
                 subject: subjectTemplate.trim() || DEFAULT_SUBJECT, body_html: '', body_text: null,
                 delay_days: 0, delay_hours: 0,
             };
-            await api.put(`/campaigns/${cid}/steps`, { nodes: serializeStepsToNodes([emailStep]) });
+            const steps: CampaignStep[] = [intro];
+            for (let i = 0; i < followupCount; i++) {
+                const waitDays = followupWaits[i] || 3;
+                const cond: CampaignStep = {
+                    id: newId(), step_order: steps.length + 1, step_type: 'condition',
+                    subject: null, body_html: null, body_text: null, delay_days: 0, delay_hours: 0,
+                    condition_type: 'not_replied', condition_wait_hours: waitDays * 24,
+                    condition_true_step_id: null, condition_false_step_id: null,
+                };
+                const fu: CampaignStep = {
+                    id: newId(), step_order: steps.length + 2, step_type: 'email',
+                    subject: '', body_html: '', body_text: null, delay_days: 0, delay_hours: 0,
+                };
+                cond.condition_true_step_id = fu.id; // yanıt yok → follow-up gönder (false → dizi biter)
+                steps.push(cond, fu);
+            }
+            await api.put(`/campaigns/${cid}/steps`, { nodes: serializeStepsToNodes(steps) });
             return cid;
         },
         onSuccess: (cid) => {
@@ -140,7 +164,13 @@ export default function CampaignImportModal({ campaignId, createMode, opened, on
     }, [uploadMut]);
 
     const mappedFields = new Set(Object.values(mapping).filter(Boolean) as string[]);
-    const missingRequired = REQUIRED_FIELDS.filter((f) => !mappedFields.has(f));
+    // Follow-up sayısına göre zorunlu alanlar büyür (yalnız createMode'da anlamlı).
+    const requiredFields = createMode
+        ? [...REQUIRED_FIELDS,
+            ...(followupCount >= 1 ? ['campaign.followup1_message'] : []),
+            ...(followupCount >= 2 ? ['campaign.followup2_message'] : [])]
+        : REQUIRED_FIELDS;
+    const missingRequired = requiredFields.filter((f) => !mappedFields.has(f));
 
     // ── Ön-uçuş özeti (salt-okunur) ──
     const { data: preflight, isFetching: preflightLoading } = useQuery<CampaignImportPreflight>({
@@ -258,6 +288,42 @@ export default function CampaignImportModal({ campaignId, createMode, opened, on
                         value={dailyLimit}
                         onChange={(v) => setDailyLimit(typeof v === 'number' ? v : '')}
                     />
+
+                    {/* Follow-up zinciri (yanıt yoksa) */}
+                    <div>
+                        <Text size="sm" fw={500} mb={4}>{t('campaign.import.followupTitle', 'Follow-ups (if no reply)')}</Text>
+                        <SegmentedControl
+                            size="sm" value={String(followupCount)}
+                            onChange={(v) => setFollowupCount(Number(v))}
+                            data={[
+                                { value: '0', label: t('campaign.import.followupNone', 'None') },
+                                { value: '1', label: '1' },
+                                { value: '2', label: '2' },
+                            ]}
+                        />
+                        {followupCount >= 1 && (
+                            <Group gap="md" mt="sm">
+                                <NumberInput
+                                    label={t('campaign.import.followupWait', { n: 1, defaultValue: 'Follow-up {{n}}: days after' })}
+                                    min={1} max={90} radius="md" size="sm" w={200}
+                                    value={followupWaits[0]} onChange={(v) => setWait(0, typeof v === 'number' ? v : 1)}
+                                />
+                                {followupCount >= 2 && (
+                                    <NumberInput
+                                        label={t('campaign.import.followupWait', { n: 2, defaultValue: 'Follow-up {{n}}: days after' })}
+                                        min={1} max={90} radius="md" size="sm" w={200}
+                                        value={followupWaits[1]} onChange={(v) => setWait(1, typeof v === 'number' ? v : 1)}
+                                    />
+                                )}
+                            </Group>
+                        )}
+                        {followupCount >= 1 && (
+                            <Text size="xs" c="dimmed" mt={6}>
+                                {t('campaign.import.followupHint', 'Follow-up message and subject columns are mapped in the next step. A reply stops the sequence for that recipient.')}
+                            </Text>
+                        )}
+                    </div>
+
                     <Alert color="grape" variant="light" icon={<IconInfoCircle size={16} />} radius="md">
                         {t('campaign.import.createNote', 'A draft campaign with a single intro email step is created. The per-row message from your CSV becomes each recipient\'s email body. Nothing is sent until you activate the campaign.')}
                     </Alert>

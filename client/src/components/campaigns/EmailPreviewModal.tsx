@@ -8,18 +8,21 @@ import type { EnrollmentMessagePreview } from '../../types/campaign';
 interface Props {
     campaignId: string;
     enrollmentId: string | null; // null = kapalı
+    stepId?: string; // hangi adımın maili önizlensin (verilmezse mevcut adım)
     onClose: () => void;
 }
 
 // Bir alıcının gönderilecek mailini birebir gösterir (konu + gövde HTML).
 // Backend, motorun gönderim mantığıyla aynı çözümlemeyi yapar (custom_body_text
 // varsa o, yoksa adım şablonu). Takip pikseli + abonelikten-çık gönderimde eklenir.
-export default function EmailPreviewModal({ campaignId, enrollmentId, onClose }: Props) {
+export default function EmailPreviewModal({ campaignId, enrollmentId, stepId, onClose }: Props) {
     const { t } = useTranslation();
 
     const { data, isFetching } = useQuery<EnrollmentMessagePreview>({
-        queryKey: ['enrollment-preview', campaignId, enrollmentId],
-        queryFn: async () => (await api.get(`/campaigns/${campaignId}/enrollments/${enrollmentId}/preview`)).data,
+        queryKey: ['enrollment-preview', campaignId, enrollmentId, stepId],
+        queryFn: async () => (await api.get(`/campaigns/${campaignId}/enrollments/${enrollmentId}/preview`, {
+            params: stepId ? { step_id: stepId } : undefined,
+        })).data,
         enabled: !!enrollmentId,
     });
 

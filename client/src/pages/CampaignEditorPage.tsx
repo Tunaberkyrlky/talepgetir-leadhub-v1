@@ -314,9 +314,8 @@ export default function CampaignEditorPage() {
         <StepEditor key={selectedIdx} step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0}
             onSendTest={!isNew && id ? (p) => testMut.mutateAsync(p).then(() => undefined) : undefined}
             defaultTestEmail={user?.email}
-            csvBody={hasCsvRecipients && id && selectedStep.step_type === 'email'
-                && selectedIdx === (steps.findIndex((s) => s.is_entry) >= 0 ? steps.findIndex((s) => s.is_entry) : 0)
-                ? <CampaignStepRecipients campaignId={id} />
+            csvBody={hasCsvRecipients && id && selectedStep.step_type === 'email' && selectedStep.id
+                ? <CampaignStepRecipients campaignId={id} stepId={selectedStep.id} />
                 : undefined} />
     );
 

@@ -145,6 +145,19 @@ async function _executeCampaignImportInner(
         ? settings.send_statuses
         : ['ok', 'catch_all'];
 
+    // Follow-up zinciri: kampanyanın email adımları (sırayla). Kural: 1. email = intro,
+    // 2. email = follow-up 1, 3. email = follow-up 2. Sihirbaz grafı bu sırada kurar.
+    // Birden çok email adımı varsa per-alıcı step_messages yazılır; tek intro'da null
+    // kalır (eski custom_body_text yolu birebir korunur).
+    const { data: emailStepsRaw } = await supabaseAdmin
+        .from('campaign_steps')
+        .select('id, step_order')
+        .eq('campaign_id', campaignId)
+        .eq('step_type', 'email')
+        .order('step_order');
+    const emailStepIds: string[] = (emailStepsRaw || []).map((s) => s.id);
+    const hasFollowups = emailStepIds.length > 1;
+
     // Mapping: dbField → fileHeader
     const reverseMap: Record<string, string> = {};
     for (const [fileHeader, dbField] of Object.entries(mapping)) {
@@ -168,6 +181,10 @@ async function _executeCampaignImportInner(
         otherEmails: string[];
         message: string | null;
         subject: string | null;
+        followup1Message: string | null;
+        followup1Subject: string | null;
+        followup2Message: string | null;
+        followup2Subject: string | null;
         emailStatus: CampaignEmailStatus | null;
         dncStatus: string | null;
         language: string | null;
@@ -217,6 +234,10 @@ async function _executeCampaignImportInner(
             otherEmails: others,
             message: getValue(row, 'campaign.message') || null,
             subject: getValue(row, 'campaign.subject') || null,
+            followup1Message: getValue(row, 'campaign.followup1_message') || null,
+            followup1Subject: getValue(row, 'campaign.followup1_subject') || null,
+            followup2Message: getValue(row, 'campaign.followup2_message') || null,
+            followup2Subject: getValue(row, 'campaign.followup2_subject') || null,
             emailStatus,
             dncStatus,
             language: getValue(row, 'campaign.language') || null,
@@ -421,6 +442,23 @@ async function _executeCampaignImportInner(
         meta.source_row = n.sourceRow || String(n.rowNum);
         if (n.otherEmails.length > 0) meta.other_emails = n.otherEmails;
 
+        // Follow-up varsa per-adım mesaj: email adımı sırası ↔ (intro / fu1 / fu2).
+        // Tek intro'da step_messages null (eski custom_body_text yolu korunur).
+        let stepMessages: Record<string, { subject: string | null; body: string | null }> | null = null;
+        if (hasFollowups) {
+            const perStep: Array<{ body: string | null; subject: string | null }> = [
+                { body: n.message, subject: n.subject },
+                { body: n.followup1Message, subject: n.followup1Subject },
+                { body: n.followup2Message, subject: n.followup2Subject },
+            ];
+            stepMessages = {};
+            emailStepIds.forEach((stepId, i) => {
+                const c = perStep[i];
+                if (c && (c.body || c.subject)) stepMessages![stepId] = { subject: c.subject, body: c.body };
+            });
+            if (Object.keys(stepMessages).length === 0) stepMessages = null;
+        }
+
         enrollmentRows.push({
             tenant_id: tenantId,
             campaign_id: campaignId,
@@ -432,6 +470,7 @@ async function _executeCampaignImportInner(
             next_scheduled_at: eligible ? firstScheduleAt : null,
             custom_subject: n.subject,
             custom_body_text: n.message,
+            step_messages: stepMessages,
             email_status: n.emailStatus,
             dnc_status: n.dncStatus,
             excluded_reason: n.excludedReason,

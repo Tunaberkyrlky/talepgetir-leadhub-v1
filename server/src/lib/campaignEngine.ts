@@ -485,7 +485,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
         .select(`
             id, tenant_id, campaign_id, contact_id, company_id, email,
             current_step_id, next_scheduled_at, branch_path, status, replied_at,
-            custom_subject, custom_body_text, excluded_reason
+            custom_subject, custom_body_text, step_messages, excluded_reason
         `)
         .eq('status', 'active')
         .lte('next_scheduled_at', new Date().toISOString())
@@ -630,16 +630,23 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 let subject = applyTemplate(applySpintax(currentStep.subject || ''), ctx);
                 let bodyHtml = applyTemplate(applySpintax(currentStep.body_html || ''), ctx);
 
-                // CSV importlu alıcının satır bazlı hazır mesajı yalnız GİRİŞ email
-                // adımında şablonun yerine geçer (final metin; spintax/değişken
-                // uygulanmaz). Konu: custom_subject varsa aynen, yoksa adım
-                // şablonundan çözülen. Follow-up adımları her zaman şablondan gider.
-                let usedCustomBody = false;
-                if (enrollment.custom_body_text && (await isEntryStep(currentStep))) {
-                    bodyHtml = plainTextToHtml(enrollment.custom_body_text);
-                    if (enrollment.custom_subject) subject = enrollment.custom_subject;
-                    usedCustomBody = true;
+                // CSV importlu alıcının per-adım hazır mesajı şablonun yerine geçer
+                // (final metin; spintax/değişken uygulanmaz). Öncelik: step_messages[stepId]
+                // (follow-up dahil her adım), yoksa GİRİŞ adımı için eski tek-kolon
+                // (geriye uyum). İkisi de yoksa adım şablonu kalır.
+                const stepMsg = (enrollment.step_messages as Record<string, { subject?: string | null; body?: string | null }> | null)?.[currentStep.id];
+                let customBody: string | null = null;
+                let customSubj: string | null = null;
+                if (stepMsg) {
+                    customBody = stepMsg.body ?? null;
+                    customSubj = stepMsg.subject ?? null;
+                } else if (await isEntryStep(currentStep)) {
+                    customBody = enrollment.custom_body_text ?? null;
+                    customSubj = enrollment.custom_subject ?? null;
                 }
+                let usedCustomBody = false;
+                if (customBody) { bodyHtml = plainTextToHtml(customBody); usedCustomBody = true; }
+                if (customSubj) subject = customSubj;
 
                 // Create activity first (we need the ID for tracking)
                 const { data: activity, error: actErr } = await supabaseAdmin
@@ -650,7 +657,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                         contact_id: enrollment.contact_id,
                         type: 'campaign_email',
                         summary: subject,
-                        detail: (usedCustomBody ? (enrollment.custom_body_text || '') : (currentStep.body_html || '')).slice(0, 500), // snippet for timeline
+                        detail: (usedCustomBody ? (customBody || '') : (currentStep.body_html || '')).slice(0, 500), // snippet for timeline
                         outcome: 'sending',
                         campaign_id: enrollment.campaign_id,
                         enrollment_id: enrollment.id,
