@@ -26,6 +26,7 @@ import filterOptionsRoutes from './routes/filter-options.js';
 import tenantsRoutes from './routes/tenants.js';
 import statisticsRoutes from './routes/statistics.js';
 import adminRoutes from './routes/admin.js';
+import opsRoutes from './routes/ops.js';
 import settingsRoutes from './routes/settings.js';
 import activitiesRoutes from './routes/activities.js';
 import emailRepliesRoutes from './routes/email-replies.js';
@@ -40,17 +41,7 @@ import { startCampaignScheduler } from './lib/campaignScheduler.js';
 import { startImapPollingScheduler } from './lib/imapPollingScheduler.js';
 import { startDailyDigestScheduler } from './lib/dailyDigestScheduler.js';
 import { getHeartbeatsPublic } from './lib/heartbeat.js';
-
-// App version — read once at startup. Works in dev (tsx: __dirname=server/src) and
-// prod (tsc: __dirname=server/dist); package.json sits one level up in both.
-// Surfaced at /api/health so "is the new code actually live?" is answerable.
-let APP_VERSION = 'unknown';
-try {
-    APP_VERSION = JSON.parse(
-        fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')
-    ).version || 'unknown';
-} catch { /* leave 'unknown' */ }
-const STARTED_AT = new Date().toISOString();
+import { APP_VERSION, STARTED_AT } from './lib/appMeta.js';
 
 // ── Global crash safety net ──────────────────────────────────────────────
 // Long-lived process: a single escaped async error must not silently kill it.
@@ -261,6 +252,7 @@ app.use('/api/tenants', authMiddleware, tenantsRoutes);
 app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/statistics', authMiddleware, statisticsLimiter, statisticsRoutes);
 app.use('/api/admin', authMiddleware, requireRole('superadmin'), adminRoutes);
+app.use('/api/ops', authMiddleware, requireRole('superadmin', 'ops_agent'), opsRoutes);
 app.use('/api/activities', authMiddleware, dataFilter, activitiesRoutes);
 app.use('/api/email-replies', authMiddleware, emailRepliesLimiter, dataFilter, emailRepliesRoutes);
 app.use('/api/plusvibe/import-replies', authMiddleware, plusvibeImportLimiter);

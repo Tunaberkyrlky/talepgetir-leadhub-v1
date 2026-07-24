@@ -122,8 +122,8 @@ export default function Layout() {
         ...(hasRolePermission(user?.role || '', 'import')
             ? [{ path: '/import', label: t('nav.import'), icon: <IconFileImport size={20} /> }]
             : []),
-        ...(user?.role === 'superadmin'
-            ? [{ path: '/admin', label: t('nav.admin'), icon: <IconShieldCog size={20} /> }]
+        ...(hasRolePermission(user?.role || '', 'ops_panel')
+            ? [{ path: '/admin', label: t('nav.ops'), icon: <IconShieldCog size={20} /> }]
             : []),
     ];
 

@@ -393,7 +393,51 @@
         "emailReplies": "Email Yanıtları",
         "campaigns": "Kampanyalar",
         "import": "İçe Aktar",
-        "admin": "Yönetim Paneli"
+        "admin": "Yönetim Paneli",
+        "ops": "Komuta Merkezi"
+    },
+    "ops": {
+        "title": "Operasyon Komuta Merkezi",
+        "loadError": "Veriler alınamadı",
+        "tabs": {
+            "overview": "Genel Bakış",
+            "health": "Sistem"
+        },
+        "overview": {
+            "companies": "Şirket",
+            "contacts": "Kişi",
+            "activeCampaigns": "Aktif Kampanya",
+            "totalCampaigns": "Toplam Kampanya",
+            "unreadInbound": "Okunmamış Mail",
+            "lastActivity": "Son Aktivite",
+            "noActivity": "Aktivite yok",
+            "mailboxes": "Posta Kutusu",
+            "mailboxStale": "gecikmiş",
+            "empty": "Erişilebilir müşteri yok"
+        },
+        "health": {
+            "status": "Durum",
+            "statusOk": "Çalışıyor",
+            "statusDegraded": "Sorunlu",
+            "database": "Veritabanı",
+            "dbConnected": "Bağlı",
+            "dbUnreachable": "Erişilemiyor",
+            "version": "Versiyon",
+            "uptime": "Çalışma Süresi",
+            "schedulers": "Zamanlayıcılar",
+            "scheduler": "Zamanlayıcı",
+            "lastTick": "Son Çalışma",
+            "lastOk": "Son Başarılı",
+            "ok": "Çalışıyor",
+            "failing": "Hata",
+            "lastError": "Son Hata",
+            "mailboxes": "Posta Kutuları",
+            "total": "Toplam",
+            "active": "Aktif",
+            "staleMailboxes": "Gecikmiş Posta Kutuları",
+            "noStale": "Tüm posta kutuları güncel",
+            "lastPolled": "Son Kontrol"
+        }
     },
     "people": {
         "title": "Kişiler",

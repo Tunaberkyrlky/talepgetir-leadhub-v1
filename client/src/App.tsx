@@ -33,7 +33,7 @@ const PersonDetailPage = lazy(() => import('./pages/PersonDetailPage'));
 const PipelinePage = lazy(() => import('./pages/PipelinePage'));
 const ActivitiesPage = lazy(() => import('./pages/ActivitiesPage'));
 const EmailRepliesPage = lazy(() => import('./pages/EmailRepliesPage'));
-const AdminPage = lazy(() => import('./pages/AdminPage'));
+const CommandCenterPage = lazy(() => import('./pages/CommandCenterPage'));
 const CampaignsPage = lazy(() => import('./pages/CampaignsPage'));
 const CampaignEditorPage = lazy(() => import('./pages/CampaignEditorPage'));
 
@@ -116,8 +116,8 @@ function App() {
                           <Route path="/campaigns/drip/new" element={<CampaignEditorPage />} />
                           <Route path="/campaigns/drip/:id/edit" element={<CampaignEditorPage />} />
                           <Route path="/import" element={<ImportPage />} />
-                          <Route path="/admin" element={<AdminPage />} />
-                          <Route path="/admin/:tab" element={<AdminPage />} />
+                          <Route path="/admin" element={<CommandCenterPage />} />
+                          <Route path="/admin/:tab" element={<CommandCenterPage />} />
                         </Route>
                         <Route path="*" element={<Navigate to="/dashboard" replace />} />
                       </Routes>

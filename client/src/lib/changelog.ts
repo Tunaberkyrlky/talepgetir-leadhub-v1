@@ -29,18 +29,10 @@ export const changelog: ChangelogEntry[] = [
         date: '2026-07-24',
         type: 'feature',
         area: 'admin',
-        title: { tr: 'Komuta Merkezi', en: 'Command Center' },
+        title: { tr: 'Operasyon Komuta Merkezi', en: 'Operations Command Center' },
         about: {
-            tr: 'Yönetim paneli, tüm müşterilerinizin durumunu ve sistem sağlığını tek yerden izleyebileceğiniz Komuta Merkezi\'ne dönüştü.',
-            en: 'The admin panel has become the Command Center, where you can monitor every customer\'s status and system health in one place.',
-        },
-        usage: {
-            tr: 'Menüdeki Komuta Merkezi bağlantısından Genel Bakış sekmesinde müşteri kartlarını, Sistem sekmesinde zamanlayıcı ve posta kutusu sağlığını görebilirsiniz.',
-            en: 'From the Command Center link in the menu you can view customer cards on the Overview tab and scheduler plus mailbox health on the Health tab.',
-        },
-        notes: {
-            tr: 'Operasyon ekibi yalnızca atandığı müşterileri görür, yönetim sekmeleri superadmin\'e özeldir.',
-            en: 'Operations agents see only their assigned customers, management tabs remain superadmin only.',
+            tr: 'Operasyon ekibimiz için hesabınızın durumunu ve sistem sağlığını tek yerden izleyen bir panel eklendi, böylece size daha hızlı destek verebiliriz.',
+            en: 'Our operations team gained a panel that monitors your account status and system health in one place, so we can support you faster.',
         },
     },
     {

@@ -393,7 +393,51 @@
         "emailReplies": "Email Replies",
         "campaigns": "Campaigns",
         "import": "Import",
-        "admin": "Admin Panel"
+        "admin": "Admin Panel",
+        "ops": "Command Center"
+    },
+    "ops": {
+        "title": "Operations Command Center",
+        "loadError": "Failed to load data",
+        "tabs": {
+            "overview": "Overview",
+            "health": "Health"
+        },
+        "overview": {
+            "companies": "Companies",
+            "contacts": "Contacts",
+            "activeCampaigns": "Active Campaigns",
+            "totalCampaigns": "Total Campaigns",
+            "unreadInbound": "Unread Mail",
+            "lastActivity": "Last Activity",
+            "noActivity": "No activity",
+            "mailboxes": "Mailboxes",
+            "mailboxStale": "stale",
+            "empty": "No accessible tenants"
+        },
+        "health": {
+            "status": "Status",
+            "statusOk": "Running",
+            "statusDegraded": "Degraded",
+            "database": "Database",
+            "dbConnected": "Connected",
+            "dbUnreachable": "Unreachable",
+            "version": "Version",
+            "uptime": "Uptime",
+            "schedulers": "Schedulers",
+            "scheduler": "Scheduler",
+            "lastTick": "Last Tick",
+            "lastOk": "Last OK",
+            "ok": "Running",
+            "failing": "Failing",
+            "lastError": "Last Error",
+            "mailboxes": "Mailboxes",
+            "total": "Total",
+            "active": "Active",
+            "staleMailboxes": "Stale Mailboxes",
+            "noStale": "All mailboxes up to date",
+            "lastPolled": "Last Poll"
+        }
     },
     "people": {
         "title": "People",
