@@ -1032,11 +1032,13 @@ export async function cancelEnrollmentOnReply(senderEmail: string, tenantId: str
 
     const contactIds = contacts.map((c) => c.id);
 
-    // Yanıtlayan kişinin aktif/duraklı enrollment'ları.
+    // Yanıtlayan kişinin devam eden VEYA yeni bitmiş enrollment'ları. 'completed'
+    // de dahil: diziyi bitirdikten sonra yanıtlayan kişi de yanıt olarak sayılmalı
+    // (aksi halde reply_rate bu yanıtları kaçırırdı).
     const { data: enrollments } = await supabaseAdmin
         .from('campaign_enrollments')
-        .select('id, campaign_id')
-        .in('status', ['active', 'paused'])
+        .select('id, campaign_id, status')
+        .in('status', ['active', 'paused', 'completed'])
         .eq('tenant_id', tenantId)
         .in('contact_id', contactIds);
 
@@ -1049,10 +1051,10 @@ export async function cancelEnrollmentOnReply(senderEmail: string, tenantId: str
         .update({ replied_at: new Date().toISOString() })
         .in('id', enrollments.map((e) => e.id));
 
-    // Reply-condition'ı (replied/not_replied) olan kampanyalardaki enrollment'lar
-    // SONLANDIRILMAZ — condition node'una ulaşıp dallanabilsinler. Diğer (lineer)
-    // kampanyalarda eski iptal davranışı aynen korunur. Bugün hiçbir kampanyada
-    // reply-condition yok → bu dal dormant, mevcut davranış değişmez.
+    // Reply-condition'ı (replied/not_replied) olan kampanyalardaki AKTİF/DURAKLI
+    // enrollment'lar SONLANDIRILMAZ — condition node'una ulaşıp dallanabilsinler.
+    // Diğer (lineer) kampanyalarda eski iptal davranışı aynen korunur. Bugün hiçbir
+    // kampanyada reply-condition yok → bu dal dormant, mevcut davranış değişmez.
     const campaignIds = [...new Set(enrollments.map((e) => e.campaign_id))];
     const { data: replyCondSteps } = await supabaseAdmin
         .from('campaign_steps')
@@ -1061,7 +1063,10 @@ export async function cancelEnrollmentOnReply(senderEmail: string, tenantId: str
         .in('condition_type', ['replied', 'not_replied']);
     const branchingCampaigns = new Set((replyCondSteps || []).map((s) => s.campaign_id));
 
-    const toCancel = enrollments.filter((e) => !branchingCampaigns.has(e.campaign_id)).map((e) => e.id);
+    // 'completed' zaten terminal → dallanma beklemez, her durumda 'replied' işaretlenir.
+    const toCancel = enrollments
+        .filter((e) => e.status === 'completed' || !branchingCampaigns.has(e.campaign_id))
+        .map((e) => e.id);
     if (toCancel.length) {
         await supabaseAdmin
             .from('campaign_enrollments')
@@ -1109,7 +1114,7 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
             .eq('tenant_id', tenantId),
         supabaseAdmin
             .from('activities')
-            .select('id, outcome, occurred_at, sending_account, campaign_step_order, campaign_email_events(event_type)')
+            .select('id, outcome, occurred_at, sending_account, campaign_step_order, enrollment_id, campaign_email_events(event_type)')
             .eq('campaign_id', campaignId)
             .eq('tenant_id', tenantId)
             .eq('type', 'campaign_email'),
@@ -1126,6 +1131,7 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
     let sentCount = 0;
     const openSet = new Set<string>();
     const clickSet = new Set<string>();
+    const contactedSet = new Set<string>();             // ≥1 mail GİDEN farklı kişi (enrollment) — reply_rate paydası
     const byAccount: Record<string, number> = {};       // kutu-başı gönderim
     const dailyMap: Record<string, { sent: number; opens: number }> = {}; // gün-başı (UTC)
     const byStep: Record<number, { sent: number; opens: number; clicks: number }> = {}; // adım-başı
@@ -1133,6 +1139,7 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
     for (const act of (activityRes.data || []) as any[]) {
         if (act.outcome !== 'sent') continue; // sadece gerçekten gönderilenler → oranlar %100'ü aşmaz
         sentCount++;
+        if (act.enrollment_id) contactedSet.add(act.enrollment_id); // kişi bazlı payda için
 
         const acct = act.sending_account || '—';
         byAccount[acct] = (byAccount[acct] || 0) + 1;
@@ -1182,6 +1189,10 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
     const bounced = statusCounts['bounced'] || 0;
     // Bounce oranı: gönderim denemelerinin (giden + bounce) yüzde kaçı bounce etti.
     const attempts = sentCount + bounced;
+    // Yanıt oranı KİŞİ bazlı: yanıtlayan kişi / e-posta ULAŞAN kişi. Payda gönderilen
+    // mail sayısı DEĞİL (follow-up'lı kampanyada bir kişi çok mail alır → oran yanlış
+    // düşerdi). Açılma/tıklama e-posta bazlı kalır (bilinçli tercih).
+    const contactedCount = contactedSet.size;
 
     return {
         total_enrolled: totalEnrolled,
@@ -1195,7 +1206,7 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
         opens, clicks, replies: replied,
         open_rate: sentCount > 0 ? opens / sentCount : 0,
         click_rate: sentCount > 0 ? clicks / sentCount : 0,
-        reply_rate: sentCount > 0 ? replied / sentCount : 0,
+        reply_rate: contactedCount > 0 ? Math.min(1, replied / contactedCount) : 0,
         bounce_rate: attempts > 0 ? bounced / attempts : 0,
         by_account,
         daily,

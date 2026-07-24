@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.24.2',
+        date: '2026-07-24',
+        type: 'fix',
+        area: 'campaigns',
+        title: { tr: 'Yanıt Oranı Düzeltmesi', en: 'Reply Rate Fix' },
+        about: {
+            tr: 'Yanıt oranı artık gönderilen mail sayısına değil, e-posta ulaşan kişi sayısına göre hesaplanıyor; takipli kampanyalarda olduğundan düşük görünen oran düzeltildi.',
+            en: 'Reply rate is now calculated against the number of people reached, not the number of emails sent; the artificially low rate in follow-up campaigns is fixed.',
+        },
+        notes: {
+            tr: 'Diziyi tamamladıktan sonra yanıt verenler de artık yanıt olarak sayılıyor.',
+            en: 'People who reply after finishing the sequence are now counted as replies too.',
+        },
+    },
+    {
         version: '1.24.1',
         date: '2026-07-24',
         type: 'improvement',
