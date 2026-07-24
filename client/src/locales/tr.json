@@ -1383,7 +1383,8 @@
             "barManage": "Yönet / Uygula",
             "barUpload": "CSV verisi ekle",
             "modalTitle": "CSV verisi"
-        }
+        },
+        "defaultName": "Yeni kampanya"
     },
     "feedback": {
         "title": "Geri Bildirim",

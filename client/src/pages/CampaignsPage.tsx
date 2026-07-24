@@ -17,8 +17,9 @@ import StatCard from '../components/StatCard';
 import { TierGate } from '../components/FeatureGate';
 import { useAuth } from '../contexts/AuthContext';
 import CampaignAssignmentTab from '../components/campaigns/CampaignAssignmentTab';
+import { newId, serializeStepsToNodes } from '../lib/graph';
 import type { CampaignsResponse, PlusVibeCampaign } from '../types/plusvibe';
-import type { Campaign } from '../types/campaign';
+import type { Campaign, CampaignStep } from '../types/campaign';
 
 function pct(val: number): string {
     return `${(val * 100).toFixed(1)}%`;
@@ -184,6 +185,23 @@ function DripTab() {
         onError: (err) => showErrorFromApi(err),
     });
 
+    // "Yeni Kampanya" → taslağı + intro email adımını hemen oluştur, editöre git.
+    // Böylece editörde id hazır olur; veri katmanı (CSV) barı ve graf node'u anında çalışır.
+    const createMut = useMutation({
+        mutationFn: async () => {
+            const r = await api.post('/campaigns', { name: t('campaign.defaultName', 'New campaign'), settings: { daily_limit: 40 } });
+            const cid = r.data.data.id as string;
+            const intro: CampaignStep = {
+                id: newId(), step_order: 1, step_type: 'email',
+                subject: 'Hakkında: {{company_name}}', body_html: '', body_text: null, delay_days: 0, delay_hours: 0,
+            };
+            await api.put(`/campaigns/${cid}/steps`, { nodes: serializeStepsToNodes([intro]) });
+            return cid;
+        },
+        onSuccess: (cid) => { qc.invalidateQueries({ queryKey: ['campaigns'] }); navigate(`/campaigns/drip/${cid}/edit`); },
+        onError: (err) => showErrorFromApi(err),
+    });
+
     const deleteMut = useMutation({
         mutationFn: async (id: string) => { await api.delete(`/campaigns/${id}`); },
         onSuccess: () => {
@@ -234,7 +252,7 @@ function DripTab() {
                 </Group>
                 <Button size="sm" leftSection={<IconPlus size={16} />}
                     variant="gradient" gradient={{ from: '#6c63ff', to: '#3b82f6', deg: 135 }}
-                    radius="md" onClick={() => navigate('/campaigns/drip/new')}
+                    radius="md" loading={createMut.isPending} onClick={() => createMut.mutate()}
                 >
                     {t('campaign.new', 'New Campaign')}
                 </Button>
@@ -260,7 +278,7 @@ function DripTab() {
                         </Text>
                         <Button leftSection={<IconPlus size={16} />}
                             variant="gradient" gradient={{ from: '#6c63ff', to: '#3b82f6', deg: 135 }}
-                            radius="md" mt="xs" onClick={() => navigate('/campaigns/drip/new')}
+                            radius="md" mt="xs" loading={createMut.isPending} onClick={() => createMut.mutate()}
                         >
                             {t('campaign.new', 'New Campaign')}
                         </Button>

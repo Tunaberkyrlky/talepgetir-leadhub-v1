@@ -1383,7 +1383,8 @@
             "barManage": "Manage / Apply",
             "barUpload": "Add CSV data",
             "modalTitle": "CSV data"
-        }
+        },
+        "defaultName": "New campaign"
     },
     "feedback": {
         "title": "Feedback",

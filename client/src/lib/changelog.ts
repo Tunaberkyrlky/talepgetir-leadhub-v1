@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.22.4',
+        date: '2026-07-24',
+        type: 'fix',
+        area: 'campaigns',
+        title: { tr: 'Yeni Kampanyada Veri Katmanı Hazır', en: 'Data Layer Ready on New Campaigns' },
+        about: {
+            tr: 'Yeni Kampanya artık taslağı hemen oluşturup düzenleyiciyi açıyor; CSV veri katmanı barı hem basit hem görsel görünümde anında geliyor.',
+            en: 'New Campaign now creates the draft immediately and opens the editor, so the CSV data bar appears right away in both the simple and visual views.',
+        },
+    },
+    {
         version: '1.22.3',
         date: '2026-07-24',
         type: 'improvement',
