@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.21.1',
+        date: '2026-07-24',
+        type: 'improvement',
+        area: 'campaigns',
+        title: { tr: 'Grafta CSV Veri Kaynağı', en: 'CSV Data Source in Graph' },
+        about: {
+            tr: 'CSV\'den oluşturulan kampanyaların dizi grafında giriş node\'u artık alıcı sayısıyla birlikte "CSV Veri" olarak görünüyor.',
+            en: 'For campaigns created from CSV, the sequence graph\'s entry node now appears as "CSV Data" with the recipient count.',
+        },
+    },
+    {
         version: '1.21.0',
         date: '2026-07-23',
         type: 'feature',

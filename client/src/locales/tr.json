@@ -1112,7 +1112,9 @@
                     "not_clicked": "Bağlantıya tıklanmadıysa",
                     "replied": "Yanıt geldiyse",
                     "not_replied": "Yanıt gelmediyse"
-                }
+                },
+                "csvSource": "CSV Veri",
+                "csvSourceDesc": "{{count}} alıcı"
             },
             "testSend": "Test gönder",
             "testSendTitle": "Test maili gönder",

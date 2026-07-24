@@ -9,9 +9,9 @@ import {
     type Node, type NodeProps, type EdgeProps, type NodeMouseHandler, type OnNodeDrag, type OnNodesChange, type OnConnect,
 } from '@xyflow/react';
 import { Paper, Text, Group, ThemeIcon, Button } from '@mantine/core';
-import { IconMail, IconBolt, IconPlus, IconTrash, IconAlertTriangle, IconHourglass, IconGitBranch } from '@tabler/icons-react';
+import { IconMail, IconBolt, IconPlus, IconTrash, IconAlertTriangle, IconHourglass, IconGitBranch, IconFileImport } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
-import { migrateLinearToGraph, toFlow, type GraphNodeData } from '../../../lib/graph';
+import { migrateLinearToGraph, toFlow, TRIGGER_ID, type GraphNodeData } from '../../../lib/graph';
 import type { CampaignStep } from '../../../types/campaign';
 
 // Bağlantı noktaları — bilerek büyük/belirgin: oradan kolayca "line alıp" bağlamak için.
@@ -23,16 +23,29 @@ function resolveSpintaxFirst(text: string): string {
 }
 
 // ── Custom node'lar (Mantine temalı) ───────────────────────────────────────
-function TriggerNode({ isConnectable }: NodeProps) {
+function TriggerNode({ data, isConnectable }: NodeProps) {
     const { t } = useTranslation();
+    // CSV importlu kampanyada giriş = "CSV Veri" kaynağı (alıcı sayısıyla).
+    const csvCount = (data as { csvRecipientCount?: number } | undefined)?.csvRecipientCount;
+    const isCsv = typeof csvCount === 'number';
     return (
-        <div style={{ width: 190 }}>
-            <Paper withBorder radius="md" p="sm" bg="teal.0" style={{ borderColor: 'var(--mantine-color-teal-3)' }}>
+        <div style={{ width: 200 }}>
+            <Paper withBorder radius="md" p="sm"
+                bg={isCsv ? 'grape.0' : 'teal.0'}
+                style={{ borderColor: isCsv ? 'var(--mantine-color-grape-3)' : 'var(--mantine-color-teal-3)' }}>
                 <Group gap={8} wrap="nowrap">
-                    <ThemeIcon size="sm" radius="xl" color="teal"><IconBolt size={14} /></ThemeIcon>
+                    <ThemeIcon size="sm" radius="xl" color={isCsv ? 'grape' : 'teal'}>
+                        {isCsv ? <IconFileImport size={14} /> : <IconBolt size={14} />}
+                    </ThemeIcon>
                     <div>
-                        <Text size="xs" fw={700} c="teal.8">{t('campaign.editor.graph.entry', 'Entry')}</Text>
-                        <Text size="xs" c="teal.7">{t('campaign.editor.graph.entryDesc', 'Contacts enter here')}</Text>
+                        <Text size="xs" fw={700} c={isCsv ? 'grape.8' : 'teal.8'}>
+                            {isCsv ? t('campaign.editor.graph.csvSource', 'CSV Data') : t('campaign.editor.graph.entry', 'Entry')}
+                        </Text>
+                        <Text size="xs" c={isCsv ? 'grape.7' : 'teal.7'}>
+                            {isCsv
+                                ? t('campaign.editor.graph.csvSourceDesc', { count: csvCount, defaultValue: '{{count}} recipients' })
+                                : t('campaign.editor.graph.entryDesc', 'Contacts enter here')}
+                        </Text>
                     </div>
                 </Group>
             </Paper>
@@ -207,11 +220,18 @@ interface Props {
     onConnectNodes?: (sourceId: string, handle: string | null, targetId: string) => void;
     // Bağlantıyı kopar: kaynak node id'si + handle → ilgili pointer null'lanır.
     onDisconnect?: (sourceId: string, handle: string | null) => void;
+    // CSV importlu kampanyada giriş node'unu "CSV Veri (N alıcı)" olarak göster.
+    csvRecipientCount?: number;
 }
 
-export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOnly, onAddEmail, onAddWait, onAddCondition, onDeleteStep, onMoveStep, onConnectNodes, onDisconnect }: Props) {
+export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOnly, onAddEmail, onAddWait, onAddCondition, onDeleteStep, onMoveStep, onConnectNodes, onDisconnect, csvRecipientCount }: Props) {
     const { t } = useTranslation();
-    const graph = useMemo(() => migrateLinearToGraph(steps), [steps]);
+    const graph = useMemo(() => {
+        const g = migrateLinearToGraph(steps);
+        if (csvRecipientCount == null) return g;
+        // Giriş node'una alıcı sayısını enjekte et → TriggerNode "CSV Veri" varyantını gösterir.
+        return { ...g, nodes: g.nodes.map((n) => n.id === TRIGGER_ID ? { ...n, data: { ...n.data, csvRecipientCount } } : n) };
+    }, [steps, csvRecipientCount]);
     const flow = useMemo(
         () => toFlow(graph.nodes, graph.edges, selectedIndex, !readOnly),
         [graph, selectedIndex, readOnly],

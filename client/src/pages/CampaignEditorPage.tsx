@@ -408,7 +408,8 @@ export default function CampaignEditorPage() {
                                         <GraphEditor steps={steps} selectedIndex={selectedIdx} onSelectStep={setSelectedIdx}
                                             readOnly={isReadOnly} onAddEmail={addEmailStep} onAddWait={addWaitStep} onAddCondition={addConditionStep}
                                             onDeleteStep={deleteStep} onMoveStep={onMoveStep}
-                                            onConnectNodes={onConnectNodes} onDisconnect={onDisconnect} />
+                                            onConnectNodes={onConnectNodes} onDisconnect={onDisconnect}
+                                            csvRecipientCount={hasCsvRecipients ? (csvEnrollments?.length ?? 0) : undefined} />
                                     </Suspense>
                                 </Grid.Col>
                                 <Grid.Col span={4}>

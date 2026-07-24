@@ -1112,7 +1112,9 @@
                     "not_clicked": "Link not clicked",
                     "replied": "Replied",
                     "not_replied": "Not replied"
-                }
+                },
+                "csvSource": "CSV Data",
+                "csvSourceDesc": "{{count}} recipients"
             },
             "testSend": "Send test",
             "testSendTitle": "Send test email",
