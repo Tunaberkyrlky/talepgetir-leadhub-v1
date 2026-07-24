@@ -5,7 +5,7 @@ import {
     Container, Paper, Group, Stack, Text, TextInput, Button, Badge, Grid, Tabs, Loader, Center, Modal, Alert, Tooltip, SegmentedControl, NumberInput,
 } from '@mantine/core';
 import {
-    IconArrowLeft, IconDeviceFloppy, IconPlayerPause, IconChartBar, IconUsers, IconList, IconAlertCircle, IconSettings, IconSitemap, IconHourglass,
+    IconArrowLeft, IconDeviceFloppy, IconPlayerPause, IconChartBar, IconUsers, IconList, IconAlertCircle, IconSettings, IconSitemap, IconHourglass, IconFileImport,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import api from '../lib/api';
@@ -104,8 +104,9 @@ export default function CampaignEditorPage() {
         enabled: !isNew && !!id,
     });
     const hasCsvRecipients = (csvEnrollments || []).some((e) => e.has_custom_message);
-    const [csvSourceSelected, setCsvSourceSelected] = useState(false); // grafta CSV Veri node'u seçili mi
+    const [csvDataModalOpen, setCsvDataModalOpen] = useState(false); // "Veri (CSV)" katmanı modalı
     const csvHeaders = campaign?.csv_source?.headers;
+    const csvRowCount = campaign?.csv_source?.row_count;
 
     // Sunucudan farklı bir kampanya yüklendiğinde düzenlenebilir state'i sıfırla.
     // Effect yerine render-anı reset (React'in "prop değişince state sıfırla" deseni):
@@ -376,6 +377,25 @@ export default function CampaignEditorPage() {
                     )}
 
                     <Tabs.Panel value="steps" pt="md">
+                        {/* Veri katmanı (CSV) — her iki görünümde erişilir; email node'ları buradan kolon çeker. */}
+                        {id && (
+                            <Paper withBorder radius="md" p="xs" mb="sm" bg={campaign?.csv_source ? 'grape.0' : undefined}>
+                                <Group justify="space-between" wrap="nowrap">
+                                    <Group gap="xs" wrap="nowrap">
+                                        <IconFileImport size={16} color="var(--mantine-color-grape-6)" />
+                                        <Text size="xs" fw={600}>
+                                            {campaign?.csv_source
+                                                ? t('campaign.csv.barLoaded', { count: csvRowCount ?? 0, defaultValue: 'CSV data · {{count}} rows' })
+                                                : t('campaign.csv.barEmpty', 'No CSV data yet')}
+                                        </Text>
+                                    </Group>
+                                    <Button size="compact-xs" variant="light" color="grape" leftSection={<IconFileImport size={13} />}
+                                        onClick={() => setCsvDataModalOpen(true)}>
+                                        {campaign?.csv_source ? t('campaign.csv.barManage', 'Manage / Apply') : t('campaign.csv.barUpload', 'Add CSV data')}
+                                    </Button>
+                                </Group>
+                            </Paper>
+                        )}
                         <Group justify="space-between" mb="sm">
                             <Text size="xs" fw={600} c="dimmed">{t('campaign.editor.steps', 'Steps')} ({steps.length})</Text>
                             <SegmentedControl size="xs" value={stepsView} onChange={(v) => setStepsView(v as 'simple' | 'visual')}
@@ -409,20 +429,18 @@ export default function CampaignEditorPage() {
                             <Grid>
                                 <Grid.Col span={8}>
                                     <Suspense fallback={<Center h={540}><Loader color="violet" /></Center>}>
-                                        <GraphEditor steps={steps} selectedIndex={selectedIdx}
-                                            onSelectStep={(i) => { setSelectedIdx(i); setCsvSourceSelected(false); }}
+                                        <GraphEditor steps={steps} selectedIndex={selectedIdx} onSelectStep={setSelectedIdx}
                                             readOnly={isReadOnly} onAddEmail={addEmailStep} onAddWait={addWaitStep} onAddCondition={addConditionStep}
                                             onDeleteStep={deleteStep} onMoveStep={onMoveStep}
                                             onConnectNodes={onConnectNodes} onDisconnect={onDisconnect}
                                             csvRecipientCount={(campaign?.csv_source || hasCsvRecipients) ? (csvEnrollments?.length ?? campaign?.csv_source?.row_count ?? 0) : undefined}
-                                            onSelectCsvSource={id ? () => setCsvSourceSelected(true) : undefined}
+                                            onSelectCsvSource={id ? () => setCsvDataModalOpen(true) : undefined}
                                             csvMode={!!campaign?.csv_source} />
                                     </Suspense>
                                 </Grid.Col>
                                 <Grid.Col span={4}>
                                     <Paper shadow="xs" radius="md" p="lg" withBorder mih={400}>
-                                        {csvSourceSelected && id ? <CsvSourceInspector campaignId={id} />
-                                            : selectedStep ? inspectorBody : (
+                                        {selectedStep ? inspectorBody : (
                                             <Center h={300}>
                                                 <Text size="sm" c="dimmed" ta="center">{t('campaign.editor.graph.selectNode', 'Select a node on the canvas to edit it.')}</Text>
                                             </Center>
@@ -464,6 +482,14 @@ export default function CampaignEditorPage() {
                     </Tabs.Panel>
                 </Tabs>
             </Stack>
+
+            {/* Veri (CSV) katmanı modalı — hem basit hem graf görünümde açılır */}
+            {id && (
+                <Modal opened={csvDataModalOpen} onClose={() => setCsvDataModalOpen(false)} size="lg" radius="lg" centered
+                    title={t('campaign.csv.modalTitle', 'CSV data')} overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}>
+                    <CsvSourceInspector campaignId={id} />
+                </Modal>
+            )}
 
             {/* Unsaved changes confirmation */}
             <Modal opened={confirmLeave} onClose={() => setConfirmLeave(false)}

@@ -1374,7 +1374,12 @@
             "result": "{{enrolled}} alıcı eklendi, {{companies}} şirket CRM'de.",
             "moreCols": "Diğer kolonlar (statü, DNC…)",
             "lessCols": "Daha az kolon",
-            "perNodeHint2": "Buraya sadece yükle, o kadar. Grafta her email node'unda mesaj ve konunun hangi kolondan geleceğini seç, sonra Kaydet ve Uygula."
+            "perNodeHint2": "Buraya sadece yükle, o kadar. Grafta her email node'unda mesaj ve konunun hangi kolondan geleceğini seç, sonra Kaydet ve Uygula.",
+            "barLoaded": "CSV verisi · {{count}} satır",
+            "barEmpty": "Henüz CSV verisi yok",
+            "barManage": "Yönet / Uygula",
+            "barUpload": "CSV verisi ekle",
+            "modalTitle": "CSV verisi"
         }
     },
     "feedback": {

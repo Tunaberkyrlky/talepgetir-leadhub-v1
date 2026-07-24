@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.22.2',
+        date: '2026-07-24',
+        type: 'improvement',
+        area: 'campaigns',
+        title: { tr: 'Kampanya Veri Katmanı (CSV)', en: 'Campaign Data Layer (CSV)' },
+        about: {
+            tr: 'Sihirbaz kaldırıldı; CSV artık kampanyanın veri katmanı — hem basit hem görsel düzenleyicide üstteki "Veri (CSV)" ile yükleyip yönetiyorsunuz, email adımları oradan kolon çekiyor.',
+            en: 'The wizard is gone; CSV is now the campaign\'s data layer — upload and manage it from the "CSV data" bar in both the simple and visual editor, and email steps pull their columns from it.',
+        },
+        usage: {
+            tr: 'Yeni Kampanya doğrudan düzenleyiciyi açar; üstteki "Veri (CSV)" ile listeyi yükleyin, her email adımında kolonu seçin, sonra Uygula.',
+            en: 'New Campaign opens the editor directly; upload your list from the "CSV data" bar, pick the column on each email step, then Apply.',
+        },
+    },
+    {
         version: '1.22.1',
         date: '2026-07-24',
         type: 'improvement',

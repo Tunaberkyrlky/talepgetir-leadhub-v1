@@ -1374,7 +1374,12 @@
             "result": "{{enrolled}} recipients enrolled, {{companies}} companies in CRM.",
             "moreCols": "Other columns (status, DNC…)",
             "lessCols": "Fewer columns",
-            "perNodeHint2": "Just upload here. On each email node in the graph, choose which column its message and subject come from, then Save and Apply."
+            "perNodeHint2": "Just upload here. On each email node in the graph, choose which column its message and subject come from, then Save and Apply.",
+            "barLoaded": "CSV data · {{count}} rows",
+            "barEmpty": "No CSV data yet",
+            "barManage": "Manage / Apply",
+            "barUpload": "Add CSV data",
+            "modalTitle": "CSV data"
         }
     },
     "feedback": {
