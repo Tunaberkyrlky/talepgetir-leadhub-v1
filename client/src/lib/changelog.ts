@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.24.1',
+        date: '2026-07-24',
+        type: 'improvement',
+        area: 'campaigns',
+        title: { tr: 'Sonradan Gelen Bounce Yakalama', en: 'Delayed Bounce Detection' },
+        about: {
+            tr: 'Gönderimden sonra gelen iade mailleri (mailer-daemon "Undelivered") artık otomatik yakalanıyor; ilgili alıcı bounce işaretlenip diziden çıkarılıyor.',
+            en: 'Bounce-back emails that arrive after sending (mailer-daemon "Undelivered") are now caught automatically; the recipient is marked bounced and removed from the sequence.',
+        },
+    },
+    {
         version: '1.24.0',
         date: '2026-07-24',
         type: 'feature',

@@ -38,6 +38,40 @@ async function updateConnState(id: string, lastSeenUid: number, uidValidity: num
         .eq('id', id);
 }
 
+// DSN / bounce maili mi? (mailer-daemon/postmaster göndereni, VEYA multipart/report
+// delivery-status, VEYA bounce konu kalıpları). Bunlar contact eşleşmese de yakalanmalı.
+function isBounceMessage(parsed: Awaited<ReturnType<typeof simpleParser>>, sender: string): boolean {
+    if (/(mailer-daemon|postmaster|mail-daemon)/i.test(sender)) return true;
+    const ct = parsed.headers?.get('content-type') as { value?: string; params?: Record<string, string> } | string | undefined;
+    const ctVal = (typeof ct === 'string' ? ct : ct?.value) || '';
+    const reportType = (ct && typeof ct === 'object' ? ct.params?.['report-type'] : '') || '';
+    if (/multipart\/report/i.test(ctVal) && /delivery-status/i.test(String(reportType))) return true;
+    const subj = (parsed.subject || '').toLowerCase();
+    return /undeliverable|undelivered|mail delivery failed|delivery status notification \(failure\)|returned to sender|failure notice|delivery has failed|delivery incomplete/i.test(subj);
+}
+
+// DSN metninde geçen e-posta adreslerinden, bu tenant'ta hâlâ aktif/duraklı enrollment'ı
+// olanları (yani bizim gönderdiğimiz alıcıları) 'bounced' yap. Gönderen kutu/başka adresler
+// enrollment olmadığı için eşleşmez → yanlış işaretleme yok. İşaretlenen sayıyı döner.
+async function markBouncedFromDsn(parsed: Awaited<ReturnType<typeof simpleParser>>, tenantId: string): Promise<number> {
+    const text = `${parsed.subject || ''}\n${parsed.text || ''}`;
+    const emails = [...new Set((text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []).map((e) => e.toLowerCase()))].slice(0, 50);
+    if (!emails.length) return 0;
+    const { data: enrollments } = await supabaseAdmin
+        .from('campaign_enrollments')
+        .select('id, email')
+        .eq('tenant_id', tenantId)
+        .in('status', ['active', 'paused'])
+        .in('email', emails);
+    if (!enrollments?.length) return 0;
+    await supabaseAdmin
+        .from('campaign_enrollments')
+        .update({ status: 'bounced', next_scheduled_at: null })
+        .in('id', enrollments.map((e) => e.id));
+    log.warn({ tenantId, bounced: enrollments.length, emails: enrollments.map((e) => e.email) }, 'DSN bounce → enrollments marked bounced');
+    return enrollments.length;
+}
+
 async function ingestMessage(conn: EmailConnection, uid: number, source: Buffer): Promise<boolean> {
     const parsed = await simpleParser(source);
     const canonical = parseImapInbound(parsed, conn.email_address, conn.tenant_id);
@@ -45,6 +79,12 @@ async function ingestMessage(conn: EmailConnection, uid: number, source: Buffer)
 
     if (!canonical.senderEmail) return false;
     const sender = canonical.senderEmail.toLowerCase().trim();
+
+    // ── DSN / bounce iadesi → ilgili enrollment'ı 'bounced' yap (contact eşleşmese de) ──
+    if (isBounceMessage(parsed, sender)) {
+        const n = await markBouncedFromDsn(parsed, conn.tenant_id);
+        return n > 0;
+    }
 
     const match = await matchSenderEmail(canonical.senderEmail, conn.tenant_id);
     const isMatched = match.tenant_id === conn.tenant_id && match.match_status === 'matched';
