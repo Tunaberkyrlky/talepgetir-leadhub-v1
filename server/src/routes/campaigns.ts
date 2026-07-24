@@ -10,6 +10,8 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createLogger } from '../lib/logger.js';
 import { validateBody, createCampaignSchema, updateCampaignSchema, saveStepsSchema, saveGraphSchema, enrollLeadsSchema, audienceFilterSchema, testSendSchema, bulkEnrollmentActionSchema } from '../lib/validation.js';
 import { enrollLeads, getCampaignStats, sendTestEmail, resumePausedEnrollments, pauseEnrollment, resumeEnrollment, bulkPauseEnrollments, bulkResumeEnrollments, resolveTemplate, applyTemplate, applySpintax, plainTextToHtml } from '../lib/campaignEngine.js';
+import { createImportJob } from '../lib/importProcessor.js';
+import { executeCampaignImport } from '../lib/campaignImportProcessor.js';
 import { sanitizeSearch } from '../lib/queryUtils.js';
 import posthog from '../lib/posthog.js';
 
@@ -585,6 +587,82 @@ router.get('/:id/enrollments/:enrollmentId/preview', async (req: Request, res: R
         res.status(500).json({ error: 'Failed to build message preview' });
     }
 });
+
+// ── PUT /:id/csv-source ─────────────────────────────────────────────────────
+// Grafta CSV Veri node'una yüklenen CSV kaynağını kampanyaya kaydeder
+// (file_id + headers + temel kolon eşlemesi). Per-node mesaj/konu kolonları
+// adım config'inde tutulur; enroll csv-apply ile yapılır.
+router.put('/:id/csv-source', requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const campaignId = req.params.id as string;
+            const { csv_source } = req.body;
+            const { data: campaign } = await supabaseAdmin.from('campaigns').select('id').eq('id', campaignId).eq('tenant_id', req.tenantId!).single();
+            if (!campaign) { res.status(404).json({ error: 'Campaign not found' }); return; }
+            const { error } = await supabaseAdmin.from('campaigns').update({ csv_source: csv_source ?? null }).eq('id', campaignId).eq('tenant_id', req.tenantId!);
+            if (error) throw new AppError('Failed to save CSV source', 500);
+            res.json({ ok: true });
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'Save csv-source error');
+            res.status(500).json({ error: 'Failed to save CSV source' });
+        }
+    });
+
+// ── POST /:id/csv-apply ─────────────────────────────────────────────────────
+// Kampanyanın CSV kaynağı + email adımlarının per-node kolonlarından bir mapping
+// kurar ve executeCampaignImport ile alıcıları enroll eder (per-adım step_messages).
+router.post('/:id/csv-apply', requireRole('superadmin', 'ops_agent', 'client_admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const campaignId = req.params.id as string;
+            const { data: campaign } = await supabaseAdmin.from('campaigns').select('csv_source').eq('id', campaignId).eq('tenant_id', req.tenantId!).single();
+            const src = campaign?.csv_source as { file_id?: string; file_name?: string; columns?: Record<string, string> } | null;
+            if (!src?.file_id) { res.status(400).json({ error: 'No CSV uploaded for this campaign' }); return; }
+
+            const cols = src.columns || {};
+            if (!cols.email || !cols.company) { res.status(400).json({ error: 'Email and Company columns must be selected on the CSV Data node' }); return; }
+
+            const { data: cache } = await supabaseAdmin.from('import_file_cache').select('row_data').eq('id', src.file_id).eq('tenant_id', req.tenantId!).single();
+            if (!cache) { res.status(400).json({ error: 'Upload expired — re-upload the CSV.' }); return; }
+            const rows = (cache.row_data as Record<string, string>[]) || [];
+            if (rows.length === 0) { res.status(400).json({ error: 'CSV has no rows' }); return; }
+            if (rows.length > 10_000) { res.status(400).json({ error: `File too large: ${rows.length} rows (max 10000).` }); return; }
+
+            const { data: emailSteps } = await supabaseAdmin.from('campaign_steps')
+                .select('id, config').eq('campaign_id', campaignId).eq('step_type', 'email').order('step_order');
+
+            // Per-node kolonları sabit alanlara çevir (executeCampaignImport bu alanları okur).
+            const mapping: Record<string, string> = {};
+            const setCol = (header: string | undefined, field: string) => { if (header) mapping[header] = field; };
+            setCol(cols.email, 'campaign.email');
+            setCol(cols.company, 'companies.name');
+            setCol(cols.website, 'companies.website');
+            setCol(cols.location, 'companies.location');
+            setCol(cols.industry, 'companies.industry');
+            setCol(cols.email_status, 'campaign.email_status');
+            setCol(cols.dnc_status, 'campaign.dnc_status');
+            const FIELD_BY_INDEX = [
+                { body: 'campaign.message', subj: 'campaign.subject' },
+                { body: 'campaign.followup1_message', subj: 'campaign.followup1_subject' },
+                { body: 'campaign.followup2_message', subj: 'campaign.followup2_subject' },
+            ];
+            (emailSteps || []).forEach((s, i) => {
+                const f = FIELD_BY_INDEX[i]; if (!f) return;
+                const cfg = (s.config as Record<string, string> | null) || {};
+                setCol(cfg.csv_body_col, f.body);
+                setCol(cfg.csv_subject_col, f.subj);
+            });
+
+            const jobId = await createImportJob(req.tenantId!, req.user!.id, src.file_name || 'campaign.csv', 'csv', rows.length, mapping, 'campaign_recipients', campaignId);
+            const result = await executeCampaignImport(req.tenantId!, req.user!.id, rows, mapping, jobId, campaignId);
+            res.json(result);
+        } catch (err) {
+            if (err instanceof AppError) return next(err);
+            log.error({ err }, 'csv-apply error');
+            res.status(500).json({ error: 'Failed to apply CSV recipients' });
+        }
+    });
 
 // ── Tek enrollment aksiyonları: durdur / devam / çıkar ──────────────────────
 

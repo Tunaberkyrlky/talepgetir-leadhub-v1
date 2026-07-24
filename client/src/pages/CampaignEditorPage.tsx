@@ -15,7 +15,7 @@ import SequenceTimeline from '../components/campaigns/SequenceTimeline';
 import StepEditor from '../components/campaigns/StepEditor';
 import ConditionInspector from '../components/campaigns/graph/ConditionInspector';
 import CampaignStepRecipients from '../components/campaigns/CampaignStepRecipients';
-import CampaignImportModal from '../components/campaigns/CampaignImportModal';
+import CsvSourceInspector from '../components/campaigns/CsvSourceInspector';
 import EnrollmentPanel from '../components/campaigns/EnrollmentPanel';
 import ActivationGuard from '../components/campaigns/ActivationGuard';
 import CampaignStatsPanel from '../components/campaigns/CampaignStatsPanel';
@@ -104,7 +104,8 @@ export default function CampaignEditorPage() {
         enabled: !isNew && !!id,
     });
     const hasCsvRecipients = (csvEnrollments || []).some((e) => e.has_custom_message);
-    const [csvModalOpen, setCsvModalOpen] = useState(false); // grafta CSV Veri node'una tıklayınca
+    const [csvSourceSelected, setCsvSourceSelected] = useState(false); // grafta CSV Veri node'u seçili mi
+    const csvHeaders = campaign?.csv_source?.headers;
 
     // Sunucudan farklı bir kampanya yüklendiğinde düzenlenebilir state'i sıfırla.
     // Effect yerine render-anı reset (React'in "prop değişince state sıfırla" deseni):
@@ -316,6 +317,7 @@ export default function CampaignEditorPage() {
         <StepEditor key={selectedIdx} step={selectedStep} onChange={handleStepTextChange} readOnly={isReadOnly} isFirst={selectedIdx === 0}
             onSendTest={!isNew && id ? (p) => testMut.mutateAsync(p).then(() => undefined) : undefined}
             defaultTestEmail={user?.email}
+            csvHeaders={selectedStep.step_type === 'email' ? csvHeaders : undefined}
             csvBody={hasCsvRecipients && id && selectedStep.step_type === 'email' && selectedStep.id
                 ? <CampaignStepRecipients campaignId={id} stepId={selectedStep.id} />
                 : undefined} />
@@ -407,17 +409,19 @@ export default function CampaignEditorPage() {
                             <Grid>
                                 <Grid.Col span={8}>
                                     <Suspense fallback={<Center h={540}><Loader color="violet" /></Center>}>
-                                        <GraphEditor steps={steps} selectedIndex={selectedIdx} onSelectStep={setSelectedIdx}
+                                        <GraphEditor steps={steps} selectedIndex={selectedIdx}
+                                            onSelectStep={(i) => { setSelectedIdx(i); setCsvSourceSelected(false); }}
                                             readOnly={isReadOnly} onAddEmail={addEmailStep} onAddWait={addWaitStep} onAddCondition={addConditionStep}
                                             onDeleteStep={deleteStep} onMoveStep={onMoveStep}
                                             onConnectNodes={onConnectNodes} onDisconnect={onDisconnect}
-                                            csvRecipientCount={hasCsvRecipients ? (csvEnrollments?.length ?? 0) : undefined}
-                                            onSelectCsvSource={id ? () => setCsvModalOpen(true) : undefined} />
+                                            csvRecipientCount={(campaign?.csv_source || hasCsvRecipients) ? (csvEnrollments?.length ?? campaign?.csv_source?.row_count ?? 0) : undefined}
+                                            onSelectCsvSource={id ? () => setCsvSourceSelected(true) : undefined} />
                                     </Suspense>
                                 </Grid.Col>
                                 <Grid.Col span={4}>
                                     <Paper shadow="xs" radius="md" p="lg" withBorder mih={400}>
-                                        {selectedStep ? inspectorBody : (
+                                        {csvSourceSelected && id ? <CsvSourceInspector campaignId={id} />
+                                            : selectedStep ? inspectorBody : (
                                             <Center h={300}>
                                                 <Text size="sm" c="dimmed" ta="center">{t('campaign.editor.graph.selectNode', 'Select a node on the canvas to edit it.')}</Text>
                                             </Center>
@@ -459,9 +463,6 @@ export default function CampaignEditorPage() {
                     </Tabs.Panel>
                 </Tabs>
             </Stack>
-
-            {/* Grafta CSV Veri node'una tıklayınca — alıcı yükle/ekle (mevcut import modalı) */}
-            {id && <CampaignImportModal campaignId={id} opened={csvModalOpen} onClose={() => setCsvModalOpen(false)} />}
 
             {/* Unsaved changes confirmation */}
             <Modal opened={confirmLeave} onClose={() => setConfirmLeave(false)}

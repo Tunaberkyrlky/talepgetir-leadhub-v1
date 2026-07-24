@@ -1124,7 +1124,11 @@
             "testSent": "Test sent to {{to}}",
             "saveBeforeAudience": "Save the campaign first, then you can import a CSV list or add recipients here.",
             "csvBodyNote": "This step's body comes per recipient from your CSV import. Click a recipient to preview the exact email.",
-            "csvRecipients": "Recipient emails"
+            "csvRecipients": "Recipient emails",
+            "csvColsTitle": "CSV columns for this email",
+            "csvBodyCol": "Message column",
+            "csvSubjectCol": "Subject column",
+            "csvColsHint": "Each recipient gets the message and subject from these columns. Click Apply on the CSV Data node to enroll."
         },
         "settings": {
             "title": "Campaign Settings",
@@ -1341,6 +1345,27 @@
             "csvDesc": "Recipients with per-row messages become a drip campaign in one flow.",
             "scratchTitle": "Create from scratch",
             "scratchDesc": "Build the sequence and add recipients from your CRM."
+        },
+        "csv": {
+            "title": "CSV Data",
+            "uploadDesc": "Upload your recipient list. Then map each email node's message and subject columns on that node.",
+            "uploadHint": "Drag a CSV/XLSX here or click",
+            "rows": "{{count}} rows",
+            "baseCols": "Recipient columns",
+            "colEmail": "Email",
+            "colCompany": "Company",
+            "colStatus": "Verification status",
+            "colDnc": "DNC status",
+            "colWebsite": "Website",
+            "colLocation": "Country / Location",
+            "colIndustry": "Industry",
+            "selectColumn": "Select column",
+            "perNodeHint": "Set the message and subject column on each email node and Save the campaign, then click Apply.",
+            "apply": "Apply — enroll recipients",
+            "needBase": "Select Email and Company columns first.",
+            "reupload": "Replace file",
+            "doneToast": "{{count}} recipients enrolled",
+            "result": "{{enrolled}} recipients enrolled, {{companies}} companies in CRM."
         }
     },
     "feedback": {

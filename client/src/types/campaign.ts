@@ -34,6 +34,23 @@ export interface CampaignSettings {
 // CSV alıcı importundaki e-posta doğrulama statüsü (harici doğrulayıcıdan).
 export type CampaignEmailStatus = 'ok' | 'catch_all' | 'unknown' | 'invalid' | 'error';
 
+// Grafta per-node kolon eşleme için kampanyaya yüklenen CSV kaynağı (migration 071).
+export interface CampaignCsvSource {
+    file_id: string;
+    file_name?: string;
+    headers: string[];
+    columns: {
+        email?: string;
+        company?: string;
+        website?: string;
+        location?: string;
+        industry?: string;
+        email_status?: string;
+        dnc_status?: string;
+    };
+    row_count?: number;
+}
+
 export interface Campaign {
     id: string;
     tenant_id: string;
@@ -48,6 +65,7 @@ export interface Campaign {
     updated_at: string;
     steps?: CampaignStep[];
     stats?: CampaignStats;
+    csv_source?: CampaignCsvSource | null;
 }
 
 export interface CampaignStep {

@@ -25,6 +25,25 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.22.0',
+        date: '2026-07-24',
+        type: 'feature',
+        area: 'campaigns',
+        title: { tr: 'Grafta Kolon Eşleme ile Follow-up', en: 'Follow-ups with Column Mapping in the Graph' },
+        about: {
+            tr: 'Dizi grafında CSV listenizi yükleyip her email adımının mesaj ve konu kolonunu o node üzerinde tek tek eşleyebilirsiniz.',
+            en: 'In the sequence graph you can upload your CSV list and map each email step\'s message and subject columns right on that node.',
+        },
+        usage: {
+            tr: 'Grafta CSV Veri node\'una tıklayıp listeyi yükleyin, her email node\'unda mesaj/konu kolonunu seçin, kampanyayı kaydedip CSV Veri node\'undan Uygula\'ya basın.',
+            en: 'Click the CSV Data node to upload your list, select the message/subject column on each email node, save the campaign, then click Apply on the CSV Data node.',
+        },
+        notes: {
+            tr: 'Email node kolonlarını değiştirdikten sonra Uygula\'dan önce kampanyayı kaydetmeyi unutmayın.',
+            en: 'Remember to save the campaign after changing email node columns before you click Apply.',
+        },
+    },
+    {
         version: '1.21.2',
         date: '2026-07-24',
         type: 'improvement',

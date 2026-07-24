@@ -1,7 +1,7 @@
 import { useRef, useCallback, useState, type ReactNode } from 'react';
 import {
     Stack, TextInput, Textarea, Group, NumberInput, Text, Paper, Badge, Tooltip,
-    SegmentedControl, Box, Button, Modal,
+    SegmentedControl, Box, Button, Modal, Select,
 } from '@mantine/core';
 import { RichTextEditor, Link } from '@mantine/tiptap';
 import { useEditor } from '@tiptap/react';
@@ -10,7 +10,7 @@ import { VariableSuggestion } from './variableSuggestion';
 import { Spintax } from './spintaxNode';
 import { spintaxTextToHtml, spintaxHtmlToText } from './spintaxSerialize';
 import SubjectEditor, { type SubjectEditorRef } from './SubjectEditor';
-import { IconMail, IconPencil, IconEye, IconSend, IconCode } from '@tabler/icons-react';
+import { IconMail, IconPencil, IconEye, IconSend, IconCode, IconFileImport } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import type { CampaignStep } from '../../types/campaign';
 import { stepName } from '../../lib/graph';
@@ -25,6 +25,8 @@ interface Props {
     // CSV kampanyalarında gövde alıcı bazından gelir — bu slot verilirse şablon
     // gövde editörü yerine (boş kalacağı için) bu panel gösterilir (alıcı mailleri).
     csvBody?: ReactNode;
+    // CSV kaynağı yüklüyse: bu email adımının mesaj/konu kolonunu seçmek için başlıklar.
+    csvHeaders?: string[];
 }
 
 const VARS = [
@@ -68,7 +70,7 @@ function insertAtRef(el: HTMLInputElement | HTMLTextAreaElement | null, val: str
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + text.length, start + text.length); });
 }
 
-export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTest, defaultTestEmail, csvBody }: Props) {
+export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTest, defaultTestEmail, csvBody, csvHeaders }: Props) {
     const { t } = useTranslation();
     const subjectEditorRef = useRef<SubjectEditorRef>(null);
     const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -208,6 +210,32 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                 </Tooltip>
             </Group>
             <Text size="xs" c="dimmed">{t('campaign.editor.typeHint', 'Tip: you can also type variables and spintax by hand.')}</Text>
+
+            {/* CSV kaynağı yüklüyse: bu email'in mesaj + konu kolonunu seç (per-node) */}
+            {csvHeaders && csvHeaders.length > 0 && (() => {
+                const cfg = (step.config as Record<string, unknown> | null) || {};
+                const setCol = (key: string, v: string | null) => onChange({ config: { ...cfg, [key]: v || undefined } });
+                const opts = csvHeaders.map((h) => ({ value: h, label: h }));
+                return (
+                    <Paper withBorder radius="md" p="sm" bg="grape.0">
+                        <Group gap="xs" mb="xs">
+                            <IconFileImport size={14} color="var(--mantine-color-grape-6)" />
+                            <Text size="xs" fw={600} c="grape.9">{t('campaign.editor.csvColsTitle', 'CSV columns for this email')}</Text>
+                        </Group>
+                        <Group grow>
+                            <Select size="xs" radius="md" clearable searchable
+                                label={t('campaign.editor.csvBodyCol', 'Message column')}
+                                data={opts} value={(cfg.csv_body_col as string) || null}
+                                onChange={(v) => setCol('csv_body_col', v)} disabled={readOnly} />
+                            <Select size="xs" radius="md" clearable searchable
+                                label={t('campaign.editor.csvSubjectCol', 'Subject column')}
+                                data={opts} value={(cfg.csv_subject_col as string) || null}
+                                onChange={(v) => setCol('csv_subject_col', v)} disabled={readOnly} />
+                        </Group>
+                        <Text size="xs" c="dimmed" mt={4}>{t('campaign.editor.csvColsHint', 'Each recipient gets the message and subject from these columns. Click Apply on the CSV Data node to enroll.')}</Text>
+                    </Paper>
+                );
+            })()}
 
             {csvBody ? csvBody : (<>
             <Group justify="space-between" align="center">

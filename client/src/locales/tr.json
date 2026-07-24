@@ -1124,7 +1124,11 @@
             "testSent": "Test {{to}} adresine gönderildi",
             "saveBeforeAudience": "Alıcı içe aktarmak ya da eklemek için önce kampanyayı kaydedin, sonra CSV listesini buradan yükleyebilirsiniz.",
             "csvBodyNote": "Bu adımın gövdesi her alıcıya CSV importundan geliyor. Gidecek maili görmek için bir alıcıya tıklayın.",
-            "csvRecipients": "Alıcı mailleri"
+            "csvRecipients": "Alıcı mailleri",
+            "csvColsTitle": "Bu mail için CSV kolonları",
+            "csvBodyCol": "Mesaj kolonu",
+            "csvSubjectCol": "Konu kolonu",
+            "csvColsHint": "Her alıcı mesajını ve konusunu bu kolonlardan alır. Eklemek için CSV Veri node'unda Uygula'ya basın."
         },
         "settings": {
             "title": "Kampanya Ayarları",
@@ -1341,6 +1345,27 @@
             "csvDesc": "Satır bazlı mesajlı alıcılar tek akışta drip kampanyaya dönüşür.",
             "scratchTitle": "Sıfırdan oluştur",
             "scratchDesc": "Diziyi kendiniz kurun, alıcıları CRM'den ekleyin."
+        },
+        "csv": {
+            "title": "CSV Veri",
+            "uploadDesc": "Alıcı listenizi yükleyin. Sonra her email node'unda o mailin mesaj ve konu kolonunu seçin.",
+            "uploadHint": "CSV/XLSX sürükleyin ya da tıklayın",
+            "rows": "{{count}} satır",
+            "baseCols": "Alıcı kolonları",
+            "colEmail": "E-posta",
+            "colCompany": "Firma",
+            "colStatus": "Doğrulama durumu",
+            "colDnc": "DNC durumu",
+            "colWebsite": "Website",
+            "colLocation": "Ülke / Konum",
+            "colIndustry": "Sektör",
+            "selectColumn": "Kolon seç",
+            "perNodeHint": "Her email node'unda mesaj ve konu kolonunu seçip kampanyayı Kaydedin, sonra Uygula'ya basın.",
+            "apply": "Uygula — alıcıları ekle",
+            "needBase": "Önce E-posta ve Firma kolonlarını seçin.",
+            "reupload": "Dosyayı değiştir",
+            "doneToast": "{{count}} alıcı eklendi",
+            "result": "{{enrolled}} alıcı eklendi, {{companies}} şirket CRM'de."
         }
     },
     "feedback": {
