@@ -1171,7 +1171,14 @@
             "openTracking": "Açılma takibi",
             "clickTracking": "Tıklama takibi",
             "sendStatuses": "CSV Alıcı Doğrulama Statüleri",
-            "sendStatusesDesc": "CSV'den içe aktarılan alıcılarda hangi e-posta doğrulama statülerinin gönderime uygun sayılacağı. invalid ve error asla otomatik gönderilmez."
+            "sendStatusesDesc": "CSV'den içe aktarılan alıcılarda hangi e-posta doğrulama statülerinin gönderime uygun sayılacağı. invalid ve error asla otomatik gönderilmez.",
+            "followupRamp": "Follow-up Payı (rampalı)",
+            "followupRampDesc": "Günlük limitin bir kısmını follow-up'lara ayırın; pay hafta hafta artar. Erken günler intro-ağırlıklı kalır, sonra follow-up payı açılır.",
+            "followupRampEnable": "Rampalı follow-up payını aç",
+            "rampStart": "Başlangıç %",
+            "rampStep": "+ / hafta %",
+            "rampMax": "Tavan %",
+            "rampExample": "Follow-up'lar 1. hafta günlük limitin en fazla %{{start}}'ini kullanır, her hafta +%{{step}}, tavan %{{max}}. Kalanı intro'lar doldurur."
         },
         "list": {
             "search": "Kampanya ara...",

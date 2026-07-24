@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.23.0',
+        date: '2026-07-24',
+        type: 'feature',
+        area: 'campaigns',
+        title: { tr: 'Follow-up Payı Rampası', en: 'Follow-up Share Ramp' },
+        about: {
+            tr: 'Follow-up\'ların günlük limitten alacağı payı belirleyip hafta hafta artırabilirsiniz; erken günler intro-ağırlıklı kalır, follow-up hacmi kademeli açılır.',
+            en: 'You can set how much of the daily limit follow-ups may use and grow it each week; early days stay intro-heavy while follow-up volume ramps up gradually.',
+        },
+        usage: {
+            tr: 'Kampanya Ayarlar\'ında "Follow-up Payı (rampalı)"nı açın; başlangıç, haftalık artış ve tavan yüzdelerini girin. Kalan günlük kapasiteyi intro\'lar doldurur.',
+            en: 'In campaign Settings, enable "Follow-up share (ramped)" and set the start, weekly step and max percentages. Intros fill the remaining daily capacity.',
+        },
+    },
+    {
         version: '1.22.4',
         date: '2026-07-24',
         type: 'fix',

@@ -179,6 +179,38 @@ export default function CampaignSettingsPanel({
                 </Group>
             </SettingSection>
 
+            {/* ── Follow-up payı (rampalı) ── */}
+            <SettingSection
+                icon={<IconGauge size={16} color="var(--mantine-color-violet-6)" />}
+                title={t('campaign.settings.followupRamp', 'Follow-up share (ramped)')}
+                desc={t('campaign.settings.followupRampDesc', 'Reserve a growing share of the daily limit for follow-ups. Early days stay intro-heavy; the follow-up share grows each week.')}
+            >
+                <Switch label={t('campaign.settings.followupRampEnable', 'Enable follow-up ramp')} size="sm" disabled={readOnly}
+                    checked={!!settings.followup_ramp}
+                    onChange={(e) => patch({ followup_ramp: e.currentTarget.checked ? { start_pct: 25, weekly_step_pct: 25, max_pct: 100 } : undefined })} />
+                {settings.followup_ramp && (
+                    <>
+                        <Group gap="md" align="end" mt="sm">
+                            <NumberInput label={t('campaign.settings.rampStart', 'Start %')} min={0} max={100} radius="md" size="sm" w={130} disabled={readOnly}
+                                value={settings.followup_ramp.start_pct}
+                                onChange={(v) => patch({ followup_ramp: { ...settings.followup_ramp!, start_pct: typeof v === 'number' ? v : 0 } })} />
+                            <NumberInput label={t('campaign.settings.rampStep', '+ / week %')} min={0} max={100} radius="md" size="sm" w={130} disabled={readOnly}
+                                value={settings.followup_ramp.weekly_step_pct}
+                                onChange={(v) => patch({ followup_ramp: { ...settings.followup_ramp!, weekly_step_pct: typeof v === 'number' ? v : 0 } })} />
+                            <NumberInput label={t('campaign.settings.rampMax', 'Max %')} min={0} max={100} radius="md" size="sm" w={130} disabled={readOnly}
+                                value={settings.followup_ramp.max_pct}
+                                onChange={(v) => patch({ followup_ramp: { ...settings.followup_ramp!, max_pct: typeof v === 'number' ? v : 100 } })} />
+                        </Group>
+                        <Text size="xs" c="dimmed" mt={6}>
+                            {t('campaign.settings.rampExample', {
+                                start: settings.followup_ramp.start_pct, step: settings.followup_ramp.weekly_step_pct, max: settings.followup_ramp.max_pct,
+                                defaultValue: 'Follow-ups use up to {{start}}% of the daily limit in week 1, +{{step}}% each week, up to {{max}}%. Intros fill the rest.',
+                            })}
+                        </Text>
+                    </>
+                )}
+            </SettingSection>
+
             {/* ── CSV alıcı doğrulama statüleri ── */}
             <SettingSection
                 icon={<IconMailCheck size={16} color="var(--mantine-color-violet-6)" />}

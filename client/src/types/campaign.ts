@@ -29,6 +29,14 @@ export interface CampaignSettings {
     sending_accounts?: string[];     // inbox rotasyonu — kullanılacak gönderen mailler (canlı)
     tracking?: CampaignTracking;     // açılma/tıklama takip toggle'ları (canlı)
     send_statuses?: CampaignEmailStatus[]; // CSV importlu alıcılarda gönderime uygun statüler (boşsa ok+catch_all)
+    followup_ramp?: FollowupRamp;    // rampalı follow-up payı (günlük limit içinde)
+}
+
+// Follow-up'ların günlük limitten alacağı pay; hafta hafta start→max'a çıkar.
+export interface FollowupRamp {
+    start_pct: number;       // ilk hafta payı (%)
+    weekly_step_pct: number; // her hafta eklenen (%)
+    max_pct: number;         // tavan (%)
 }
 
 // CSV alıcı importundaki e-posta doğrulama statüsü (harici doğrulayıcıdan).

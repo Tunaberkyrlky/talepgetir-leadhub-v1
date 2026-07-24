@@ -403,6 +403,13 @@ const campaignSettingsSchema = z.object({
     // CSV importlu alıcılarda hangi e-posta doğrulama statülerinin gönderime uygun
     // sayılacağı (tanımsızsa ok + catch_all). invalid/error hiçbir zaman seçilemez.
     send_statuses: z.array(z.enum(['ok', 'catch_all', 'unknown'])).max(3).optional(),
+    // Rampalı follow-up payı: follow-up adımları günlük limitin en fazla "share%"ini
+    // kullanır; share kampanyanın ilk gönderiminden itibaren hafta hafta artar.
+    followup_ramp: z.object({
+        start_pct: z.number().int().min(0).max(100),
+        weekly_step_pct: z.number().int().min(0).max(100),
+        max_pct: z.number().int().min(0).max(100),
+    }).optional(),
 });
 
 export const createCampaignSchema = z.object({

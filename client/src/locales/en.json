@@ -1171,7 +1171,14 @@
             "openTracking": "Open tracking",
             "clickTracking": "Click tracking",
             "sendStatuses": "Recipient Verification Statuses",
-            "sendStatusesDesc": "For CSV-imported recipients: which email verification statuses are eligible for sending. invalid and error are never sent automatically."
+            "sendStatusesDesc": "For CSV-imported recipients: which email verification statuses are eligible for sending. invalid and error are never sent automatically.",
+            "followupRamp": "Follow-up Share (ramped)",
+            "followupRampDesc": "Reserve a growing share of the daily limit for follow-ups. Early days stay intro-heavy; the follow-up share grows each week.",
+            "followupRampEnable": "Enable follow-up ramp",
+            "rampStart": "Start %",
+            "rampStep": "+ / week %",
+            "rampMax": "Max %",
+            "rampExample": "Follow-ups use up to {{start}}% of the daily limit in week 1, +{{step}}% each week, up to {{max}}%. Intros fill the rest."
         },
         "list": {
             "search": "Search campaigns...",

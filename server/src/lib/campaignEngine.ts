@@ -318,6 +318,39 @@ async function countSentToday(campaignId: string, timeZone: string): Promise<num
     return count || 0;
 }
 
+// Kampanyanın bugün gönderdiği FOLLOW-UP (intro dışı, step_order>1) mail sayısı —
+// rampalı follow-up payı kontrolü için.
+async function countFollowupSentToday(campaignId: string, timeZone: string): Promise<number> {
+    const dayStart = startOfLocalDay(Date.now(), timeZone);
+    const { count } = await supabaseAdmin
+        .from('activities')
+        .select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId)
+        .eq('type', 'campaign_email')
+        .eq('outcome', 'sent')
+        .gt('campaign_step_order', 1)
+        .gte('occurred_at', new Date(dayStart).toISOString());
+    return count || 0;
+}
+
+// Kampanyanın ilk gönderim gününden bugüne geçen tam gün sayısı (rampa anchor'ı).
+// Hiç gönderim yoksa 0.
+async function campaignDaysSinceStart(campaignId: string, timeZone: string): Promise<number> {
+    const { data } = await supabaseAdmin
+        .from('activities')
+        .select('occurred_at')
+        .eq('campaign_id', campaignId)
+        .eq('type', 'campaign_email')
+        .eq('outcome', 'sent')
+        .order('occurred_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+    if (!data?.occurred_at) return 0;
+    const firstDay = startOfLocalDay(new Date(data.occurred_at).getTime(), timeZone);
+    const today = startOfLocalDay(Date.now(), timeZone);
+    return Math.max(0, Math.round((today - firstDay) / 86_400_000));
+}
+
 // Bir gönderen kutusunun bugün (yerel gün) gönderdiği mail sayısı — kutu-başı limit
 // için. Kampanyalar arası sayar (kutu itibarını korumak tenant geneli olmalı).
 async function countSentTodayForAccount(tenantId: string, account: string, timeZone: string): Promise<number> {
@@ -605,6 +638,30 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                             .update({ next_scheduled_at: new Date(nextOpen).toISOString() })
                             .eq('id', enrollment.id);
                         continue;
+                    }
+
+                    // Follow-up payı (rampalı): follow-up adımları (step_order>1) günlük
+                    // limitin en fazla "share%"ini kullanır; intro'lar kalanı doldurur.
+                    // Share hafta hafta artar (kampanyanın ilk gönderim gününden itibaren):
+                    // erken günler intro-ağırlıklı, sonra follow-up payı açılır. Intro'lar
+                    // bu kapıya takılmaz (yalnız genel günlük limit) → boşta kalan follow-up
+                    // payını backfill eder.
+                    const ramp = settings.followup_ramp as { start_pct?: number; weekly_step_pct?: number; max_pct?: number } | undefined;
+                    if (ramp && currentStep.step_order > 1) {
+                        const daysSince = await campaignDaysSinceStart(enrollment.campaign_id, tz);
+                        const share = Math.min(ramp.max_pct ?? 100,
+                            (ramp.start_pct ?? 25) + Math.floor(daysSince / 7) * (ramp.weekly_step_pct ?? 25));
+                        const followupCap = Math.ceil(settings.daily_limit * Math.max(0, Math.min(100, share)) / 100);
+                        const fuSentToday = await countFollowupSentToday(enrollment.campaign_id, tz);
+                        if (fuSentToday >= followupCap) {
+                            // Bugünkü follow-up payı doldu → follow-up'ı ertesi güne ertele
+                            // (intro'lar bu slotları kullanmaya devam eder).
+                            const nextOpen = scheduleMs(startOfNextLocalDay(nowMs, tz), settings);
+                            await supabaseAdmin.from('campaign_enrollments')
+                                .update({ next_scheduled_at: new Date(nextOpen).toISOString() })
+                                .eq('id', enrollment.id);
+                            continue;
+                        }
                     }
                 }
 
