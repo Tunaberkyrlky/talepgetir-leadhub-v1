@@ -1178,7 +1178,7 @@
             "rampStart": "Başlangıç %",
             "rampStep": "+ / hafta %",
             "rampMax": "Tavan %",
-            "rampExample": "Follow-up'lar 1. hafta günlük limitin en fazla %{{start}}'ini kullanır, her hafta +%{{step}}, tavan %{{max}}. Kalanı intro'lar doldurur."
+            "rampExample": "Follow-up'lar 1. hafta günlük limitin en fazla %{{start}}'ini kullanır, her hafta +%{{step}}, tavan %{{max}}. Intro'lar asla starve olmaz (her gün en az 1 slot); intro'lar bitince follow-up'lar tam limiti kullanır."
         },
         "list": {
             "search": "Kampanya ara...",

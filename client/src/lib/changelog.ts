@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.23.1',
+        date: '2026-07-24',
+        type: 'fix',
+        area: 'campaigns',
+        title: { tr: 'Follow-up Payında İntro Koruması', en: 'Intro Protection in Follow-up Ramp' },
+        about: {
+            tr: 'Follow-up payı yüksek (hatta %100) olsa bile ilk mailler asla geride kalmıyor: intro\'lara her gün en az bir slot ayrılıyor, intro\'lar bittiğinde follow-up\'lar tam kapasiteye çıkıyor.',
+            en: 'Even with a high follow-up share (up to 100%), intro emails are never left behind: intros keep at least one slot per day, and once all intros are sent, follow-ups run at full capacity.',
+        },
+    },
+    {
         version: '1.23.0',
         date: '2026-07-24',
         type: 'feature',

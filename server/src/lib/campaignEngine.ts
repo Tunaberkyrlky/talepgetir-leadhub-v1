@@ -333,6 +333,28 @@ async function countFollowupSentToday(campaignId: string, timeZone: string): Pro
     return count || 0;
 }
 
+// Hâlâ giriş (intro) adımında bekleyen aktif enrollment sayısı — follow-up cap'i
+// yalnız intro'lar tükenene kadar uygulansın diye. Giriş adımı = en küçük step_order'lı
+// email adımı (wizard/graf intro'yu step_order 1 kurar).
+async function countPendingIntros(campaignId: string): Promise<number> {
+    const { data: entry } = await supabaseAdmin
+        .from('campaign_steps')
+        .select('id')
+        .eq('campaign_id', campaignId)
+        .eq('step_type', 'email')
+        .order('step_order', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+    if (!entry?.id) return 0;
+    const { count } = await supabaseAdmin
+        .from('campaign_enrollments')
+        .select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId)
+        .eq('status', 'active')
+        .eq('current_step_id', entry.id);
+    return count || 0;
+}
+
 // Kampanyanın ilk gönderim gününden bugüne geçen tam gün sayısı (rampa anchor'ı).
 // Hiç gönderim yoksa 0.
 async function campaignDaysSinceStart(campaignId: string, timeZone: string): Promise<number> {
@@ -648,19 +670,28 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                     // payını backfill eder.
                     const ramp = settings.followup_ramp as { start_pct?: number; weekly_step_pct?: number; max_pct?: number } | undefined;
                     if (ramp && currentStep.step_order > 1) {
-                        const daysSince = await campaignDaysSinceStart(enrollment.campaign_id, tz);
-                        const share = Math.min(ramp.max_pct ?? 100,
-                            (ramp.start_pct ?? 25) + Math.floor(daysSince / 7) * (ramp.weekly_step_pct ?? 25));
-                        const followupCap = Math.ceil(settings.daily_limit * Math.max(0, Math.min(100, share)) / 100);
-                        const fuSentToday = await countFollowupSentToday(enrollment.campaign_id, tz);
-                        if (fuSentToday >= followupCap) {
-                            // Bugünkü follow-up payı doldu → follow-up'ı ertesi güne ertele
-                            // (intro'lar bu slotları kullanmaya devam eder).
-                            const nextOpen = scheduleMs(startOfNextLocalDay(nowMs, tz), settings);
-                            await supabaseAdmin.from('campaign_enrollments')
-                                .update({ next_scheduled_at: new Date(nextOpen).toISOString() })
-                                .eq('id', enrollment.id);
-                            continue;
+                        // Cap yalnız HÂLÂ gönderilmemiş intro varken uygulanır → intro'lar
+                        // bittiğinde follow-up'lar tam günlük limiti kullanır (hiçbir intro
+                        // starve olmaz; kalan follow-up'lar da eninde sonunda gider).
+                        const pendingIntros = await countPendingIntros(enrollment.campaign_id);
+                        if (pendingIntros > 0) {
+                            const daysSince = await campaignDaysSinceStart(enrollment.campaign_id, tz);
+                            const share = Math.min(ramp.max_pct ?? 100,
+                                (ramp.start_pct ?? 25) + Math.floor(daysSince / 7) * (ramp.weekly_step_pct ?? 25));
+                            // İntro'lara her zaman en az 1 slot bırak (daily_limit-1) → asla starve olmaz.
+                            const followupCap = Math.max(0, Math.min(
+                                Math.ceil(settings.daily_limit * Math.max(0, Math.min(100, share)) / 100),
+                                settings.daily_limit - 1,
+                            ));
+                            const fuSentToday = await countFollowupSentToday(enrollment.campaign_id, tz);
+                            if (fuSentToday >= followupCap) {
+                                // Bugünkü follow-up payı doldu → ertesi güne ertele (intro'lar slotları kullanır).
+                                const nextOpen = scheduleMs(startOfNextLocalDay(nowMs, tz), settings);
+                                await supabaseAdmin.from('campaign_enrollments')
+                                    .update({ next_scheduled_at: new Date(nextOpen).toISOString() })
+                                    .eq('id', enrollment.id);
+                                continue;
+                            }
                         }
                     }
                 }

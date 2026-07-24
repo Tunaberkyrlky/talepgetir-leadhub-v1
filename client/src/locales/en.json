@@ -1178,7 +1178,7 @@
             "rampStart": "Start %",
             "rampStep": "+ / week %",
             "rampMax": "Max %",
-            "rampExample": "Follow-ups use up to {{start}}% of the daily limit in week 1, +{{step}}% each week, up to {{max}}%. Intros fill the rest."
+            "rampExample": "Follow-ups use up to {{start}}% of the daily limit in week 1, +{{step}}% each week, up to {{max}}%. Intros are never starved (at least 1 slot/day); once intros are done, follow-ups use the full limit."
         },
         "list": {
             "search": "Search campaigns...",
