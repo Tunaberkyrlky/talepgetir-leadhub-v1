@@ -1114,7 +1114,8 @@
                     "not_replied": "Yanıt gelmediyse"
                 },
                 "csvSource": "CSV Veri",
-                "csvSourceDesc": "{{count}} alıcı"
+                "csvSourceDesc": "{{count}} alıcı",
+                "entryUpload": "CSV listesi yüklemek için tıklayın"
             },
             "testSend": "Test gönder",
             "testSendTitle": "Test maili gönder",

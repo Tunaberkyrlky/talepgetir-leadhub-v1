@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.21.2',
+        date: '2026-07-24',
+        type: 'improvement',
+        area: 'campaigns',
+        title: { tr: 'Graftan CSV Alıcı Yükleme', en: 'Upload CSV Recipients from the Graph' },
+        about: {
+            tr: 'Dizi grafındaki CSV Veri (giriş) node\'una tıklayarak alıcı listenizi yükleyip kampanyaya ekleyebilirsiniz.',
+            en: 'You can click the CSV Data (entry) node in the sequence graph to upload your recipient list and add it to the campaign.',
+        },
+        usage: {
+            tr: 'Kampanya düzenleme ekranında Dizi sekmesindeki görsel grafı açın ve giriş node\'una tıklayıp yükleme akışını başlatın.',
+            en: 'On the campaign editor\'s Sequence tab, open the visual graph and click the entry node to start the upload flow.',
+        },
+    },
+    {
         version: '1.21.1',
         date: '2026-07-24',
         type: 'improvement',

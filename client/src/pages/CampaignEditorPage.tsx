@@ -15,6 +15,7 @@ import SequenceTimeline from '../components/campaigns/SequenceTimeline';
 import StepEditor from '../components/campaigns/StepEditor';
 import ConditionInspector from '../components/campaigns/graph/ConditionInspector';
 import CampaignStepRecipients from '../components/campaigns/CampaignStepRecipients';
+import CampaignImportModal from '../components/campaigns/CampaignImportModal';
 import EnrollmentPanel from '../components/campaigns/EnrollmentPanel';
 import ActivationGuard from '../components/campaigns/ActivationGuard';
 import CampaignStatsPanel from '../components/campaigns/CampaignStatsPanel';
@@ -103,6 +104,7 @@ export default function CampaignEditorPage() {
         enabled: !isNew && !!id,
     });
     const hasCsvRecipients = (csvEnrollments || []).some((e) => e.has_custom_message);
+    const [csvModalOpen, setCsvModalOpen] = useState(false); // grafta CSV Veri node'una tıklayınca
 
     // Sunucudan farklı bir kampanya yüklendiğinde düzenlenebilir state'i sıfırla.
     // Effect yerine render-anı reset (React'in "prop değişince state sıfırla" deseni):
@@ -409,7 +411,8 @@ export default function CampaignEditorPage() {
                                             readOnly={isReadOnly} onAddEmail={addEmailStep} onAddWait={addWaitStep} onAddCondition={addConditionStep}
                                             onDeleteStep={deleteStep} onMoveStep={onMoveStep}
                                             onConnectNodes={onConnectNodes} onDisconnect={onDisconnect}
-                                            csvRecipientCount={hasCsvRecipients ? (csvEnrollments?.length ?? 0) : undefined} />
+                                            csvRecipientCount={hasCsvRecipients ? (csvEnrollments?.length ?? 0) : undefined}
+                                            onSelectCsvSource={id ? () => setCsvModalOpen(true) : undefined} />
                                     </Suspense>
                                 </Grid.Col>
                                 <Grid.Col span={4}>
@@ -456,6 +459,9 @@ export default function CampaignEditorPage() {
                     </Tabs.Panel>
                 </Tabs>
             </Stack>
+
+            {/* Grafta CSV Veri node'una tıklayınca — alıcı yükle/ekle (mevcut import modalı) */}
+            {id && <CampaignImportModal campaignId={id} opened={csvModalOpen} onClose={() => setCsvModalOpen(false)} />}
 
             {/* Unsaved changes confirmation */}
             <Modal opened={confirmLeave} onClose={() => setConfirmLeave(false)}

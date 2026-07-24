@@ -1114,7 +1114,8 @@
                     "not_replied": "Not replied"
                 },
                 "csvSource": "CSV Data",
-                "csvSourceDesc": "{{count}} recipients"
+                "csvSourceDesc": "{{count}} recipients",
+                "entryUpload": "Click to upload a CSV list"
             },
             "testSend": "Send test",
             "testSendTitle": "Send test email",

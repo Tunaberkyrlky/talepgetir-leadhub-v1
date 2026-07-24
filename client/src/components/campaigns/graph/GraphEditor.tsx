@@ -25,26 +25,27 @@ function resolveSpintaxFirst(text: string): string {
 // ── Custom node'lar (Mantine temalı) ───────────────────────────────────────
 function TriggerNode({ data, isConnectable }: NodeProps) {
     const { t } = useTranslation();
-    // CSV importlu kampanyada giriş = "CSV Veri" kaynağı (alıcı sayısıyla).
+    // CSV importlu kampanyada giriş = "CSV Veri" kaynağı (alıcı sayısıyla). Node
+    // tıklanabilir → sağdaki panelden CSV import modalı açılır (alıcı ekle/yükle).
     const csvCount = (data as { csvRecipientCount?: number } | undefined)?.csvRecipientCount;
     const isCsv = typeof csvCount === 'number';
     return (
         <div style={{ width: 200 }}>
             <Paper withBorder radius="md" p="sm"
                 bg={isCsv ? 'grape.0' : 'teal.0'}
-                style={{ borderColor: isCsv ? 'var(--mantine-color-grape-3)' : 'var(--mantine-color-teal-3)' }}>
+                style={{ borderColor: isCsv ? 'var(--mantine-color-grape-3)' : 'var(--mantine-color-teal-3)', cursor: 'pointer' }}>
                 <Group gap={8} wrap="nowrap">
                     <ThemeIcon size="sm" radius="xl" color={isCsv ? 'grape' : 'teal'}>
                         {isCsv ? <IconFileImport size={14} /> : <IconBolt size={14} />}
                     </ThemeIcon>
-                    <div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
                         <Text size="xs" fw={700} c={isCsv ? 'grape.8' : 'teal.8'}>
                             {isCsv ? t('campaign.editor.graph.csvSource', 'CSV Data') : t('campaign.editor.graph.entry', 'Entry')}
                         </Text>
                         <Text size="xs" c={isCsv ? 'grape.7' : 'teal.7'}>
                             {isCsv
                                 ? t('campaign.editor.graph.csvSourceDesc', { count: csvCount, defaultValue: '{{count}} recipients' })
-                                : t('campaign.editor.graph.entryDesc', 'Contacts enter here')}
+                                : t('campaign.editor.graph.entryUpload', 'Click to upload a CSV list')}
                         </Text>
                     </div>
                 </Group>
@@ -222,9 +223,11 @@ interface Props {
     onDisconnect?: (sourceId: string, handle: string | null) => void;
     // CSV importlu kampanyada giriş node'unu "CSV Veri (N alıcı)" olarak göster.
     csvRecipientCount?: number;
+    // Giriş (CSV Veri) node'una tıklandığında — CSV import modalını açmak için.
+    onSelectCsvSource?: () => void;
 }
 
-export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOnly, onAddEmail, onAddWait, onAddCondition, onDeleteStep, onMoveStep, onConnectNodes, onDisconnect, csvRecipientCount }: Props) {
+export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOnly, onAddEmail, onAddWait, onAddCondition, onDeleteStep, onMoveStep, onConnectNodes, onDisconnect, csvRecipientCount, onSelectCsvSource }: Props) {
     const { t } = useTranslation();
     const graph = useMemo(() => {
         const g = migrateLinearToGraph(steps);
@@ -269,8 +272,9 @@ export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOn
 
     const onNodeClick = useCallback<NodeMouseHandler>((_e, node) => {
         const idx = (node.data as GraphNodeData).stepIndex;
-        if (typeof idx === 'number') onSelectStep(idx);
-    }, [onSelectStep]);
+        if (typeof idx === 'number') { onSelectStep(idx); return; }
+        if (node.id === TRIGGER_ID) onSelectCsvSource?.(); // giriş node'u → CSV import modalı
+    }, [onSelectStep, onSelectCsvSource]);
 
     // Sürükleme bitince adımın konumunu (config.pos) kaydet — yeniden açılışta korunur.
     const onNodeDragStop = useCallback<OnNodeDrag>((_e, node) => {
