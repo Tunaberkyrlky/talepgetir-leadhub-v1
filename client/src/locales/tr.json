@@ -1131,7 +1131,10 @@
             "csvColsTitle": "Bu mail için CSV kolonları",
             "csvBodyCol": "Mesaj kolonu",
             "csvSubjectCol": "Konu kolonu",
-            "csvColsHint": "Her alıcı mesajını ve konusunu bu kolonlardan alır. Eklemek için CSV Veri node'unda Uygula'ya basın."
+            "csvColsHint": "Her alıcı mesajını ve konusunu bu kolonlardan alır. Eklemek için CSV Veri node'unda Uygula'ya basın.",
+            "csvPreviewTitle": "Önizleme (ilk alıcı)",
+            "csvPreviewPick": "Önizlemek için yukarıdan mesaj ve konu kolonunu seçin.",
+            "csvPreviewNote": "CSV'nin ilk satırından canlı önizleme; her alıcı kendi verisini alır."
         },
         "settings": {
             "title": "Kampanya Ayarları",

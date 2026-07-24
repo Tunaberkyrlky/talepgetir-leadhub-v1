@@ -1131,7 +1131,10 @@
             "csvColsTitle": "CSV columns for this email",
             "csvBodyCol": "Message column",
             "csvSubjectCol": "Subject column",
-            "csvColsHint": "Each recipient gets the message and subject from these columns. Click Apply on the CSV Data node to enroll."
+            "csvColsHint": "Each recipient gets the message and subject from these columns. Click Apply on the CSV Data node to enroll.",
+            "csvPreviewTitle": "Preview (first recipient)",
+            "csvPreviewPick": "Pick the message and subject columns above to preview.",
+            "csvPreviewNote": "Live preview from your CSV's first row; each recipient gets their own."
         },
         "settings": {
             "title": "Campaign Settings",

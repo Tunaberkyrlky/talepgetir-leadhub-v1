@@ -319,6 +319,7 @@ export default function CampaignEditorPage() {
             onSendTest={!isNew && id ? (p) => testMut.mutateAsync(p).then(() => undefined) : undefined}
             defaultTestEmail={user?.email}
             csvHeaders={selectedStep.step_type === 'email' ? csvHeaders : undefined}
+            csvSampleRow={campaign?.csv_source?.sample_row}
             csvBody={hasCsvRecipients && id && selectedStep.step_type === 'email' && selectedStep.id
                 ? <CampaignStepRecipients campaignId={id} stepId={selectedStep.id} />
                 : undefined} />

@@ -83,7 +83,10 @@ export default function CsvSourceInspector({ campaignId }: Props) {
                 const k = s.dbField ? pick[s.dbField] : undefined;
                 if (k && !cols[k]) cols[k] = s.fileHeader;
             });
-            await saveSource({ file_id: data.fileId, file_name: data.fileName, headers: data.headers, columns: cols, row_count: data.totalRows });
+            await saveSource({
+                file_id: data.fileId, file_name: data.fileName, headers: data.headers, columns: cols,
+                row_count: data.totalRows, sample_row: data.previewRows?.[0] || undefined,
+            });
             setResult(null);
         },
         onError: (err) => showErrorFromApi(err, t('import.uploadError')),

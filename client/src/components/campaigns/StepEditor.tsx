@@ -27,6 +27,8 @@ interface Props {
     csvBody?: ReactNode;
     // CSV kaynağı yüklüyse: bu email adımının mesaj/konu kolonunu seçmek için başlıklar.
     csvHeaders?: string[];
+    // İlk CSV satırı — seçilen kolonlardan canlı önizleme için.
+    csvSampleRow?: Record<string, string>;
 }
 
 const VARS = [
@@ -70,7 +72,13 @@ function insertAtRef(el: HTMLInputElement | HTMLTextAreaElement | null, val: str
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + text.length, start + text.length); });
 }
 
-export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTest, defaultTestEmail, csvBody, csvHeaders }: Props) {
+// CSV düz metin → HTML (motorun plainTextToHtml'iyle aynı ruh): escape + paragraf/br.
+function csvTextToHtml(text: string): string {
+    const esc = text.replace(/\r\n/g, '\n').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return esc.split(/\n{2,}/).map((p) => `<p style="margin:0 0 1em">${p.replace(/\n/g, '<br>')}</p>`).join('');
+}
+
+export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTest, defaultTestEmail, csvBody, csvHeaders, csvSampleRow }: Props) {
     const { t } = useTranslation();
     const subjectEditorRef = useRef<SubjectEditorRef>(null);
     const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -240,7 +248,26 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                 );
             })()}
 
-            {csvBody ? csvBody : (<>
+            {csvBody ? csvBody : csvHeaders ? (() => {
+                // CSV modunda gövde alanı = seçilen kolonlardan CANLI önizleme (ilk alıcı).
+                const cfg = (step.config as Record<string, unknown> | null) || {};
+                const bodyCol = cfg.csv_body_col as string | undefined;
+                const subjCol = cfg.csv_subject_col as string | undefined;
+                const sampleBody = bodyCol && csvSampleRow ? (csvSampleRow[bodyCol] || '') : '';
+                const sampleSubj = subjCol && csvSampleRow ? (csvSampleRow[subjCol] || '') : '';
+                return (
+                    <>
+                        <Text size="sm" fw={500}>{t('campaign.editor.csvPreviewTitle', 'Preview (first recipient)')}</Text>
+                        <Paper withBorder radius="md" p="md" mih={200}>
+                            <Text size="xs" c="dimmed" mb={4}>{t('campaign.editor.previewSubject', 'Subject')}: <Text span fw={600} c="dark">{sampleSubj || '—'}</Text></Text>
+                            {sampleBody
+                                ? <Box style={{ borderTop: '1px solid var(--mantine-color-gray-2)', paddingTop: 12, fontSize: 14, lineHeight: 1.55 }} dangerouslySetInnerHTML={{ __html: csvTextToHtml(sampleBody) }} />
+                                : <Text size="sm" c="dimmed" fs="italic" mt="sm">{t('campaign.editor.csvPreviewPick', 'Pick the message and subject columns above to preview.')}</Text>}
+                            <Text size="xs" c="dimmed" mt="sm">{t('campaign.editor.csvPreviewNote', 'Live preview from your CSV\'s first row; each recipient gets their own.')}</Text>
+                        </Paper>
+                    </>
+                );
+            })() : (<>
             <Group justify="space-between" align="center">
                 <Text size="sm" fw={500}>{t('campaign.body', 'Email Body')}</Text>
                 <Group gap="xs">

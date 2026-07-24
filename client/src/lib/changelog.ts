@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.22.3',
+        date: '2026-07-24',
+        type: 'improvement',
+        area: 'campaigns',
+        title: { tr: 'Email Adımında Canlı CSV Önizleme', en: 'Live CSV Preview on Email Steps' },
+        about: {
+            tr: 'Bir email adımında mesaj ve konu kolonunu seçince, CSV\'nizin ilk satırından gönderilecek mailin canlı önizlemesi hemen görünür.',
+            en: 'When you pick the message and subject column on an email step, a live preview of the outgoing email — from your CSV\'s first row — appears right away.',
+        },
+        notes: {
+            tr: 'Daha önce yüklenmiş bir CSV kampanyasında önizlemeyi görmek için CSV\'yi bir kez daha yükleyin.',
+            en: 'For a CSV campaign uploaded earlier, re-upload the CSV once to see the preview.',
+        },
+    },
+    {
         version: '1.22.2',
         date: '2026-07-24',
         type: 'improvement',

@@ -49,6 +49,7 @@ export interface CampaignCsvSource {
         dnc_status?: string;
     };
     row_count?: number;
+    sample_row?: Record<string, string>; // ilk CSV satırı — node önizlemesi için
 }
 
 export interface Campaign {
