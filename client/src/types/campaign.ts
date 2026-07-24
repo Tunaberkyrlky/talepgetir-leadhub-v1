@@ -144,6 +144,7 @@ export interface CampaignStats {
     open_rate: number;
     click_rate: number;
     reply_rate: number;
+    bounce_rate: number;
     by_account: { account: string; sent: number }[];
     daily: { date: string; sent: number; opens: number }[];
     by_step: { step: number; sent: number; opens: number; clicks: number }[];

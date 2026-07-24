@@ -791,6 +791,7 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                 // yol açmamalı. Yalnız sendMail'in KENDİSİ başarısızsa +5 dk retry edilir.
                 let sendOk = false;
                 let sendErrMsg = '';
+                let sendBounced = false; // SMTP 5xx = hard bounce (retry etme, enrollment'ı durdur)
                 try {
                     const result = await sendMail({
                         channel: 'campaign',
@@ -807,15 +808,29 @@ export async function processScheduledEmails(): Promise<{ sent: number; failed: 
                     if (!sendOk) sendErrMsg = 'Send failed';
                 } catch (sendErr) {
                     sendErrMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+                    sendBounced = !!(sendErr as { permanentBounce?: boolean })?.permanentBounce;
                 }
 
                 if (!sendOk) {
+                    if (sendBounced) {
+                        // Hard bounce (alıcı MX kalıcı reddi) → enrollment 'bounced', retry YOK,
+                        // follow-up gönderilmez. Analytics'teki bounce metriği buradan dolar.
+                        await supabaseAdmin.from('activities')
+                            .update({ outcome: `bounced: ${sendErrMsg.slice(0, 200)}` })
+                            .eq('id', activity.id);
+                        await supabaseAdmin.from('campaign_enrollments')
+                            .update({ status: 'bounced', next_scheduled_at: null })
+                            .eq('id', enrollment.id);
+                        failed++;
+                        log.warn({ enrollmentId: enrollment.id, to: enrollment.email }, 'Hard bounce — enrollment marked bounced');
+                        continue;
+                    }
                     await supabaseAdmin.from('activities')
                         .update({ outcome: `failed: ${sendErrMsg.slice(0, 200)}` })
                         .eq('id', activity.id);
                     failed++;
                     log.error({ err: sendErrMsg, enrollmentId: enrollment.id }, 'Campaign email send failed');
-                    // Adımda kal — sonraki tick'te retry (idempotency guard resend'i engeller).
+                    // Geçici hata → adımda kal, sonraki tick'te retry (idempotency guard resend'i engeller).
                     await supabaseAdmin.from('campaign_enrollments')
                         .update({ next_scheduled_at: new Date(Date.now() + 5 * 60_000).toISOString() })
                         .eq('id', enrollment.id);
@@ -1077,6 +1092,7 @@ export interface CampaignStats {
     open_rate: number;
     click_rate: number;
     reply_rate: number;
+    bounce_rate: number;
     by_account: { account: string; sent: number }[];
     daily: { date: string; sent: number; opens: number }[];
     by_step: { step: number; sent: number; opens: number; clicks: number }[];
@@ -1163,6 +1179,9 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
     // yapıyor. campaign_email_events'e 'reply' yazan bir yol yok, o yüzden esas kaynak
     // durum sayısıdır (kart ile durum çubuğu böylece tutarlı olur).
     const replied = statusCounts['replied'] || 0;
+    const bounced = statusCounts['bounced'] || 0;
+    // Bounce oranı: gönderim denemelerinin (giden + bounce) yüzde kaçı bounce etti.
+    const attempts = sentCount + bounced;
 
     return {
         total_enrolled: totalEnrolled,
@@ -1170,13 +1189,14 @@ export async function getCampaignStats(campaignId: string, tenantId: string): Pr
         completed: statusCounts['completed'] || 0,
         replied,
         paused: statusCounts['paused'] || 0,
-        bounced: statusCounts['bounced'] || 0,
+        bounced,
         unsubscribed: statusCounts['unsubscribed'] || 0,
         emails_sent: sentCount,
         opens, clicks, replies: replied,
         open_rate: sentCount > 0 ? opens / sentCount : 0,
         click_rate: sentCount > 0 ? clicks / sentCount : 0,
         reply_rate: sentCount > 0 ? replied / sentCount : 0,
+        bounce_rate: attempts > 0 ? bounced / attempts : 0,
         by_account,
         daily,
         by_step,

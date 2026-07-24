@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { SimpleGrid, Paper, Text, Progress, Stack, Alert, Group, Skeleton } from '@mantine/core';
-import { IconSend, IconEye, IconClick, IconMessageReply, IconEyeOff, IconInbox, IconListNumbers } from '@tabler/icons-react';
+import { IconSend, IconEye, IconClick, IconMessageReply, IconEyeOff, IconInbox, IconListNumbers, IconMailOff, IconAlertTriangle } from '@tabler/icons-react';
 import {
     AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
@@ -63,12 +63,19 @@ export default function CampaignStatsPanel({ campaignId }: { campaignId: string 
                     </Text>
                 </Alert>
             )}
-            <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
+            <SimpleGrid cols={{ base: 2, sm: 5 }} spacing="sm">
                 <StatCard title={t('campaign.stats.sent', 'Sent')} value={stats.emails_sent} icon={<IconSend size={20} />} color="blue" subtitle={t('campaign.stats.activeSub', { count: stats.active, defaultValue: '{{count}} active' })} />
                 <StatCard title={t('campaign.stats.opens', 'Opens')} value={stats.opens} icon={<IconEye size={20} />} color="green" subtitle={fmt(stats.open_rate)} />
                 <StatCard title={t('campaign.stats.clicks', 'Clicks')} value={stats.clicks} icon={<IconClick size={20} />} color="orange" subtitle={fmt(stats.click_rate)} />
                 <StatCard title={t('campaign.stats.replies', 'Replies')} value={stats.replies} icon={<IconMessageReply size={20} />} color="violet" subtitle={fmt(stats.reply_rate)} />
+                <StatCard title={t('campaign.stats.bounced', 'Bounced')} value={stats.bounced} icon={<IconMailOff size={20} />} color="red" subtitle={fmt(stats.bounce_rate)} />
             </SimpleGrid>
+
+            {stats.bounce_rate > 0.05 && (
+                <Alert color="red" variant="light" radius="md" icon={<IconAlertTriangle size={16} />} p="xs">
+                    <Text size="xs">{t('campaign.stats.bounceWarn', { rate: fmt(stats.bounce_rate), defaultValue: 'High bounce rate ({{rate}}). Clean your list — high bounces hurt sender reputation.' })}</Text>
+                </Alert>
+            )}
 
             <Paper p="sm" radius="md" withBorder>
                 <Text size="xs" fw={600} mb="xs" c="dimmed">{t('campaign.stats.enrollTitle', { count: stats.total_enrolled, defaultValue: 'Enrollment Status ({{count}} total)' })}</Text>

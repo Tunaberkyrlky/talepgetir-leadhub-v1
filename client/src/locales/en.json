@@ -1298,7 +1298,9 @@
             "byInbox": "Sent per inbox",
             "byStep": "By step",
             "stepN": "Step {{n}}",
-            "trackingOff": "Open and click tracking is not configured, so these counts may stay at zero. Replies are still tracked."
+            "trackingOff": "Open and click tracking is not configured, so these counts may stay at zero. Replies are still tracked.",
+            "bounced": "Bounced",
+            "bounceWarn": "High bounce rate ({{rate}}). Clean your list — high bounces hurt sender reputation."
         },
         "import": {
             "title": "Import Recipients from CSV",

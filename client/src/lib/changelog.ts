@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.24.0',
+        date: '2026-07-24',
+        type: 'feature',
+        area: 'campaigns',
+        title: { tr: 'Bounce Takibi (gönderim reddi)', en: 'Bounce Tracking (send rejections)' },
+        about: {
+            tr: 'Alıcı sunucu bir maili kalıcı olarak reddederse (geçersiz adres vb.) artık bounce olarak işaretleniyor; o alıcıya tekrar denenmiyor ve Analytics\'te bounce oranı görünüyor.',
+            en: 'When a recipient server permanently rejects a mail (invalid address, etc.) it is now marked as bounced; that recipient is not retried and the bounce rate shows in Analytics.',
+        },
+        notes: {
+            tr: 'Analytics\'te bounce kartı ve %5 üstünde deliverability uyarısı eklendi. Sonradan gelen iade mailleri (mailer-daemon) için yakalama sonraki adımda gelecek.',
+            en: 'A bounce card and a warning above 5% were added to Analytics. Catching delayed bounce-back emails (mailer-daemon) is coming in a later step.',
+        },
+    },
+    {
         version: '1.23.1',
         date: '2026-07-24',
         type: 'fix',

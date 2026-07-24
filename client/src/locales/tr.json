@@ -1298,7 +1298,9 @@
             "byInbox": "Kutu başına gönderim",
             "byStep": "Adıma göre",
             "stepN": "Adım {{n}}",
-            "trackingOff": "Açılma ve tıklama takibi yapılandırılmadığı için bu sayılar sıfır kalabilir. Yanıtlar yine de izlenir."
+            "trackingOff": "Açılma ve tıklama takibi yapılandırılmadığı için bu sayılar sıfır kalabilir. Yanıtlar yine de izlenir.",
+            "bounced": "Bounce",
+            "bounceWarn": "Yüksek bounce oranı ({{rate}}). Listeyi temizleyin — yüksek bounce gönderen itibarınızı düşürür."
         },
         "import": {
             "title": "CSV'den Alıcı İçe Aktarma",

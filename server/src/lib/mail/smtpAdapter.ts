@@ -131,8 +131,15 @@ export const smtpProvider: MailProvider = {
             // Drop a possibly-stale transporter so the next send rebuilds it.
             transporterCache.delete(`${conn.id}`);
             const message = err instanceof Error ? err.message : String(err);
-            log.error({ err, to: req.to, account: conn.email_address }, 'SMTP send failed');
-            throw new AppError(`Email send failed: ${message}`, 502);
+            // nodemailer SMTP yanıt kodu (varsa): 5xx = alıcı MX kalıcı reddi = HARD BOUNCE
+            // (geçersiz adres vb.). 4xx / ağ hatası = geçici → retry (bounce değil).
+            const smtpCode = (err as { responseCode?: number }).responseCode;
+            const permanentBounce = typeof smtpCode === 'number' && smtpCode >= 500 && smtpCode < 600;
+            log.error({ err, to: req.to, account: conn.email_address, smtpCode, permanentBounce }, 'SMTP send failed');
+            const e = new AppError(`Email send failed: ${message}`, 502) as AppError & { smtpCode?: number; permanentBounce?: boolean };
+            e.smtpCode = smtpCode;
+            e.permanentBounce = permanentBounce;
+            throw e;
         }
     },
 };
