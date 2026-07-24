@@ -1299,6 +1299,7 @@
             "byStep": "By step",
             "stepN": "Step {{n}}",
             "trackingOff": "Open and click tracking is not configured, so these counts may stay at zero. Replies are still tracked.",
+            "trackingOffShort": "Tracking off",
             "bounced": "Bounced",
             "bounceWarn": "High bounce rate ({{rate}}). Clean your list — high bounces hurt sender reputation."
         },

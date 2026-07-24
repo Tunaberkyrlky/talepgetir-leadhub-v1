@@ -479,7 +479,7 @@ export default function CampaignEditorPage() {
                     </Tabs.Panel>
 
                     <Tabs.Panel value="stats" pt="md">
-                        {id && <CampaignStatsPanel campaignId={id} />}
+                        {id && <CampaignStatsPanel campaignId={id} tracking={settings.tracking} />}
                     </Tabs.Panel>
                 </Tabs>
             </Stack>

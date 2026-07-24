@@ -25,6 +25,36 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.25.0',
+        date: '2026-07-24',
+        type: 'feature',
+        area: 'admin',
+        title: { tr: 'Komuta Merkezi', en: 'Command Center' },
+        about: {
+            tr: 'Yönetim paneli, tüm müşterilerinizin durumunu ve sistem sağlığını tek yerden izleyebileceğiniz Komuta Merkezi\'ne dönüştü.',
+            en: 'The admin panel has become the Command Center, where you can monitor every customer\'s status and system health in one place.',
+        },
+        usage: {
+            tr: 'Menüdeki Komuta Merkezi bağlantısından Genel Bakış sekmesinde müşteri kartlarını, Sistem sekmesinde zamanlayıcı ve posta kutusu sağlığını görebilirsiniz.',
+            en: 'From the Command Center link in the menu you can view customer cards on the Overview tab and scheduler plus mailbox health on the Health tab.',
+        },
+        notes: {
+            tr: 'Operasyon ekibi yalnızca atandığı müşterileri görür, yönetim sekmeleri superadmin\'e özeldir.',
+            en: 'Operations agents see only their assigned customers, management tabs remain superadmin only.',
+        },
+    },
+    {
+        version: '1.24.3',
+        date: '2026-07-24',
+        type: 'improvement',
+        area: 'campaigns',
+        title: { tr: 'Takip Kapalı Göstergesi', en: 'Tracking-Off Indicator' },
+        about: {
+            tr: 'Kampanya ayarlarından açılma veya tıklama takibini kapattığınızda, istatistiklerdeki ilgili kartta oran yerine "Takip kapalı" yazar; sayının neden sıfır olduğu netleşir.',
+            en: 'When you turn off open or click tracking in campaign settings, the matching stat card shows "Tracking off" instead of a rate, so it is clear why the number is zero.',
+        },
+    },
+    {
         version: '1.24.2',
         date: '2026-07-24',
         type: 'fix',

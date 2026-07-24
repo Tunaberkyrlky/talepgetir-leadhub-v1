@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { useTranslation } from 'react-i18next';
 import api from '../../lib/api';
-import type { CampaignStats } from '../../types/campaign';
+import type { CampaignStats, CampaignTracking } from '../../types/campaign';
 
 function StatCard({ title, value, icon, color, subtitle }: {
     title: string; value: number; icon: React.ReactNode; color: string; subtitle: string;
@@ -27,8 +27,12 @@ function StatCard({ title, value, icon, color, subtitle }: {
 
 const fmt = (r: number) => `${(r * 100).toFixed(1)}%`;
 
-export default function CampaignStatsPanel({ campaignId }: { campaignId: string }) {
+export default function CampaignStatsPanel({ campaignId, tracking }: { campaignId: string; tracking?: CampaignTracking }) {
     const { t } = useTranslation();
+    // Kampanya bazlı takip toggle'ı kapalıysa ilgili kart 0 kalır — bunu açıkça belirt.
+    const openOff = tracking?.open === false;
+    const clickOff = tracking?.click === false;
+    const trackOffLabel = t('campaign.stats.trackingOffShort', 'Tracking off');
     const { data: stats, isLoading } = useQuery<CampaignStats>({
         queryKey: ['campaign-stats', campaignId],
         queryFn: async () => { const r = await api.get(`/campaigns/${campaignId}/stats`); return r.data; },
@@ -65,8 +69,8 @@ export default function CampaignStatsPanel({ campaignId }: { campaignId: string 
             )}
             <SimpleGrid cols={{ base: 2, sm: 5 }} spacing="sm">
                 <StatCard title={t('campaign.stats.sent', 'Sent')} value={stats.emails_sent} icon={<IconSend size={20} />} color="blue" subtitle={t('campaign.stats.activeSub', { count: stats.active, defaultValue: '{{count}} active' })} />
-                <StatCard title={t('campaign.stats.opens', 'Opens')} value={stats.opens} icon={<IconEye size={20} />} color="green" subtitle={fmt(stats.open_rate)} />
-                <StatCard title={t('campaign.stats.clicks', 'Clicks')} value={stats.clicks} icon={<IconClick size={20} />} color="orange" subtitle={fmt(stats.click_rate)} />
+                <StatCard title={t('campaign.stats.opens', 'Opens')} value={stats.opens} icon={<IconEye size={20} />} color="green" subtitle={openOff ? trackOffLabel : fmt(stats.open_rate)} />
+                <StatCard title={t('campaign.stats.clicks', 'Clicks')} value={stats.clicks} icon={<IconClick size={20} />} color="orange" subtitle={clickOff ? trackOffLabel : fmt(stats.click_rate)} />
                 <StatCard title={t('campaign.stats.replies', 'Replies')} value={stats.replies} icon={<IconMessageReply size={20} />} color="violet" subtitle={fmt(stats.reply_rate)} />
                 <StatCard title={t('campaign.stats.bounced', 'Bounced')} value={stats.bounced} icon={<IconMailOff size={20} />} color="red" subtitle={fmt(stats.bounce_rate)} />
             </SimpleGrid>
