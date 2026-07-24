@@ -616,7 +616,7 @@ router.post('/:id/csv-apply', requireRole('superadmin', 'ops_agent', 'client_adm
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const campaignId = req.params.id as string;
-            const { data: campaign } = await supabaseAdmin.from('campaigns').select('csv_source').eq('id', campaignId).eq('tenant_id', req.tenantId!).single();
+            const { data: campaign } = await supabaseAdmin.from('campaigns').select('csv_source, status').eq('id', campaignId).eq('tenant_id', req.tenantId!).single();
             const src = campaign?.csv_source as { file_id?: string; file_name?: string; columns?: Record<string, string> } | null;
             if (!src?.file_id) { res.status(400).json({ error: 'No CSV uploaded for this campaign' }); return; }
 
@@ -653,6 +653,14 @@ router.post('/:id/csv-apply', requireRole('superadmin', 'ops_agent', 'client_adm
                 setCol(cfg.csv_body_col, f.body);
                 setCol(cfg.csv_subject_col, f.subj);
             });
+
+            // Taslakta temiz re-apply: önceki CSV enrollment'larını sil (henüz mail gitmedi),
+            // baştan enroll et → kolon değişiklikleri mevcut alıcılara da yansır. Aktif/duraklı
+            // kampanyada silmeyiz (gönderim akışını bozmamak için) → yalnız yeni alıcı eklenir.
+            if (campaign?.status === 'draft') {
+                await supabaseAdmin.from('campaign_enrollments').delete()
+                    .eq('campaign_id', campaignId).eq('tenant_id', req.tenantId!).not('import_job_id', 'is', null);
+            }
 
             const jobId = await createImportJob(req.tenantId!, req.user!.id, src.file_name || 'campaign.csv', 'csv', rows.length, mapping, 'campaign_recipients', campaignId);
             const result = await executeCampaignImport(req.tenantId!, req.user!.id, rows, mapping, jobId, campaignId);

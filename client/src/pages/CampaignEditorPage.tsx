@@ -415,7 +415,8 @@ export default function CampaignEditorPage() {
                                             onDeleteStep={deleteStep} onMoveStep={onMoveStep}
                                             onConnectNodes={onConnectNodes} onDisconnect={onDisconnect}
                                             csvRecipientCount={(campaign?.csv_source || hasCsvRecipients) ? (csvEnrollments?.length ?? campaign?.csv_source?.row_count ?? 0) : undefined}
-                                            onSelectCsvSource={id ? () => setCsvSourceSelected(true) : undefined} />
+                                            onSelectCsvSource={id ? () => setCsvSourceSelected(true) : undefined}
+                                            csvMode={!!campaign?.csv_source} />
                                     </Suspense>
                                 </Grid.Col>
                                 <Grid.Col span={4}>

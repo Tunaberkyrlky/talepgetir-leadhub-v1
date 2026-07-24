@@ -1115,7 +1115,10 @@
                 },
                 "csvSource": "CSV Data",
                 "csvSourceDesc": "{{count}} recipients",
-                "entryUpload": "Click to upload a CSV list"
+                "entryUpload": "Click to upload a CSV list",
+                "nodeMsgCol": "Message",
+                "nodeSubjCol": "Subject",
+                "nodeNoCol": "select column"
             },
             "testSend": "Send test",
             "testSendTitle": "Send test email",
@@ -1338,7 +1341,10 @@
             "followupTitle": "Follow-ups (if no reply)",
             "followupNone": "None",
             "followupWait": "Follow-up {{n}}: days after",
-            "followupHint": "Follow-up message and subject columns are mapped in the next step. A reply stops the sequence for that recipient."
+            "followupHint": "Follow-up message and subject columns are mapped in the next step. A reply stops the sequence for that recipient.",
+            "createNote2": "A draft with one intro email is created. Add follow-ups later in the graph (Sequence tab) — where you can see your data and decide the timing.",
+            "createNote3": "A draft campaign is created and opened in the editor. There, click the CSV Data node to upload your list, then build your follow-ups in the graph.",
+            "createGo": "Create & open editor"
         },
         "newChoice": {
             "csvTitle": "Upload a ready list (CSV)",
@@ -1365,7 +1371,10 @@
             "needBase": "Select Email and Company columns first.",
             "reupload": "Replace file",
             "doneToast": "{{count}} recipients enrolled",
-            "result": "{{enrolled}} recipients enrolled, {{companies}} companies in CRM."
+            "result": "{{enrolled}} recipients enrolled, {{companies}} companies in CRM.",
+            "moreCols": "Other columns (status, DNC…)",
+            "lessCols": "Fewer columns",
+            "perNodeHint2": "Just upload here. On each email node in the graph, choose which column its message and subject come from, then Save and Apply."
         }
     },
     "feedback": {

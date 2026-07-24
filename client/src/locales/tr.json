@@ -1115,7 +1115,10 @@
                 },
                 "csvSource": "CSV Veri",
                 "csvSourceDesc": "{{count}} alıcı",
-                "entryUpload": "CSV listesi yüklemek için tıklayın"
+                "entryUpload": "CSV listesi yüklemek için tıklayın",
+                "nodeMsgCol": "Mesaj",
+                "nodeSubjCol": "Konu",
+                "nodeNoCol": "kolon seç"
             },
             "testSend": "Test gönder",
             "testSendTitle": "Test maili gönder",
@@ -1338,7 +1341,10 @@
             "followupTitle": "Follow-up (yanıt yoksa)",
             "followupNone": "Yok",
             "followupWait": "{{n}}. follow-up: kaç gün sonra",
-            "followupHint": "Follow-up mesaj ve konu kolonlarını bir sonraki adımda eşlersiniz. Yanıt gelen alıcıda dizi durur."
+            "followupHint": "Follow-up mesaj ve konu kolonlarını bir sonraki adımda eşlersiniz. Yanıt gelen alıcıda dizi durur.",
+            "createNote2": "Tek intro maili olan bir taslak oluşturulur. Follow-up'ları grafta (Dizi sekmesi) sonra eklersiniz — verinizi görüp süreyi orada belirlersiniz.",
+            "createNote3": "Taslak kampanya oluşturulup editörde açılır. Orada CSV Veri node'una tıklayıp listeni yükle, sonra grafta follow-up'larını kur.",
+            "createGo": "Oluştur ve editörü aç"
         },
         "newChoice": {
             "csvTitle": "Hazır liste yükle (CSV)",
@@ -1365,7 +1371,10 @@
             "needBase": "Önce E-posta ve Firma kolonlarını seçin.",
             "reupload": "Dosyayı değiştir",
             "doneToast": "{{count}} alıcı eklendi",
-            "result": "{{enrolled}} alıcı eklendi, {{companies}} şirket CRM'de."
+            "result": "{{enrolled}} alıcı eklendi, {{companies}} şirket CRM'de.",
+            "moreCols": "Diğer kolonlar (statü, DNC…)",
+            "lessCols": "Daha az kolon",
+            "perNodeHint2": "Buraya sadece yükle, o kadar. Grafta her email node'unda mesaj ve konunun hangi kolondan geleceğini seç, sonra Kaydet ve Uygula."
         }
     },
     "feedback": {

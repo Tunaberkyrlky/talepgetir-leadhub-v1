@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-    Stack, Group, Text, ThemeIcon, Select, Button, Alert, Loader, Center, Badge, Paper, Divider,
+    Stack, Group, Text, ThemeIcon, Select, Button, Alert, Loader, Center, Badge, Paper, Divider, Collapse,
 } from '@mantine/core';
 import { Dropzone, MIME_TYPES } from '@mantine/dropzone';
 import { IconFileImport, IconUpload, IconX, IconFileSpreadsheet, IconInfoCircle, IconCheck, IconAlertCircle } from '@tabler/icons-react';
@@ -15,10 +15,14 @@ interface Props {
     campaignId: string;
 }
 
-// Temel kolonlar (per-node mesaj/konu HARİÇ) — bunlar CSV Veri node'unda seçilir.
-const BASE_COLS: { key: keyof CampaignCsvSource['columns']; labelKey: string; label: string; required?: boolean }[] = [
-    { key: 'email', labelKey: 'campaign.csv.colEmail', label: 'Email', required: true },
-    { key: 'company', labelKey: 'campaign.csv.colCompany', label: 'Company', required: true },
+type ColDef = { key: keyof CampaignCsvSource['columns']; labelKey: string; label: string };
+// Alıcı kimliği — yüklemede otomatik bulunur; sadece bunlar görünür.
+const REQUIRED_COLS: ColDef[] = [
+    { key: 'email', labelKey: 'campaign.csv.colEmail', label: 'Email' },
+    { key: 'company', labelKey: 'campaign.csv.colCompany', label: 'Company' },
+];
+// Opsiyonel (statü/DNC/CRM) — otomatik bulunur, "Diğer kolonlar" altında düzenlenebilir.
+const OPTIONAL_COLS: ColDef[] = [
     { key: 'email_status', labelKey: 'campaign.csv.colStatus', label: 'Verification status' },
     { key: 'dnc_status', labelKey: 'campaign.csv.colDnc', label: 'DNC status' },
     { key: 'website', labelKey: 'campaign.csv.colWebsite', label: 'Website' },
@@ -34,6 +38,7 @@ export default function CsvSourceInspector({ campaignId }: Props) {
     const qc = useQueryClient();
     const [dropError, setDropError] = useState<string | null>(null);
     const [result, setResult] = useState<CampaignImportResult | null>(null);
+    const [showMore, setShowMore] = useState(false);
 
     const { data: campaign } = useQuery<Campaign>({
         queryKey: ['campaign', campaignId],
@@ -48,6 +53,16 @@ export default function CsvSourceInspector({ campaignId }: Props) {
         await api.put(`/campaigns/${campaignId}/csv-source`, { csv_source: next });
         qc.invalidateQueries({ queryKey: ['campaign', campaignId] });
     };
+
+    const renderColSelect = (c: ColDef) => (
+        <Select
+            key={c.key} size="xs" radius="md" clearable searchable
+            label={<Text span size="xs">{t(c.labelKey, c.label)}</Text>}
+            data={headerData} value={columns[c.key] ?? null}
+            placeholder={t('campaign.csv.selectColumn', 'Select column')}
+            onChange={(v) => src && saveSource({ ...src, columns: { ...columns, [c.key]: v || undefined } })}
+        />
+    );
 
     const uploadMut = useMutation({
         mutationFn: async (file: File) => {
@@ -122,20 +137,18 @@ export default function CsvSourceInspector({ campaignId }: Props) {
                         </Group>
                     </Paper>
 
-                    <Text size="xs" fw={600} c="dimmed">{t('campaign.csv.baseCols', 'Recipient columns')}</Text>
-                    {BASE_COLS.map((c) => (
-                        <Select
-                            key={c.key} size="xs" radius="md" clearable searchable
-                            label={<Text span size="xs">{t(c.labelKey, c.label)}{c.required && <Text span c="red"> *</Text>}</Text>}
-                            data={headerData} value={columns[c.key] ?? null}
-                            placeholder={t('campaign.csv.selectColumn', 'Select column')}
-                            onChange={(v) => saveSource({ ...src, columns: { ...columns, [c.key]: v || undefined } })}
-                        />
-                    ))}
+                    <Text size="xs" fw={600} c="dimmed">{t('campaign.csv.baseCols', 'Recipient columns (auto-detected)')}</Text>
+                    {REQUIRED_COLS.map(renderColSelect)}
+                    <Group justify="flex-start">
+                        <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setShowMore((s) => !s)}>
+                            {showMore ? t('campaign.csv.lessCols', 'Fewer columns') : t('campaign.csv.moreCols', 'Other columns (status, DNC…)')}
+                        </Button>
+                    </Group>
+                    <Collapse in={showMore}><Stack gap="xs">{OPTIONAL_COLS.map(renderColSelect)}</Stack></Collapse>
 
                     <Divider my={2} />
                     <Alert color="grape" variant="light" radius="md" icon={<IconInfoCircle size={16} />} p="xs">
-                        <Text size="xs">{t('campaign.csv.perNodeHint', 'Each email node has its own message and subject column selectors — set them on the node, then apply.')}</Text>
+                        <Text size="xs">{t('campaign.csv.perNodeHint2', 'Upload here — that\'s it. On each email node in the graph, choose which column its message and subject come from, then Save and Apply.')}</Text>
                     </Alert>
 
                     {result && (

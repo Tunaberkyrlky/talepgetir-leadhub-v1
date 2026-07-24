@@ -23,6 +23,10 @@ export interface GraphNodeData {
     eval_step_order?: number;
     // split/action (Batch 5)
     config?: Record<string, unknown>;
+    // CSV kaynağı modu (grafta per-node kolon eşleme) — node üstünde kolon bilgisini göster.
+    csvMode?: boolean;
+    csv_body_col?: string | null;
+    csv_subject_col?: string | null;
     // Lineer adıma geri bağ — seçili mail node'unu steps[stepIndex]'e eşler.
     stepIndex?: number;
     // Türev bekle node'u (mail'in satır-içi gecikmesinden üretilmiş, düzenlenemez).
@@ -113,7 +117,11 @@ export function migrateLinearToGraph(steps: CampaignStep[]): { nodes: GraphNode[
             }
             nodes.push({
                 id: nodeId, kind: 'email', position: pos ?? { x: COL_X, y },
-                data: { name: stepName(s), subject: s.subject, body_html: s.body_html, body_text: s.body_text, stepIndex: i },
+                data: {
+                    name: stepName(s), subject: s.subject, body_html: s.body_html, body_text: s.body_text, stepIndex: i,
+                    csv_body_col: (s.config as { csv_body_col?: string } | null)?.csv_body_col ?? null,
+                    csv_subject_col: (s.config as { csv_subject_col?: string } | null)?.csv_subject_col ?? null,
+                },
             });
         } else if (s.step_type === 'condition') {
             nodes.push({

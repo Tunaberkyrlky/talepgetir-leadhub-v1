@@ -25,6 +25,25 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
     {
+        version: '1.22.1',
+        date: '2026-07-24',
+        type: 'improvement',
+        area: 'campaigns',
+        title: { tr: 'CSV Kampanya Akışı Sadeleştirildi', en: 'Simpler CSV Campaign Flow' },
+        about: {
+            tr: 'CSV kampanyalarını tek akışla kuruyorsunuz: kampanyayı oluşturun, grafta CSV Veri node\'undan listeyi yükleyin, her email adımında hangi kolondan çekileceğini seçin.',
+            en: 'You set up CSV campaigns in one flow: create the campaign, upload your list from the CSV Data node in the graph, and choose which column each email step pulls from.',
+        },
+        usage: {
+            tr: 'Grafta CSV Veri node\'una tıklayıp listeyi yükleyin; her email node\'unda mesaj ve konu kolonunu seçin (seçim node üstünde görünür); ardından CSV Veri node\'undan Uygula\'ya basın.',
+            en: 'Click the CSV Data node to upload your list; on each email node pick its message and subject column (shown on the node); then click Apply on the CSV Data node.',
+        },
+        notes: {
+            tr: 'Follow-up için grafta Mail ve Koşul (yanıt gelmedi) node\'ları ekleyip bağlayın; kolonu değiştirip taslakta tekrar Uygula\'ya basınca mevcut alıcılar da güncellenir.',
+            en: 'Add Email and Condition (no reply) nodes in the graph for follow-ups; changing a column and clicking Apply again on a draft also updates existing recipients.',
+        },
+    },
+    {
         version: '1.22.0',
         date: '2026-07-24',
         type: 'feature',

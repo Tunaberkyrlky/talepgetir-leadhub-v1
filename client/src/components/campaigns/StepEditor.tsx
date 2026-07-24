@@ -175,6 +175,8 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                 </Paper>
             )}
 
+            {/* CSV modunda konu + değişkenler gizli — konu CSV kolonundan gelir. */}
+            {!csvHeaders && (<>
             <SubjectEditor
                 ref={subjectEditorRef}
                 label={t('campaign.subject', 'Subject')}
@@ -210,6 +212,7 @@ export default function StepEditor({ step, onChange, readOnly, isFirst, onSendTe
                 </Tooltip>
             </Group>
             <Text size="xs" c="dimmed">{t('campaign.editor.typeHint', 'Tip: you can also type variables and spintax by hand.')}</Text>
+            </>)}
 
             {/* CSV kaynağı yüklüyse: bu email'in mesaj + konu kolonunu seç (per-node) */}
             {csvHeaders && csvHeaders.length > 0 && (() => {

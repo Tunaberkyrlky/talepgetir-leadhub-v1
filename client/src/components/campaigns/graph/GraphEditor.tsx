@@ -8,7 +8,7 @@ import {
     BaseEdge, EdgeLabelRenderer, getSmoothStepPath,
     type Node, type NodeProps, type EdgeProps, type NodeMouseHandler, type OnNodeDrag, type OnNodesChange, type OnConnect,
 } from '@xyflow/react';
-import { Paper, Text, Group, ThemeIcon, Button } from '@mantine/core';
+import { Paper, Text, Group, ThemeIcon, Button, Stack } from '@mantine/core';
 import { IconMail, IconBolt, IconPlus, IconTrash, IconAlertTriangle, IconHourglass, IconGitBranch, IconFileImport } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { migrateLinearToGraph, toFlow, TRIGGER_ID, type GraphNodeData } from '../../../lib/graph';
@@ -60,15 +60,20 @@ function EmailNode({ data, selected, isConnectable }: NodeProps) {
     const d = data as GraphNodeData;
     const subject = resolveSpintaxFirst((d.subject || '').trim());
     const name = (d.name || '').trim();
-    const isEmpty = !subject && !(d.body_html || '').trim();
+    // CSV modunda gövde/konu kolonlardan gelir → şablon boş olması "eksik" değil.
+    const isEmpty = !d.csvMode && !subject && !(d.body_html || '').trim();
     // Konu yerine adım adını göster; ad yoksa konuya, o da yoksa "(konusuz)"ya düş.
     const primary = name || subject || t('campaign.editor.graph.untitled', '(no subject)');
+    // CSV modunda: hangi kolondan çektiği node üstünde görünür (seçilmediyse kırmızı uyarı).
+    const bodyCol = d.csv_body_col;
+    const subjCol = d.csv_subject_col;
+    const colMissing = d.csvMode && (!bodyCol || !subjCol);
     return (
         <div style={{ width: 210 }}>
             <Handle type="target" position={Position.Top} style={HANDLE_STYLE} isConnectable={isConnectable} />
             <Paper withBorder radius="md" p="sm" shadow={selected ? 'md' : 'xs'}
                 style={{
-                    borderColor: selected ? 'var(--mantine-color-violet-5)' : 'var(--mantine-color-gray-3)',
+                    borderColor: selected ? 'var(--mantine-color-violet-5)' : colMissing ? 'var(--mantine-color-red-3)' : 'var(--mantine-color-gray-3)',
                     borderWidth: selected ? 2 : 1, cursor: 'pointer',
                 }}>
                 <Group gap={8} wrap="nowrap">
@@ -83,6 +88,16 @@ function EmailNode({ data, selected, isConnectable }: NodeProps) {
                         </ThemeIcon>
                     )}
                 </Group>
+                {d.csvMode && (
+                    <Stack gap={1} mt={6} pt={6} style={{ borderTop: '1px dashed var(--mantine-color-gray-2)' }}>
+                        <Text fz={9} c={bodyCol ? 'grape.7' : 'red.6'} lineClamp={1}>
+                            {t('campaign.editor.graph.nodeMsgCol', 'Message')} ← {bodyCol || t('campaign.editor.graph.nodeNoCol', 'select column')}
+                        </Text>
+                        <Text fz={9} c={subjCol ? 'grape.7' : 'red.6'} lineClamp={1}>
+                            {t('campaign.editor.graph.nodeSubjCol', 'Subject')} ← {subjCol || t('campaign.editor.graph.nodeNoCol', 'select column')}
+                        </Text>
+                    </Stack>
+                )}
             </Paper>
             <Handle type="source" position={Position.Bottom} style={HANDLE_STYLE} isConnectable={isConnectable} />
         </div>
@@ -225,16 +240,25 @@ interface Props {
     csvRecipientCount?: number;
     // Giriş (CSV Veri) node'una tıklandığında — CSV import modalını açmak için.
     onSelectCsvSource?: () => void;
+    // CSV kaynağı yüklü mü — email node'ları hangi kolondan çektiğini gösterir.
+    csvMode?: boolean;
 }
 
-export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOnly, onAddEmail, onAddWait, onAddCondition, onDeleteStep, onMoveStep, onConnectNodes, onDisconnect, csvRecipientCount, onSelectCsvSource }: Props) {
+export default function GraphEditor({ steps, selectedIndex, onSelectStep, readOnly, onAddEmail, onAddWait, onAddCondition, onDeleteStep, onMoveStep, onConnectNodes, onDisconnect, csvRecipientCount, onSelectCsvSource, csvMode }: Props) {
     const { t } = useTranslation();
     const graph = useMemo(() => {
         const g = migrateLinearToGraph(steps);
-        if (csvRecipientCount == null) return g;
-        // Giriş node'una alıcı sayısını enjekte et → TriggerNode "CSV Veri" varyantını gösterir.
-        return { ...g, nodes: g.nodes.map((n) => n.id === TRIGGER_ID ? { ...n, data: { ...n.data, csvRecipientCount } } : n) };
-    }, [steps, csvRecipientCount]);
+        if (csvRecipientCount == null && !csvMode) return g;
+        // Giriş node'una alıcı sayısını, email node'larına csvMode'u enjekte et.
+        return {
+            ...g,
+            nodes: g.nodes.map((n) => {
+                if (n.id === TRIGGER_ID && csvRecipientCount != null) return { ...n, data: { ...n.data, csvRecipientCount } };
+                if (n.kind === 'email' && csvMode) return { ...n, data: { ...n.data, csvMode: true } };
+                return n;
+            }),
+        };
+    }, [steps, csvRecipientCount, csvMode]);
     const flow = useMemo(
         () => toFlow(graph.nodes, graph.edges, selectedIndex, !readOnly),
         [graph, selectedIndex, readOnly],
